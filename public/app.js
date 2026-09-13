@@ -450,3 +450,16 @@ socket.on('newMemoryPin', (memory) => {
         </div>
     `);
 });
+// Page load hone par purani saari saved memory photos ko map par dikhana
+socket.on('loadMemoryPhotos', (photos) => {
+    photos.forEach((data) => {
+        const popupContent = `
+            <div style="text-align: center;">
+                <b>${data.name}'s Memory</b><br>
+                <img src="${data.image}" style="width: 150px; height: 120px; object-fit: cover; border-radius: 8px; margin-top: 5px;"><br>
+                <small style="color: gray;">${data.time}</small>
+            </div>
+        `;
+        L.marker([data.lat, data.lng]).addTo(map).bindPopup(popupContent);
+    });
+});
