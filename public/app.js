@@ -1,11 +1,11 @@
-// 1. Initialize Socket & Map Variables
+// 1. Initialize Socket & Variables
 const socket = io();
 let myName = "Explorer";
 let myAvatar = 'friend1.png';
 const markers = {};
 let myMarker = null;
 
-// 2. Initialize Map with Google Earth (Hybrid) View
+// 2. Initialize Map (Google Earth Style)
 const map = L.map('map').setView([18.8121, 82.7135], 14);
 L.tileLayer('https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}', {
     maxZoom: 20,
@@ -13,7 +13,7 @@ L.tileLayer('https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}', {
     attribution: '&copy; Google Maps'
 }).addTo(map);
 
-// 3. Core Tracking Function (Starts ONLY after joining)
+// 3. Core Tracking Function (Fires after modal closes)
 function initTracking() {
     if ("geolocation" in navigator) {
         navigator.geolocation.watchPosition((position) => {
@@ -29,80 +29,125 @@ function initTracking() {
                     iconAnchor: [20, 20]
                 });
                 myMarker = L.marker([lat, lng], { icon: customIcon }).addTo(map);
-                myMarker.bindPopup(`<b>You (${myName})</b><br>Weather: ${weatherText}`).openPopup();
+                myMarker.bindPopup(`<b>You (${myName})</b>`).openPopup();
                 map.setView([lat, lng], 16);
             } else {
                 myMarker.setLatLng([lat, lng]);
             }
-
             socket.emit('updateLocation', { lat, lng, avatar: myAvatar, weather: weatherText });
         }, (error) => console.error(error), { enableHighAccuracy: true, maximumAge: 10000 });
     }
 }
 
-// 4. Safe "Join Map" Logic (Prevents page reload & shows all features)
-window.addEventListener('DOMContentLoaded', () => {
-    // Attach listener directly to the document body to catch any "Join Map" click safely
+// 4. BULLETPROOF JOIN & OVERLAY REMOVAL
+document.addEventListener('DOMContentLoaded', () => {
+    // A. Stop all forms from reloading the page
+    document.querySelectorAll('form').forEach(form => {
+        form.addEventListener('submit', (e) => e.preventDefault());
+    });
+
+    // B. Catch the Join Button click aggressively
     document.body.addEventListener('click', (e) => {
-        if (e.target.tagName === 'BUTTON' && e.target.innerText.includes('Join Map')) {
-            e.preventDefault(); // Stop form submission / reload
+        const target = e.target;
+        if (target.tagName === 'BUTTON' || target.type === 'submit' || target.id === 'join-btn') {
+            const btnText = (target.innerText || target.value || target.id).toLowerCase();
             
-            // Try to grab the username from possible inputs
-            const nameInput = document.getElementById('username') || document.querySelector('input[type="text"]');
-            if (nameInput && nameInput.value.trim() !== '') {
-                myName = nameInput.value.trim();
+            if (btnText.includes('join')) {
+                e.preventDefault();
+
+                // Get Name
+                const nameInputs = document.querySelectorAll('input[type="text"]');
+                nameInputs.forEach(input => { if (input.value.trim() !== '') myName = input.value.trim(); });
+
+                // Get Profile Picture File
+                const fileInputs = document.querySelectorAll('input[type="file"]');
+                let avatarFile = null;
+                fileInputs.forEach(input => {
+                    if (input.files && input.files.length > 0) avatarFile = input.files[0];
+                });
+
+                // Delete Modal Function
+                const enterMap = () => {
+                    let curr = target;
+                    // Find the dark overlay container and destroy it
+                    while (curr && curr !== document.body) {
+                        const style = window.getComputedStyle(curr);
+                        if (style.position === 'fixed' || style.position === 'absolute' || curr.id.includes('modal')) {
+                            curr.remove();
+                            break;
+                        }
+                        curr = curr.parentElement;
+                    }
+                    initTracking();
+                };
+
+                // Read Avatar then Enter, or just Enter
+                if (avatarFile) {
+                    const reader = new FileReader();
+                    reader.onload = (event) => { myAvatar = event.target.result; enterMap(); };
+                    reader.readAsDataURL(avatarFile);
+                } else {
+                    enterMap();
+                }
             }
-
-            // Hide the Modal properly (finds the closest modal container)
-            const modal = document.getElementById('login-modal') || document.getElementById('join-modal') || e.target.closest('div[style*="fixed"]');
-            if (modal) modal.style.display = 'none';
-
-            // Start location sharing
-            initTracking();
         }
     });
 
-    // Handle form submit just in case it's triggered via 'Enter' key
-    const joinForm = document.getElementById('join-map-form') || document.querySelector('form');
-    if (joinForm && joinForm.innerText.includes('Join Map')) {
-        joinForm.addEventListener('submit', (e) => {
+    // 5. Real-Time Chat System Setup
+    const chatForm = document.getElementById('chat-form');
+    const chatInput = document.getElementById('chat-input');
+    const chatMessages = document.getElementById('chat-messages');
+
+    if (chatForm && chatInput) {
+        chatForm.addEventListener('submit', (e) => {
             e.preventDefault();
-            const btn = joinForm.querySelector('button');
-            if(btn) btn.click();
+            if (chatInput.value.trim() !== '') {
+                socket.emit('chatMessage', {
+                    name: myName,
+                    text: chatInput.value.trim(),
+                    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                });
+                chatInput.value = '';
+            }
         });
     }
-});
 
-// 5. Chat Box Functionality
-const chatForm = document.getElementById('chat-form');
-const chatInput = document.getElementById('chat-input');
-const chatMessages = document.getElementById('chat-messages');
-
-if (chatForm && chatInput) {
-    chatForm.addEventListener('submit', (e) => {
-        e.preventDefault();
-        if (chatInput.value.trim() !== '') {
-            socket.emit('chatMessage', {
-                name: myName,
-                text: chatInput.value.trim(),
-                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            });
-            chatInput.value = '';
+    socket.on('chatMessage', (msg) => {
+        if (chatMessages) {
+            const msgDiv = document.createElement('div');
+            msgDiv.style.margin = '4px 0';
+            msgDiv.innerHTML = `<b>${msg.name}:</b> ${msg.text} <span style="font-size: 9px; color: gray;">(${msg.time})</span>`;
+            chatMessages.appendChild(msgDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
         }
     });
-}
 
-socket.on('chatMessage', (msg) => {
-    if (chatMessages) {
-        const msgDiv = document.createElement('div');
-        msgDiv.style.margin = '4px 0';
-        msgDiv.innerHTML = `<b>${msg.name}:</b> ${msg.text} <span style="font-size: 9px; color: gray;">(${msg.time})</span>`;
-        chatMessages.appendChild(msgDiv);
-        chatMessages.scrollTop = chatMessages.scrollHeight;
+    // 6. Memory Photo Upload Setup
+    const mapFileInput = document.getElementById('map-file-input');
+    if (mapFileInput) {
+        mapFileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                alert("📸 Map par click karo kahan photo lagani hai!");
+                map.once('click', (mapEvent) => {
+                    socket.emit('uploadMemoryPhoto', {
+                        name: myName,
+                        lat: mapEvent.latlng.lat,
+                        lng: mapEvent.latlng.lng,
+                        image: event.target.result,
+                        time: new Date().toLocaleString()
+                    });
+                });
+            };
+            reader.readAsDataURL(file);
+            mapFileInput.value = ''; 
+        });
     }
-});
+}); // End DOMContentLoaded
 
-// 6. Multiplayer Features (Friend Movements)
+// 7. Multiplayer Map Features
 socket.on('friendMoved', (data) => {
     if (markers[data.id]) {
         markers[data.id].setLatLng([data.lat, data.lng]);
@@ -120,7 +165,6 @@ socket.on('friendDisconnected', (id) => {
     if (markers[id]) { map.removeLayer(markers[id]); delete markers[id]; }
 });
 
-// 7. Memory Photos (Loading & Placing)
 function renderMemoryPin(data) {
     const memoryIcon = L.divIcon({
         className: 'memory-pin-icon',
@@ -133,28 +177,3 @@ function renderMemoryPin(data) {
 
 socket.on('loadMemoryPhotos', (photos) => photos.forEach(renderMemoryPin));
 socket.on('newMemoryPin', renderMemoryPin);
-
-// 8. Click-to-Place Photo Upload
-const mapFileInput = document.getElementById('map-file-input');
-if (mapFileInput) {
-    mapFileInput.addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            alert("📸 Map par click karo kahan photo lagani hai!");
-            map.once('click', (mapEvent) => {
-                socket.emit('uploadMemoryPhoto', {
-                    name: myName,
-                    lat: mapEvent.latlng.lat,
-                    lng: mapEvent.latlng.lng,
-                    image: event.target.result,
-                    time: new Date().toLocaleString()
-                });
-            });
-        };
-        reader.readAsDataURL(file);
-        mapFileInput.value = ''; // Reset
-    });
-}
