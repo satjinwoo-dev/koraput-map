@@ -7,10 +7,13 @@ let myName = "satyam";
 let myWeatherInfo = ""; 
 let myCoords = null; 
 
-// 1. Base Satellite Map (Esri World Imagery)
-L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-    attribution: 'Tiles &copy; Esri'
-}).addTo(map);
+// 1. Google Earth Style (Google Maps Satellite & Hybrid Layer)
+const googleHybrid = L.tileLayer('https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}', {
+    maxZoom: 20,
+    subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+    attribution: '&copy; Google Maps'
+});
+googleHybrid.addTo(map);
 
 // 2. Haversine Distance Calculation
 function calculateDistance(lat1, lon1, lat2, lon2) {
@@ -189,7 +192,7 @@ socket.on('friendDisconnected', (id) => {
     if (markers[id]) { map.removeLayer(markers[id]); delete markers[id]; }
 });
 
-// 8. Interactive Click-to-Place Memory Upload Listener
+// 8. Interactive Click-to-Place Memory Upload Listener[cite: 1]
 const mapFileInput = document.getElementById('map-file-input');
 
 mapFileInput.addEventListener('change', (e) => {
@@ -201,10 +204,8 @@ mapFileInput.addEventListener('change', (e) => {
         const imageData = event.target.result;
         const photoTime = new Date().toLocaleString();
 
-        // Prompt user to click on the map[cite: 1]
-        alert("📸 Now click anywhere on the map where you want to place this memory photo!");
+        alert("📸 Now click anywhere on the map where you want to place this memory photo!");[cite: 1]
 
-        // Listen for a single click on the map to drop the pin[cite: 1]
         map.once('click', (mapEvent) => {
             const { lat, lng } = mapEvent.latlng;
 
@@ -419,7 +420,7 @@ socket.on('chatMessage', (msg) => {
             content += msg.data;
         }
     } else if (msg.type === 'image') {
-        content += `<img src="${msg.data}" style="width: 280px; border-radius: 8px; margin-top: 5px; object-fit: cover;">`;
+        content += `<img src="${msg.data}" style="width: 280px; border-radius: 8px; margin-top: 5px; object-path: cover;">`;
     } else if (msg.type === 'audio') {
         content += `<audio controls src="${msg.data}" style="width: 260px; height: 35px; margin-top: 5px;"></audio>`;
     }
