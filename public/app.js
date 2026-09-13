@@ -189,50 +189,42 @@ socket.on('friendDisconnected', (id) => {
     if (markers[id]) { map.removeLayer(markers[id]); delete markers[id]; }
 });
 
-// 8. Dedicated Map Memory Upload File Listener
+// 8. Interactive Click-to-Place Memory Upload Listener
 const mapFileInput = document.getElementById('map-file-input');
 
-mapFileInput.addEventListener('change', async (e) => {
+mapFileInput.addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    try {
-        const exifData = await exifr.parse(file);
-        
-        let photoLat = myCoords ? myCoords.lat : 18.8136; 
-        let photoLng = myCoords ? myCoords.lng : 82.7153;
-        let photoTime = exifData && exifData.DateTimeOriginal ? new Date(exifData.DateTimeOriginal).toLocaleString() : new Date().toLocaleString();
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        const imageData = event.target.result;
+        const photoTime = new Date().toLocaleString();
 
-        if (exifData && exifData.latitude && exifData.longitude) {
-            photoLat = exifData.latitude;
-            photoLng = exifData.longitude;
-        }
+        // Prompt user to click on the map
+        alert("📸 Now click anywhere on the map where you want to place this memory photo!");
 
-        const reader = new FileReader();
-        reader.onload = (event) => {
+        // Listen for a single click on the map to drop the pin
+        map.once('click', (mapEvent) => {
+            const { lat, lng } = mapEvent.latlng;
+
             socket.emit('uploadMemoryPhoto', {
                 name: myName,
-                lat: photoLat,
-                lng: photoLng,
-                image: event.target.result,
+                lat: lat,
+                lng: lng,
+                image: imageData,
                 time: photoTime
             });
-        };
-        reader.readAsDataURL(file);
-    } catch (err) {
-        console.error("EXIF read error:", err);
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            socket.emit('uploadMemoryPhoto', {
-                name: myName,
-                lat: myCoords ? myCoords.lat : 18.8136,
-                lng: myCoords ? myCoords.lng : 82.7153,
-                image: event.target.result,
-                time: new Date().toLocaleString()
-            });
-        };
-        reader.readAsDataURL(file);
-    }
+            alert("Memory photo pinned successfully at your chosen location!");
+        });
+    };
+    
+    reader.onerror = (error) => {
+        console.error("File reading error:", error);
+        alert("Failed to read image file.");
+    };
+
+    reader.readAsDataURL(file);
     mapFileInput.value = '';
 });
 
