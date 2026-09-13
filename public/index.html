@@ -1,215 +1,692 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<title>Koraput Map</title>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 
-<!-- Leaflet CSS & JS (Option A Core Engine) -->
-<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <title>Koraput Map</title>
 
-<!-- Socket.IO -->
-<script src="/socket.io/socket.io.js"></script>
+    <!-- Google 3D Maps -->
+    <script
+        src="https://maps.googleapis.com/maps/api/js?loading=async&key=YOUR_GOOGLE_MAPS_API_KEY&libraries=maps3d"
+        defer>
+    </script>
 
-<!-- Emoji Picker -->
-<script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
 
-<style>
-* { box-sizing: border-box; }
-html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; font-family: Arial, sans-serif; background: #0b141a; }
+    <style>
+        * {
+            box-sizing: border-box;
+        }
 
-/* =========================
-   LEAFLET MAP CONTAINER
-========================= */
-#map {
-    position: fixed; inset: 0;
-    width: 100vw; height: 100vh; height: 100dvh;
-    display: block; z-index: 1;
-}
+        html,
+        body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+            background: #000;
+        }
 
-/* =========================
-   UI LAYER
-========================= */
-#ui-layer {
-    position: fixed; inset: 0;
-    width: 100vw; height: 100vh; height: 100dvh;
-    z-index: 9999; pointer-events: none;
-}
-#ui-layer button, #ui-layer input, #ui-layer section, #ui-layer form, #ui-layer emoji-picker, .leaflet-control {
-    pointer-events: auto;
-}
+        /* =====================================
+           GOOGLE 3D MAP
+        ===================================== */
 
-#map-error {
-    display: none; position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
-    z-index: 20000; width: min(92vw, 500px); padding: 12px 18px; border-radius: 12px;
-    background: #b3261e; color: white; text-align: center; box-shadow: 0 5px 20px #0008;
-}
+        #map {
+            position: fixed;
+            inset: 0;
+            width: 100vw;
+            height: 100vh;
+            height: 100dvh;
+            z-index: 1;
+        }
 
-/* =========================
-   JOIN SCREEN
-========================= */
-#join-screen {
-    position: fixed; inset: 0; z-index: 18000; display: flex; align-items: center; justify-content: center;
-    padding: 20px; background: linear-gradient(135deg, #000c, #0008); backdrop-filter: blur(7px);
-}
-.join-card {
-    width: min(390px, 100%); padding: 28px; border-radius: 22px; background: #111b21f7;
-    color: white; box-shadow: 0 20px 70px #0008; text-align: center; pointer-events: auto;
-}
-.join-card h1 { margin: 0 0 8px; font-size: 28px; }
-.join-card p { margin: 0 0 22px; color: #aebac1; }
-#nameInput {
-    width: 100%; padding: 14px 15px; margin-bottom: 12px; border: 1px solid #374248;
-    border-radius: 12px; background: #202c33; color: white; outline: none; font-size: 16px;
-}
-.avatar-label {
-    display: block; padding: 12px; margin-bottom: 14px; border: 1px dashed #52616b;
-    border-radius: 12px; color: #d5dde1; cursor: pointer;
-}
-.avatar-label input { width: 100%; margin-top: 8px; }
-#joinButton {
-    width: 100%; border: 0; border-radius: 12px; padding: 14px; background: #00a884;
-    color: white; font-size: 16px; font-weight: 700; cursor: pointer;
-}
+        /* =====================================
+           UI LAYER
+        ===================================== */
 
-/* =========================
-   CHAT TOGGLE BUTTON
-========================= */
-#chat-toggle-btn {
-    position: fixed; right: 20px; bottom: max(20px, env(safe-area-inset-bottom));
-    width: 60px; height: 60px; display: none; align-items: center; justify-content: center;
-    border: 0; border-radius: 50%; background: #00a884; color: white; font-size: 26px;
-    box-shadow: 0 7px 25px #0008; cursor: pointer; z-index: 12000; -webkit-tap-highlight-color: transparent;
-}
-#chat-toggle-btn:active { transform: scale(.93); }
+        #ui-layer {
+            position: fixed;
+            inset: 0;
+            z-index: 1000;
+            pointer-events: none;
+        }
 
-/* =========================
-   CHAT CONTAINER
-========================= */
-#chat-container {
-    position: fixed; right: 20px; bottom: 20px; width: min(390px, calc(100vw - 30px));
-    height: min(650px, calc(100vh - 40px)); max-height: calc(100dvh - 40px); display: none;
-    flex-direction: column; overflow: hidden; border-radius: 18px; background: #111b21;
-    color: white; box-shadow: 0 15px 60px #0009; z-index: 19000; pointer-events: auto;
-}
-#chat-header {
-    min-height: 58px; display: flex; align-items: center; justify-content: space-between;
-    padding: 0 15px; background: #202c33;
-}
-#chat-header-title { font-weight: 700; }
-#chat-minimize-btn { width: 40px; height: 40px; border: 0; background: transparent; color: white; font-size: 24px; cursor: pointer;}
-#chat-messages {
-    flex: 1; overflow-y: auto; overflow-x: hidden; padding: 15px;
-    background: radial-gradient(circle at center, #17252c, #111b21); -webkit-overflow-scrolling: touch;
-}
-.chat-message { max-width: 85%; margin-bottom: 10px; padding: 9px 11px; border-radius: 10px; word-break: break-word; font-size: 14px; }
-.chat-message strong { display: block; margin-bottom: 4px; font-size: 11px; }
+        button,
+        input,
+        label,
+        .clickable {
+            pointer-events: auto;
+        }
 
-/* =========================
-   CHAT FORM & INPUTS
-========================= */
-#chatForm {
-    position: relative; display: flex; align-items: center; gap: 6px;
-    padding: 8px max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
-    background: #202c33;
-}
-#chatInput {
-    flex: 1; min-width: 0; height: 42px; padding: 10px 12px; border: 0; border-radius: 10px;
-    outline: none; background: #2a3942; color: white; font-size: 16px;
-}
-.chat-icon-btn {
-    width: 42px; height: 42px; flex: 0 0 42px; border: 0; border-radius: 50%; background: #00a884;
-    color: #111b21; cursor: pointer; font-size: 18px; display: flex; align-items: center; justify-content: center;
-}
+        /* =====================================
+           JOIN SCREEN
+        ===================================== */
 
-#attachment-menu {
-    position: absolute; right: 60px; bottom: 65px; display: none; flex-direction: column; min-width: 165px;
-    overflow: hidden; border-radius: 12px; background: #233139; box-shadow: 0 8px 25px #0008; z-index: 21000;
-}
-#attachment-menu button { border: 0; padding: 12px 14px; background: transparent; color: white; text-align: left; font-size: 14px; cursor: pointer;}
-#attachment-menu button:active { background: #30424d; }
+        #join-screen {
+            position: fixed;
+            inset: 0;
+            z-index: 5000;
 
-#emoji-picker-container { position: absolute; right: 8px; bottom: 62px; display: none; width: min(330px, calc(100vw - 16px)); z-index: 21000; }
-emoji-picker { width: 100%; max-height: 380px; }
+            display: flex;
+            align-items: center;
+            justify-content: center;
 
-/* =========================
-   MOBILE RESPONSIVENESS
-========================= */
-@media (max-width: 600px) {
-    #chat-toggle-btn { right: 12px; bottom: max(12px, env(safe-area-inset-bottom)); width: 58px; height: 58px; }
-    #chat-container { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; max-height: none; border-radius: 0; }
-    #chat-header { min-height: calc(58px + env(safe-area-inset-top)); padding-top: env(safe-area-inset-top); }
-    #chat-messages { padding: 12px; }
-    #chatForm { padding-bottom: max(8px, env(safe-area-inset-bottom)); }
-    #attachment-menu { right: 55px; bottom: 65px; }
-    #emoji-picker-container { bottom: 65px; }
-}
-@media (max-width: 380px) {
-    .chat-icon-btn { width: 38px; height: 38px; flex-basis: 38px; font-size: 16px; }
-    #chatInput { font-size: 15px; }
-}
-</style>
+            background: rgba(0, 0, 0, 0.75);
+            backdrop-filter: blur(8px);
+
+            pointer-events: auto;
+        }
+
+        #join-box {
+            width: min(90%, 380px);
+            padding: 25px;
+            border-radius: 18px;
+
+            background: #111b21;
+            color: white;
+
+            box-shadow: 0 10px 40px rgba(0,0,0,.6);
+        }
+
+        #join-box h2 {
+            margin-top: 0;
+            text-align: center;
+        }
+
+        #nameInput,
+        #avatarInput {
+            width: 100%;
+            margin-top: 10px;
+            margin-bottom: 15px;
+            padding: 13px;
+
+            border: 1px solid #37474f;
+            border-radius: 10px;
+
+            background: #202c33;
+            color: white;
+        }
+
+        #join-form button {
+            width: 100%;
+            padding: 13px;
+
+            border: 0;
+            border-radius: 10px;
+
+            background: #00a884;
+            color: white;
+
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        /* =====================================
+           MEMORY BUTTON
+        ===================================== */
+
+        #memoryButton {
+            position: fixed;
+            top: max(15px, env(safe-area-inset-top));
+            left: 15px;
+
+            width: 48px;
+            height: 48px;
+
+            border-radius: 50%;
+            border: 2px solid #00a884;
+
+            background: #111b21;
+            color: white;
+
+            font-size: 23px;
+            cursor: pointer;
+
+            box-shadow: 0 5px 20px rgba(0,0,0,.5);
+
+            z-index: 2000;
+        }
+
+        #memoryPhotoInput {
+            display: none;
+        }
+
+        /* =====================================
+           CHAT TOGGLE
+        ===================================== */
+
+        #chat-toggle-btn {
+            position: fixed;
+
+            right: 20px;
+            bottom: 20px;
+
+            width: 58px;
+            height: 58px;
+
+            border: none;
+            border-radius: 50%;
+
+            background: #00a884;
+            color: white;
+
+            font-size: 27px;
+            cursor: pointer;
+
+            box-shadow: 0 6px 25px rgba(0,0,0,.55);
+
+            display: none;
+            align-items: center;
+            justify-content: center;
+
+            z-index: 3000;
+        }
+
+        /* =====================================
+           CHAT CONTAINER
+        ===================================== */
+
+        #chat-container {
+            position: fixed;
+
+            right: 20px;
+            bottom: 20px;
+
+            width: 360px;
+            height: 520px;
+
+            max-width: calc(100vw - 30px);
+            max-height: calc(100dvh - 30px);
+
+            display: none;
+            flex-direction: column;
+
+            background: #111b21;
+
+            border-radius: 15px;
+            overflow: hidden;
+
+            box-shadow: 0 10px 40px rgba(0,0,0,.65);
+
+            z-index: 4000;
+
+            pointer-events: auto;
+        }
+
+        /* =====================================
+           CHAT HEADER
+        ===================================== */
+
+        #chat-header {
+            height: 55px;
+            flex-shrink: 0;
+
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+
+            padding: 0 15px;
+
+            background: #202c33;
+            color: white;
+
+            font-weight: bold;
+        }
+
+        #chat-minimize-btn {
+            border: 0;
+            background: transparent;
+            color: white;
+
+            font-size: 22px;
+            cursor: pointer;
+        }
+
+        /* =====================================
+           MESSAGES
+        ===================================== */
+
+        #chat-messages {
+            flex: 1;
+
+            overflow-y: auto;
+            overflow-x: hidden;
+
+            padding: 12px;
+
+            display: flex;
+            flex-direction: column;
+            gap: 7px;
+
+            background: #0b141a;
+        }
+
+        .chat-message {
+            max-width: 82%;
+
+            padding: 8px 10px;
+
+            border-radius: 10px;
+
+            color: white;
+
+            word-break: break-word;
+        }
+
+        /* =====================================
+           CHAT INPUT AREA
+        ===================================== */
+
+        #chatForm {
+            position: relative;
+
+            display: flex;
+            align-items: center;
+
+            padding: 8px;
+
+            background: #202c33;
+        }
+
+        #chatInput {
+            flex: 1;
+
+            min-width: 0;
+
+            padding: 11px 42px 11px 42px;
+
+            border: 0;
+            outline: none;
+
+            border-radius: 22px;
+
+            background: #2a3942;
+            color: white;
+
+            font-size: 15px;
+        }
+
+        #chatInput::placeholder {
+            color: #aebac1;
+        }
+
+        #chat-attach-btn,
+        #emojiButton,
+        #voiceButton,
+        #chat-send {
+            position: absolute;
+
+            width: 38px;
+            height: 38px;
+
+            border: 0;
+            background: transparent;
+
+            cursor: pointer;
+
+            display: flex;
+            align-items: center;
+            justify-content: center;
+
+            font-size: 20px;
+        }
+
+        #chat-attach-btn {
+            left: 10px;
+        }
+
+        #emojiButton {
+            left: 45px;
+        }
+
+        #voiceButton {
+            right: 8px;
+        }
+
+        #chat-send {
+            right: 8px;
+            display: none;
+            color: #00a884;
+        }
+
+        /* =====================================
+           ATTACHMENT MENU
+        ===================================== */
+
+        #attachment-menu {
+            position: absolute;
+
+            left: 8px;
+            bottom: 58px;
+
+            width: 190px;
+
+            display: none;
+            flex-direction: column;
+
+            background: #202c33;
+
+            border-radius: 12px;
+
+            box-shadow: 0 8px 25px rgba(0,0,0,.6);
+
+            overflow: hidden;
+
+            z-index: 5000;
+        }
+
+        #attachment-menu button {
+            padding: 13px;
+
+            border: 0;
+            border-bottom: 1px solid #37474f;
+
+            background: transparent;
+            color: white;
+
+            text-align: left;
+
+            cursor: pointer;
+        }
+
+        #attachment-menu button:hover {
+            background: #2a3942;
+        }
+
+        /* =====================================
+           EMOJI PICKER
+        ===================================== */
+
+        #emoji-picker-container {
+            position: absolute;
+
+            left: 5px;
+            bottom: 58px;
+
+            display: none;
+
+            z-index: 5000;
+        }
+
+        emoji-picker {
+            --emoji-size: 22px;
+            width: 310px;
+            height: 350px;
+        }
+
+        /* =====================================
+           MOBILE
+        ===================================== */
+
+        @media (max-width: 600px) {
+
+            #chat-container {
+                left: 8px;
+                right: 8px;
+
+                bottom: 8px;
+
+                width: auto;
+
+                height: min(75dvh, 560px);
+
+                border-radius: 15px;
+            }
+
+            #chat-toggle-btn {
+                right: 15px;
+                bottom: 15px;
+            }
+
+            #memoryButton {
+                left: 12px;
+            }
+
+            emoji-picker {
+                width: min(310px, calc(100vw - 20px));
+                height: 330px;
+            }
+
+            #attachment-menu {
+                left: 5px;
+            }
+        }
+
+        /* =====================================
+           AVATAR MARKERS
+        ===================================== */
+
+        .avatar-marker {
+            width: 45px;
+            height: 45px;
+
+            border-radius: 50%;
+
+            overflow: hidden;
+
+            border: 3px solid #00a884;
+
+            background: white;
+
+            box-shadow: 0 3px 12px rgba(0,0,0,.7);
+        }
+
+        .avatar-marker.friend {
+            width: 42px;
+            height: 42px;
+        }
+
+        .avatar-marker img {
+            width: 100%;
+            height: 100%;
+
+            object-fit: cover;
+        }
+
+        .memory-marker {
+            width: 45px;
+            height: 45px;
+
+            border-radius: 50%;
+
+            overflow: hidden;
+
+            border: 3px solid #00a884;
+
+            background: white;
+
+            box-shadow: 0 3px 12px rgba(0,0,0,.7);
+        }
+
+        .memory-marker img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+    </style>
+
+    <!-- Emoji -->
+    <script
+        type="module"
+        src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js">
+    </script>
 </head>
 
 <body>
 
-<!-- LEAFLET MAP CONTAINER -->
-<div id="map"></div>
+    <!-- GOOGLE 3D MAP -->
+    <gmp-map-3d
+        id="map"
+        center="18.8136,82.7153,250"
+        heading="0"
+        tilt="67.5"
+        range="900"
+        mode="SATELLITE"
+        gesture-handling="GREEDY">
+    </gmp-map-3d>
 
-<div id="ui-layer">
-    <div id="map-error"></div>
 
-    <!-- JOIN SCREEN -->
-    <section id="join-screen">
-        <form class="join-card" id="join-form">
-            <h1>🌍 Koraput Map</h1>
-            <p>Explore Koraput and connect with your friends.</p>
-            <input id="nameInput" type="text" maxlength="40" placeholder="Enter your name" autocomplete="name" required>
-            <label class="avatar-label">
-                Choose profile photo
-                <input id="avatarInput" type="file" accept="image/*">
-            </label>
-            <button id="joinButton" type="submit">Join Map</button>
-        </form>
-    </section>
+    <div id="ui-layer">
 
-    <!-- CHAT BUTTON -->
-    <button id="chat-toggle-btn" type="button" title="Open chat">💬</button>
+        <!-- MEMORY -->
+        <button id="memoryButton" title="Add memory">
+            📸
+        </button>
 
-    <!-- CHAT CONTAINER -->
-    <section id="chat-container">
-        <header id="chat-header">
-            <span id="chat-header-title">💬 Koraput Chat</span>
-            <button id="chat-minimize-btn" type="button">−</button>
-        </header>
-        <div id="chat-messages"></div>
+        <input
+            id="memoryPhotoInput"
+            type="file"
+            accept="image/*"
+        >
 
-        <!-- ATTACHMENT MENU -->
-        <div id="attachment-menu">
-            <button id="att-media" type="button">🖼️ Photo / Video</button>
-            <button id="att-doc" type="button">📎 Document</button>
-            <button id="att-audio" type="button">🎵 Audio</button>
-            <button id="att-cam" type="button">📷 Camera</button>
+
+        <!-- CHAT OPEN -->
+        <button id="chat-toggle-btn">
+            💬
+        </button>
+
+
+        <!-- CHAT -->
+        <div id="chat-container">
+
+            <div id="chat-header">
+                <span>💬 Koraput Chat</span>
+
+                <button id="chat-minimize-btn">
+                    −
+                </button>
+            </div>
+
+
+            <div id="chat-messages"></div>
+
+
+            <form id="chatForm">
+
+                <!-- ATTACHMENT MENU -->
+                <div id="attachment-menu">
+
+                    <button type="button" id="att-media">
+                        🖼️ Photo / Video
+                    </button>
+
+                    <button type="button" id="att-doc">
+                        📄 Document
+                    </button>
+
+                    <button type="button" id="att-audio">
+                        🎵 Audio
+                    </button>
+
+                    <button type="button" id="att-cam">
+                        📷 Camera
+                    </button>
+
+                </div>
+
+
+                <!-- EMOJI -->
+                <div id="emoji-picker-container">
+
+                    <emoji-picker id="emojiPicker"></emoji-picker>
+
+                </div>
+
+
+                <button
+                    type="button"
+                    id="chat-attach-btn"
+                >
+                    📎
+                </button>
+
+
+                <button
+                    type="button"
+                    id="emojiButton"
+                >
+                    😊
+                </button>
+
+
+                <input
+                    id="chatInput"
+                    type="text"
+                    placeholder="Type a message..."
+                    autocomplete="off"
+                >
+
+
+                <input
+                    id="chatAttachment"
+                    type="file"
+                    hidden
+                >
+
+
+                <button
+                    type="button"
+                    id="voiceButton"
+                >
+                    🎤
+                </button>
+
+
+                <button
+                    type="submit"
+                    id="chat-send"
+                >
+                    ➤
+                </button>
+
+            </form>
+
         </div>
 
-        <!-- EMOJI -->
-        <div id="emoji-picker-container"><emoji-picker id="emojiPicker"></emoji-picker></div>
+    </div>
 
-        <!-- CHAT FORM -->
-        <form id="chatForm">
-            <button id="emojiButton" class="chat-icon-btn" type="button">😊</button>
-            <button id="chat-attach-btn" class="chat-icon-btn" type="button">📎</button>
-            <input id="chatAttachment" type="file" hidden>
-            <input id="chat-camera-file" type="file" accept="image/*" capture="environment" hidden>
-            <input id="chatInput" type="text" maxlength="5000" autocomplete="off" placeholder="Type a message...">
-            <button id="voiceButton" class="chat-icon-btn" type="button">🎤</button>
-            <button id="chat-send" class="chat-icon-btn" type="submit" style="display: none;">➤</button>
-        </form>
-    </section>
-</div>
 
-<script defer src="/app.js"></script>
+    <!-- JOIN SCREEN -->
+    <div id="join-screen">
+
+        <div id="join-box">
+
+            <h2>🌍 Koraput Map</h2>
+
+            <form id="join-form">
+
+                <input
+                    id="nameInput"
+                    type="text"
+                    maxlength="40"
+                    placeholder="Enter your name"
+                    required
+                >
+
+                <input
+                    id="avatarInput"
+                    type="file"
+                    accept="image/*"
+                >
+
+                <button type="submit">
+                    Enter Map
+                </button>
+
+            </form>
+
+        </div>
+
+    </div>
+
+
+    <!-- YOUR APP -->
+    <script src="/app.js"></script>
 
 </body>
 </html>
