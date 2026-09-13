@@ -57,13 +57,10 @@ function initTracking() {
     }
 }
 
-// Universal click handler for Join button (works regardless of HTML IDs)
+// Universal click handler for Join button / Modal
 window.addEventListener('DOMContentLoaded', () => {
-    const joinBtn = document.querySelector('button') || document.getElementById('join-btn');
-    const nameInput = document.querySelector('input[type="text"]') || document.getElementById('username');
-    const modal = document.querySelector('.modal') || document.getElementById('login-modal') || document.querySelector('div[style*="position: fixed"]');
+    const nameInput = document.getElementById('username');
 
-    // Listen to any submit or click on the join section
     document.addEventListener('click', (e) => {
         if (e.target && (e.target.textContent.includes('Join Map') || e.target.type === 'submit')) {
             e.preventDefault();
@@ -72,22 +69,53 @@ window.addEventListener('DOMContentLoaded', () => {
                 myName = nameInput.value.trim();
             }
 
-            // Hide the login overlay/modal completely
-            const modalElement = document.getElementById('login-modal') || e.target.closest('div');
-            if (modalElement) {
-                modalElement.style.display = 'none';
-            }
-
-            // Also try hiding common modal IDs just in case
+            // Hide the login modal completely
             ['login-modal', 'modal', 'join-modal'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.style.display = 'none';
             });
 
-            // Start tracking and map features
+            // Also hide any parent container of the clicked button if it looks like a modal overlay
+            const modalOverlay = e.target.closest('div[style*="position: fixed"], .modal, #login-modal');
+            if (modalOverlay) {
+                modalOverlay.style.display = 'none';
+            }
+
             initTracking();
         }
     });
+});
+
+// 1. Real-Time Chat Functionality
+const chatForm = document.getElementById('chat-form');
+const chatInput = document.getElementById('chat-input');
+const chatMessages = document.getElementById('chat-messages');
+
+if (chatForm && chatInput) {
+    chatForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const messageText = chatInput.value.trim();
+        if (messageText !== '') {
+            const msgData = {
+                name: myName,
+                text: messageText,
+                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            };
+            socket.emit('chatMessage', msgData);
+            chatInput.value = '';
+        }
+    });
+}
+
+// Listen for incoming chat messages from server
+socket.on('chatMessage', (msg) => {
+    if (chatMessages) {
+        const messageElement = document.createElement('div');
+        messageElement.style.margin = '4px 0';
+        messageElement.innerHTML = `<b>${msg.name}:</b> ${msg.text} <span style="font-size: 9px; color: gray;">(${msg.time})</span>`;
+        chatMessages.appendChild(messageElement);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
 });
 
 // 2. Listen for Friends Moving
