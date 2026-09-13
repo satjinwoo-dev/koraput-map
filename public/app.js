@@ -83,70 +83,65 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-// 5. BULLETPROOF JOIN HANDLER (Catches any click/submit on Join button)
-function processJoin() {
-    const nameInput = document.querySelector('input[type="text"]');
-    if (nameInput && nameInput.value.trim() !== '') {
-        myName = nameInput.value.trim();
-    }
-
-    const headerName = document.getElementById('header-name');
-    if (headerName) headerName.innerText = myName + " (Koraput Map)";
-
-    const fileInputElem = document.querySelector('input[type="file"]');
-    const file = fileInputElem?.files?.[0];
-
-    const launchMap = (avatarSrc) => {
-        myAvatarData = avatarSrc;
-        const headerAvatar = document.getElementById('header-avatar');
-        if (headerAvatar) headerAvatar.src = myAvatarData;
-        
-        localStorage.setItem('koraput_name', myName);
-        localStorage.setItem('koraput_avatar', myAvatarData);
-
-        // Hide join screen completely using multiple possible selectors
-        const screens = document.querySelectorAll('#join-screen, form, div[style*="position"]');
-        screens.forEach(el => {
-            if (el.innerHTML.includes('Join Koraput Map') || el.id === 'join-screen') {
-                el.style.display = 'none';
-            }
-        });
-
-        startGame();
-    };
-
-    if (file) {
-        const reader = new FileReader();
-        reader.onload = function(event) {
-            launchMap(event.target.result);
-        }
-        reader.readAsDataURL(file);
-    } else {
-        launchMap('satyam.png');
-    }
-}
-
-document.addEventListener('submit', (e) => {
-    e.preventDefault();
-    processJoin();
-});
-
+// 5. BULLETPROOF JOIN HANDLER (Directly hides the form/overlay container)
 document.addEventListener('click', (e) => {
     const target = e.target;
-    if (target && (target.tagName === 'BUTTON' || target.type === 'submit' || target.innerText?.includes('Join Map'))) {
-        if (target.innerText?.includes('Join') || target.id === 'joinBtn' || target.closest('form')) {
-            e.preventDefault();
-            processJoin();
+    // Check if the clicked element is the join button or inside it
+    const button = target.closest('button');
+    
+    if (button && (button.innerText.includes('Join Map') || button.id === 'joinBtn' || target.type === 'submit')) {
+        e.preventDefault();
+
+        const nameInput = document.querySelector('input[type="text"]');
+        if (nameInput && nameInput.value.trim() !== '') {
+            myName = nameInput.value.trim();
+        }
+
+        const headerName = document.getElementById('header-name');
+        if (headerName) headerName.innerText = myName + " (Koraput Map)";
+
+        const fileInputElem = document.querySelector('input[type="file"]');
+        const file = fileInputElem?.files?.[0];
+
+        const launchMap = (avatarSrc) => {
+            myAvatarData = avatarSrc;
+            const headerAvatar = document.getElementById('header-avatar');
+            if (headerAvatar) headerAvatar.src = myAvatarData;
+            
+            localStorage.setItem('koraput_name', myName);
+            localStorage.setItem('koraput_avatar', myAvatarData);
+
+            // DIRECTLY HIDE THE JOIN SCREEN CONTAINER / FORM
+            const overlayContainer = button.closest('form') || button.closest('div[style*="position"]') || button.parentElement;
+            if (overlayContainer) {
+                overlayContainer.style.display = 'none';
+            }
+            // Fallback to hide any element containing join screen text or IDs
+            document.querySelectorAll('#join-screen, .join-screen, div').forEach(el => {
+                if (el.innerHTML.includes('Join Koraput Map')) {
+                    el.style.display = 'none';
+                }
+            });
+
+            startGame();
+        };
+
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                launchMap(event.target.result);
+            }
+            reader.readAsDataURL(file);
+        } else {
+            launchMap('satyam.png');
         }
     }
 });
 
 function startGame() {
-    const joinScreen = document.getElementById('join-screen');
     const chatToggleBtn = document.getElementById('chat-toggle-btn');
     const chatContainer = document.getElementById('chat-container');
 
-    if (joinScreen) joinScreen.style.display = 'none';
     if (chatToggleBtn) chatToggleBtn.style.display = 'flex';
     if (chatContainer) chatContainer.style.display = 'none'; 
     
