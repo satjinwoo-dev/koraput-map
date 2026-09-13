@@ -23,13 +23,15 @@ let myWeatherInfo = "";
 let myCoords = null;
 
 // ==========================================
-// SATELLITE MAP (Esri Stable Layer)
+// GOOGLE EARTH SATELLITE MAP (Hybrid Layer)
 // ==========================================
 
 L.tileLayer(
-    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    "https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}", 
     {
-        attribution: "Tiles &copy; Esri"
+        maxZoom: 20,
+        subdomains: ["mt0", "mt1", "mt2", "mt3"],
+        attribution: "&copy; Google Maps"
     }
 ).addTo(map);
 
