@@ -1,27 +1,16 @@
 const socket = io();
-
-// 1. Safe Map Initialization (Won't block script if tiles fail)
-let map;
-try {
-    map = L.map('map', { preferCanvas: true }).setView([18.8136, 82.7153], 13);
-    
-    // Google Maps Satellite & Hybrid Layer with error handling
-    const googleHybrid = L.tileLayer('https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}', {
-        maxZoom: 20,
-        subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
-        attribution: '&copy; Google Maps'
-    });
-    googleHybrid.addTo(map);
-} catch (e) {
-    console.error("Map init error:", e);
-}
-
+const map = L.map('map').setView([18.8136, 82.7153], 13);
 const markers = {};
 let myMarker = null;
 let myAvatarData = null;
 let myName = "satyam"; 
 let myWeatherInfo = ""; 
 let myCoords = null; 
+
+// 1. Stable Esri Satellite Map (Asli high-res satellite view jo pehle perfect chalta tha)
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    attribution: 'Tiles &copy; Esri'
+}).addTo(map);
 
 // 2. Haversine Distance Calculation
 function calculateDistance(lat1, lon1, lat2, lon2) {
@@ -35,7 +24,9 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
     const d = R * c; 
     
-    if (d < 1) return Math.round(d * 1000) + " m";
+    if (d < 1) {
+        return Math.round(d * 1000) + " m";
+    }
     return d.toFixed(1) + " km";
 }
 
@@ -73,7 +64,7 @@ const createAvatar = (imageSource) => L.icon({
     iconUrl: imageSource, iconSize: [45, 45], iconAnchor: [22, 22], className: 'avatar-icon'
 });
 
-// 4. Check LocalStorage on Page Load
+// 4. Check LocalStorage on Page Load (Auto-Login if saved)
 window.addEventListener('DOMContentLoaded', () => {
     const savedName = localStorage.getItem('koraput_name');
     const savedAvatar = localStorage.getItem('koraput_avatar');
@@ -89,7 +80,7 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-// 5. BULLETPROOF JOIN HANDLER (Independent of map loading)
+// 5. Foolproof Join Map Handler (Directly hides the form/overlay container)
 document.addEventListener('click', (e) => {
     const target = e.target;
     const button = target.closest('button');
@@ -116,7 +107,7 @@ document.addEventListener('click', (e) => {
             localStorage.setItem('koraput_name', myName);
             localStorage.setItem('koraput_avatar', myAvatarData);
 
-            // Hide join screen instantly
+            // Hide the join screen overlay container completely
             const overlayContainer = button.closest('form') || button.closest('div[style*="position"]') || button.parentElement;
             if (overlayContainer) {
                 overlayContainer.style.display = 'none';
@@ -149,10 +140,7 @@ function startGame() {
     if (chatToggleBtn) chatToggleBtn.style.display = 'flex';
     if (chatContainer) chatContainer.style.display = 'none'; 
     
-    // Invalidate map size to force tiles to render properly
-    if (map) {
-        setTimeout(() => { map.invalidateSize(); }, 200);
-    }
+    setTimeout(() => { map.invalidateSize(); }, 200);
 
     let weatherFetched = false;
 
@@ -171,42 +159,39 @@ function startGame() {
             if (myMarker) {
                 myMarker.setLatLng([latitude, longitude]);
                 if(myWeatherInfo) myMarker.setTooltipContent(myWeatherInfo);
-            } else if (map) {
+            } else {
                 myMarker = L.marker([latitude, longitude], { icon: createAvatar(myAvatarData) }).addTo(map);
                 if(myWeatherInfo) myMarker.bindTooltip(myWeatherInfo, { permanent: true, direction: 'right', className: 'weather-badge', offset: [20, 0] });
             }
             
-            if (map) map.setView([latitude, longitude], 16);
+            map.setView([latitude, longitude], 16);
         }, (err) => console.error(err), { enableHighAccuracy: true });
     }
 }
 
-// 6. Custom Upload Control
-if (map) {
-    const UploadControl = L.Control.extend({
-        options: { position: 'topleft' },
-        onAdd: function (map) {
-            const container = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
-            const button = L.DomUtil.create('a', 'map-upload-control', container);
-            button.innerHTML = '📸';
-            button.title = 'Upload Memory to Map';
-            
-            L.DomEvent.on(button, 'click', (e) => {
-                L.DomEvent.stopPropagation(e);
-                L.DomEvent.preventDefault(e);
-                const mapFileInput = document.getElementById('map-file-input');
-                if (mapFileInput) mapFileInput.click();
-            });
+// 6. Add Custom Upload Button Directly into Leaflet Control Area
+const UploadControl = L.Control.extend({
+    options: { position: 'topleft' },
+    onAdd: function (map) {
+        const container = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
+        const button = L.DomUtil.create('a', 'map-upload-control', container);
+        button.innerHTML = '📸';
+        button.title = 'Upload Memory to Map';
+        
+        L.DomEvent.on(button, 'click', (e) => {
+            L.DomEvent.stopPropagation(e);
+            L.DomEvent.preventDefault(e);
+            const mapFileInput = document.getElementById('map-file-input');
+            if (mapFileInput) mapFileInput.click();
+        });
 
-            return container;
-        }
-    });
-    map.addControl(new UploadControl());
-}
+        return container;
+    }
+});
+map.addControl(new UploadControl());
 
-// 7. Friend Syncing
+// 7. Map Marker Syncing with Live Distance
 socket.on('friendMoved', (data) => {
-    if (!map) return;
     let tooltipText = data.weather || '';
     
     if (myCoords) {
@@ -233,7 +218,7 @@ socket.on('friendDisconnected', (id) => {
     if (markers[id]) { map.removeLayer(markers[id]); delete markers[id]; }
 });
 
-// 8. Interactive Click-to-Place Memory Upload[cite: 1]
+// 8. Interactive Click-to-Place Memory Upload Listener[cite: 1]
 const mapFileInput = document.getElementById('map-file-input');
 if (mapFileInput) {
     mapFileInput.addEventListener('change', (e) => {
@@ -247,28 +232,31 @@ if (mapFileInput) {
 
             alert("📸 Now click anywhere on the map where you want to place this memory photo!");[cite: 1]
 
-            if (map) {
-                map.once('click', (mapEvent) => {
-                    const { lat, lng } = mapEvent.latlng;
+            map.once('click', (mapEvent) => {
+                const { lat, lng } = mapEvent.latlng;
 
-                    socket.emit('uploadMemoryPhoto', {
-                        name: myName,
-                        lat: lat,
-                        lng: lng,
-                        image: imageData,
-                        time: photoTime
-                    });
-                    alert("Memory photo pinned successfully at your chosen location!");
+                socket.emit('uploadMemoryPhoto', {
+                    name: myName,
+                    lat: lat,
+                    lng: lng,
+                    image: imageData,
+                    time: photoTime
                 });
-            }
+                alert("Memory photo pinned successfully at your chosen location!");
+            });
         };
         
+        reader.onerror = (error) => {
+            console.error("File reading error:", error);
+            alert("Failed to read image file.");
+        };
+
         reader.readAsDataURL(file);
         mapFileInput.value = '';
     });
 }
 
-// 9. WhatsApp UI Logic
+// 9. WhatsApp UI & Minimize / Toggle Logic
 const chatContainer = document.getElementById('chat-container');
 const chatToggleBtn = document.getElementById('chat-toggle-btn');
 const minimizeBtn = document.getElementById('chat-minimize-btn');
@@ -488,9 +476,8 @@ socket.on('chatMessage', (msg) => {
     messagesDiv.scrollTop = messagesDiv.scrollHeight; 
 });
 
-// 10. Load Memory Photos
+// 10. Load Existing Memory Photos on Connection & Refresh
 function renderMemoryPin(memory) {
-    if (!map) return;
     const memoryIcon = L.divIcon({
         className: 'memory-pin-icon',
         html: `<div style="width: 42px; height: 42px; border-radius: 50%; border: 3px solid #00a884; overflow: hidden; background: #fff; box-shadow: 0 3px 8px rgba(0,0,0,0.6);">
