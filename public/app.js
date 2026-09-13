@@ -7,7 +7,7 @@ let myName = "satyam";
 let myWeatherInfo = ""; 
 let myCoords = null; 
 
-// 1. Stable Esri Satellite Map (High-resolution & Fast loading)
+// 1. Stable Esri Satellite Map
 L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
     attribution: 'Tiles &copy; Esri'
 }).addTo(map);
@@ -62,7 +62,7 @@ const createAvatar = (imageSource) => L.icon({
     iconUrl: imageSource, iconSize: [45, 45], iconAnchor: [22, 22], className: 'avatar-icon'
 });
 
-// 4. Check LocalStorage on Page Load (Auto-Login if saved)
+// 4. Check LocalStorage on Page Load
 window.addEventListener('DOMContentLoaded', () => {
     const savedName = localStorage.getItem('koraput_name');
     const savedAvatar = localStorage.getItem('koraput_avatar');
@@ -79,8 +79,8 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-// 5. BULLETPROOF JOIN HANDLER (Stops page reload & hides join screen instantly)
-function handleJoinAction(e) {
+// 5. BULLETPROOF JOIN HANDLER
+function executeJoin(e) {
     if (e) e.preventDefault();
 
     const nameInput = document.querySelector('input[type="text"]');
@@ -94,7 +94,7 @@ function handleJoinAction(e) {
     const fileInputElem = document.querySelector('input[type="file"]');
     const file = fileInputElem?.files?.[0];
 
-    const launchMap = (avatarSrc) => {
+    const proceedToMap = (avatarSrc) => {
         myAvatarData = avatarSrc;
         const headerAvatar = document.getElementById('header-avatar');
         if (headerAvatar) headerAvatar.src = myAvatarData;
@@ -108,36 +108,33 @@ function handleJoinAction(e) {
     if (file) {
         const reader = new FileReader();
         reader.onload = function(event) {
-            launchMap(event.target.result);
+            proceedToMap(event.target.result);
         }
         reader.readAsDataURL(file);
     } else {
-        launchMap('satyam.png');
+        proceedToMap('satyam.png');
     }
 }
 
-// Attach listeners to both form submit and button click universally
-document.addEventListener('submit', (e) => {
-    e.preventDefault();
-    handleJoinAction(e);
-});
+document.addEventListener('submit', executeJoin);
 
 document.addEventListener('click', (e) => {
-    const target = e.target;
-    const button = target.closest('button');
-    if (button && (button.innerText.includes('Join Map') || button.id === 'joinBtn')) {
-        handleJoinAction(e);
+    const t = e.target;
+    const button = t.closest('button');
+    if (button && (button.innerText.includes('Join Map') || button.id === 'joinBtn' || t.type === 'submit')) {
+        executeJoin(e);
     }
 });
 
 function hideJoinScreenAndStart() {
-    // Hide all possible join screens/forms/overlays safely
-    const joinScreens = document.querySelectorAll('#join-screen, form, div[style*="position"]');
-    joinScreens.forEach(el => {
-        if (el.innerHTML.includes('Join Koraput Map') || el.id === 'join-screen' || el.tagName === 'FORM') {
+    document.querySelectorAll('*').forEach(el => {
+        if (el.innerHTML && el.innerHTML.includes('Join Koraput Map')) {
             el.style.display = 'none';
         }
     });
+
+    const joinScreen = document.getElementById('join-screen');
+    if (joinScreen) joinScreen.style.display = 'none';
 
     const chatToggleBtn = document.getElementById('chat-toggle-btn');
     const chatContainer = document.getElementById('chat-container');
@@ -481,7 +478,7 @@ socket.on('chatMessage', (msg) => {
     messagesDiv.scrollTop = messagesDiv.scrollHeight; 
 });
 
-// 10. Load Existing Memory Photos on Connection & Refresh
+// 10. Load Memory Photos
 function renderMemoryPin(memory) {
     const memoryIcon = L.divIcon({
         className: 'memory-pin-icon',
