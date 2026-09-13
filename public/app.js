@@ -1,25 +1,19 @@
-// Initialize Socket.io connection
+// 1. Initialize Socket & Map Variables
 const socket = io();
-
 let myName = "Explorer";
 let myAvatar = 'friend1.png';
-
-// Initialize Leaflet Map
-const map = L.map('map').setView([18.8121, 82.7135], 14);
-
-// Google Maps Satellite / Hybrid Layer (Google Earth style)
-const googleHybrid = L.tileLayer('https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}', {
-    maxZoom: 20,
-    subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
-    attribution: '&copy; Google Maps'
-});
-googleHybrid.addTo(map);
-
-// Markers dictionary to track connected friends
 const markers = {};
 let myMarker = null;
 
-// Function to start Geolocation Tracking
+// 2. Initialize Map with Google Earth (Hybrid) View
+const map = L.map('map').setView([18.8121, 82.7135], 14);
+L.tileLayer('https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}', {
+    maxZoom: 20,
+    subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+    attribution: '&copy; Google Maps'
+}).addTo(map);
+
+// 3. Core Tracking Function (Starts ONLY after joining)
 function initTracking() {
     if ("geolocation" in navigator) {
         navigator.geolocation.watchPosition((position) => {
@@ -41,52 +35,45 @@ function initTracking() {
                 myMarker.setLatLng([lat, lng]);
             }
 
-            socket.emit('updateLocation', {
-                lat: lat,
-                lng: lng,
-                avatar: myAvatar,
-                weather: weatherText
-            });
-        }, (error) => {
-            console.error("Geolocation error:", error);
-        }, {
-            enableHighAccuracy: true,
-            maximumAge: 10000,
-            timeout: 5000
-        });
+            socket.emit('updateLocation', { lat, lng, avatar: myAvatar, weather: weatherText });
+        }, (error) => console.error(error), { enableHighAccuracy: true, maximumAge: 10000 });
     }
 }
 
-// Universal click handler for Join button / Modal
+// 4. Safe "Join Map" Logic (Prevents page reload & shows all features)
 window.addEventListener('DOMContentLoaded', () => {
-    const nameInput = document.getElementById('username');
-
-    document.addEventListener('click', (e) => {
-        if (e.target && (e.target.textContent.includes('Join Map') || e.target.type === 'submit')) {
-            e.preventDefault();
+    // Attach listener directly to the document body to catch any "Join Map" click safely
+    document.body.addEventListener('click', (e) => {
+        if (e.target.tagName === 'BUTTON' && e.target.innerText.includes('Join Map')) {
+            e.preventDefault(); // Stop form submission / reload
             
+            // Try to grab the username from possible inputs
+            const nameInput = document.getElementById('username') || document.querySelector('input[type="text"]');
             if (nameInput && nameInput.value.trim() !== '') {
                 myName = nameInput.value.trim();
             }
 
-            // Hide the login modal completely
-            ['login-modal', 'modal', 'join-modal'].forEach(id => {
-                const el = document.getElementById(id);
-                if (el) el.style.display = 'none';
-            });
+            // Hide the Modal properly (finds the closest modal container)
+            const modal = document.getElementById('login-modal') || document.getElementById('join-modal') || e.target.closest('div[style*="fixed"]');
+            if (modal) modal.style.display = 'none';
 
-            // Also hide any parent container of the clicked button if it looks like a modal overlay
-            const modalOverlay = e.target.closest('div[style*="position: fixed"], .modal, #login-modal');
-            if (modalOverlay) {
-                modalOverlay.style.display = 'none';
-            }
-
+            // Start location sharing
             initTracking();
         }
     });
+
+    // Handle form submit just in case it's triggered via 'Enter' key
+    const joinForm = document.getElementById('join-map-form') || document.querySelector('form');
+    if (joinForm && joinForm.innerText.includes('Join Map')) {
+        joinForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const btn = joinForm.querySelector('button');
+            if(btn) btn.click();
+        });
+    }
 });
 
-// 1. Real-Time Chat Functionality
+// 5. Chat Box Functionality
 const chatForm = document.getElementById('chat-form');
 const chatInput = document.getElementById('chat-input');
 const chatMessages = document.getElementById('chat-messages');
@@ -94,101 +81,61 @@ const chatMessages = document.getElementById('chat-messages');
 if (chatForm && chatInput) {
     chatForm.addEventListener('submit', (e) => {
         e.preventDefault();
-        const messageText = chatInput.value.trim();
-        if (messageText !== '') {
-            const msgData = {
+        if (chatInput.value.trim() !== '') {
+            socket.emit('chatMessage', {
                 name: myName,
-                text: messageText,
+                text: chatInput.value.trim(),
                 time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            };
-            socket.emit('chatMessage', msgData);
+            });
             chatInput.value = '';
         }
     });
 }
 
-// Listen for incoming chat messages from server
 socket.on('chatMessage', (msg) => {
     if (chatMessages) {
-        const messageElement = document.createElement('div');
-        messageElement.style.margin = '4px 0';
-        messageElement.innerHTML = `<b>${msg.name}:</b> ${msg.text} <span style="font-size: 9px; color: gray;">(${msg.time})</span>`;
-        chatMessages.appendChild(messageElement);
+        const msgDiv = document.createElement('div');
+        msgDiv.style.margin = '4px 0';
+        msgDiv.innerHTML = `<b>${msg.name}:</b> ${msg.text} <span style="font-size: 9px; color: gray;">(${msg.time})</span>`;
+        chatMessages.appendChild(msgDiv);
         chatMessages.scrollTop = chatMessages.scrollHeight;
     }
 });
 
-// 2. Listen for Friends Moving
+// 6. Multiplayer Features (Friend Movements)
 socket.on('friendMoved', (data) => {
     if (markers[data.id]) {
         markers[data.id].setLatLng([data.lat, data.lng]);
     } else {
-        const friendIcon = L.divIcon({
+        const icon = L.divIcon({
             className: 'custom-avatar-icon',
-            html: `<div style="background-image: url('${data.avatar || 'friend1.png'}'); width: 40px; height: 40px; background-size: cover; border-radius: 50%; border: 2px solid #00a884; box-shadow: 0 0 5px rgba(0,0,0,0.5);"></div>`,
-            iconSize: [40, 40],
-            iconAnchor: [20, 20]
+            html: `<div style="background-image: url('${data.avatar || 'friend1.png'}'); width: 40px; height: 40px; background-size: cover; border-radius: 50%; border: 2px solid #00a884;"></div>`,
+            iconSize: [40, 40], iconAnchor: [20, 20]
         });
-        markers[data.id] = L.marker([data.lat, data.lng], { icon: friendIcon }).addTo(map);
-        markers[data.id].bindPopup(`<b>Friend</b><br>Weather: ${data.weather || 'N/A'}`);
+        markers[data.id] = L.marker([data.lat, data.lng], { icon }).addTo(map).bindPopup(`<b>Friend</b>`);
     }
 });
 
-// 3. Handle Friend Disconnection
 socket.on('friendDisconnected', (id) => {
-    if (markers[id]) {
-        map.removeLayer(markers[id]);
-        delete markers[id];
-    }
+    if (markers[id]) { map.removeLayer(markers[id]); delete markers[id]; }
 });
 
-// 4. Load Existing Saved Memory Photos on Page Load
-socket.on('loadMemoryPhotos', (photos) => {
-    photos.forEach((data) => {
-        const memoryIcon = L.divIcon({
-            className: 'memory-pin-icon',
-            html: `<div style="width: 42px; height: 42px; border-radius: 50%; border: 3px solid #00a884; overflow: hidden; background: #fff; box-shadow: 0 3px 8px rgba(0,0,0,0.4);">
-                    <img src="${data.image}" style="width: 100%; height: 100%; object-fit: cover;">
-                   </div>`,
-            iconSize: [42, 42],
-            iconAnchor: [21, 21]
-        });
-
-        const popupContent = `
-            <div style="text-align: center; color: #111; font-family: sans-serif; padding: 2px;">
-                <img src="${data.image}" style="width: 220px; border-radius: 8px; margin-bottom: 6px; object-fit: cover;">
-                <p style="margin: 4px 0; font-weight: bold; font-size: 13px;">📸 Captured by: ${data.name}</p>
-                <p style="margin: 0; font-size: 11px; color: #555;">🕒 ${data.time}</p>
-            </div>
-        `;
-        L.marker([data.lat, data.lng], { icon: memoryIcon }).addTo(map).bindPopup(popupContent);
-    });
-});
-
-// 5. Listen for New Memory Pins Broadcasted by Server
-socket.on('newMemoryPin', (data) => {
+// 7. Memory Photos (Loading & Placing)
+function renderMemoryPin(data) {
     const memoryIcon = L.divIcon({
         className: 'memory-pin-icon',
-        html: `<div style="width: 42px; height: 42px; border-radius: 50%; border: 3px solid #00a884; overflow: hidden; background: #fff; box-shadow: 0 3px 8px rgba(0,0,0,0.4);">
-                <img src="${data.image}" style="width: 100%; height: 100%; object-fit: cover;">
-               </div>`,
-            iconSize: [42, 42],
-            iconAnchor: [21, 21]
+        html: `<div style="width: 42px; height: 42px; border-radius: 50%; border: 3px solid #00a884; overflow: hidden; background: #fff;"><img src="${data.image}" style="width: 100%; height: 100%; object-fit: cover;"></div>`,
+        iconSize: [42, 42], iconAnchor: [21, 21]
     });
-
-    const popupContent = `
-        <div style="text-align: center; color: #111; font-family: sans-serif; padding: 2px;">
-            <img src="${data.image}" style="width: 220px; border-radius: 8px; margin-bottom: 6px; object-fit: cover;">
-            <p style="margin: 4px 0; font-weight: bold; font-size: 13px;">📸 Captured by: ${data.name}</p>
-            <p style="margin: 0; font-size: 11px; color: #555;">🕒 ${data.time}</p>
-        </div>
-    `;
+    const popupContent = `<div style="text-align: center;"><img src="${data.image}" style="width: 220px; border-radius: 8px;"><br><b>📸 ${data.name}</b><br><small>${data.time}</small></div>`;
     L.marker([data.lat, data.lng], { icon: memoryIcon }).addTo(map).bindPopup(popupContent);
-});
+}
 
-// 6. Interactive Click-to-Place Memory Upload Listener
+socket.on('loadMemoryPhotos', (photos) => photos.forEach(renderMemoryPin));
+socket.on('newMemoryPin', renderMemoryPin);
+
+// 8. Click-to-Place Photo Upload
 const mapFileInput = document.getElementById('map-file-input');
-
 if (mapFileInput) {
     mapFileInput.addEventListener('change', (e) => {
         const file = e.target.files[0];
@@ -196,31 +143,18 @@ if (mapFileInput) {
 
         const reader = new FileReader();
         reader.onload = (event) => {
-            const imageData = event.target.result;
-            const photoTime = new Date().toLocaleString();
-
-            alert("📸 Now click anywhere on the map where you want to place this memory photo!");
-
+            alert("📸 Map par click karo kahan photo lagani hai!");
             map.once('click', (mapEvent) => {
-                const { lat, lng } = mapEvent.latlng;
-
                 socket.emit('uploadMemoryPhoto', {
                     name: myName,
-                    lat: lat,
-                    lng: lng,
-                    image: imageData,
-                    time: photoTime
+                    lat: mapEvent.latlng.lat,
+                    lng: mapEvent.latlng.lng,
+                    image: event.target.result,
+                    time: new Date().toLocaleString()
                 });
-                alert("Memory photo pinned successfully at your chosen location!");
             });
         };
-        
-        reader.onerror = (error) => {
-            console.error("File reading error:", error);
-            alert("Failed to read image file.");
-        };
-
         reader.readAsDataURL(file);
-        mapFileInput.value = '';
+        mapFileInput.value = ''; // Reset
     });
 }
