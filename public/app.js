@@ -19,7 +19,7 @@ googleHybrid.addTo(map);
 const markers = {};
 let myMarker = null;
 
-// Function to start Geolocation Tracking after joining
+// Function to start Geolocation Tracking
 function initTracking() {
     if ("geolocation" in navigator) {
         navigator.geolocation.watchPosition((position) => {
@@ -27,7 +27,6 @@ function initTracking() {
             const lng = position.coords.longitude;
             const weatherText = "28°C";
 
-            // Update or create own marker
             if (!myMarker) {
                 const customIcon = L.divIcon({
                     className: 'custom-avatar-icon',
@@ -42,7 +41,6 @@ function initTracking() {
                 myMarker.setLatLng([lat, lng]);
             }
 
-            // Broadcast location to server
             socket.emit('updateLocation', {
                 lat: lat,
                 lng: lng,
@@ -59,17 +57,37 @@ function initTracking() {
     }
 }
 
-// Handle Join Map Form submission
-document.getElementById('join-map-form')?.addEventListener('submit', (e) => {
-    e.preventDefault();
-    myName = document.getElementById('username')?.value || "Explorer";
-    
-    // Hide login modal
-    const modal = document.getElementById('login-modal');
-    if (modal) modal.style.display = 'none';
+// Universal click handler for Join button (works regardless of HTML IDs)
+window.addEventListener('DOMContentLoaded', () => {
+    const joinBtn = document.querySelector('button') || document.getElementById('join-btn');
+    const nameInput = document.querySelector('input[type="text"]') || document.getElementById('username');
+    const modal = document.querySelector('.modal') || document.getElementById('login-modal') || document.querySelector('div[style*="position: fixed"]');
 
-    // Start geolocation and tracking after joining
-    initTracking();
+    // Listen to any submit or click on the join section
+    document.addEventListener('click', (e) => {
+        if (e.target && (e.target.textContent.includes('Join Map') || e.target.type === 'submit')) {
+            e.preventDefault();
+            
+            if (nameInput && nameInput.value.trim() !== '') {
+                myName = nameInput.value.trim();
+            }
+
+            // Hide the login overlay/modal completely
+            const modalElement = document.getElementById('login-modal') || e.target.closest('div');
+            if (modalElement) {
+                modalElement.style.display = 'none';
+            }
+
+            // Also try hiding common modal IDs just in case
+            ['login-modal', 'modal', 'join-modal'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.style.display = 'none';
+            });
+
+            // Start tracking and map features
+            initTracking();
+        }
+    });
 });
 
 // 2. Listen for Friends Moving
