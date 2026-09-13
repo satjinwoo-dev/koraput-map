@@ -1,5 +1,5 @@
 const socket = io();
-const map = L.map('map').setView([18.8136, 82.7153], 13);
+const map = L.map('map', { preferCanvas: true }).setView([18.8136, 82.7153], 13);
 const markers = {};
 let myMarker = null;
 let myAvatarData = null;
@@ -7,7 +7,7 @@ let myName = "satyam";
 let myWeatherInfo = ""; 
 let myCoords = null; 
 
-// 1. Stable Esri Satellite Map (Asli high-res satellite view jo pehle perfect chalta tha)
+// 1. Stable Esri Satellite Map (High-resolution & Fast loading)
 L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
     attribution: 'Tiles &copy; Esri'
 }).addTo(map);
@@ -24,9 +24,7 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
     const d = R * c; 
     
-    if (d < 1) {
-        return Math.round(d * 1000) + " m";
-    }
+    if (d < 1) return Math.round(d * 1000) + " m";
     return d.toFixed(1) + " km";
 }
 
@@ -76,64 +74,71 @@ window.addEventListener('DOMContentLoaded', () => {
         const headerAvatar = document.getElementById('header-avatar');
         if (headerName) headerName.innerText = myName + " (Koraput Map)";
         if (headerAvatar) headerAvatar.src = myAvatarData;
-        startGame();
+        
+        hideJoinScreenAndStart();
     }
 });
 
-// 5. Foolproof Join Map Handler (Directly hides the form/overlay container)
+// 5. BULLETPROOF JOIN HANDLER (Stops page reload & hides join screen instantly)
+function handleJoinAction(e) {
+    if (e) e.preventDefault();
+
+    const nameInput = document.querySelector('input[type="text"]');
+    if (nameInput && nameInput.value.trim() !== '') {
+        myName = nameInput.value.trim();
+    }
+
+    const headerName = document.getElementById('header-name');
+    if (headerName) headerName.innerText = myName + " (Koraput Map)";
+
+    const fileInputElem = document.querySelector('input[type="file"]');
+    const file = fileInputElem?.files?.[0];
+
+    const launchMap = (avatarSrc) => {
+        myAvatarData = avatarSrc;
+        const headerAvatar = document.getElementById('header-avatar');
+        if (headerAvatar) headerAvatar.src = myAvatarData;
+        
+        localStorage.setItem('koraput_name', myName);
+        localStorage.setItem('koraput_avatar', myAvatarData);
+
+        hideJoinScreenAndStart();
+    };
+
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            launchMap(event.target.result);
+        }
+        reader.readAsDataURL(file);
+    } else {
+        launchMap('satyam.png');
+    }
+}
+
+// Attach listeners to both form submit and button click universally
+document.addEventListener('submit', (e) => {
+    e.preventDefault();
+    handleJoinAction(e);
+});
+
 document.addEventListener('click', (e) => {
     const target = e.target;
     const button = target.closest('button');
-    
-    if (button && (button.innerText.includes('Join Map') || button.id === 'joinBtn' || target.type === 'submit')) {
-        e.preventDefault();
-
-        const nameInput = document.querySelector('input[type="text"]');
-        if (nameInput && nameInput.value.trim() !== '') {
-            myName = nameInput.value.trim();
-        }
-
-        const headerName = document.getElementById('header-name');
-        if (headerName) headerName.innerText = myName + " (Koraput Map)";
-
-        const fileInputElem = document.querySelector('input[type="file"]');
-        const file = fileInputElem?.files?.[0];
-
-        const launchMap = (avatarSrc) => {
-            myAvatarData = avatarSrc;
-            const headerAvatar = document.getElementById('header-avatar');
-            if (headerAvatar) headerAvatar.src = myAvatarData;
-            
-            localStorage.setItem('koraput_name', myName);
-            localStorage.setItem('koraput_avatar', myAvatarData);
-
-            // Hide the join screen overlay container completely
-            const overlayContainer = button.closest('form') || button.closest('div[style*="position"]') || button.parentElement;
-            if (overlayContainer) {
-                overlayContainer.style.display = 'none';
-            }
-            document.querySelectorAll('#join-screen, .join-screen, div').forEach(el => {
-                if (el.innerHTML.includes('Join Koraput Map')) {
-                    el.style.display = 'none';
-                }
-            });
-
-            startGame();
-        };
-
-        if (file) {
-            const reader = new FileReader();
-            reader.onload = function(event) {
-                launchMap(event.target.result);
-            }
-            reader.readAsDataURL(file);
-        } else {
-            launchMap('satyam.png');
-        }
+    if (button && (button.innerText.includes('Join Map') || button.id === 'joinBtn')) {
+        handleJoinAction(e);
     }
 });
 
-function startGame() {
+function hideJoinScreenAndStart() {
+    // Hide all possible join screens/forms/overlays safely
+    const joinScreens = document.querySelectorAll('#join-screen, form, div[style*="position"]');
+    joinScreens.forEach(el => {
+        if (el.innerHTML.includes('Join Koraput Map') || el.id === 'join-screen' || el.tagName === 'FORM') {
+            el.style.display = 'none';
+        }
+    });
+
     const chatToggleBtn = document.getElementById('chat-toggle-btn');
     const chatContainer = document.getElementById('chat-container');
 
@@ -169,7 +174,7 @@ function startGame() {
     }
 }
 
-// 6. Add Custom Upload Button Directly into Leaflet Control Area
+// 6. Custom Upload Control Button in Leaflet
 const UploadControl = L.Control.extend({
     options: { position: 'topleft' },
     onAdd: function (map) {
