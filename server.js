@@ -17,7 +17,17 @@ io.on('connection', (socket) => {
     socket.on('chatMessage', (data) => {
         io.emit('chatMessage', data);
     });
-
+// Geo-tagged Memory Photo Upload & Broadcast
+    socket.on('uploadMemoryPhoto', (data) => {
+        io.emit('newMemoryPin', {
+            id: socket.id,
+            name: data.name,
+            lat: data.lat,
+            lng: data.lng,
+            image: data.image,
+            time: data.time
+        });
+    });
     socket.on('disconnect', () => {
         io.emit('friendDisconnected', socket.id);
     });
