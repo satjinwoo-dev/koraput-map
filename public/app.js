@@ -83,40 +83,51 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-// 5. Universal Join Map Logic (Handles Click without ID mismatch issues)
-document.addEventListener('click', (e) => {
-    if (e.target && (e.target.id === 'joinBtn' || (e.target.innerText && e.target.innerText.includes('Join Map')))) {
-        e.preventDefault();
+// 5. Foolproof Join Screen Handler & Button Listener
+window.addEventListener('DOMContentLoaded', () => {
+    const joinBtn = document.querySelector('button');
+    
+    if (joinBtn) {
+        joinBtn.addEventListener('click', (e) => {
+            e.preventDefault();
 
-        const inputName = document.getElementById('nameInput')?.value.trim() || document.querySelector('input[type="text"]')?.value.trim();
-        if (inputName) myName = inputName;
-
-        const headerName = document.getElementById('header-name');
-        if (headerName) headerName.innerText = myName + " (Koraput Map)";
-
-        const fileInputElem = document.getElementById('imageInput') || document.querySelector('input[type="file"]');
-        const file = fileInputElem?.files?.[0];
-
-        const proceedWithAvatar = (avatarSrc) => {
-            myAvatarData = avatarSrc;
-            const headerAvatar = document.getElementById('header-avatar');
-            if (headerAvatar) headerAvatar.src = myAvatarData;
-            
-            localStorage.setItem('koraput_name', myName);
-            localStorage.setItem('koraput_avatar', myAvatarData);
-
-            startGame();
-        };
-
-        if (file) {
-            const reader = new FileReader();
-            reader.onload = function(event) {
-                proceedWithAvatar(event.target.result);
+            const nameInput = document.querySelector('input[type="text"]');
+            if (nameInput && nameInput.value.trim() !== '') {
+                myName = nameInput.value.trim();
             }
-            reader.readAsDataURL(file);
-        } else {
-            proceedWithAvatar('satyam.png');
-        }
+
+            const headerName = document.getElementById('header-name');
+            if (headerName) headerName.innerText = myName + " (Koraput Map)";
+
+            const fileInputElem = document.querySelector('input[type="file"]');
+            const file = fileInputElem?.files?.[0];
+
+            const launchMap = (avatarSrc) => {
+                myAvatarData = avatarSrc;
+                const headerAvatar = document.getElementById('header-avatar');
+                if (headerAvatar) headerAvatar.src = myAvatarData;
+                
+                localStorage.setItem('koraput_name', myName);
+                localStorage.setItem('koraput_avatar', myAvatarData);
+
+                const joinScreen = document.getElementById('join-screen') || joinBtn.closest('div[style*="position"], div');
+                if (joinScreen) {
+                    joinScreen.style.display = 'none';
+                }
+
+                startGame();
+            };
+
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    launchMap(event.target.result);
+                }
+                reader.readAsDataURL(file);
+            } else {
+                launchMap('satyam.png');
+            }
+        });
     }
 });
 
@@ -377,7 +388,7 @@ document.addEventListener('click', (e) => {
     }
 });
 
-if (emojiقات = emojiPicker && chatInput) {
+if (emojiPicker && chatInput) {
     emojiPicker.addEventListener('emoji-click', event => {
         chatInput.value += event.detail.unicode;
         chatInput.focus();
