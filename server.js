@@ -1,67 +1,288 @@
-const express = require('express');
-const http = require('http');
-const path = require('path');
+// ==========================================
+// KORAPUT MAP - CLEAN SERVER
+// ==========================================
+
+const express = require("express");
+const http = require("http");
+const path = require("path");
 
 const app = express();
 const server = http.createServer(app);
 
-// Increase max payload size to 10MB (1e7 bytes) for high-res photos
-const io = require('socket.io')(server, {
-    maxHttpBufferSize: 1e7
+// ==========================================
+// 1. SOCKET.IO
+// ==========================================
+
+const io = require("socket.io")(server, {
+    // Base64 files are larger than the original files,
+    // so keep this above the client's 5 MB limit.
+    maxHttpBufferSize: 10 * 1024 * 1024
 });
 
-// Serve static files from 'public' folder
-app.use(express.static(path.join(__dirname, 'public')));
+// ==========================================
+// 2. STATIC FILES
+// ==========================================
 
-// Temporary storage for memory photos (in-memory array)
+app.use(express.static(path.join(__dirname, "public")));
+
+// ==========================================
+// 3. MEMORY PHOTO STORAGE
+// ==========================================
+
+// Temporary in-memory storage.
+// Photos will disappear when the server restarts.
 const memoryPhotos = [];
 
-io.on('connection', (socket) => {
-    console.log(`User Connected: ${socket.id}`);
+// Maximum number of memory pins kept in RAM.
+const MAX_MEMORY_PHOTOS = 100;
 
-    // Naye user ke connect hote hi use purani saari saved photos bhej do
-    socket.emit('loadMemoryPhotos', memoryPhotos);
+// ==========================================
+// 4. VALIDATION HELPERS
+// ==========================================
 
-    // Real-Time Location Tracking & Sync
-    socket.on('updateLocation', (data) => {
-        socket.broadcast.emit('friendMoved', { 
-            id: socket.id, 
-            lat: data.lat, 
-            lng: data.lng, 
-            avatar: data.avatar, 
-            weather: data.weather 
-        });
+function isValidCoordinate(value, min, max) {
+    const number = Number(value);
+
+    return (
+        Number.isFinite(number) &&
+        number >= min &&
+        number <= max
+    );
+}
+
+function isValidImageData(value) {
+    if (typeof value !== "string") {
+        return false;
+    }
+
+    return /^data:image\/[a-zA-Z0-9.+-]+;base64,/i.test(value);
+}
+
+function cleanName(value) {
+    if (typeof value !== "string") {
+        return "User";
+    }
+
+    return value
+        .trim()
+        .slice(0, 40) || "User";
+}
+
+function isValidChatMessage(msg) {
+    if (!msg || typeof msg !== "object") {
+        return false;
+    }
+
+    if (
+        typeof msg.name !== "string" ||
+        typeof msg.type !== "string"
+    ) {
+        return false;
+    }
+
+    if (typeof msg.data !== "string") {
+        return false;
+    }
+
+    const allowedTypes = [
+        "text",
+        "image",
+        "video",
+        "audio",
+        "document"
+    ];
+
+    return allowedTypes.includes(msg.type);
+}
+
+// ==========================================
+// 5. SOCKET CONNECTION
+// ==========================================
+
+io.on("connection", (socket) => {
+    console.log(`User connected: ${socket.id}`);
+
+    // Send existing memory photos to the new user.
+    socket.emit(
+        "loadMemoryPhotos",
+        memoryPhotos
+    );
+
+    // ======================================
+    // REAL-TIME LOCATION
+    // ======================================
+
+    socket.on("updateLocation", (data) => {
+        if (!data || typeof data !== "object") {
+            return;
+        }
+
+        const lat = Number(data.lat);
+        const lng = Number(data.lng);
+
+        if (
+            !isValidCoordinate(lat, -90, 90) ||
+            !isValidCoordinate(lng, -180, 180)
+        ) {
+            console.warn(
+                `Invalid location from ${socket.id}`
+            );
+            return;
+        }
+
+        const name = cleanName(data.name);
+
+        const avatar =
+            typeof data.avatar === "string"
+                ? data.avatar
+                : "friend1.png";
+
+        const weather =
+            typeof data.weather === "string"
+                ? data.weather.slice(0, 50)
+                : "";
+
+        socket.broadcast.emit(
+            "friendMoved",
+            {
+                id: socket.id,
+                name,
+                lat,
+                lng,
+                avatar,
+                weather
+            }
+        );
     });
 
-    // Real-time Chat Message Broadcast
-    socket.on('chatMessage', (msg) => {
-        io.emit('chatMessage', msg);
-    });
+    // ======================================
+    // CHAT
+    // ======================================
 
-    // Geo-tagged Memory Photo Upload & Broadcast & Save
-    socket.on('uploadMemoryPhoto', (data) => {
-        const newPin = {
-            id: socket.id,
-            name: data.name,
-            lat: data.lat,
-            lng: data.lng,
-            image: data.image,
-            time: data.time
+    socket.on("chatMessage", (msg) => {
+        if (!isValidChatMessage(msg)) {
+            console.warn(
+                `Invalid chat message from ${socket.id}`
+            );
+            return;
+        }
+
+        const cleanMessage = {
+            name: cleanName(msg.name),
+            type: msg.type,
+            data: msg.data
         };
-        
-        // Array mein save karo taaki refresh hone par bhi rahe
-        memoryPhotos.push(newPin);
 
-        // Sabhi ko broadcast karo
-        io.emit('newMemoryPin', newPin);
+        io.emit(
+            "chatMessage",
+            cleanMessage
+        );
     });
 
-    socket.on('disconnect', () => {
-        io.emit('friendDisconnected', socket.id);
+    // ======================================
+    // MEMORY PHOTO
+    // ======================================
+
+    socket.on(
+        "uploadMemoryPhoto",
+        (data) => {
+            if (!data || typeof data !== "object") {
+                return;
+            }
+
+            const lat = Number(data.lat);
+            const lng = Number(data.lng);
+
+            if (
+                !isValidCoordinate(lat, -90, 90) ||
+                !isValidCoordinate(lng, -180, 180)
+            ) {
+                console.warn(
+                    `Invalid memory coordinates from ${socket.id}`
+                );
+                return;
+            }
+
+            if (!isValidImageData(data.image)) {
+                console.warn(
+                    `Invalid memory image from ${socket.id}`
+                );
+                return;
+            }
+
+            // Keep memory usage under control.
+            if (
+                memoryPhotos.length >=
+                MAX_MEMORY_PHOTOS
+            ) {
+                memoryPhotos.shift();
+            }
+
+            const newPin = {
+                id: socket.id,
+                name: cleanName(data.name),
+                lat,
+                lng,
+                image: data.image,
+                time:
+                    typeof data.time === "string"
+                        ? data.time.slice(0, 100)
+                        : new Date().toLocaleString()
+            };
+
+            memoryPhotos.push(newPin);
+
+            // Send new memory to everyone.
+            io.emit(
+                "newMemoryPin",
+                newPin
+            );
+        }
+    );
+
+    // ======================================
+    // DISCONNECT
+    // ======================================
+
+    socket.on("disconnect", (reason) => {
+        console.log(
+            `User disconnected: ${socket.id} (${reason})`
+        );
+
+        io.emit(
+            "friendDisconnected",
+            socket.id
+        );
     });
 });
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT} (10MB Payload Limit Active)`);
+// ==========================================
+// 6. SOCKET ERROR HANDLING
+// ==========================================
+
+io.engine.on("connection_error", (error) => {
+    console.error(
+        "Socket connection error:",
+        error.message
+    );
 });
+
+// ==========================================
+// 7. SERVER
+// ==========================================
+
+const PORT =
+    process.env.PORT || 3000;
+
+server.listen(
+    PORT,
+    () => {
+        console.log(
+            `Koraput Map server running on port ${PORT}`
+        );
+
+        console.log(
+            "Socket.IO max payload: 10 MB"
+        );
+    }
+);
