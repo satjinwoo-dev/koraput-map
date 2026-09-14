@@ -1,7 +1,3 @@
-// ==========================================
-// KORAPUT MAP — PHASE 2 SOCIAL SERVER
-// ==========================================
-
 const express = require("express");
 const http = require("http");
 const path = require("path");
@@ -17,42 +13,25 @@ const io = require("socket.io")(server, {
 app.disable("x-powered-by");
 app.use(express.static(path.join(__dirname, "public")));
 
-// ==========================================
-// MEMORY STORAGE
-// ==========================================
-
 const memoryPhotos = [];
-const MAX_MEMORY_PHOTOS = 100;
-
-// ==========================================
-// SOCIAL STORAGE
-// ==========================================
-
 const users = new Map();
 const messages = new Map();
 
+const MAX_MEMORY_PHOTOS = 100;
 const MAX_MESSAGES = 200;
 
-// ==========================================
-// VALIDATION
-// ==========================================
-
-function validCoordinate(value, min, max) {
-    const number = Number(value);
-
-    return (
-        Number.isFinite(number) &&
-        number >= min &&
-        number <= max
-    );
+function validCoord(value, min, max) {
+    const n = Number(value);
+    return Number.isFinite(n) && n >= min && n <= max;
 }
 
 function cleanName(value) {
-    if (typeof value !== "string") {
-        return "User";
-    }
+    if (typeof value !== "string") return "User";
 
-    return value.trim().slice(0, 40) || "User";
+    return value
+        .trim()
+        .replace(/\s+/g, " ")
+        .slice(0, 40) || "User";
 }
 
 function safeAvatar(value) {
@@ -62,16 +41,17 @@ function safeAvatar(value) {
 
     if (
         value.startsWith("data:image/") ||
-        /^https?:\/\//i.test(value)
+        /^https?:\/\//i.test(value) ||
+        /^[a-zA-Z0-9._/-]+$/.test(value)
     ) {
-        return value.slice(0, 3000000);
+        return value.slice(0, 3_000_000);
     }
 
     return "friend1.png";
 }
 
-function validChatMessage(message) {
-    if (!message || typeof message !== "object") {
+function validChatMessage(msg) {
+    if (!msg || typeof msg !== "object") {
         return false;
     }
 
@@ -83,16 +63,20 @@ function validChatMessage(message) {
         "document"
     ];
 
-    return (
-        allowedTypes.includes(message.type) &&
-        typeof message.data === "string" &&
-        message.data.length <= 8 * 1024 * 1024
-    );
-}
+    if (!allowedTypes.includes(msg.type)) {
+        return false;
+    }
 
-// ==========================================
-// PUBLIC USER DATA
-// ==========================================
+    if (typeof msg.data !== "string") {
+        return false;
+    }
+
+    if (msg.data.length > 8 * 1024 * 1024) {
+        return false;
+    }
+
+    return true;
+}
 
 function publicUser(id) {
     const user = users.get(id);
@@ -112,87 +96,78 @@ function publicUser(id) {
     };
 }
 
-// ==========================================
-// ONLINE USERS
-// ==========================================
-
-function broadcastOnlineUsers() {
-    const online = Array.from(users.keys())
+function getOnlineUsers() {
+    return Array.from(users.keys())
         .map(publicUser)
         .filter(Boolean);
-
-    io.emit("onlineUsers", online);
 }
 
+function broadcastOnlineUsers() {
+    io.emit("onlineUsers", getOnlineUsers());
+}
+
+
 // ==========================================
-// SOCKET CONNECTION
+// SOCKET.IO
 // ==========================================
 
-io.on("connection", socket => {
+io.on("connection", (socket) => {
 
     console.log("User connected:", socket.id);
 
-    // Send existing memories
-    socket.emit(
-        "loadMemoryPhotos",
-        memoryPhotos
-    );
+    // Send memory pins
+    socket.emit("loadMemoryPhotos", memoryPhotos);
 
-    // Send current online users
-    socket.emit(
-        "onlineUsers",
-        Array.from(users.keys())
-            .map(publicUser)
-            .filter(Boolean)
-    );
+    // Send online users
+    socket.emit("onlineUsers", getOnlineUsers());
 
-    // ==========================================
+
+    // ======================================
     // PROFILE
-    // ==========================================
+    // ======================================
 
-    socket.on("profileReady", data => {
+    socket.on("profileReady", (data) => {
 
-        const oldUser = users.get(socket.id) || {};
+        const old = users.get(socket.id) || {};
 
-        users.set(socket.id, {
-
+        const user = {
             name: cleanName(data?.name),
-
             avatar: safeAvatar(data?.avatar),
 
             lat:
-                oldUser.lat ??
-                null,
+                validCoord(old.lat, -90, 90)
+                    ? old.lat
+                    : null,
 
             lng:
-                oldUser.lng ??
-                null,
+                validCoord(old.lng, -180, 180)
+                    ? old.lng
+                    : null,
 
-            weather:
-                oldUser.weather ||
-                ""
-        });
+            weather: old.weather || ""
+        };
 
-        const user = publicUser(socket.id);
+        users.set(socket.id, user);
 
         socket.emit(
             "profileConfirmed",
-            user
+            publicUser(socket.id)
         );
 
         socket.broadcast.emit(
             "userOnline",
-            user
+            publicUser(socket.id)
         );
 
         broadcastOnlineUsers();
     });
 
-    // ==========================================
-    // LIVE LOCATION
-    // ==========================================
 
-    socket.on("updateLocation", data => {
+    // ======================================
+    // LIVE LOCATION
+    // ======================================
+
+    socket.on("updateLocation", (data) => {
 
         if (!data || typeof data !== "object") {
             return;
@@ -202,27 +177,21 @@ io.on("connection", socket => {
         const lng = Number(data.lng);
 
         if (
-            !validCoordinate(lat, -90, 90) ||
-            !validCoordinate(lng, -180, 180)
+            !validCoord(lat, -90, 90) ||
+            !validCoord(lng, -180, 180)
         ) {
             return;
         }
 
-        const oldUser = users.get(socket.id) || {};
+        const old = users.get(socket.id) || {};
 
         const user = {
-
-            name:
-                cleanName(
-                    data.name ??
-                    oldUser.name
-                ),
+            name: cleanName(data.name ?? old.name),
 
             avatar:
-                safeAvatar(
-                    data.avatar ??
-                    oldUser.avatar
-                ),
+                data.avatar !== undefined
+                    ? safeAvatar(data.avatar)
+                    : safeAvatar(old.avatar),
 
             lat,
             lng,
@@ -230,28 +199,23 @@ io.on("connection", socket => {
             weather:
                 typeof data.weather === "string"
                     ? data.weather.slice(0, 50)
-                    : oldUser.weather || ""
+                    : old.weather || ""
         };
 
-        users.set(
-            socket.id,
-            user
-        );
+        users.set(socket.id, user);
 
-        socket.broadcast.emit(
-            "friendMoved",
-            {
-                id: socket.id,
-                ...publicUser(socket.id)
-            }
-        );
+        socket.broadcast.emit("friendMoved", {
+            id: socket.id,
+            ...publicUser(socket.id)
+        });
     });
 
-    // ==========================================
-    // TYPING INDICATOR
-    // ==========================================
 
-    socket.on("typing", value => {
+    // ======================================
+    // TYPING INDICATOR
+    // ======================================
+
+    socket.on("typing", (isTyping) => {
 
         const user = users.get(socket.id);
 
@@ -259,113 +223,84 @@ io.on("connection", socket => {
             return;
         }
 
-        socket.broadcast.emit(
-            "typing",
-            {
-                id: socket.id,
-
-                name: user.name,
-
-                isTyping:
-                    Boolean(value)
-            }
-        );
+        socket.broadcast.emit("typing", {
+            id: socket.id,
+            name: user.name,
+            isTyping: Boolean(isTyping)
+        });
     });
 
-    // ==========================================
+
+    // ======================================
     // CHAT MESSAGE
-    // ==========================================
+    // ======================================
 
-    socket.on("chatMessage", message => {
+    socket.on("chatMessage", (msg) => {
 
-        if (!validChatMessage(message)) {
+        if (!validChatMessage(msg)) {
             return;
         }
 
         const user = users.get(socket.id);
 
-        const messageId =
-            crypto.randomUUID();
+        const message = {
+            id: crypto.randomUUID(),
 
-        const cleanMessage = {
-
-            id: messageId,
-
-            senderId:
-                socket.id,
+            senderId: socket.id,
 
             name:
                 user?.name ||
-                cleanName(message.name),
+                cleanName(msg.name),
 
-            type:
-                message.type,
+            type: msg.type,
 
-            data:
-                message.data,
+            data: msg.data,
 
-            time:
-                new Date().toISOString(),
+            time: new Date().toISOString(),
 
             replyTo:
-                message.replyTo &&
-                typeof message.replyTo === "object"
+                msg.replyTo &&
+                typeof msg.replyTo === "object"
                     ? {
+                        id: String(
+                            msg.replyTo.id || ""
+                        ).slice(0, 100),
 
-                        id:
-                            String(
-                                message.replyTo.id ||
-                                ""
-                            ).slice(0, 100),
+                        name: cleanName(
+                            msg.replyTo.name
+                        ),
 
-                        name:
-                            cleanName(
-                                message.replyTo.name
-                            ),
+                        type: String(
+                            msg.replyTo.type || "text"
+                        ).slice(0, 20),
 
-                        type:
-                            String(
-                                message.replyTo.type ||
-                                "text"
-                            ).slice(0, 20),
-
-                        preview:
-                            String(
-                                message.replyTo.preview ||
-                                ""
-                            ).slice(0, 200)
-
+                        preview: String(
+                            msg.replyTo.preview || ""
+                        ).slice(0, 200)
                     }
                     : null,
 
             reactions: {}
         };
 
-        messages.set(
-            messageId,
-            cleanMessage
-        );
+        messages.set(message.id, message);
 
-        // Keep only the newest messages
-        if (messages.size > MAX_MESSAGES) {
-
+        while (messages.size > MAX_MESSAGES) {
             const firstId =
                 messages.keys().next().value;
 
             messages.delete(firstId);
         }
 
-        io.emit(
-            "chatMessage",
-            cleanMessage
-        );
+        io.emit("chatMessage", message);
     });
 
-    // ==========================================
-    // MESSAGE REACTIONS
-    // ==========================================
 
-    socket.on("messageReaction", data => {
+    // ======================================
+    // MESSAGE REACTION
+    // ======================================
+
+    socket.on("messageReaction", (data) => {
 
         if (!data || typeof data !== "object") {
             return;
@@ -382,7 +317,7 @@ io.on("connection", socket => {
         const message =
             messages.get(messageId);
 
-        const allowedReactions = [
+        const allowed = [
             "👍",
             "❤️",
             "😂",
@@ -393,7 +328,7 @@ io.on("connection", socket => {
 
         if (
             !message ||
-            !allowedReactions.includes(emoji)
+            !allowed.includes(emoji)
         ) {
             return;
         }
@@ -402,45 +337,30 @@ io.on("connection", socket => {
             message.reactions[emoji] = [];
         }
 
-        const usersForReaction =
+        const list =
             message.reactions[emoji];
 
-        const existingIndex =
-            usersForReaction.indexOf(
-                socket.id
-            );
+        const index =
+            list.indexOf(socket.id);
 
-        if (existingIndex >= 0) {
-
-            usersForReaction.splice(
-                existingIndex,
-                1
-            );
-
+        if (index >= 0) {
+            list.splice(index, 1);
         } else {
-
-            usersForReaction.push(
-                socket.id
-            );
+            list.push(socket.id);
         }
 
-        io.emit(
-            "messageReaction",
-            {
-                messageId:
-                    message.id,
-
-                reactions:
-                    message.reactions
-            }
-        );
+        io.emit("messageReaction", {
+            messageId: message.id,
+            reactions: message.reactions
+        });
     });
 
-    // ==========================================
-    // MEMORY PHOTO
-    // ==========================================
 
-    socket.on("uploadMemoryPhoto", data => {
+    // ======================================
+    // MEMORY PHOTO
+    // ======================================
+
+    socket.on("uploadMemoryPhoto", (data) => {
 
         if (!data || typeof data !== "object") {
             return;
@@ -450,8 +370,8 @@ io.on("connection", socket => {
         const lng = Number(data.lng);
 
         if (
-            !validCoordinate(lat, -90, 90) ||
-            !validCoordinate(lng, -180, 180)
+            !validCoord(lat, -90, 90) ||
+            !validCoord(lng, -180, 180)
         ) {
             return;
         }
@@ -465,18 +385,13 @@ io.on("connection", socket => {
             return;
         }
 
-        if (
-            data.image.length >
-            7 * 1024 * 1024
-        ) {
+        if (data.image.length > 7 * 1024 * 1024) {
             return;
         }
 
-        const user =
-            users.get(socket.id);
+        const user = users.get(socket.id);
 
-        const newPin = {
-
+        const pin = {
             id:
                 `${socket.id}-${Date.now()}`,
 
@@ -485,11 +400,9 @@ io.on("connection", socket => {
                 cleanName(data.name),
 
             lat,
-
             lng,
 
-            image:
-                data.image,
+            image: data.image,
 
             time:
                 typeof data.time === "string"
@@ -497,9 +410,7 @@ io.on("connection", socket => {
                     : ""
         };
 
-        memoryPhotos.push(
-            newPin
-        );
+        memoryPhotos.push(pin);
 
         if (
             memoryPhotos.length >
@@ -508,42 +419,32 @@ io.on("connection", socket => {
             memoryPhotos.shift();
         }
 
-        io.emit(
-            "newMemoryPin",
-            newPin
-        );
+        io.emit("newMemoryPin", pin);
     });
 
-    // ==========================================
+
+    // ======================================
     // DISCONNECT
-    // ==========================================
+    // ======================================
 
-    socket.on("disconnect", reason => {
+    socket.on("disconnect", (reason) => {
 
-        users.delete(
-            socket.id
-        );
+        users.delete(socket.id);
+
+        socket.broadcast.emit("typing", {
+            id: socket.id,
+            name: "",
+            isTyping: false
+        });
 
         socket.broadcast.emit(
-            "typing",
-            {
-                id: socket.id,
-                name: "",
-                isTyping: false
-            }
-        );
-
-        io.emit(
             "friendDisconnected",
             socket.id
         );
 
-        io.emit(
-            "userOffline",
-            {
-                id: socket.id
-            }
-        );
+        io.emit("userOffline", {
+            id: socket.id
+        });
 
         broadcastOnlineUsers();
 
@@ -555,19 +456,14 @@ io.on("connection", socket => {
     });
 });
 
-// ==========================================
-// SOCKET ERROR
-// ==========================================
 
-io.engine.on(
-    "connection_error",
-    error => {
-        console.error(
-            "Socket connection error:",
-            error.message
-        );
-    }
-);
+io.engine.on("connection_error", (error) => {
+    console.error(
+        "Socket connection error:",
+        error.message
+    );
+});
+
 
 // ==========================================
 // START SERVER
@@ -576,11 +472,8 @@ io.engine.on(
 const PORT =
     process.env.PORT || 3000;
 
-server.listen(
-    PORT,
-    () => {
-        console.log(
-            `Koraput Map running at http://localhost:${PORT}`
-        );
-    }
-);
+server.listen(PORT, () => {
+    console.log(
+        `Koraput Map running at http://localhost:${PORT}`
+    );
+});
