@@ -24,35 +24,16 @@ const MAX_CHAT_FILE_SIZE = 5 * 1024 * 1024;
 const MAX_MEMORY_FILE_SIZE = 8 * 1024 * 1024;
 const MAX_AVATAR_FILE_SIZE = 3 * 1024 * 1024;
 
-const ALLOWED_MEMORY_TYPES = [
-    "image/jpeg",
-    "image/png",
-    "image/webp",
-    "image/gif"
-];
-
-const ALLOWED_AVATAR_TYPES = [
-    "image/jpeg",
-    "image/png",
-    "image/webp",
-    "image/gif"
-];
+const ALLOWED_MEMORY_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+const ALLOWED_AVATAR_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
 // ==========================================
 // SOCKET STATUS
 // ==========================================
 
-socket.on("connect", () => {
-    console.log("Connected:", socket.id);
-});
-
-socket.on("disconnect", () => {
-    console.log("Disconnected from server.");
-});
-
-socket.on("connect_error", (error) => {
-    console.warn("Socket connection error:", error.message);
-});
+socket.on("connect", () => console.log("Connected:", socket.id));
+socket.on("disconnect", () => console.log("Disconnected from server."));
+socket.on("connect_error", (error) => console.warn("Socket connection error:", error.message));
 
 // ==========================================
 // INITIALIZE MAP
@@ -68,33 +49,19 @@ const map = L.map("map", {
 // MAP LAYERS
 // ==========================================
 
-const satelliteLayer = L.tileLayer(
-    "https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}",
-    {
-        maxZoom: 20,
-        subdomains: ["mt0", "mt1", "mt2", "mt3"],
-        attribution: "&copy; Google Maps"
-    }
-);
+const satelliteLayer = L.tileLayer("https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}", {
+    maxZoom: 20, subdomains: ["mt0", "mt1", "mt2", "mt3"], attribution: "&copy; Google Maps"
+});
 
-const streetLayer = L.tileLayer(
-    "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-    {
-        maxZoom: 19,
-        attribution: "&copy; OpenStreetMap contributors"
-    }
-);
+const streetLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19, attribution: "&copy; OpenStreetMap contributors"
+});
 
-const darkLayer = L.tileLayer(
-    "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-    {
-        maxZoom: 20,
-        attribution: "&copy; CARTO"
-    }
-);
+const darkLayer = L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+    maxZoom: 20, attribution: "&copy; CARTO"
+});
 
 let currentMapStyle = "satellite";
-
 satelliteLayer.addTo(map);
 
 // ==========================================
@@ -112,7 +79,6 @@ let currentWeatherData = "";
 
 const friendMarkers = Object.create(null);
 const friendData = Object.create(null);
-
 const memoryMarkers = Object.create(null);
 
 let currentUser = {
@@ -134,21 +100,11 @@ function escapeHTML(value) {
 }
 
 function isValidCoordinate(lat, lng) {
-    return (
-        Number.isFinite(lat) &&
-        Number.isFinite(lng) &&
-        lat >= -90 &&
-        lat <= 90 &&
-        lng >= -180 &&
-        lng <= 180
-    );
+    return (Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180);
 }
 
 function cleanName(name) {
-    return String(name || "")
-        .trim()
-        .replace(/\s+/g, " ")
-        .slice(0, MAX_NAME_LENGTH);
+    return String(name || "").trim().replace(/\s+/g, " ").slice(0, MAX_NAME_LENGTH);
 }
 
 function weatherEmoji(code) {
@@ -243,49 +199,6 @@ function emitLocation() {
 }
 
 // ==========================================
-// SQUAD PANEL RENDER
-// ==========================================
-
-function renderSquadPanel() {
-    const list = document.getElementById('squad-list');
-    const count = document.getElementById('squad-count');
-    if (!list) return;
-
-    let html = `
-        <div class="squad-item" onclick="if(myCoords) map.setView([myCoords.lat, myCoords.lng], 16)">
-            <div class="squad-dot me"></div>
-            <div class="squad-info">
-                <span class="squad-name">${escapeHTML(currentUser.name) || 'You'} (You)</span>
-                <span class="squad-meta">${currentWeatherData || 'Locating...'}</span>
-            </div>
-        </div>
-    `;
-
-    let total = 1;
-    for (let id in friendData) {
-        const f = friendData[id];
-        let distStr = "";
-        if (myCoords) {
-            const dist = haversineDistance(myCoords.lat, myCoords.lng, f.lat, f.lng);
-            distStr = dist < 1 ? Math.round(dist * 1000) + 'm' : dist + 'km';
-        }
-        html += `
-            <div class="squad-item" onclick="map.setView([${f.lat}, ${f.lng}], 16)">
-                <div class="squad-dot friend"></div>
-                <div class="squad-info">
-                    <span class="squad-name">${escapeHTML(f.name)}</span>
-                    <span class="squad-meta">${distStr} • ${escapeHTML(f.weather)}</span>
-                </div>
-            </div>
-        `;
-        total++;
-    }
-    list.innerHTML = html;
-    if (count) count.textContent = `${total} •`;
-}
-
-
-// ==========================================
 // GPS
 // ==========================================
 
@@ -302,7 +215,6 @@ function startLocationTracking() {
             const accuracy = Number(position.coords.accuracy);
 
             if (!isValidCoordinate(lat, lng)) return;
-
             myCoords = { lat, lng };
 
             if (Number.isFinite(accuracy) && accuracy > 0 && accuracy < 100000) {
@@ -318,15 +230,8 @@ function startLocationTracking() {
             }
 
             if (!ownMarker) {
-                ownMarker = L.marker([lat, lng], {
-                    icon: createOwnIcon(currentUser.avatar),
-                    zIndexOffset: 1000
-                }).addTo(map);
-
-                if (firstLocationFix) {
-                    map.setView([lat, lng], 16);
-                    firstLocationFix = false;
-                }
+                ownMarker = L.marker([lat, lng], { icon: createOwnIcon(currentUser.avatar), zIndexOffset: 1000 }).addTo(map);
+                if (firstLocationFix) { map.setView([lat, lng], 16); firstLocationFix = false; }
             } else {
                 ownMarker.setLatLng([lat, lng]);
             }
@@ -344,7 +249,6 @@ function startLocationTracking() {
             }
 
             emitLocation();
-            renderSquadPanel(); // Update Panel
         },
         (error) => console.warn("GPS Error:", error.message),
         { enableHighAccuracy: true, timeout: 15000, maximumAge: 3000 }
@@ -357,14 +261,11 @@ function startLocationTracking() {
 
 socket.on("friendMoved", (data) => {
     if (!data || !data.id) return;
-
     const lat = Number(data.lat);
     const lng = Number(data.lng);
-
     if (!isValidCoordinate(lat, lng)) return;
 
     const name = cleanName(data.name);
-
     if (name && name === currentUser.name) return;
 
     const avatar = isValidImageDataURL(data.avatar) ? data.avatar : (data.avatar || DEFAULT_AVATAR);
@@ -390,19 +291,11 @@ socket.on("friendMoved", (data) => {
     if (badge) {
         marker.bindTooltip(badge, { permanent: true, direction: "right", className: "weather-badge", offset: [15, 0] });
     }
-    
-    renderSquadPanel(); // Update Panel
 });
 
 socket.on("friendDisconnected", (id) => {
-    if (friendMarkers[id]) {
-        map.removeLayer(friendMarkers[id]);
-        delete friendMarkers[id];
-    }
-    if (friendData[id]) {
-        delete friendData[id];
-        renderSquadPanel(); // Update Panel
-    }
+    if (friendMarkers[id]) { map.removeLayer(friendMarkers[id]); delete friendMarkers[id]; }
+    if (friendData[id]) delete friendData[id];
 });
 
 // ==========================================
@@ -471,7 +364,6 @@ function setupUserJoin() {
             headerAvatar.src = currentUser.avatar || DEFAULT_AVATAR;
             headerAvatar.style.display = "block";
         }
-        renderSquadPanel(); // Show Panel
     }
 
     if (avatarInput) {
@@ -518,7 +410,6 @@ function setupUserJoin() {
         }
         if (ownMarker) ownMarker.setIcon(createOwnIcon(currentUser.avatar));
         emitLocation();
-        renderSquadPanel(); // Show panel
         setTimeout(() => map.invalidateSize(), 300);
     }
 }
@@ -728,7 +619,7 @@ function setupVoiceRecorder() {
 
     function resetVoiceButton() {
         voiceBtn.style.background = "transparent";
-        voiceBtn.style.color = "#8d9ba2";
+        voiceBtn.style.color = "var(--muted)";
         voiceBtn.innerHTML = "🎙️";
         if (chatInput && sendBtn && chatInput.value.trim()) {
             voiceBtn.style.display = "none";
@@ -774,7 +665,7 @@ function setupVoiceRecorder() {
             };
 
             recorder.start();
-            voiceBtn.style.background = "#ef4444"; voiceBtn.style.color = "#fff"; voiceBtn.innerHTML = "⏹️";
+            voiceBtn.style.background = "var(--green)"; voiceBtn.style.color = "#fff"; voiceBtn.innerHTML = "⏹️";
         } catch (error) {
             console.warn("Microphone error:", error);
             alert("Microphone access denied.");
