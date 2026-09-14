@@ -18,9 +18,7 @@
     <!-- =========================================================
          LEAFLET
     ========================================================== -->
-    <link rel="stylesheet"
-          href="https://unpkg.com/leaflet/dist/leaflet.css">
-
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
     <!-- =========================================================
@@ -31,1137 +29,267 @@
     <!-- =========================================================
          EMOJI PICKER
     ========================================================== -->
-    <script type="module"
-            src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js">
-    </script>
+    <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js"></script>
 
     <style>
-
         /* =========================================================
            CORE THEME
         ========================================================== */
-
         :root {
             --bg: #071016;
             --panel: rgba(9, 18, 24, 0.96);
             --panel-soft: rgba(17, 28, 35, 0.92);
-
             --text: #f4f7f8;
             --muted: #91a0a8;
-
             --green: #00a884;
             --green-bright: #18d6a3;
             --green-soft: rgba(0, 168, 132, 0.18);
-
             --blue: #4da3ff;
-
             --border: rgba(255,255,255,0.10);
-
-            --shadow:
-                0 15px 45px rgba(0,0,0,0.55);
-
-            --shadow-small:
-                0 6px 18px rgba(0,0,0,0.45);
+            --shadow: 0 15px 45px rgba(0,0,0,0.55);
+            --shadow-small: 0 6px 18px rgba(0,0,0,0.45);
         }
-
 
         /* =========================================================
            RESET
         ========================================================== */
-
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-            -webkit-tap-highlight-color: transparent;
-        }
-
-        html,
-        body {
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
-
-            background: var(--bg);
-            color: var(--text);
-
-            font-family:
-                -apple-system,
-                BlinkMacSystemFont,
-                "Segoe UI",
-                Roboto,
-                Helvetica,
-                Arial,
-                sans-serif;
-        }
-
-        button,
-        input {
-            font-family: inherit;
-        }
-
-        button {
-            cursor: pointer;
-            user-select: none;
-        }
-
+        * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+        html, body { width: 100%; height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+        button, input { font-family: inherit; }
+        button { cursor: pointer; user-select: none; }
 
         /* =========================================================
            MAP
         ========================================================== */
-
-        #map {
-            position: fixed;
-            inset: 0;
-
-            width: 100vw;
-            height: 100vh;
-            height: 100dvh;
-
-            z-index: 1;
-
-            background: #071016;
-        }
-
-        .leaflet-tile {
-            filter:
-                saturate(1.08)
-                contrast(1.04)
-                brightness(0.96);
-        }
-
-        .leaflet-container {
-            background: #071016;
-        }
-
-        .leaflet-control {
-            border: none !important;
-        }
-
-
-        /* =========================================================
-           LEAFLET Z-INDEX
-        ========================================================== */
-
-        .leaflet-control-container {
-            z-index: 5000;
-        }
-
-        .leaflet-top,
-        .leaflet-bottom {
-            z-index: 5000;
-        }
-
-
-        /* =========================================================
-           ZOOM CONTROL
-        ========================================================== */
-
-        .leaflet-control-zoom {
-            margin-top: 78px !important;
-            margin-left: 18px !important;
-
-            border:
-                1px solid rgba(255,255,255,0.10)
-                !important;
-
-            border-radius: 11px !important;
-
-            overflow: hidden;
-
-            box-shadow:
-                0 7px 22px rgba(0,0,0,0.45)
-                !important;
-        }
-
-        .leaflet-control-zoom a {
-            width: 34px !important;
-            height: 34px !important;
-
-            line-height: 34px !important;
-
-            background:
-                rgba(8,17,22,0.94)
-                !important;
-
-            color: #f1f5f6 !important;
-
-            border-bottom:
-                1px solid rgba(255,255,255,0.08)
-                !important;
-
-            font-size: 17px !important;
-
-            transition:
-                background 0.18s ease,
-                color 0.18s ease;
-        }
-
-        .leaflet-control-zoom a:last-child {
-            border-bottom: none !important;
-        }
-
-        .leaflet-control-zoom a:hover {
-            background:
-                rgba(0,168,132,0.20)
-                !important;
-
-            color: var(--green-bright) !important;
-        }
-
+        #map { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; z-index: 1; background: #071016; }
+        .leaflet-tile { filter: saturate(1.08) contrast(1.04) brightness(0.96); }
+        .leaflet-container { background: #071016; }
+        .leaflet-control { border: none !important; }
+        .leaflet-control-container { z-index: 5000; }
+        .leaflet-top, .leaflet-bottom { z-index: 5000; }
+        .leaflet-control-zoom { display: none !important; } /* Hidden, using custom controls */
 
         /* =========================================================
            MEMORY CAMERA BUTTON
         ========================================================== */
-
         #memoryButton {
-            position: fixed !important;
-
-            top:
-                calc(
-                    env(safe-area-inset-top, 0px)
-                    + 18px
-                ) !important;
-
-            left: 18px !important;
-
-            width: 42px !important;
-            height: 42px !important;
-
-            border-radius: 13px !important;
-
-            background:
-                rgba(7,16,22,0.90)
-                !important;
-
-            border:
-                1px solid rgba(255,255,255,0.12)
-                !important;
-
-            color: #ffffff !important;
-
-            display: flex !important;
-
-            align-items: center !important;
-            justify-content: center !important;
-
-            z-index: 99999 !important;
-
-            box-shadow:
-                0 7px 22px rgba(0,0,0,0.45),
-                inset 0 1px 0 rgba(255,255,255,0.05)
-                !important;
-
-            backdrop-filter: blur(12px);
-
-            transition:
-                transform 0.15s ease,
-                background 0.15s ease,
-                border-color 0.15s ease;
+            position: fixed !important; top: calc(env(safe-area-inset-top, 0px) + 18px) !important; left: 18px !important;
+            width: 42px !important; height: 42px !important; border-radius: 13px !important; background: rgba(7,16,22,0.90) !important;
+            border: 1px solid rgba(255,255,255,0.12) !important; color: #ffffff !important; display: flex !important;
+            align-items: center !important; justify-content: center !important; z-index: 99999 !important;
+            box-shadow: 0 7px 22px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.05) !important; backdrop-filter: blur(12px);
+            transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
         }
-
-        #memoryButton:hover {
-            background:
-                rgba(17,32,40,0.96)
-                !important;
-
-            border-color:
-                rgba(0,168,132,0.45)
-                !important;
-        }
-
-        #memoryButton:active {
-            transform: scale(0.91);
-        }
-
-        #memoryButton svg {
-            width: 19px;
-            height: 19px;
-        }
-
-        #memoryPhotoInput {
-            display: none;
-        }
-
+        #memoryButton:hover { background: rgba(17,32,40,0.96) !important; border-color: rgba(0,168,132,0.45) !important; }
+        #memoryButton:active { transform: scale(0.91); }
+        #memoryPhotoInput { display: none; }
 
         /* =========================================================
-           ⭐ REAL-TIME LOCATION AVATAR & MEMORY PINS
-           (BULLETPROOF FIX)
+           PHASE 1 — PREMIUM MAP CONTROLS
         ========================================================== */
-
-        /* 1. Remove Leaflet's default background and center contents */
-        .leaflet-marker-icon.custom-icon,
-        .leaflet-marker-icon.custom-pin {
-            background: transparent !important;
-            border: none !important;
-            display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
+        #map-tools {
+            position: fixed; right: 18px; top: 20px; z-index: 5000; display: flex; flex-direction: column; gap: 8px;
         }
 
-        /* 2. Your Avatar Container */
-        .custom-icon .avatar-marker {
-            width: 42px !important;
-            height: 42px !important;
-            border-radius: 50% !important;
-            border: 2.5px solid var(--green-bright) !important;
-            background: #0b171c !important;
-            display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-            overflow: hidden !important;
-            box-shadow: 0 0 0 2px rgba(0,168,132,0.20), 0 3px 12px rgba(0,0,0,0.65) !important;
-            transition: transform 0.2s ease;
+        #map-tools button {
+            width: 42px; height: 42px; border: 1px solid rgba(255,255,255,0.12); border-radius: 12px;
+            background: rgba(7, 13, 18, 0.88); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+            color: #f8fafc; font-size: 18px; display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.05);
+            transition: transform 0.15s ease, background 0.2s ease, border-color 0.2s ease;
         }
 
-        /* 3. Friend's Avatar Container */
-        .custom-icon .avatar-marker.friend {
-            width: 36px !important;
-            height: 36px !important;
-            border-color: var(--blue) !important;
-            box-shadow: 0 0 0 2px rgba(77,163,255,0.16), 0 3px 11px rgba(0,0,0,0.60) !important;
+        #map-tools button:hover { background: rgba(20, 30, 38, 0.95); border-color: rgba(16,185,129,0.45); }
+        #map-tools button:active { transform: scale(0.91); }
+        
+        #my-location-btn { color: #10b981 !important; font-size: 27px !important; line-height: 1; }
+        #compass-btn { font-size: 14px !important; font-weight: 800; color: #f8fafc !important; }
+        #compass-btn span { display: inline-block; transition: transform 0.1s linear; }
+
+        /* MAP STYLE MENU */
+        #map-style-menu {
+            position: fixed; right: 70px; top: 116px; width: 150px; padding: 6px;
+            background: rgba(7,13,18,0.94); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; box-shadow: 0 15px 35px rgba(0,0,0,0.45);
+            display: none; flex-direction: column; gap: 3px; z-index: 5001;
         }
 
-        /* 4. Memory Pin Container */
-        .custom-pin .memory-pin-box {
-            width: 42px !important;
-            height: 42px !important;
-            border-radius: 50% !important;
-            border: 2.5px solid #ea4335 !important;
-            background: #fff !important;
-            display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-            overflow: hidden !important;
-            box-shadow: 0 0 0 2px rgba(234,67,53,0.20), 0 3px 12px rgba(0,0,0,0.65) !important;
-            transition: transform 0.2s ease;
-        }
+        #map-style-menu button { border: none; border-radius: 9px; background: transparent; color: #dbe4ea; text-align: left; padding: 10px 12px; font-size: 13px; }
+        #map-style-menu button:hover { background: rgba(255,255,255,0.07); }
+        #map-style-menu button.active { background: rgba(16,185,129,0.16); color: #34d399; }
 
-        .custom-pin:hover .memory-pin-box {
-            transform: scale(1.1);
-            box-shadow: 0 6px 18px rgba(0,0,0,0.55) !important;
+        /* =========================================================
+           YOUR LIVE AVATAR
+        ========================================================== */
+        .leaflet-marker-icon.custom-icon, .leaflet-marker-icon.custom-pin { background: transparent !important; border: none !important; display: flex !important; align-items: center !important; justify-content: center !important; }
+        
+        .leaflet-marker-icon.own-live-avatar {
+            border-radius: 50% !important; border: 2px solid #10b981 !important; background: #071018 !important; padding: 2px !important;
+            box-shadow: 0 0 0 2px rgba(16,185,129,0.16), 0 4px 14px rgba(0,0,0,0.65) !important; object-fit: cover !important;
         }
-
-        /* 5. Force ALL images to fill the circle perfectly */
-        .custom-icon .avatar-marker img,
-        .custom-pin .memory-pin-box img {
-            width: 100% !important;
-            height: 100% !important;
-            object-fit: cover !important;
-            border-radius: 50% !important;
-            display: block !important;
+        
+        /* FRIEND AVATAR */
+        .leaflet-marker-icon.friend-marker {
+            border-radius: 50% !important; border: 2px solid #60a5fa !important; background: #071018 !important; padding: 2px !important;
+            box-shadow: 0 0 0 2px rgba(96,165,250,0.12), 0 4px 14px rgba(0,0,0,0.6) !important; object-fit: cover !important;
         }
-
+        
+        /* MEMORY PIN */
+        .custom-pin .memory-pin-box { width: 42px !important; height: 42px !important; border-radius: 50% !important; border: 2.5px solid #ea4335 !important; background: #fff !important; display: flex !important; align-items: center !important; justify-content: center !important; overflow: hidden !important; box-shadow: 0 0 0 2px rgba(234,67,53,0.20), 0 3px 12px rgba(0,0,0,0.65) !important; transition: transform 0.2s ease; }
+        .custom-pin:hover .memory-pin-box { transform: scale(1.1); box-shadow: 0 6px 18px rgba(0,0,0,0.55) !important; }
+        .custom-pin .memory-pin-box img { width: 100% !important; height: 100% !important; object-fit: cover !important; border-radius: 50% !important; display: block !important; }
 
         /* =========================================================
            WEATHER BADGE
         ========================================================== */
-
-        .weather-badge {
-            background:
-                rgba(7,16,22,0.94)
-                !important;
-
-            color:
-                #f7fafb
-                !important;
-
-            border:
-                1px solid rgba(255,255,255,0.12)
-                !important;
-
-            border-radius:
-                8px
-                !important;
-
-            padding:
-                3px 7px
-                !important;
-
-            font-size:
-                10px
-                !important;
-
-            line-height:
-                15px
-                !important;
-
-            font-weight:
-                600
-                !important;
-
-            box-shadow:
-                0 4px 14px rgba(0,0,0,0.45)
-                !important;
-
-            backdrop-filter:
-                blur(10px);
-
-            white-space:
-                nowrap;
-        }
-
-        .leaflet-tooltip-left.weather-badge::before,
-        .leaflet-tooltip-right.weather-badge::before {
-            border: none !important;
-        }
-
+        .weather-badge { background: rgba(7,16,22,0.94) !important; color: #f7fafb !important; border: 1px solid rgba(255,255,255,0.12) !important; border-radius: 8px !important; padding: 3px 7px !important; font-size: 10px !important; line-height: 15px !important; font-weight: 600 !important; box-shadow: 0 4px 14px rgba(0,0,0,0.45) !important; backdrop-filter: blur(10px); white-space: nowrap; }
+        .leaflet-tooltip-left.weather-badge::before, .leaflet-tooltip-right.weather-badge::before { border: none !important; }
 
         /* =========================================================
            BOTTOM STATUS PILLS
         ========================================================== */
-
-        .bottom-pill {
-            position: fixed;
-
-            bottom:
-                calc(
-                    env(safe-area-inset-bottom, 0px)
-                    + 18px
-                );
-
-            height: 34px;
-
-            display: flex;
-            align-items: center;
-
-            gap: 8px;
-
-            padding: 0 13px;
-
-            border-radius: 18px;
-
-            background:
-                rgba(7,16,22,0.88);
-
-            border:
-                1px solid rgba(255,255,255,0.10);
-
-            color:
-                #e9eef0;
-
-            font-size: 11px;
-
-            font-weight: 600;
-
-            backdrop-filter:
-                blur(12px);
-
-            box-shadow:
-                0 6px 20px rgba(0,0,0,0.40);
-
-            z-index: 3000;
-
-            pointer-events: none;
-        }
-
-        .pill-left {
-            left: 18px;
-        }
-
-        .pill-center {
-            left: 50%;
-            transform: translateX(-50%);
-        }
-
-        .pill-divider {
-            width: 1px;
-            height: 13px;
-
-            background:
-                rgba(255,255,255,0.18);
-        }
-
-        .live-dot {
-            width: 7px;
-            height: 7px;
-
-            border-radius: 50%;
-
-            background:
-                var(--green-bright);
-
-            box-shadow:
-                0 0 10px rgba(24,214,163,0.8);
-
-            animation:
-                livePulse 2s infinite;
-        }
-
-        @keyframes livePulse {
-            0% { box-shadow: 0 0 0 0 rgba(24,214,163,0.35); }
-            70% { box-shadow: 0 0 0 6px rgba(24,214,163,0); }
-            100% { box-shadow: 0 0 0 0 rgba(24,214,163,0); }
-        }
-
+        .bottom-pill { position: fixed; bottom: calc(env(safe-area-inset-bottom, 0px) + 18px); height: 34px; display: flex; align-items: center; gap: 8px; padding: 0 13px; border-radius: 18px; background: rgba(7,16,22,0.88); border: 1px solid rgba(255,255,255,0.10); color: #e9eef0; font-size: 11px; font-weight: 600; backdrop-filter: blur(12px); box-shadow: 0 6px 20px rgba(0,0,0,0.40); z-index: 3000; pointer-events: none; }
+        .pill-left { left: 18px; }
+        .pill-center { left: 50%; transform: translateX(-50%); }
+        .pill-divider { width: 1px; height: 13px; background: rgba(255,255,255,0.18); }
+        .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green-bright); box-shadow: 0 0 10px rgba(24,214,163,0.8); animation: livePulse 2s infinite; }
+        @keyframes livePulse { 0% { box-shadow: 0 0 0 0 rgba(24,214,163,0.35); } 70% { box-shadow: 0 0 0 6px rgba(24,214,163,0); } 100% { box-shadow: 0 0 0 0 rgba(24,214,163,0); } }
 
         /* =========================================================
-           CHAT OPEN BUTTON
+           CHAT UI
         ========================================================== */
+        #chat-toggle-btn { position: fixed !important; right: 18px !important; bottom: calc(env(safe-area-inset-bottom, 0px) + 18px) !important; width: 54px !important; height: 54px !important; border-radius: 50% !important; background: var(--green) !important; color: #06110e !important; border: 1px solid rgba(255,255,255,0.08) !important; display: none; align-items: center !important; justify-content: center !important; box-shadow: 0 8px 26px rgba(0,168,132,0.35) !important; z-index: 99999 !important; transition: transform 0.15s ease; }
+        #chat-toggle-btn:active { transform: scale(0.91); }
 
-        #chat-toggle-btn {
+        #chat-container { position: fixed; right: 18px; bottom: 18px; width: 380px; height: 590px; max-width: calc(100vw - 36px); max-height: calc(100dvh - 36px); display: none; flex-direction: column; background: rgba(7,16,22,0.97); border: 1px solid rgba(255,255,255,0.10); border-radius: 18px; overflow: hidden; box-shadow: 0 20px 55px rgba(0,0,0,0.60); z-index: 99999; backdrop-filter: blur(18px); }
+        #chat-header { min-height: 64px; display: flex; align-items: center; gap: 12px; padding: 0 14px; background: rgba(255,255,255,0.025); border-bottom: 1px solid rgba(255,255,255,0.08); flex-shrink: 0; }
+        .header-avatar-wrapper { position: relative; width: 40px; height: 40px; flex-shrink: 0; }
+        #header-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 2px solid rgba(0,168,132,0.75); box-shadow: 0 0 0 3px rgba(0,168,132,0.10); }
+        .online-dot { position: absolute; right: -1px; bottom: -1px; width: 11px; height: 11px; border-radius: 50%; background: #22c55e; border: 2px solid #071016; box-shadow: 0 0 7px rgba(34,197,94,0.55); }
+        .header-info { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 2px; }
+        .header-info span:first-child { font-size: 14.5px; font-weight: 650; color: #f5f7f8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .header-info span:last-child { font-size: 11px; color: var(--green-bright); }
+        .header-info span:last-child::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 5px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px rgba(0,200,150,0.80); }
+        
+        #chat-minimize-btn { width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; border-radius: 9px; border: 1px solid rgba(255,255,255,0.07); background: rgba(255,255,255,0.045); color: #9aa8af; transition: all 0.15s ease; }
+        #chat-minimize-btn:hover { background: rgba(255,255,255,0.09); color: #ffffff; }
 
-            position: fixed !important;
-
-            right:
-                18px !important;
-
-            bottom:
-                calc(
-                    env(safe-area-inset-bottom, 0px)
-                    + 18px
-                ) !important;
-
-            width:
-                54px !important;
-
-            height:
-                54px !important;
-
-            border-radius:
-                50% !important;
-
-            background:
-                var(--green)
-                !important;
-
-            color:
-                #06110e
-                !important;
-
-            border:
-                1px solid rgba(255,255,255,0.08)
-                !important;
-
-            display:
-                none;
-
-            align-items:
-                center !important;
-
-            justify-content:
-                center !important;
-
-            box-shadow:
-                0 8px 26px
-                rgba(0,168,132,0.35)
-                !important;
-
-            z-index:
-                99999 !important;
-
-            transition:
-                transform 0.15s ease;
-        }
-
-        #chat-toggle-btn:active {
-            transform:
-                scale(0.91);
-        }
-
-
-        /* =========================================================
-           CHAT WINDOW
-        ========================================================== */
-
-        #chat-container {
-
-            position: fixed;
-
-            right: 18px;
-            bottom: 18px;
-
-            width: 380px;
-            height: 590px;
-
-            max-width:
-                calc(100vw - 36px);
-
-            max-height:
-                calc(100dvh - 36px);
-
-            display: none;
-
-            flex-direction: column;
-
-            background:
-                rgba(7,16,22,0.97);
-
-            border:
-                1px solid rgba(255,255,255,0.10);
-
-            border-radius:
-                18px;
-
-            overflow:
-                hidden;
-
-            box-shadow:
-                0 20px 55px rgba(0,0,0,0.60);
-
-            z-index:
-                99999;
-
-            backdrop-filter:
-                blur(18px);
-        }
-
-
-        /* =========================================================
-           CHAT HEADER
-        ========================================================== */
-
-        #chat-header {
-            min-height: 64px;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 0 14px;
-            background: rgba(255,255,255,0.025);
-            border-bottom: 1px solid rgba(255,255,255,0.08);
-            flex-shrink: 0;
-        }
-
-        .header-avatar-wrapper {
-            position: relative;
-            width: 40px;
-            height: 40px;
-            flex-shrink: 0;
-        }
-
-        #header-avatar {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            object-fit: cover;
-            border: 2px solid rgba(0,168,132,0.75);
-            box-shadow: 0 0 0 3px rgba(0,168,132,0.10);
-        }
-
-        .online-dot {
-            position: absolute;
-            right: -1px;
-            bottom: -1px;
-            width: 11px;
-            height: 11px;
-            border-radius: 50%;
-            background: #22c55e;
-            border: 2px solid #071016;
-            box-shadow: 0 0 7px rgba(34,197,94,0.55);
-        }
-
-        .header-info {
-            flex: 1;
-            min-width: 0;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            gap: 2px;
-        }
-
-        .header-info span:first-child {
-            font-size: 14.5px;
-            font-weight: 650;
-            color: #f5f7f8;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .header-info span:last-child {
-            font-size: 11px;
-            color: var(--green-bright);
-        }
-
-        .header-info span:last-child::before {
-            content: "";
-            display: inline-block;
-            width: 6px;
-            height: 6px;
-            margin-right: 5px;
-            border-radius: 50%;
-            background: var(--accent);
-            box-shadow: 0 0 8px rgba(0,200,150,0.80);
-        }
-
-        #chat-minimize-btn {
-            width: 34px;
-            height: 34px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 9px;
-            border: 1px solid rgba(255,255,255,0.07);
-            background: rgba(255,255,255,0.045);
-            color: #9aa8af;
-            transition: all 0.15s ease;
-        }
-
-        #chat-minimize-btn:hover {
-            background: rgba(255,255,255,0.09);
-            color: #ffffff;
-        }
-
-
-        /* =========================================================
-           CHAT MESSAGES
-        ========================================================== */
-
-        #chat-messages {
-            position: relative;
-            flex: 1;
-            overflow-y: auto;
-            padding: 15px;
-            display: flex;
-            flex-direction: column;
-            gap: 7px;
-            background: radial-gradient(circle at 20% 20%, rgba(255,255,255,0.018), transparent 35%);
-            scrollbar-width: thin;
-            scrollbar-color: rgba(255,255,255,0.10) transparent;
-        }
-
+        #chat-messages { position: relative; flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 7px; background: radial-gradient(circle at 20% 20%, rgba(255,255,255,0.018), transparent 35%); scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.10) transparent; }
         #chat-messages::-webkit-scrollbar { width: 4px; }
         #chat-messages::-webkit-scrollbar-track { background: transparent; }
         #chat-messages::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 10px; }
 
+        .empty-state { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; pointer-events: none; width: 230px; }
+        #chat-messages:has(.chat-message) .empty-state { display: none; }
+        .empty-state p { font-size: 12px; color: var(--muted); line-height: 1.5; }
 
-        /* =========================================================
-           EMPTY CHAT
-        ========================================================== */
+        .chat-message { position: relative; max-width: 82%; padding: 9px 12px !important; border-radius: 12px !important; font-size: 13px; line-height: 1.45; color: #e9edef; word-break: break-word; border: 1px solid rgba(255,255,255,0.035); box-shadow: 0 2px 7px rgba(0,0,0,0.16); }
+        .chat-message img, .chat-message video { max-width: 100%; border-radius: 9px; margin-top: 5px; }
+        .chat-message audio { max-width: 100%; margin-top: 5px; }
+        .msg-mine { align-self: flex-end; background: #005c4b; }
+        .msg-theirs { align-self: flex-start; background: #202c33; }
+        .msg-sender { margin-bottom: 3px; color: #53d7b7; font-size: 10.5px; font-weight: 700; }
 
-        .empty-state {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            text-align: center;
-            gap: 10px;
-            pointer-events: none;
-            width: 230px;
-        }
-
-        #chat-messages:has(.chat-message) .empty-state {
-            display: none;
-        }
-
-        .empty-state p {
-            font-size: 12px;
-            color: var(--muted);
-            line-height: 1.5;
-        }
-
-
-        /* =========================================================
-           ACTUAL MESSAGE BUBBLES
-           ========================================================== */
-
-        .chat-message {
-            position: relative;
-            max-width: 82%;
-            padding: 9px 12px !important;
-            border-radius: 12px !important;
-            font-size: 13px;
-            line-height: 1.45;
-            color: #e9edef;
-            word-break: break-word;
-            border: 1px solid rgba(255,255,255,0.035);
-            box-shadow: 0 2px 7px rgba(0,0,0,0.16);
-        }
-
-        .chat-message img,
-        .chat-message video {
-            max-width: 100%;
-            border-radius: 9px;
-            margin-top: 5px;
-        }
-
-        .chat-message audio {
-            max-width: 100%;
-            margin-top: 5px;
-        }
-
-
-        /* Compatibility classes */
-
-        .msg-bubble {
-            max-width: 80%;
-            padding: 8px 11px;
-            border-radius: 12px;
-            color: #e9edef;
-            font-size: 13.5px;
-            line-height: 1.4;
-            word-break: break-word;
-        }
-
-        .msg-mine {
-            align-self: flex-end;
-            background: #005c4b;
-        }
-
-        .msg-theirs {
-            align-self: flex-start;
-            background: #202c33;
-        }
-
-        .msg-sender {
-            margin-bottom: 3px;
-            color: #53d7b7;
-            font-size: 10.5px;
-            font-weight: 700;
-        }
-
-
-        /* =========================================================
-           INPUT AREA
-        ========================================================== */
-
-        #chatForm {
-            min-height: 62px;
-            display: flex;
-            align-items: center;
-            gap: 7px;
-            padding: 9px 12px;
-            background: rgba(255,255,255,0.025);
-            border-top: 1px solid rgba(255,255,255,0.08);
-            position: relative;
-            flex-shrink: 0;
-        }
-
-        .input-icon {
-            width: 32px;
-            height: 32px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-shrink: 0;
-            border: none;
-            background: transparent;
-            color: #8d9ba2;
-            transition: color 0.15s ease, transform 0.15s ease;
-        }
-
+        #chatForm { min-height: 62px; display: flex; align-items: center; gap: 7px; padding: 9px 12px; background: rgba(255,255,255,0.025); border-top: 1px solid rgba(255,255,255,0.08); position: relative; flex-shrink: 0; }
+        .input-icon { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; border: none; background: transparent; color: #8d9ba2; transition: color 0.15s ease, transform 0.15s ease; }
         .input-icon:hover { color: #ffffff; }
         .input-icon:active { transform: scale(0.9); }
         .input-icon.yellow { color: #facc15; }
 
-        #chatInput {
-            flex: 1;
-            min-width: 0;
-            height: 40px;
-            border: 1px solid transparent;
-            border-radius: 21px;
-            outline: none;
-            background: #17242c;
-            color: #f4f7f8;
-            padding: 0 15px;
-            font-size: 13.5px;
-            transition: border-color 0.15s ease, background 0.15s ease;
-        }
-
-        #chatInput:focus {
-            border-color: rgba(0,168,132,0.40);
-            background: #1a2a33;
-        }
-
+        #chatInput { flex: 1; min-width: 0; height: 40px; border: 1px solid transparent; border-radius: 21px; outline: none; background: #17242c; color: #f4f7f8; padding: 0 15px; font-size: 13.5px; transition: border-color 0.15s ease, background 0.15s ease; }
+        #chatInput:focus { border-color: rgba(0,168,132,0.40); background: #1a2a33; }
         #chatInput::placeholder { color: #697981; }
 
-        .action-circle-btn {
-            width: 40px;
-            height: 40px;
-            flex-shrink: 0;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border: none;
-            background: var(--green);
-            color: #06110e;
-            transition: transform 0.15s ease, background 0.15s ease;
-        }
-
+        .action-circle-btn { width: 40px; height: 40px; flex-shrink: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: none; background: var(--green); color: #06110e; transition: transform 0.15s ease, background 0.15s ease; }
         .action-circle-btn:active { transform: scale(0.90); }
 
+        #attachment-menu { position: absolute; left: 12px; bottom: 68px; min-width: 185px; padding: 7px; display: none; flex-direction: column; background: rgba(18,31,39,0.98); border: 1px solid rgba(255,255,255,0.10); border-radius: 13px; box-shadow: 0 14px 35px rgba(0,0,0,0.55); z-index: 5000; backdrop-filter: blur(15px); }
+        #attachment-menu button { padding: 10px 12px; border: none; border-radius: 8px; background: transparent; color: #c7d0d4; text-align: left; font-size: 13px; transition: background 0.15s ease, color 0.15s ease; }
+        #attachment-menu button:hover { background: rgba(255,255,255,0.06); color: #ffffff; }
 
-        /* =========================================================
-           ATTACHMENT MENU
-        ========================================================== */
-
-        #attachment-menu {
-            position: absolute;
-            left: 12px;
-            bottom: 68px;
-            min-width: 185px;
-            padding: 7px;
-            display: none;
-            flex-direction: column;
-            background: rgba(18,31,39,0.98);
-            border: 1px solid rgba(255,255,255,0.10);
-            border-radius: 13px;
-            box-shadow: 0 14px 35px rgba(0,0,0,0.55);
-            z-index: 5000;
-            backdrop-filter: blur(15px);
-        }
-
-        #attachment-menu button {
-            padding: 10px 12px;
-            border: none;
-            border-radius: 8px;
-            background: transparent;
-            color: #c7d0d4;
-            text-align: left;
-            font-size: 13px;
-            transition: background 0.15s ease, color 0.15s ease;
-        }
-
-        #attachment-menu button:hover {
-            background: rgba(255,255,255,0.06);
-            color: #ffffff;
-        }
-
-
-        /* =========================================================
-           EMOJI PICKER
-        ========================================================== */
-
-        #emoji-picker-container {
-            position: absolute;
-            left: 12px;
-            bottom: 68px;
-            display: none;
-            z-index: 5000;
-            filter: drop-shadow(0 12px 30px rgba(0,0,0,0.55));
-        }
-
-        emoji-picker {
-            width: 310px;
-            height: 320px;
-            --background: #17242c;
-            --border-color: rgba(255,255,255,0.10);
-            --indicator-color: var(--green);
-        }
-
+        #emoji-picker-container { position: absolute; left: 12px; bottom: 68px; display: none; z-index: 5000; filter: drop-shadow(0 12px 30px rgba(0,0,0,0.55)); }
+        emoji-picker { width: 310px; height: 320px; --background: #17242c; --border-color: rgba(255,255,255,0.10); --indicator-color: var(--green); }
 
         /* =========================================================
            JOIN SCREEN
         ========================================================== */
-
-        #join-screen {
-            position: fixed;
-            inset: 0;
-            z-index: 999999;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-            background: radial-gradient(circle at 50% 40%, rgba(0,200,150,0.10), transparent 38%), rgba(3,10,14,0.90);
-            backdrop-filter: blur(14px);
-        }
-
-        .join-box {
-            width: min(100%, 370px);
-            padding: 30px 24px;
-            border-radius: 20px;
-            background: rgba(9,18,24,0.97);
-            border: 1px solid rgba(255,255,255,0.10);
-            box-shadow: 0 22px 60px rgba(0,0,0,0.60);
-            text-align: center;
-        }
-
-        .join-box h2 {
-            font-size: 23px;
-            font-weight: 700;
-            margin-bottom: 7px;
-        }
-
-        .join-box p {
-            font-size: 12.5px;
-            color: var(--muted);
-            margin-bottom: 24px;
-        }
-
-        .join-box input[type="text"] {
-            width: 100%;
-            height: 48px;
-            padding: 0 15px;
-            border-radius: 12px;
-            background: #17242c;
-            border: 1px solid rgba(255,255,255,0.08);
-            color: #ffffff;
-            outline: none;
-            font-size: 14px;
-            margin-bottom: 12px;
-            transition: border-color 0.2s ease;
-        }
-
-        .join-box input[type="text"]:focus {
-            border-color: rgba(0,168,132,0.45);
-        }
-
-        .avatar-label {
-            width: 100%;
-            height: 48px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border: 1px dashed rgba(255,255,255,0.18);
-            border-radius: 12px;
-            color: var(--muted);
-            font-size: 13px;
-            cursor: pointer;
-            margin-bottom: 22px;
-            transition: border-color 0.15s ease, background 0.15s ease;
-        }
-
-        .avatar-label:hover {
-            border-color: rgba(0,168,132,0.50);
-            background: rgba(0,168,132,0.05);
-        }
-
+        #join-screen { position: fixed; inset: 0; z-index: 999999; display: flex; align-items: center; justify-content: center; padding: 20px; background: radial-gradient(circle at 50% 40%, rgba(0,200,150,0.10), transparent 38%), rgba(3,10,14,0.90); backdrop-filter: blur(14px); }
+        .join-box { width: min(100%, 370px); padding: 30px 24px; border-radius: 20px; background: rgba(9,18,24,0.97); border: 1px solid rgba(255,255,255,0.10); box-shadow: 0 22px 60px rgba(0,0,0,0.60); text-align: center; }
+        .join-box h2 { font-size: 23px; font-weight: 700; margin-bottom: 7px; }
+        .join-box p { font-size: 12.5px; color: var(--muted); margin-bottom: 24px; }
+        .join-box input[type="text"] { width: 100%; height: 48px; padding: 0 15px; border-radius: 12px; background: #17242c; border: 1px solid rgba(255,255,255,0.08); color: #ffffff; outline: none; font-size: 14px; margin-bottom: 12px; transition: border-color 0.2s ease; }
+        .join-box input[type="text"]:focus { border-color: rgba(0,168,132,0.45); }
+        .avatar-label { width: 100%; height: 48px; display: flex; align-items: center; justify-content: center; border: 1px dashed rgba(255,255,255,0.18); border-radius: 12px; color: var(--muted); font-size: 13px; cursor: pointer; margin-bottom: 22px; transition: border-color 0.15s ease, background 0.15s ease; }
+        .avatar-label:hover { border-color: rgba(0,168,132,0.50); background: rgba(0,168,132,0.05); }
         .avatar-label input { display: none; }
-
-        .join-box button {
-            width: 100%;
-            height: 48px;
-            border: none;
-            border-radius: 12px;
-            background: var(--green);
-            color: #04100d;
-            font-size: 15px;
-            font-weight: 700;
-            transition: transform 0.15s ease, background 0.15s ease;
-        }
-
+        .join-box button { width: 100%; height: 48px; border: none; border-radius: 12px; background: var(--green); color: #04100d; font-size: 15px; font-weight: 700; transition: transform 0.15s ease, background 0.15s ease; }
         .join-box button:hover { background: var(--green-bright); }
         .join-box button:active { transform: scale(0.98); }
 
-
         /* =========================================================
-           LEAFLET POPUP
+           MOBILE RESPONSIVENESS
         ========================================================== */
-        
-        .leaflet-popup-content-wrapper {
-            background: rgba(11,21,26,0.98) !important;
-            color: #e9edef !important;
-            border: 1px solid rgba(255,255,255,0.08);
-            border-radius: 15px !important;
-            box-shadow: 0 18px 45px rgba(0,0,0,0.58) !important;
-        }
-
-        .leaflet-popup-tip { background: #0b151a !important; }
-        .leaflet-popup-content { margin: 13px !important; }
-        .leaflet-popup-close-button { color: #91a1a8 !important; font-size: 18px !important; }
-        .leaflet-popup-close-button:hover { color: white !important; }
-
-
-        /* =========================================================
-           MOBILE
-        ========================================================== */
-
         @media (max-width: 600px) {
+            #map-tools { right: 14px; top: 14px; gap: 7px; }
+            #map-tools button { width: 40px; height: 40px; border-radius: 11px; }
+            #map-style-menu { right: 62px; top: 106px; }
 
-            /* Mobile marker adjustments */
-            .custom-icon .avatar-marker,
-            .custom-pin .memory-pin-box {
-                width: 36px !important;
-                height: 36px !important;
-            }
+            .leaflet-marker-icon.own-live-avatar { width: 34px !important; height: 34px !important; margin-left: 5px !important; margin-top: 5px !important; }
+            .leaflet-marker-icon.friend-marker { width: 31px !important; height: 31px !important; margin-left: 5px !important; margin-top: 5px !important; }
 
-            .custom-icon .avatar-marker.friend {
-                width: 32px !important;
-                height: 32px !important;
-            }
-
-            #memoryButton {
-                top: calc(env(safe-area-inset-top, 0px) + 15px) !important;
-                left: 15px !important;
-            }
-
-            .leaflet-control-zoom {
-                margin-top: 70px !important;
-                margin-left: 15px !important;
-            }
-
-            /* Mobile chat becomes full screen */
-            #chat-container {
-                inset: 0;
-                width: 100vw;
-                height: 100vh;
-                height: 100dvh;
-                max-width: none;
-                max-height: none;
-                border-radius: 0;
-                border: none;
-            }
-
-            #chat-header {
-                height: calc(64px + env(safe-area-inset-top, 0px));
-                padding-top: env(safe-area-inset-top, 0px);
-            }
-
-            #chatForm {
-                padding-bottom: max(9px, env(safe-area-inset-bottom, 0px));
-            }
-
+            #memoryButton { top: calc(env(safe-area-inset-top, 0px) + 15px) !important; left: 15px !important; }
+            #chat-container { inset: 0; width: 100vw; height: 100vh; height: 100dvh; max-width: none; max-height: none; border-radius: 0; border: none; }
+            #chat-header { height: calc(64px + env(safe-area-inset-top, 0px)); padding-top: env(safe-area-inset-top, 0px); }
+            #chatForm { padding-bottom: max(9px, env(safe-area-inset-bottom, 0px)); }
             .bottom-pill { display: none; }
-
-            #chat-toggle-btn {
-                right: 16px !important;
-                bottom: calc(env(safe-area-inset-bottom, 0px) + 16px) !important;
-            }
-
+            #chat-toggle-btn { right: 16px !important; bottom: calc(env(safe-area-inset-bottom, 0px) + 16px) !important; }
             #emoji-picker-container { left: 8px; right: 8px; }
             emoji-picker { width: min(310px, calc(100vw - 16px)); }
             #attachment-menu { left: 8px; }
         }
 
-        /* =========================================================
-           VERY SMALL PHONES
-        ========================================================== */
-
+        /* VERY SMALL PHONES */
         @media (max-width: 380px) {
-            .custom-icon .avatar-marker,
-            .custom-pin .memory-pin-box {
-                width: 32px !important;
-                height: 32px !important;
-            }
-            .custom-icon .avatar-marker.friend {
-                width: 28px !important;
-                height: 28px !important;
-            }
-            #chat-header img { width: 39px !important; height: 39px !important; min-width: 39px; min-height: 39px; }
-            .input-icon { width: 31px; font-size: 18px; }
+            .leaflet-marker-icon.own-live-avatar { width: 32px !important; height: 32px !important; margin-left: 5px !important; margin-top: 5px !important; }
+            .leaflet-marker-icon.friend-marker { width: 28px !important; height: 28px !important; }
             #chatInput { padding: 0 12px; font-size: 13px; }
             #chatForm { gap: 4px; padding-left: 7px; padding-right: 7px; }
         }
 
-        /* =========================================================
-           DESKTOP CHAT ANIMATION
-        ========================================================== */
-
         @media (min-width: 601px) {
-            #chat-container {
-                animation: chatWindowIn 0.20s ease-out;
-            }
-            @keyframes chatWindowIn {
-                from { opacity: 0; transform: translateY(10px) scale(0.98); }
-                to { opacity: 1; transform: translateY(0) scale(1); }
-            }
+            #chat-container { animation: chatWindowIn 0.20s ease-out; }
+            @keyframes chatWindowIn { from { opacity: 0; transform: translateY(10px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
         }
+        @media (hover: none) { #memoryButton:hover, #chat-minimize-btn:hover, .input-icon:hover { background: inherit; } }
     </style>
 </head>
 
 <body>
 
-    <!-- MAP -->
     <div id="map"></div>
+
+    <!-- =========================================================
+         MAP TOOLS
+    ========================================================== -->
+    <div id="map-tools">
+        <button id="my-location-btn" type="button" title="My location" aria-label="My location">⦿</button>
+        <button id="compass-btn" type="button" title="North" aria-label="Compass">
+            <span id="compass-icon">N</span>
+        </button>
+        <button id="map-style-btn" type="button" title="Map style" aria-label="Map style">◈</button>
+    </div>
+
+    <!-- MAP STYLE MENU -->
+    <div id="map-style-menu">
+        <button type="button" data-style="satellite" class="active">🛰️ Satellite</button>
+        <button type="button" data-style="street">🗺️ Street</button>
+        <button type="button" data-style="dark">🌑 Dark</button>
+    </div>
 
     <!-- BOTTOM STATUS -->
     <div class="bottom-pill pill-left">
         <span style="font-size:14px;">☁️</span>
-        <span>Koraput</span>
+        <span id="map-temp-display">Koraput</span>
         <div class="pill-divider"></div>
         <span>26°C</span>
     </div>
@@ -1178,7 +306,6 @@
             <circle cx="12" cy="13" r="4"></circle>
         </svg>
     </button>
-
     <input type="file" id="memoryPhotoInput" accept="image/*">
 
     <!-- CHAT OPEN BUTTON -->
@@ -1190,8 +317,6 @@
 
     <!-- CHAT WINDOW -->
     <div id="chat-container" role="dialog" aria-label="Koraput Group Chat">
-
-        <!-- HEADER -->
         <div id="chat-header">
             <div class="header-avatar-wrapper">
                 <img id="header-avatar" src="satyam.png" alt="Profile">
@@ -1202,13 +327,10 @@
                 <span>Online</span>
             </div>
             <button id="chat-minimize-btn" type="button" title="Minimize" aria-label="Minimize chat">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                    <line x1="5" y1="12" x2="19" y2="12"></line>
-                </svg>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
             </button>
         </div>
 
-        <!-- MESSAGES -->
         <div id="chat-messages" aria-live="polite">
             <div class="empty-state">
                 <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -1220,46 +342,34 @@
             </div>
         </div>
 
-        <!-- CHAT INPUT -->
         <form id="chatForm">
-            <!-- ATTACHMENT MENU -->
             <div id="attachment-menu">
                 <button type="button" id="att-media">🖼️ Photo / Video</button>
                 <button type="button" id="att-doc">📄 Document</button>
                 <button type="button" id="att-audio">🎵 Audio</button>
             </div>
 
-            <!-- EMOJI PICKER -->
             <div id="emoji-picker-container">
                 <emoji-picker id="emojiPicker"></emoji-picker>
             </div>
 
-            <!-- BUTTONS -->
             <button type="button" id="emojiButton" class="input-icon yellow" title="Emoji" aria-label="Emoji">
-                <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="12" cy="12" r="10"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><line x1="9" y1="9" x2="9.01" y2="9"></line><line x1="15" y1="9" x2="15.01" y2="9"></line>
-                </svg>
+                <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><line x1="9" y1="9" x2="9.01" y2="9"></line><line x1="15" y1="9" x2="15.01" y2="9"></line></svg>
             </button>
 
             <button type="button" id="chat-attach-btn" class="input-icon" title="Attach" aria-label="Attach file">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
-                </svg>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
             </button>
 
             <input type="file" id="chatAttachment" hidden>
             <input type="text" id="chatInput" placeholder="Message" autocomplete="off" maxlength="5000" aria-label="Message">
 
             <button type="button" id="voiceButton" class="action-circle-btn" style="background:transparent; border:1px solid rgba(255,255,255,0.10); color:#8d9ba2; box-shadow:none;" title="Voice message" aria-label="Voice message">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="22"></line>
-                </svg>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="22"></line></svg>
             </button>
 
             <button type="submit" id="chat-send" class="action-circle-btn" style="display:none;" title="Send" aria-label="Send message">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-                </svg>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
             </button>
         </form>
     </div>
