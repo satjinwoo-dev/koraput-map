@@ -669,6 +669,7 @@
 
         /* =========================================
            LIVE LOCATION AVATARS (WITH RADAR RING)
+           FIX: Removed 'margin: 0 !important' to allow Leaflet to center icons.
         ========================================= */
         @keyframes avatarRadarPulse {
             0% {
@@ -685,7 +686,6 @@
         .leaflet-marker-icon.avatar-icon.own-live-avatar {
             width: 36px !important;
             height: 36px !important;
-            margin: 0 !important;
             padding: 1px !important;
             box-sizing: border-box !important;
             border-radius: 50% !important;
@@ -700,7 +700,6 @@
         .leaflet-marker-icon.avatar-icon.friend-marker {
             width: 34px !important;
             height: 34px !important;
-            margin: 0 !important;
             padding: 1px !important;
             box-sizing: border-box !important;
             border-radius: 50% !important;
@@ -779,8 +778,9 @@
 
             #chat-container { right: 0; bottom: 0; width: 100vw; height: 100dvh; border-radius: 0; border-left: 0; border-right: 0; border-bottom: 0; }
 
-            .leaflet-marker-icon.own-live-avatar { width: 36px !important; height: 36px !important; margin: 0 !important; }
-            .leaflet-marker-icon.friend-marker { width: 34px !important; height: 34px !important; margin: 0 !important; }
+            /* FIX APPLIED: Removed margin: 0 !important */
+            .leaflet-marker-icon.own-live-avatar { width: 36px !important; height: 36px !important; }
+            .leaflet-marker-icon.friend-marker { width: 34px !important; height: 34px !important; }
         }
 
         @media (max-width: 380px) {
