@@ -16,7 +16,7 @@ let currentMapStyle = "satellite";
 mapLayers[currentMapStyle].addTo(map);
 
 // App State
-let myCoords = null, ownMarker = null, accuracyCircle = null, myWeather = "";
+let myCoords = null, ownMarker = null, accuracyCircle = null, myWeather = "", currentCityName = "";
 const friendMarkers = {}, friendProfiles = {}, memoryMarkers = {};
 const onlineUsers = new Map(); 
 let unreadCount = 0, chatOpen = false, typingTimer, reactingToMsgId = null, replyTarget = null;
@@ -61,6 +61,10 @@ function emitLocation(lat, lng, weather = "") {
     socket.emit("updateLocation", { name: currentUser.name, avatar: currentUser.avatar, lat, lng, weather });
 }
 
+async function fetchCityName(lat, lng) {
+    try { const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=10`); return (await res.json()).address?.city || "Rourkela"; } catch { return "Rourkela"; }
+}
+
 async function updateWeather(lat, lng) {
     try {
         const response = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lng)}&current=temperature_2m,weather_code`);
@@ -70,7 +74,7 @@ async function updateWeather(lat, lng) {
         if (typeof temperature !== "number" || typeof code !== "number") return;
 
         myWeather = `${weatherEmoji(code)} ${Math.round(temperature)}°C`;
-        const pill = document.getElementById("weather-pill");
+        const pill = document.getElementById("map-temp-display");
         if (pill) pill.textContent = myWeather;
         emitLocation(lat, lng, myWeather);
     } catch (error) { console.warn("Weather error:", error); }
@@ -81,9 +85,29 @@ let firstLocationFix = true;
 function handleLocation(position) {
     const lat = Number(position.coords.latitude);
     const lng = Number(position.coords.longitude);
+    const accuracy = Number(position.coords.accuracy);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
     myCoords = { lat, lng };
+
+    // Dynamic City Fix
+    if (!currentCityName) {
+        fetchCityName(lat, lng).then(city => {
+            currentCityName = city;
+            const headerTitle = document.getElementById("header-app-title");
+            if (headerTitle) headerTitle.textContent = `${currentCityName} Map`;
+            const pillCity = document.getElementById("pill-city");
+            if (pillCity) pillCity.textContent = `📍 ${currentCityName}`;
+        });
+    }
+
+    if (Number.isFinite(accuracy) && accuracy > 0 && accuracy < 100000) {
+        if (!accuracyCircle) {
+            accuracyCircle = L.circle([lat, lng], { radius: accuracy, color: "#18d6a3", weight: 1, fillOpacity: 0.1, interactive:false }).addTo(map);
+        } else {
+            accuracyCircle.setLatLng([lat, lng]); accuracyCircle.setRadius(accuracy);
+        }
+    }
 
     if (!ownMarker) {
         ownMarker = L.marker([lat, lng], { icon: createOwnIcon(currentUser.avatar) }).addTo(map);
@@ -134,7 +158,7 @@ function showFriendProfile(friend) {
     document.getElementById("popup-weather").textContent = escapeHTML(friend.weather || "Unavailable");
 
     panel.style.display = "block";
-    document.getElementById("profile-focus-btn").onclick = () => { map.setView([friend.lat, friend.lng], 15); panel.style.display = "none"; };
+    document.getElementById("profile-focus-btn").onclick = () => { map.flyTo([friend.lat, friend.lng], 16); panel.style.display = "none"; };
 }
 document.getElementById("close-map-info").onclick = () => document.getElementById("map-info-panel").style.display = "none";
 
@@ -183,7 +207,7 @@ function renderOnlineList() {
         row.addEventListener("click", () => {
             const friend = friendProfiles[user.id];
             if (friend && Number.isFinite(friend.lat) && Number.isFinite(friend.lng)) {
-                map.setView([friend.lat, friend.lng], 15);
+                map.setView([friend.lat, friend.lng], 16);
                 showFriendProfile(friend);
             }
         });
@@ -330,10 +354,8 @@ function addChatMessage(msg) {
     box.appendChild(wrapper);
 
     renderReactions(wrapper, msg.reactions, msg.id);
-    // Add clear float to prevent messages overlapping due to CSS floats
-    const clearDiv = document.createElement("div"); clearDiv.style.clear = "both";
-    box.appendChild(clearDiv);
     
+    const clearDiv = document.createElement("div"); clearDiv.style.clear = "both"; box.appendChild(clearDiv);
     box.scrollTop = box.scrollHeight;
 }
 
@@ -402,7 +424,7 @@ function renderMemoryPhoto(pin) {
     const icon = L.divIcon({ className: "custom-pin", html: `<div class="memory-pin-box"><img src="${escapeHTML(pin.image)}" alt="Memory"></div>`, iconSize: [44, 44], iconAnchor: [22, 22] });
     const marker = L.marker([Number(pin.lat), Number(pin.lng)], {icon}).addTo(map);
     marker.bindPopup(`<div class="memory-popup"><img src="${escapeHTML(pin.image)}" alt="Memory"><b>${escapeHTML(pin.name || "Memory")}</b>${pin.time ? `<br><small>${escapeHTML(pin.time)}</small>` : ""}</div>`);
-    memoryMarkers.push(marker);
+    memoryMarkers[pin.id] = marker;
 }
 socket.on("loadMemoryPhotos", photos => { if(Array.isArray(photos)) photos.forEach(renderMemoryPhoto); });
 socket.on("newMemoryPin", renderMemoryPhoto);
@@ -425,20 +447,19 @@ function setupMemory() {
 }
 
 // ==========================================
-// JOIN / PROFILE
+// JOIN / SETUP
 // ==========================================
 function announceProfile() { socket.emit("profileReady", {name: currentUser.name, avatar: currentUser.avatar}); }
-function updateUserUI() { document.getElementById("chatInput").placeholder = "Type a message..."; }
-
 function setupJoin() {
     const btn = document.getElementById("joinButton"), input = document.getElementById("nameInput"), screen = document.getElementById("join-screen"), avatarInput = document.getElementById("avatarInput");
     if(!btn) return;
     input.value = currentUser.name !== "User" ? currentUser.name : "";
-    if(currentUser.name !== "User") screen.style.display = "none";
+    if(currentUser.name !== "User") { screen.style.display = "none"; document.getElementById("header-avatar").style.display = "block"; document.getElementById("header-avatar").src = currentUser.avatar;}
 
     btn.addEventListener("click", () => {
         const name = input.value.trim(); if(!name) return alert("Please enter your name.");
-        currentUser.name = name.slice(0, 40); saveUser(); updateUserUI(); announceProfile(); screen.style.display="none";
+        currentUser.name = name.slice(0, 40); saveUser(); announceProfile(); screen.style.display="none";
+        document.getElementById("header-avatar").style.display = "block"; document.getElementById("header-avatar").src = currentUser.avatar;
         if(ownMarker && myCoords) { ownMarker.setIcon(createOwnIcon(currentUser.avatar)); emitLocation(myCoords.lat, myCoords.lng, myWeather); }
     });
 
@@ -449,6 +470,7 @@ function setupJoin() {
         r.onload = () => {
             if(!isSafeDataUrl(r.result, "image/")) return;
             currentUser.avatar = r.result; saveUser(); announceProfile();
+            document.getElementById("header-avatar").src = currentUser.avatar;
             if(ownMarker) ownMarker.setIcon(createOwnIcon(currentUser.avatar));
         };
         r.readAsDataURL(file);
@@ -456,22 +478,25 @@ function setupJoin() {
 }
 
 // Controls
-document.getElementById("map-style-btn")?.addEventListener("click", () => { const m = document.getElementById("map-style-menu"); m.style.display = m.style.display === "flex" ? "none" : "flex"; });
+document.getElementById("map-style-btn")?.addEventListener("click", (e) => { e.stopPropagation(); const m = document.getElementById("map-style-menu"); m.style.display = m.style.display === "flex" ? "none" : "flex"; });
 document.getElementById("map-style-menu")?.querySelectorAll("button[data-style]").forEach(b => {
     b.addEventListener("click", () => {
-        const style = b.dataset.style;
-        if(style === currentMapStyle) return;
+        const style = b.dataset.style; if(style === currentMapStyle) return;
         map.removeLayer(mapLayers[currentMapStyle]); currentMapStyle = style; mapLayers[currentMapStyle].addTo(map);
         document.getElementById("map-style-menu").querySelectorAll("button").forEach(btn => btn.classList.remove("active"));
         b.classList.add("active"); document.getElementById("map-style-menu").style.display = "none";
     });
 });
+document.addEventListener("click", e => { const m = document.getElementById("map-style-menu"), btn = document.getElementById("map-style-btn"); if (m && !m.contains(e.target) && e.target !== btn) m.style.display = "none"; });
+document.getElementById("my-location-btn").onclick = () => { if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16); };
+document.getElementById("compass-btn").onclick = () => { map.setView(map.getCenter(), map.getZoom(), {animate:true}); document.getElementById("compass-icon").style.transform="rotate(0deg)";};
+if(window.DeviceOrientationEvent) window.addEventListener('deviceorientation', e => { const icon=document.getElementById('compass-icon'); if(icon && e.webkitCompassHeading) icon.style.transform=`rotate(${-e.webkitCompassHeading}deg)`; }, true);
 
 // START
 socket.on("connect", () => { announceProfile(); if(myCoords) emitLocation(myCoords.lat, myCoords.lng, myWeather); });
 
 function setup() {
-    updateUserUI(); setupJoin(); setupMemory(); setupVoice();
+    setupJoin(); setupMemory(); setupVoice();
     document.getElementById("online-btn").onclick = () => { const l = document.getElementById("online-list"); l.style.display = l.style.display==="none" ? "block" : "none"; renderOnlineList(); };
     if(currentUser.name !== "User") announceProfile();
 }
