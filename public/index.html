@@ -3,22 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
-    <title>Koraput Map — Social Phase 2</title>
+    <title>Koraput Map — Social</title>
 
-    <!-- Leaflet CSS (No Google API) -->
+    <!-- ==========================================
+         LEAFLET (NO GOOGLE API)
+         ========================================== -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-
+    
     <script src="/socket.io/socket.io.js"></script>
     <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js"></script>
 
     <style>
-        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent;}
         html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; font-family: Arial, Helvetica, sans-serif; background: #0b141a; color: white; }
         button, input { font: inherit; }
         button { cursor: pointer; }
 
         /* ==========================================
-           LEAFLET MAP & ICONS
+           MAP
            ========================================== */
         #map { position: fixed; inset: 0; width: 100vw; height: 100dvh; display: block; z-index: 1; background: #0b141a;}
         .leaflet-control-attribution { display: none !important; }
@@ -36,9 +38,9 @@
         .weather-badge::before { border-right-color: rgba(16,26,32,0.92) !important; }
 
         /* ==========================================
-           UI ELEMENTS
+           MAP INFO PANEL
            ========================================== */
-        #map-info-panel { display: none; position: fixed; z-index: 7000; top: 18px; right: 18px; width: min(340px, calc(100vw - 36px)); max-height: 78dvh; overflow: auto; border-radius: 18px; background: #101a20ee; box-shadow: 0 14px 55px #0009; border: 1px solid #ffffff12; backdrop-filter: blur(10px); }
+        #map-info-panel { display: none; position: fixed; z-index: 7000; top: 18px; right: 18px; width: min(340px, calc(100vw - 36px)); max-height: 78dvh; overflow: auto; border-radius: 18px; background: #101a20ee; box-shadow: 0 14px 55px #0009; border: 1px solid #ffffff12; backdrop-filter: blur(10px);}
         #close-map-info { position: absolute; right: 9px; top: 8px; width: 32px; height: 32px; border: 0; border-radius: 50%; background: #26343c; color: white; font-size: 22px; z-index: 2; }
 
         .map-top { position: fixed; z-index: 5000; top: 18px; left: 18px; display: flex; gap: 8px; }
@@ -55,16 +57,21 @@
 
         .memory-button { position: fixed; z-index: 5000; left: 18px; bottom: 18px; width: 52px; height: 52px; border: 0; border-radius: 16px; background: #00a884; color: white; font-size: 23px; box-shadow: 0 6px 25px #0008; }
 
+        /* ==========================================
+           JOIN SCREEN
+           ========================================== */
         .join-screen { position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center; justify-content: center; background: #0009; backdrop-filter: blur(8px); }
         .join-card { width: min(390px, calc(100% - 30px)); padding: 28px; border-radius: 22px; background: #111b21f5; box-shadow: 0 20px 70px #0009; text-align: center; }
         .join-card h1 { margin: 0 0 8px; font-size: 22px;}
         .join-card p { margin: 0 0 20px; color: #aebac1; font-size: 13px; }
-        .join-card input[type="text"] { width: 100%; padding: 13px; border: 1px solid #37454d; border-radius: 12px; background: #202c33; color: white; outline: 0; margin-bottom: 12px; }
+        .join-card input[type="text"] { width: 100%; padding: 13px; border: 1px solid #37454d; border-radius: 12px; background: #202c33; color: white; outline: 0; margin-bottom: 12px; font-size: 13px;}
         .avatar-label { display: block; padding: 12px; border: 1px dashed #52616b; border-radius: 12px; color: #d5dde1; margin-bottom: 14px; cursor: pointer; font-size: 13px;}
         .avatar-label input { display: none; }
         .join-btn { width: 100%; padding: 13px; border: 0; border-radius: 12px; background: #00a884; color: white; font-weight: 700; font-size: 14px;}
 
-        /* PROFILE POPUP CSS */
+        /* ==========================================
+           PROFILE POPUP CSS
+           ========================================== */
         .profile-card { position: relative; padding: 24px 18px 18px; text-align: center; }
         .profile-avatar-wrap { width: 82px; height: 82px; padding: 3px; margin: 4px auto 12px; border-radius: 50%; background: #00a884; box-shadow: 0 0 0 4px #00a88426, 0 8px 25px #0008; }
         .profile-avatar { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; background: #202c33; }
@@ -75,7 +82,9 @@
         .profile-label { color: #8fa1aa; }
         .profile-focus { width: 100%; margin-top: 14px; padding: 11px; border: 0; border-radius: 10px; background: #00a884; color: white; font-weight: 700; }
 
-        /* CHAT UI */
+        /* ==========================================
+           CHAT UI
+           ========================================== */
         .chat-toggle { position: fixed; z-index: 8500; right: 18px; bottom: 18px; width: 58px; height: 58px; border: 0; border-radius: 50%; background: #00a884; color: white; font-size: 25px; box-shadow: 0 6px 25px #0008; }
         .unread-badge { position: absolute; right: -2px; top: -2px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: #ff3b30; color: white; font-size: 11px; font-weight: 700; display: none; align-items: center; justify-content: center; border: 2px solid #0b141a; }
 
@@ -101,7 +110,6 @@
         .reply-preview-container { display: none; padding: 6px 8px; margin: 8px; border-left: 3px solid #18d6a3; background: #16252b; border-radius: 6px; font-size: 11px; color: #aebac1;}
         .reply-preview-container div { display: flex; justify-content: space-between; align-items: center;}
         .reply-preview-container button { background: none; border: none; color: #aebac1; font-size: 16px; cursor: pointer;}
-        
         .inline-reply { padding: 4px 6px; margin-bottom: 6px; border-left: 3px solid #18d6a3; background: rgba(0,0,0,0.15); border-radius: 4px; font-size: 10px; color: #aebac1;}
 
         .message-actions { display: flex; gap: 4px; position: absolute; right: 5px; bottom: -22px; z-index: 3; }
@@ -127,6 +135,7 @@
         .chat-media { display: block; max-width: 260px; max-height: 240px; border-radius: 9px; margin-top: 5px; }
         .chat-audio { max-width: 260px; margin-top: 5px; }
         .chat-document { display: block; margin-top: 5px; padding: 9px; border-radius: 8px; background: #17242b; color: white; text-decoration: none; font-size: 12px;}
+        .memory-popup img { max-width: 220px; max-height: 180px; border-radius: 10px; display: block; margin-bottom: 7px;}
 
         @media (max-width:600px) {
             .map-top { top: max(12px, env(safe-area-inset-top)); left: 12px; }
@@ -146,7 +155,7 @@
 <!-- MAP -->
 <div id="map"></div>
 
-<!-- PROFILE POPUP -->
+<!-- PROFILE POPUP PANEL -->
 <div id="map-info-panel">
     <div class="profile-card">
         <button id="close-map-info" aria-label="Close">×</button>
@@ -159,7 +168,7 @@
             <div class="profile-row"><span class="profile-label">Distance</span><strong id="popup-dist">--</strong></div>
             <div class="profile-row"><span class="profile-label">Weather</span><strong id="popup-weather">--</strong></div>
         </div>
-        <button id="popup-fly-btn" class="profile-focus">View on Map</button>
+        <button id="profile-focus-btn" class="profile-focus">View on Map</button>
     </div>
 </div>
 
@@ -264,7 +273,7 @@
     </form>
 </section>
 
-<!-- Leaflet Library (Loaded at end for speed) -->
+<!-- Leaflet Library -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="/app.js"></script>
 
