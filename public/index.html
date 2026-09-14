@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="theme-color" content="#071018">
-    <meta name="description" content="Koraput Map - Live location, memories and chat">
-    <title>Koraput Map</title>
+    <meta name="description" content="Live Real-time Location, memories and chat">
+    <title>Live Location Map</title>
 
     <!-- Leaflet -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
@@ -668,8 +668,20 @@
         }
 
         /* =========================================
-           LIVE LOCATION AVATARS
+           LIVE LOCATION AVATARS (WITH RADAR RING)
         ========================================= */
+        @keyframes avatarRadarPulse {
+            0% {
+                box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7), 0 3px 10px rgba(0,0,0,0.65);
+            }
+            70% {
+                box-shadow: 0 0 0 16px rgba(16, 185, 129, 0), 0 3px 10px rgba(0,0,0,0.65);
+            }
+            100% {
+                box-shadow: 0 0 0 0 rgba(16, 185, 129, 0), 0 3px 10px rgba(0,0,0,0.65);
+            }
+        }
+
         .leaflet-marker-icon.avatar-icon.own-live-avatar {
             width: 36px !important;
             height: 36px !important;
@@ -678,11 +690,11 @@
             box-sizing: border-box !important;
             border-radius: 50% !important;
             object-fit: cover !important;
-            border: 2px solid var(--green) !important;
+            border: 2.5px solid var(--green-bright) !important;
             background: #071018 !important;
             overflow: hidden !important;
             display: block !important;
-            box-shadow: 0 0 0 2px rgba(16,185,129,0.18), 0 3px 10px rgba(0,0,0,0.65) !important;
+            animation: avatarRadarPulse 2s infinite !important;
         }
 
         .leaflet-marker-icon.avatar-icon.friend-marker {
@@ -797,8 +809,8 @@
         <div class="brand-card">
             <div class="brand-dot"></div>
             <div class="header-info">
-                <strong>Koraput Map</strong>
-                <span>Live location & memories</span>
+                <strong id="header-app-title">Live Map</strong>
+                <span>Real-time Location</span>
             </div>
             <img id="header-avatar" src="satyam.png" alt="Profile">
         </div>
@@ -820,7 +832,7 @@
 
     <!-- BOTTOM INFO -->
     <div id="bottom-info">
-        <div class="bottom-pill">📍 Koraput</div>
+        <div class="bottom-pill" id="pill-city">📍 Locating...</div>
         <div class="bottom-pill">🌡️ <span id="map-temp-display">--°C</span></div>
         <div class="bottom-pill live">● Live Location</div>
     </div>
@@ -875,7 +887,7 @@
     <div id="join-screen">
         <div class="join-card">
             <div class="join-logo">📍</div>
-            <h1>Welcome to Koraput Map</h1>
+            <h1>Welcome to Live Map</h1>
             <p>Enter your name to join the live map, memories and chat.</p>
             <form id="join-form">
                 <input id="nameInput" type="text" maxlength="40" autocomplete="name" placeholder="Your name" required>
