@@ -123,10 +123,6 @@
             background: #071016;
         }
 
-        /*
-         * Slight satellite enhancement.
-         * Keeps the map natural instead of over-processing it.
-         */
         .leaflet-tile {
             filter:
                 saturate(1.08)
@@ -289,141 +285,71 @@
 
 
         /* =========================================================
-           =========================================================
-           ⭐ REAL-TIME LOCATION AVATAR
-           =========================================================
-
-           IMPORTANT:
-
-           app.js creates the marker as:
-
-           .leaflet-marker-icon.avatar-icon
-
-           and gives Leaflet a 45px icon.
-
-           These rules visually reduce it to a small
-           WhatsApp-style profile icon WITHOUT changing app.js.
-
+           ⭐ REAL-TIME LOCATION AVATAR & MEMORY PINS
+           (BULLETPROOF FIX)
         ========================================================== */
 
-
-        /*
-         * YOUR AVATAR
-         *
-         * Final visual size = 34 x 34 px
-         */
-        .leaflet-marker-icon.avatar-icon {
-            width: 34px !important;
-            height: 34px !important;
-
-            /*
-             * app.js uses iconAnchor [22,22].
-             * 5px offset keeps the 34px image centered
-             * exactly on the original GPS point.
-             */
-            margin-left: 5px !important;
-            margin-top: 5px !important;
-
-            border-radius: 50% !important;
-
-            border:
-                2px solid var(--green-bright)
-                !important;
-
-            background:
-                #0b171c
-                !important;
-
-            object-fit: cover !important;
-
-            display: block !important;
-
-            overflow: hidden !important;
-
-            box-shadow:
-                0 0 0 2px rgba(0,168,132,0.20),
-                0 3px 12px rgba(0,0,0,0.65)
-                !important;
-
-            /*
-             * Makes the photo behave like a profile picture.
-             */
-            aspect-ratio: 1 / 1 !important;
-
-            transition:
-                transform 0.2s ease;
-        }
-
-
-        /*
-         * FRIEND AVATAR
-         */
-        .leaflet-marker-icon.friend-marker {
-            width: 32px !important;
-            height: 32px !important;
-
-            margin-left: 5px !important;
-            margin-top: 5px !important;
-
-            border-radius: 50% !important;
-
-            border:
-                2px solid #5bb7ff
-                !important;
-
-            background:
-                #0b171c
-                !important;
-
-            object-fit: cover !important;
-
-            display: block !important;
-
-            overflow: hidden !important;
-
-            box-shadow:
-                0 0 0 2px rgba(77,163,255,0.16),
-                0 3px 11px rgba(0,0,0,0.60)
-                !important;
-
-            aspect-ratio: 1 / 1 !important;
-        }
-
-
-        /*
-         * Older marker classes — kept for compatibility.
-         */
-        .custom-icon,
-        .custom-icon > div,
-        .custom-icon img,
-        .avatar-marker,
-        .avatar-marker img {
-
-            border-radius: 50% !important;
-
-            object-fit: cover !important;
-
-            overflow: hidden !important;
-        }
-
-
-        /* =========================================================
-           MEMORY PHOTO MARKERS
-        ========================================================== */
-
-        .memory-pin-icon {
+        /* 1. Remove Leaflet's default background and center contents */
+        .leaflet-marker-icon.custom-icon,
+        .leaflet-marker-icon.custom-pin {
             background: transparent !important;
             border: none !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
         }
 
-        .memory-pin-icon > div {
-            border:
-                2px solid #ffffff !important;
+        /* 2. Your Avatar Container */
+        .custom-icon .avatar-marker {
+            width: 42px !important;
+            height: 42px !important;
+            border-radius: 50% !important;
+            border: 2.5px solid var(--green-bright) !important;
+            background: #0b171c !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            overflow: hidden !important;
+            box-shadow: 0 0 0 2px rgba(0,168,132,0.20), 0 3px 12px rgba(0,0,0,0.65) !important;
+            transition: transform 0.2s ease;
+        }
 
-            box-shadow:
-                0 0 0 2px rgba(234,67,53,0.45),
-                0 4px 14px rgba(0,0,0,0.60)
-                !important;
+        /* 3. Friend's Avatar Container */
+        .custom-icon .avatar-marker.friend {
+            width: 36px !important;
+            height: 36px !important;
+            border-color: var(--blue) !important;
+            box-shadow: 0 0 0 2px rgba(77,163,255,0.16), 0 3px 11px rgba(0,0,0,0.60) !important;
+        }
+
+        /* 4. Memory Pin Container */
+        .custom-pin .memory-pin-box {
+            width: 42px !important;
+            height: 42px !important;
+            border-radius: 50% !important;
+            border: 2.5px solid #ea4335 !important;
+            background: #fff !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            overflow: hidden !important;
+            box-shadow: 0 0 0 2px rgba(234,67,53,0.20), 0 3px 12px rgba(0,0,0,0.65) !important;
+            transition: transform 0.2s ease;
+        }
+
+        .custom-pin:hover .memory-pin-box {
+            transform: scale(1.1);
+            box-shadow: 0 6px 18px rgba(0,0,0,0.55) !important;
+        }
+
+        /* 5. Force ALL images to fill the circle perfectly */
+        .custom-icon .avatar-marker img,
+        .custom-pin .memory-pin-box img {
+            width: 100% !important;
+            height: 100% !important;
+            object-fit: cover !important;
+            border-radius: 50% !important;
+            display: block !important;
         }
 
 
@@ -563,24 +489,9 @@
         }
 
         @keyframes livePulse {
-
-            0% {
-                box-shadow:
-                    0 0 0 0
-                    rgba(24,214,163,0.35);
-            }
-
-            70% {
-                box-shadow:
-                    0 0 0 6px
-                    rgba(24,214,163,0);
-            }
-
-            100% {
-                box-shadow:
-                    0 0 0 0
-                    rgba(24,214,163,0);
-            }
+            0% { box-shadow: 0 0 0 0 rgba(24,214,163,0.35); }
+            70% { box-shadow: 0 0 0 6px rgba(24,214,163,0); }
+            100% { box-shadow: 0 0 0 0 rgba(24,214,163,0); }
         }
 
 
@@ -701,165 +612,94 @@
         ========================================================== */
 
         #chat-header {
-
             min-height: 64px;
-
             display: flex;
-
             align-items: center;
-
             gap: 12px;
-
-            padding:
-                0 14px;
-
-            background:
-                rgba(255,255,255,0.025);
-
-            border-bottom:
-                1px solid rgba(255,255,255,0.08);
-
+            padding: 0 14px;
+            background: rgba(255,255,255,0.025);
+            border-bottom: 1px solid rgba(255,255,255,0.08);
             flex-shrink: 0;
         }
-
 
         .header-avatar-wrapper {
-
             position: relative;
-
             width: 40px;
             height: 40px;
-
             flex-shrink: 0;
         }
 
-
         #header-avatar {
-
             width: 40px;
             height: 40px;
-
             border-radius: 50%;
-
             object-fit: cover;
-
-            border:
-                2px solid
-                rgba(0,168,132,0.75);
-
-            box-shadow:
-                0 0 0 3px
-                rgba(0,168,132,0.10);
+            border: 2px solid rgba(0,168,132,0.75);
+            box-shadow: 0 0 0 3px rgba(0,168,132,0.10);
         }
-
 
         .online-dot {
-
             position: absolute;
-
             right: -1px;
             bottom: -1px;
-
             width: 11px;
             height: 11px;
-
             border-radius: 50%;
-
-            background:
-                #22c55e;
-
-            border:
-                2px solid
-                #071016;
-
-            box-shadow:
-                0 0 7px
-                rgba(34,197,94,0.55);
+            background: #22c55e;
+            border: 2px solid #071016;
+            box-shadow: 0 0 7px rgba(34,197,94,0.55);
         }
 
-
         .header-info {
-
             flex: 1;
-
             min-width: 0;
-
             display: flex;
-
             flex-direction: column;
-
             justify-content: center;
-
             gap: 2px;
         }
 
-
         .header-info span:first-child {
-
-            font-size:
-                14.5px;
-
-            font-weight:
-                650;
-
-            color:
-                #f5f7f8;
-
-            white-space:
-                nowrap;
-
-            overflow:
-                hidden;
-
-            text-overflow:
-                ellipsis;
+            font-size: 14.5px;
+            font-weight: 650;
+            color: #f5f7f8;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
-
 
         .header-info span:last-child {
-
-            font-size:
-                11px;
-
-            color:
-                var(--green-bright);
+            font-size: 11px;
+            color: var(--green-bright);
         }
 
+        .header-info span:last-child::before {
+            content: "";
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            margin-right: 5px;
+            border-radius: 50%;
+            background: var(--accent);
+            box-shadow: 0 0 8px rgba(0,200,150,0.80);
+        }
 
         #chat-minimize-btn {
-
             width: 34px;
             height: 34px;
-
             display: flex;
-
             align-items: center;
             justify-content: center;
-
-            border-radius:
-                9px;
-
-            border:
-                1px solid
-                rgba(255,255,255,0.07);
-
-            background:
-                rgba(255,255,255,0.045);
-
-            color:
-                #9aa8af;
-
-            transition:
-                all 0.15s ease;
+            border-radius: 9px;
+            border: 1px solid rgba(255,255,255,0.07);
+            background: rgba(255,255,255,0.045);
+            color: #9aa8af;
+            transition: all 0.15s ease;
         }
 
         #chat-minimize-btn:hover {
-
-            background:
-                rgba(255,255,255,0.09);
-
-            color:
-                #ffffff;
+            background: rgba(255,255,255,0.09);
+            color: #ffffff;
         }
 
 
@@ -868,54 +708,21 @@
         ========================================================== */
 
         #chat-messages {
-
             position: relative;
-
             flex: 1;
-
             overflow-y: auto;
-
-            padding:
-                15px;
-
+            padding: 15px;
             display: flex;
-
             flex-direction: column;
-
             gap: 7px;
-
-            background:
-                radial-gradient(
-                    circle at 20% 20%,
-                    rgba(255,255,255,0.018),
-                    transparent 35%
-                );
-
-            scrollbar-width:
-                thin;
-
-            scrollbar-color:
-                rgba(255,255,255,0.10)
-                transparent;
+            background: radial-gradient(circle at 20% 20%, rgba(255,255,255,0.018), transparent 35%);
+            scrollbar-width: thin;
+            scrollbar-color: rgba(255,255,255,0.10) transparent;
         }
 
-
-        #chat-messages::-webkit-scrollbar {
-            width: 4px;
-        }
-
-        #chat-messages::-webkit-scrollbar-track {
-            background: transparent;
-        }
-
-        #chat-messages::-webkit-scrollbar-thumb {
-
-            background:
-                rgba(255,255,255,0.12);
-
-            border-radius:
-                10px;
-        }
+        #chat-messages::-webkit-scrollbar { width: 4px; }
+        #chat-messages::-webkit-scrollbar-track { background: transparent; }
+        #chat-messages::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 10px; }
 
 
         /* =========================================================
@@ -923,48 +730,27 @@
         ========================================================== */
 
         .empty-state {
-
             position: absolute;
-
             top: 50%;
             left: 50%;
-
-            transform:
-                translate(-50%, -50%);
-
+            transform: translate(-50%, -50%);
             display: flex;
-
             flex-direction: column;
-
             align-items: center;
-
             text-align: center;
-
             gap: 10px;
-
-            pointer-events:
-                none;
-
-            width:
-                230px;
+            pointer-events: none;
+            width: 230px;
         }
-
 
         #chat-messages:has(.chat-message) .empty-state {
             display: none;
         }
 
-
         .empty-state p {
-
-            font-size:
-                12px;
-
-            color:
-                var(--muted);
-
-            line-height:
-                1.5;
+            font-size: 12px;
+            color: var(--muted);
+            line-height: 1.5;
         }
 
 
@@ -973,59 +759,58 @@
            ========================================================== */
 
         .chat-message {
-
-            max-width:
-                82%;
-
-            padding:
-                9px 12px;
-
-            border-radius:
-                12px;
-
-            font-size:
-                13px;
-
-            line-height:
-                1.45;
-
-            color:
-                #e9edef;
-
-            word-break:
-                break-word;
-
-            border:
-                1px solid
-                rgba(255,255,255,0.035);
-
-            box-shadow:
-                0 2px 7px
-                rgba(0,0,0,0.16);
+            position: relative;
+            max-width: 82%;
+            padding: 9px 12px !important;
+            border-radius: 12px !important;
+            font-size: 13px;
+            line-height: 1.45;
+            color: #e9edef;
+            word-break: break-word;
+            border: 1px solid rgba(255,255,255,0.035);
+            box-shadow: 0 2px 7px rgba(0,0,0,0.16);
         }
-
 
         .chat-message img,
         .chat-message video {
+            max-width: 100%;
+            border-radius: 9px;
+            margin-top: 5px;
+        }
 
-            max-width:
-                100%;
-
-            border-radius:
-                9px;
-
-            margin-top:
-                5px;
+        .chat-message audio {
+            max-width: 100%;
+            margin-top: 5px;
         }
 
 
-        .chat-message audio {
+        /* Compatibility classes */
 
-            max-width:
-                100%;
+        .msg-bubble {
+            max-width: 80%;
+            padding: 8px 11px;
+            border-radius: 12px;
+            color: #e9edef;
+            font-size: 13.5px;
+            line-height: 1.4;
+            word-break: break-word;
+        }
 
-            margin-top:
-                5px;
+        .msg-mine {
+            align-self: flex-end;
+            background: #005c4b;
+        }
+
+        .msg-theirs {
+            align-self: flex-start;
+            background: #202c33;
+        }
+
+        .msg-sender {
+            margin-bottom: 3px;
+            color: #53d7b7;
+            font-size: 10.5px;
+            font-weight: 700;
         }
 
 
@@ -1034,189 +819,70 @@
         ========================================================== */
 
         #chatForm {
-
-            min-height:
-                62px;
-
-            display:
-                flex;
-
-            align-items:
-                center;
-
-            gap:
-                7px;
-
-            padding:
-                9px 12px;
-
-            background:
-                rgba(255,255,255,0.025);
-
-            border-top:
-                1px solid
-                rgba(255,255,255,0.08);
-
-            position:
-                relative;
-
-            flex-shrink:
-                0;
+            min-height: 62px;
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            padding: 9px 12px;
+            background: rgba(255,255,255,0.025);
+            border-top: 1px solid rgba(255,255,255,0.08);
+            position: relative;
+            flex-shrink: 0;
         }
-
 
         .input-icon {
-
-            width:
-                32px;
-
-            height:
-                32px;
-
-            display:
-                flex;
-
-            align-items:
-                center;
-
-            justify-content:
-                center;
-
-            flex-shrink:
-                0;
-
-            border:
-                none;
-
-            background:
-                transparent;
-
-            color:
-                #8d9ba2;
-
-            transition:
-                color 0.15s ease,
-                transform 0.15s ease;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            border: none;
+            background: transparent;
+            color: #8d9ba2;
+            transition: color 0.15s ease, transform 0.15s ease;
         }
 
-
-        .input-icon:hover {
-            color: #ffffff;
-        }
-
-
-        .input-icon:active {
-            transform: scale(0.9);
-        }
-
-
-        .input-icon.yellow {
-            color:
-                #facc15;
-        }
-
+        .input-icon:hover { color: #ffffff; }
+        .input-icon:active { transform: scale(0.9); }
+        .input-icon.yellow { color: #facc15; }
 
         #chatInput {
-
-            flex:
-                1;
-
-            min-width:
-                0;
-
-            height:
-                40px;
-
-            border:
-                1px solid
-                transparent;
-
-            border-radius:
-                21px;
-
-            outline:
-                none;
-
-            background:
-                #17242c;
-
-            color:
-                #f4f7f8;
-
-            padding:
-                0 15px;
-
-            font-size:
-                13.5px;
-
-            transition:
-                border-color 0.15s ease,
-                background 0.15s ease;
+            flex: 1;
+            min-width: 0;
+            height: 40px;
+            border: 1px solid transparent;
+            border-radius: 21px;
+            outline: none;
+            background: #17242c;
+            color: #f4f7f8;
+            padding: 0 15px;
+            font-size: 13.5px;
+            transition: border-color 0.15s ease, background 0.15s ease;
         }
-
 
         #chatInput:focus {
-
-            border-color:
-                rgba(0,168,132,0.40);
-
-            background:
-                #1a2a33;
+            border-color: rgba(0,168,132,0.40);
+            background: #1a2a33;
         }
 
-
-        #chatInput::placeholder {
-            color:
-                #697981;
-        }
-
-
-        /* =========================================================
-           SEND / VOICE BUTTON
-        ========================================================== */
+        #chatInput::placeholder { color: #697981; }
 
         .action-circle-btn {
-
-            width:
-                40px;
-
-            height:
-                40px;
-
-            flex-shrink:
-                0;
-
-            border-radius:
-                50%;
-
-            display:
-                flex;
-
-            align-items:
-                center;
-
-            justify-content:
-                center;
-
-            border:
-                none;
-
-            background:
-                var(--green);
-
-            color:
-                #06110e;
-
-            transition:
-                transform 0.15s ease,
-                background 0.15s ease;
+            width: 40px;
+            height: 40px;
+            flex-shrink: 0;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: none;
+            background: var(--green);
+            color: #06110e;
+            transition: transform 0.15s ease, background 0.15s ease;
         }
 
-
-        .action-circle-btn:active {
-            transform:
-                scale(0.90);
-        }
+        .action-circle-btn:active { transform: scale(0.90); }
 
 
         /* =========================================================
@@ -1224,86 +890,35 @@
         ========================================================== */
 
         #attachment-menu {
-
-            position:
-                absolute;
-
-            left:
-                12px;
-
-            bottom:
-                68px;
-
-            min-width:
-                185px;
-
-            padding:
-                7px;
-
-            display:
-                none;
-
-            flex-direction:
-                column;
-
-            background:
-                rgba(18,31,39,0.98);
-
-            border:
-                1px solid
-                rgba(255,255,255,0.10);
-
-            border-radius:
-                13px;
-
-            box-shadow:
-                0 14px 35px
-                rgba(0,0,0,0.55);
-
-            z-index:
-                5000;
-
-            backdrop-filter:
-                blur(15px);
+            position: absolute;
+            left: 12px;
+            bottom: 68px;
+            min-width: 185px;
+            padding: 7px;
+            display: none;
+            flex-direction: column;
+            background: rgba(18,31,39,0.98);
+            border: 1px solid rgba(255,255,255,0.10);
+            border-radius: 13px;
+            box-shadow: 0 14px 35px rgba(0,0,0,0.55);
+            z-index: 5000;
+            backdrop-filter: blur(15px);
         }
-
 
         #attachment-menu button {
-
-            padding:
-                10px 12px;
-
-            border:
-                none;
-
-            border-radius:
-                8px;
-
-            background:
-                transparent;
-
-            color:
-                #c7d0d4;
-
-            text-align:
-                left;
-
-            font-size:
-                13px;
-
-            transition:
-                background 0.15s ease,
-                color 0.15s ease;
+            padding: 10px 12px;
+            border: none;
+            border-radius: 8px;
+            background: transparent;
+            color: #c7d0d4;
+            text-align: left;
+            font-size: 13px;
+            transition: background 0.15s ease, color 0.15s ease;
         }
 
-
         #attachment-menu button:hover {
-
-            background:
-                rgba(255,255,255,0.06);
-
-            color:
-                #ffffff;
+            background: rgba(255,255,255,0.06);
+            color: #ffffff;
         }
 
 
@@ -1312,46 +927,20 @@
         ========================================================== */
 
         #emoji-picker-container {
-
-            position:
-                absolute;
-
-            left:
-                12px;
-
-            bottom:
-                68px;
-
-            display:
-                none;
-
-            z-index:
-                5000;
-
-            filter:
-                drop-shadow(
-                    0 12px 30px
-                    rgba(0,0,0,0.55)
-                );
+            position: absolute;
+            left: 12px;
+            bottom: 68px;
+            display: none;
+            z-index: 5000;
+            filter: drop-shadow(0 12px 30px rgba(0,0,0,0.55));
         }
 
-
         emoji-picker {
-
-            width:
-                310px;
-
-            height:
-                320px;
-
-            --background:
-                #17242c;
-
-            --border-color:
-                rgba(255,255,255,0.10);
-
-            --indicator-color:
-                var(--green);
+            width: 310px;
+            height: 320px;
+            --background: #17242c;
+            --border-color: rgba(255,255,255,0.10);
+            --indicator-color: var(--green);
         }
 
 
@@ -1360,231 +949,111 @@
         ========================================================== */
 
         #join-screen {
-
-            position:
-                fixed;
-
-            inset:
-                0;
-
-            z-index:
-                999999;
-
-            display:
-                flex;
-
-            align-items:
-                center;
-
-            justify-content:
-                center;
-
-            padding:
-                20px;
-
-            background:
-                rgba(4,10,14,0.86);
-
-            backdrop-filter:
-                blur(14px);
+            position: fixed;
+            inset: 0;
+            z-index: 999999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            background: radial-gradient(circle at 50% 40%, rgba(0,200,150,0.10), transparent 38%), rgba(3,10,14,0.90);
+            backdrop-filter: blur(14px);
         }
-
 
         .join-box {
-
-            width:
-                min(100%, 370px);
-
-            padding:
-                30px 24px;
-
-            border-radius:
-                20px;
-
-            background:
-                rgba(9,18,24,0.97);
-
-            border:
-                1px solid
-                rgba(255,255,255,0.10);
-
-            box-shadow:
-                0 22px 60px
-                rgba(0,0,0,0.60);
-
-            text-align:
-                center;
+            width: min(100%, 370px);
+            padding: 30px 24px;
+            border-radius: 20px;
+            background: rgba(9,18,24,0.97);
+            border: 1px solid rgba(255,255,255,0.10);
+            box-shadow: 0 22px 60px rgba(0,0,0,0.60);
+            text-align: center;
         }
-
 
         .join-box h2 {
-
-            font-size:
-                23px;
-
-            font-weight:
-                700;
-
-            margin-bottom:
-                7px;
+            font-size: 23px;
+            font-weight: 700;
+            margin-bottom: 7px;
         }
-
 
         .join-box p {
-
-            font-size:
-                12.5px;
-
-            color:
-                var(--muted);
-
-            margin-bottom:
-                24px;
+            font-size: 12.5px;
+            color: var(--muted);
+            margin-bottom: 24px;
         }
-
 
         .join-box input[type="text"] {
-
-            width:
-                100%;
-
-            height:
-                48px;
-
-            padding:
-                0 15px;
-
-            border-radius:
-                12px;
-
-            background:
-                #17242c;
-
-            border:
-                1px solid
-                rgba(255,255,255,0.08);
-
-            color:
-                #ffffff;
-
-            outline:
-                none;
-
-            font-size:
-                14px;
-
-            margin-bottom:
-                12px;
+            width: 100%;
+            height: 48px;
+            padding: 0 15px;
+            border-radius: 12px;
+            background: #17242c;
+            border: 1px solid rgba(255,255,255,0.08);
+            color: #ffffff;
+            outline: none;
+            font-size: 14px;
+            margin-bottom: 12px;
+            transition: border-color 0.2s ease;
         }
-
 
         .join-box input[type="text"]:focus {
-
-            border-color:
-                rgba(0,168,132,0.45);
+            border-color: rgba(0,168,132,0.45);
         }
-
 
         .avatar-label {
-
-            width:
-                100%;
-
-            height:
-                48px;
-
-            display:
-                flex;
-
-            align-items:
-                center;
-
-            justify-content:
-                center;
-
-            border:
-                1px dashed
-                rgba(255,255,255,0.18);
-
-            border-radius:
-                12px;
-
-            color:
-                var(--muted);
-
-            font-size:
-                13px;
-
-            cursor:
-                pointer;
-
-            margin-bottom:
-                22px;
-
-            transition:
-                border-color 0.15s ease,
-                background 0.15s ease;
+            width: 100%;
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px dashed rgba(255,255,255,0.18);
+            border-radius: 12px;
+            color: var(--muted);
+            font-size: 13px;
+            cursor: pointer;
+            margin-bottom: 22px;
+            transition: border-color 0.15s ease, background 0.15s ease;
         }
-
 
         .avatar-label:hover {
-
-            border-color:
-                rgba(0,168,132,0.50);
-
-            background:
-                rgba(0,168,132,0.05);
+            border-color: rgba(0,168,132,0.50);
+            background: rgba(0,168,132,0.05);
         }
 
-
-        .avatar-label input {
-            display:
-                none;
-        }
-
+        .avatar-label input { display: none; }
 
         .join-box button {
-
-            width:
-                100%;
-
-            height:
-                48px;
-
-            border:
-                none;
-
-            border-radius:
-                12px;
-
-            background:
-                var(--green);
-
-            color:
-                #04100d;
-
-            font-size:
-                15px;
-
-            font-weight:
-                700;
-
-            transition:
-                transform 0.15s ease,
-                background 0.15s ease;
+            width: 100%;
+            height: 48px;
+            border: none;
+            border-radius: 12px;
+            background: var(--green);
+            color: #04100d;
+            font-size: 15px;
+            font-weight: 700;
+            transition: transform 0.15s ease, background 0.15s ease;
         }
 
+        .join-box button:hover { background: var(--green-bright); }
+        .join-box button:active { transform: scale(0.98); }
 
-        .join-box button:hover {
-            background:
-                var(--green-bright);
+
+        /* =========================================================
+           LEAFLET POPUP
+        ========================================================== */
+        
+        .leaflet-popup-content-wrapper {
+            background: rgba(11,21,26,0.98) !important;
+            color: #e9edef !important;
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 15px !important;
+            box-shadow: 0 18px 45px rgba(0,0,0,0.58) !important;
         }
 
-
-        .join-box button:active {
-            transform:
-                scale(0.98);
-        }
+        .leaflet-popup-tip { background: #0b151a !important; }
+        .leaflet-popup-content { margin: 13px !important; }
+        .leaflet-popup-close-button { color: #91a1a8 !important; font-size: 18px !important; }
+        .leaflet-popup-close-button:hover { color: white !important; }
 
 
         /* =========================================================
@@ -1593,824 +1062,224 @@
 
         @media (max-width: 600px) {
 
-            /*
-             * Small location avatar on mobile.
-             */
-            .leaflet-marker-icon.avatar-icon {
-
-                width:
-                    34px !important;
-
-                height:
-                    34px !important;
-
-                margin-left:
-                    5px !important;
-
-                margin-top:
-                    5px !important;
+            /* Mobile marker adjustments */
+            .custom-icon .avatar-marker,
+            .custom-pin .memory-pin-box {
+                width: 36px !important;
+                height: 36px !important;
             }
 
-
-            .leaflet-marker-icon.friend-marker {
-
-                width:
-                    31px !important;
-
-                height:
-                    31px !important;
-
-                margin-left:
-                    5px !important;
-
-                margin-top:
-                    5px !important;
+            .custom-icon .avatar-marker.friend {
+                width: 32px !important;
+                height: 32px !important;
             }
-
 
             #memoryButton {
-
-                top:
-                    calc(
-                        env(safe-area-inset-top, 0px)
-                        + 15px
-                    ) !important;
-
-                left:
-                    15px !important;
-
-                width:
-                    42px !important;
-
-                height:
-                    42px !important;
+                top: calc(env(safe-area-inset-top, 0px) + 15px) !important;
+                left: 15px !important;
             }
-
 
             .leaflet-control-zoom {
-
-                margin-top:
-                    70px !important;
-
-                margin-left:
-                    15px !important;
+                margin-top: 70px !important;
+                margin-left: 15px !important;
             }
 
-
-            .leaflet-control-zoom a {
-
-                width:
-                    32px !important;
-
-                height:
-                    32px !important;
-
-                line-height:
-                    32px !important;
-            }
-
-
-            /*
-             * Mobile chat becomes full screen.
-             */
-
+            /* Mobile chat becomes full screen */
             #chat-container {
-
-                inset:
-                    0;
-
-                width:
-                    100vw;
-
-                height:
-                    100vh;
-
-                height:
-                    100dvh;
-
-                max-width:
-                    none;
-
-                max-height:
-                    none;
-
-                border-radius:
-                    0;
-
-                border:
-                    none;
+                inset: 0;
+                width: 100vw;
+                height: 100vh;
+                height: 100dvh;
+                max-width: none;
+                max-height: none;
+                border-radius: 0;
+                border: none;
             }
-
 
             #chat-header {
-
-                height:
-                    calc(
-                        64px
-                        +
-                        env(safe-area-inset-top, 0px)
-                    );
-
-                padding-top:
-                    env(safe-area-inset-top, 0px);
+                height: calc(64px + env(safe-area-inset-top, 0px));
+                padding-top: env(safe-area-inset-top, 0px);
             }
-
 
             #chatForm {
-
-                padding-bottom:
-                    max(
-                        9px,
-                        env(safe-area-inset-bottom, 0px)
-                    );
+                padding-bottom: max(9px, env(safe-area-inset-bottom, 0px));
             }
 
-
-            /*
-             * Keep map clean on small screens.
-             */
-
-            .bottom-pill {
-
-                display:
-                    none;
-            }
-
-
-            /*
-             * Chat button position.
-             */
+            .bottom-pill { display: none; }
 
             #chat-toggle-btn {
-
-                right:
-                    16px !important;
-
-                bottom:
-                    calc(
-                        env(safe-area-inset-bottom, 0px)
-                        + 16px
-                    ) !important;
-
-                width:
-                    54px !important;
-
-                height:
-                    54px !important;
+                right: 16px !important;
+                bottom: calc(env(safe-area-inset-bottom, 0px) + 16px) !important;
             }
 
-
-            /*
-             * Better attachment/emoji width.
-             */
-
-            #emoji-picker-container {
-
-                left:
-                    8px;
-
-                right:
-                    8px;
-            }
-
-            emoji-picker {
-
-                width:
-                    min(
-                        310px,
-                        calc(100vw - 16px)
-                    );
-            }
-
-
-            #attachment-menu {
-
-                left:
-                    8px;
-            }
+            #emoji-picker-container { left: 8px; right: 8px; }
+            emoji-picker { width: min(310px, calc(100vw - 16px)); }
+            #attachment-menu { left: 8px; }
         }
-
 
         /* =========================================================
            VERY SMALL PHONES
         ========================================================== */
 
         @media (max-width: 380px) {
-
-            .leaflet-marker-icon.avatar-icon {
-
-                width:
-                    32px !important;
-
-                height:
-                    32px !important;
-
-                margin-left:
-                    5px !important;
-
-                margin-top:
-                    5px !important;
+            .custom-icon .avatar-marker,
+            .custom-pin .memory-pin-box {
+                width: 32px !important;
+                height: 32px !important;
             }
-
-
-            .leaflet-marker-icon.friend-marker {
-
-                width:
-                    30px !important;
-
-                height:
-                    30px !important;
+            .custom-icon .avatar-marker.friend {
+                width: 28px !important;
+                height: 28px !important;
             }
-
-
-            #chatInput {
-
-                padding:
-                    0 12px;
-
-                font-size:
-                    13px;
-            }
-
-
-            #chatForm {
-
-                gap:
-                    4px;
-
-                padding-left:
-                    7px;
-
-                padding-right:
-                    7px;
-            }
+            #chat-header img { width: 39px !important; height: 39px !important; min-width: 39px; min-height: 39px; }
+            .input-icon { width: 31px; font-size: 18px; }
+            #chatInput { padding: 0 12px; font-size: 13px; }
+            #chatForm { gap: 4px; padding-left: 7px; padding-right: 7px; }
         }
-
 
         /* =========================================================
-           ACCESSIBILITY / TOUCH
+           DESKTOP CHAT ANIMATION
         ========================================================== */
 
-        @media (hover: none) {
-
-            #memoryButton:hover,
-            #chat-minimize-btn:hover,
-            .input-icon:hover {
-                background: inherit;
+        @media (min-width: 601px) {
+            #chat-container {
+                animation: chatWindowIn 0.20s ease-out;
+            }
+            @keyframes chatWindowIn {
+                from { opacity: 0; transform: translateY(10px) scale(0.98); }
+                to { opacity: 1; transform: translateY(0) scale(1); }
             }
         }
-
     </style>
 </head>
 
-
 <body>
 
-    <!-- =========================================================
-         MAP
-    ========================================================== -->
-
+    <!-- MAP -->
     <div id="map"></div>
 
-
-    <!-- =========================================================
-         BOTTOM STATUS
-    ========================================================== -->
-
+    <!-- BOTTOM STATUS -->
     <div class="bottom-pill pill-left">
-
         <span style="font-size:14px;">☁️</span>
-
         <span>Koraput</span>
-
         <div class="pill-divider"></div>
-
         <span>26°C</span>
-
     </div>
-
 
     <div class="bottom-pill pill-center">
-
         <div class="live-dot"></div>
-
         <span>Live Location</span>
-
     </div>
 
-
-    <!-- =========================================================
-         MEMORY CAMERA
-    ========================================================== -->
-
-    <button
-        id="memoryButton"
-        type="button"
-        title="Pin Memory Photo"
-        aria-label="Pin Memory Photo">
-
-        <svg
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round">
-
-            <path
-                d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z">
-            </path>
-
-            <circle
-                cx="12"
-                cy="13"
-                r="4">
-            </circle>
-
+    <!-- MEMORY CAMERA -->
+    <button id="memoryButton" type="button" title="Pin Memory Photo" aria-label="Pin Memory Photo">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+            <circle cx="12" cy="13" r="4"></circle>
         </svg>
-
     </button>
 
+    <input type="file" id="memoryPhotoInput" accept="image/*">
 
-    <input
-        type="file"
-        id="memoryPhotoInput"
-        accept="image/*">
-
-
-    <!-- =========================================================
-         CHAT OPEN BUTTON
-    ========================================================== -->
-
-    <button
-        id="chat-toggle-btn"
-        type="button"
-        aria-label="Open chat"
-        title="Open chat">
-
-        <svg
-            width="23"
-            height="23"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round">
-
-            <path
-                d="M21 11.5a8.38 8.38 0 0 1-.9 3.8
-                   8.5 8.5 0 0 1-7.6 4.7
-                   8.38 8.38 0 0 1-3.8-.9L3 21
-                   l1.9-5.7a8.38 8.38 0 0 1-.9-3.8
-                   8.5 8.5 0 0 1 4.7-7.6
-                   8.38 8.38 0 0 1 3.8-.9h.5
-                   a8.48 8.48 0 0 1 8 8v.5z">
-            </path>
-
+    <!-- CHAT OPEN BUTTON -->
+    <button id="chat-toggle-btn" type="button" aria-label="Open chat" title="Open chat">
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
         </svg>
-
     </button>
 
-
-    <!-- =========================================================
-         CHAT WINDOW
-    ========================================================== -->
-
-    <div
-        id="chat-container"
-        role="dialog"
-        aria-label="Koraput Group Chat">
-
+    <!-- CHAT WINDOW -->
+    <div id="chat-container" role="dialog" aria-label="Koraput Group Chat">
 
         <!-- HEADER -->
-
         <div id="chat-header">
-
             <div class="header-avatar-wrapper">
-
-                <img
-                    id="header-avatar"
-                    src="satyam.png"
-                    alt="Profile">
-
+                <img id="header-avatar" src="satyam.png" alt="Profile">
                 <div class="online-dot"></div>
-
             </div>
-
-
             <div class="header-info">
-
-                <span id="chat-user-title">
-                    Koraput Group
-                </span>
-
-                <span>
-                    Online
-                </span>
-
+                <span id="chat-user-title">Koraput Group</span>
+                <span>Online</span>
             </div>
-
-
-            <button
-                id="chat-minimize-btn"
-                type="button"
-                title="Minimize"
-                aria-label="Minimize chat">
-
-                <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round">
-
-                    <line
-                        x1="5"
-                        y1="12"
-                        x2="19"
-                        y2="12">
-                    </line>
-
+            <button id="chat-minimize-btn" type="button" title="Minimize" aria-label="Minimize chat">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                    <line x1="5" y1="12" x2="19" y2="12"></line>
                 </svg>
-
             </button>
-
         </div>
 
-
-        <!-- =====================================================
-             MESSAGES
-        ====================================================== -->
-
-        <div
-            id="chat-messages"
-            aria-live="polite">
-
-
+        <!-- MESSAGES -->
+        <div id="chat-messages" aria-live="polite">
             <div class="empty-state">
-
-                <svg
-                    width="40"
-                    height="40"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="#475569"
-                    stroke-width="1.5"
-                    stroke-linecap="round"
-                    stroke-linejoin="round">
-
-                    <path
-                        d="M21 11.5a8.38 8.38 0 0 1-.9 3.8
-                           8.5 8.5 0 0 1-7.6 4.7
-                           8.38 8.38 0 0 1-3.8-.9L3 21
-                           l1.9-5.7a8.38 8.38 0 0 1-.9-3.8
-                           8.5 8.5 0 0 1 4.7-7.6
-                           8.38 8.38 0 0 1 3.8-.9h.5
-                           a8.48 8.48 0 0 1 8 8v.5z">
-                    </path>
-
-                    <line
-                        x1="9"
-                        y1="9"
-                        x2="15"
-                        y2="9">
-                    </line>
-
-                    <line
-                        x1="9"
-                        y1="13"
-                        x2="15"
-                        y2="13">
-                    </line>
-
-                    <line
-                        x1="9"
-                        y1="17"
-                        x2="12"
-                        y2="17">
-                    </line>
-
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
+                    <line x1="9" y1="9" x2="15" y2="9"></line><line x1="9" y1="13" x2="15" y2="13"></line><line x1="9" y1="17" x2="12" y2="17"></line>
                 </svg>
-
-
-                <div
-                    style="
-                        font-weight:600;
-                        color:#e2e8f0;
-                        font-size:14px;
-                    ">
-
-                    No messages yet
-
-                </div>
-
-
-                <p>
-                    Start a conversation with your friends<br>
-                    in Koraput Group
-                </p>
-
+                <div style="font-weight:600; color:#e2e8f0; font-size:14px;">No messages yet</div>
+                <p>Start a conversation with your friends<br>in Koraput Group</p>
             </div>
-
         </div>
 
-
-        <!-- =====================================================
-             CHAT INPUT
-        ====================================================== -->
-
+        <!-- CHAT INPUT -->
         <form id="chatForm">
-
-
             <!-- ATTACHMENT MENU -->
-
             <div id="attachment-menu">
-
-                <button
-                    type="button"
-                    id="att-media">
-
-                    🖼️ Photo / Video
-
-                </button>
-
-                <button
-                    type="button"
-                    id="att-doc">
-
-                    📄 Document
-
-                </button>
-
-                <button
-                    type="button"
-                    id="att-audio">
-
-                    🎵 Audio
-
-                </button>
-
+                <button type="button" id="att-media">🖼️ Photo / Video</button>
+                <button type="button" id="att-doc">📄 Document</button>
+                <button type="button" id="att-audio">🎵 Audio</button>
             </div>
 
-
-            <!-- EMOJI -->
-
+            <!-- EMOJI PICKER -->
             <div id="emoji-picker-container">
-
-                <emoji-picker
-                    id="emojiPicker">
-                </emoji-picker>
-
+                <emoji-picker id="emojiPicker"></emoji-picker>
             </div>
 
-
-            <!-- EMOJI BUTTON -->
-
-            <button
-                type="button"
-                id="emojiButton"
-                class="input-icon yellow"
-                title="Emoji"
-                aria-label="Emoji">
-
-                <svg
-                    width="21"
-                    height="21"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round">
-
-                    <circle
-                        cx="12"
-                        cy="12"
-                        r="10">
-                    </circle>
-
-                    <path
-                        d="M8 14s1.5 2 4 2
-                           4-2 4-2">
-                    </path>
-
-                    <line
-                        x1="9"
-                        y1="9"
-                        x2="9.01"
-                        y2="9">
-                    </line>
-
-                    <line
-                        x1="15"
-                        y1="9"
-                        x2="15.01"
-                        y2="9">
-                    </line>
-
+            <!-- BUTTONS -->
+            <button type="button" id="emojiButton" class="input-icon yellow" title="Emoji" aria-label="Emoji">
+                <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><line x1="9" y1="9" x2="9.01" y2="9"></line><line x1="15" y1="9" x2="15.01" y2="9"></line>
                 </svg>
-
             </button>
 
-
-            <!-- ATTACH -->
-
-            <button
-                type="button"
-                id="chat-attach-btn"
-                class="input-icon"
-                title="Attach"
-                aria-label="Attach file">
-
-                <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round">
-
-                    <path
-                        d="M21.44 11.05l-9.19 9.19
-                           a6 6 0 0 1-8.49-8.49
-                           l9.19-9.19
-                           a4 4 0 0 1 5.66 5.66
-                           l-9.2 9.19
-                           a2 2 0 0 1-2.83-2.83
-                           l8.49-8.48">
-                    </path>
-
+            <button type="button" id="chat-attach-btn" class="input-icon" title="Attach" aria-label="Attach file">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
                 </svg>
-
             </button>
 
+            <input type="file" id="chatAttachment" hidden>
+            <input type="text" id="chatInput" placeholder="Message" autocomplete="off" maxlength="5000" aria-label="Message">
 
-            <input
-                type="file"
-                id="chatAttachment"
-                hidden>
-
-
-            <!-- TEXT -->
-
-            <input
-                type="text"
-                id="chatInput"
-                placeholder="Message"
-                autocomplete="off"
-                maxlength="5000">
-
-
-            <!-- VOICE -->
-
-            <button
-                type="button"
-                id="voiceButton"
-                class="action-circle-btn"
-                style="
-                    background:transparent;
-                    border:1px solid rgba(255,255,255,0.10);
-                    color:#8d9ba2;
-                    box-shadow:none;
-                ">
-
-                <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round">
-
-                    <path
-                        d="M12 2a3 3 0 0 0-3 3v7
-                           a3 3 0 0 0 6 0V5
-                           a3 3 0 0 0-3-3Z">
-                    </path>
-
-                    <path
-                        d="M19 10v2
-                           a7 7 0 0 1-14 0v-2">
-                    </path>
-
-                    <line
-                        x1="12"
-                        y1="19"
-                        x2="12"
-                        y2="22">
-                    </line>
-
+            <button type="button" id="voiceButton" class="action-circle-btn" style="background:transparent; border:1px solid rgba(255,255,255,0.10); color:#8d9ba2; box-shadow:none;" title="Voice message" aria-label="Voice message">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="22"></line>
                 </svg>
-
             </button>
 
-
-            <!-- SEND -->
-
-            <button
-                type="submit"
-                id="chat-send"
-                class="action-circle-btn"
-                style="display:none;">
-
-                <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2.5"
-                    stroke-linecap="round"
-                    stroke-linejoin="round">
-
-                    <line
-                        x1="22"
-                        y1="2"
-                        x2="11"
-                        y2="13">
-                    </line>
-
-                    <polygon
-                        points="22 2 15 22 11 13 2 9 22 2">
-                    </polygon>
-
+            <button type="submit" id="chat-send" class="action-circle-btn" style="display:none;" title="Send" aria-label="Send message">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
                 </svg>
-
             </button>
-
         </form>
-
     </div>
 
-
-    <!-- =========================================================
-         JOIN SCREEN
-    ========================================================== -->
-
+    <!-- JOIN SCREEN -->
     <div id="join-screen">
-
         <div class="join-box">
-
-            <h2>
-                Koraput Map
-            </h2>
-
-            <p>
-                Join squad map and live tracker
-            </p>
-
-
+            <h2>Koraput Map</h2>
+            <p>Join squad map and live tracker</p>
             <form id="join-form">
-
-                <input
-                    type="text"
-                    id="nameInput"
-                    placeholder="Your Name"
-                    maxlength="30"
-                    autocomplete="name"
-                    required>
-
-
+                <input type="text" id="nameInput" placeholder="Your Name" maxlength="30" autocomplete="name" required>
                 <label class="avatar-label">
-
-                    <span id="avatar-label-text">
-                        Select Profile Photo
-                    </span>
-
-                    <input
-                        type="file"
-                        id="avatarInput"
-                        accept="image/*">
-
+                    <span id="avatar-label-text">Select Profile Photo</span>
+                    <input type="file" id="avatarInput" accept="image/*">
                 </label>
-
-
-                <button type="submit">
-                    Join Squad
-                </button>
-
+                <button type="submit">Join Squad</button>
             </form>
-
         </div>
-
     </div>
-
-
-    <!-- =========================================================
-         YOUR EXISTING APP.JS
-         DO NOT CHANGE
-    ========================================================== -->
 
     <script src="/app.js"></script>
-
 </body>
 </html>
