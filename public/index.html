@@ -2,281 +2,813 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-
-    <meta name="viewport"
-          content="width=device-width,
-                   initial-scale=1.0,
-                   maximum-scale=1.0,
-                   user-scalable=no,
-                   viewport-fit=cover">
-
-    <meta name="theme-color" content="#071016">
-    <meta name="mobile-web-app-capable" content="yes">
-
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#071018">
+    <meta name="description" content="Koraput Map - Live location, memories and chat">
     <title>Koraput Map</title>
 
-    <!-- =========================================================
-         LEAFLET
-    ========================================================== -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
-    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <!-- Leaflet -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 
-    <!-- =========================================================
-         SOCKET.IO
-    ========================================================== -->
-    <script src="/socket.io/socket.io.js"></script>
-
-    <!-- =========================================================
-         EMOJI PICKER
-    ========================================================== -->
+    <!-- Emoji Picker -->
     <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js"></script>
 
     <style>
-        /* =========================================================
-           CORE THEME
-        ========================================================== */
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
         :root {
-            --bg: #071016;
-            --panel: rgba(9, 18, 24, 0.96);
-            --panel-soft: rgba(17, 28, 35, 0.92);
-            --text: #f4f7f8;
-            --muted: #91a0a8;
-            --green: #00a884;
+            --bg: #071018;
+            --panel: rgba(7, 16, 24, 0.96);
+            --panel-soft: rgba(10, 22, 31, 0.92);
+            --border: rgba(255, 255, 255, 0.10);
+
+            --green: #10b981;
             --green-bright: #18d6a3;
-            --green-soft: rgba(0, 168, 132, 0.18);
-            --blue: #4da3ff;
-            --border: rgba(255,255,255,0.10);
-            --shadow: 0 15px 45px rgba(0,0,0,0.55);
-            --shadow-small: 0 6px 18px rgba(0,0,0,0.45);
+
+            --blue: #60a5fa;
+            --text: #f5f7f8;
+            --muted: #8d9ba2;
+
+            --shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
         }
 
-        /* =========================================================
-           RESET
-        ========================================================== */
-        * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-        html, body { width: 100%; height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-        button, input { font-family: inherit; }
-        button { cursor: pointer; user-select: none; }
+        html, body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            overflow: hidden;
+            background: var(--bg);
+            color: var(--text);
+            font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
 
-        /* =========================================================
+        button, input { font: inherit; }
+        button { cursor: pointer; }
+
+        /* =========================================
            MAP
-        ========================================================== */
-        #map { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; z-index: 1; background: #071016; }
-        .leaflet-tile { filter: saturate(1.08) contrast(1.04) brightness(0.96); }
-        .leaflet-container { background: #071016; }
-        .leaflet-control { border: none !important; }
-        .leaflet-control-container { z-index: 5000; }
-        .leaflet-top, .leaflet-bottom { z-index: 5000; }
-        .leaflet-control-zoom { display: none !important; } /* Hidden, using custom controls */
-
-        /* =========================================================
-           MEMORY CAMERA BUTTON
-        ========================================================== */
-        #memoryButton {
-            position: fixed !important; top: calc(env(safe-area-inset-top, 0px) + 18px) !important; left: 18px !important;
-            width: 42px !important; height: 42px !important; border-radius: 13px !important; background: rgba(7,16,22,0.90) !important;
-            border: 1px solid rgba(255,255,255,0.12) !important; color: #ffffff !important; display: flex !important;
-            align-items: center !important; justify-content: center !important; z-index: 99999 !important;
-            box-shadow: 0 7px 22px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.05) !important; backdrop-filter: blur(12px);
-            transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+        ========================================= */
+        #map {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            background: #071018;
+            z-index: 1;
         }
-        #memoryButton:hover { background: rgba(17,32,40,0.96) !important; border-color: rgba(0,168,132,0.45) !important; }
-        #memoryButton:active { transform: scale(0.91); }
-        #memoryPhotoInput { display: none; }
 
-        /* =========================================================
-           PHASE 1 — PREMIUM MAP CONTROLS
-        ========================================================== */
+        .leaflet-control-attribution {
+            font-size: 9px !important;
+            opacity: 0.65;
+        }
+
+        /* =========================================
+           TOP HEADER
+        ========================================= */
+        #top-header {
+            position: fixed;
+            top: 14px;
+            left: 14px;
+            right: 14px;
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            pointer-events: none;
+        }
+
+        .brand-card {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 9px 13px;
+            background: rgba(7, 16, 24, 0.88);
+            border: 1px solid var(--border);
+            border-radius: 15px;
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            box-shadow: var(--shadow);
+            pointer-events: auto;
+        }
+
+        .brand-dot {
+            width: 9px;
+            height: 9px;
+            flex: 0 0 9px;
+            border-radius: 50%;
+            background: var(--green-bright);
+            box-shadow: 0 0 8px rgba(24, 214, 163, 0.9), 0 0 16px rgba(24, 214, 163, 0.35);
+        }
+
+        .header-info {
+            display: flex;
+            flex-direction: column;
+            line-height: 1.1;
+        }
+
+        .header-info strong {
+            font-size: 13px;
+            font-weight: 750;
+            letter-spacing: 0.2px;
+        }
+
+        .header-info span {
+            margin-top: 3px;
+            color: var(--muted);
+            font-size: 10px;
+        }
+
+        .header-info span:last-child::before {
+            content: "";
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            margin-right: 5px;
+            border-radius: 50%;
+            background: var(--green-bright);
+            box-shadow: 0 0 8px rgba(24, 214, 163, 0.8);
+        }
+
+        #header-avatar {
+            width: 34px;
+            height: 34px;
+            object-fit: cover;
+            border-radius: 50%;
+            border: 2px solid rgba(255, 255, 255, 0.18);
+            background: #101b23;
+            display: none;
+        }
+
+        /* =========================================
+           MAP CONTROLS
+        ========================================= */
         #map-tools {
-            position: fixed; right: 18px; top: 20px; z-index: 5000; display: flex; flex-direction: column; gap: 8px;
+            position: fixed;
+            right: 14px;
+            top: 88px;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
         }
 
-        #map-tools button {
-            width: 42px; height: 42px; border: 1px solid rgba(255,255,255,0.12); border-radius: 12px;
-            background: rgba(7, 13, 18, 0.88); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
-            color: #f8fafc; font-size: 18px; display: flex; align-items: center; justify-content: center;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.05);
-            transition: transform 0.15s ease, background 0.2s ease, border-color 0.2s ease;
+        .map-tool-button {
+            width: 42px;
+            height: 42px;
+            border: 1px solid var(--border);
+            border-radius: 13px;
+            background: rgba(7, 16, 24, 0.91);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            box-shadow: var(--shadow);
+            transition: transform 0.15s ease, background 0.15s ease;
         }
 
-        #map-tools button:hover { background: rgba(20, 30, 38, 0.95); border-color: rgba(16,185,129,0.45); }
-        #map-tools button:active { transform: scale(0.91); }
-        
-        #my-location-btn { color: #10b981 !important; font-size: 27px !important; line-height: 1; }
-        #compass-btn { font-size: 14px !important; font-weight: 800; color: #f8fafc !important; }
-        #compass-btn span { display: inline-block; transition: transform 0.1s linear; }
+        .map-tool-button:hover {
+            background: rgba(16, 185, 129, 0.18);
+        }
 
-        /* MAP STYLE MENU */
+        .map-tool-button:active {
+            transform: scale(0.92);
+        }
+
+        #compass-icon {
+            display: block;
+            font-size: 14px;
+            font-weight: 800;
+            transform-origin: center;
+        }
+
+        /* =========================================
+           MAP STYLE MENU
+        ========================================= */
         #map-style-menu {
-            position: fixed; right: 70px; top: 116px; width: 150px; padding: 6px;
-            background: rgba(7,13,18,0.94); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-            border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; box-shadow: 0 15px 35px rgba(0,0,0,0.45);
-            display: none; flex-direction: column; gap: 3px; z-index: 5001;
+            position: fixed;
+            right: 62px;
+            top: 188px;
+            z-index: 1100;
+            display: none;
+            flex-direction: column;
+            gap: 5px;
+            min-width: 145px;
+            padding: 7px;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            background: rgba(7, 16, 24, 0.96);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            box-shadow: var(--shadow);
         }
 
-        #map-style-menu button { border: none; border-radius: 9px; background: transparent; color: #dbe4ea; text-align: left; padding: 10px 12px; font-size: 13px; }
-        #map-style-menu button:hover { background: rgba(255,255,255,0.07); }
-        #map-style-menu button.active { background: rgba(16,185,129,0.16); color: #34d399; }
-
-        /* =========================================================
-           YOUR LIVE AVATAR
-        ========================================================== */
-        .leaflet-marker-icon.custom-icon, .leaflet-marker-icon.custom-pin { background: transparent !important; border: none !important; display: flex !important; align-items: center !important; justify-content: center !important; }
-        
-        .leaflet-marker-icon.own-live-avatar {
-            border-radius: 50% !important; border: 2px solid #10b981 !important; background: #071018 !important; padding: 2px !important;
-            box-shadow: 0 0 0 2px rgba(16,185,129,0.16), 0 4px 14px rgba(0,0,0,0.65) !important; object-fit: cover !important;
+        #map-style-menu button {
+            border: 0;
+            border-radius: 9px;
+            padding: 9px 11px;
+            background: transparent;
+            color: #dbe4e8;
+            text-align: left;
+            font-size: 12px;
         }
-        
-        /* FRIEND AVATAR */
-        .leaflet-marker-icon.friend-marker {
-            border-radius: 50% !important; border: 2px solid #60a5fa !important; background: #071018 !important; padding: 2px !important;
-            box-shadow: 0 0 0 2px rgba(96,165,250,0.12), 0 4px 14px rgba(0,0,0,0.6) !important; object-fit: cover !important;
+
+        #map-style-menu button:hover,
+        #map-style-menu button.active {
+            background: rgba(16, 185, 129, 0.16);
+            color: var(--green-bright);
         }
-        
-        /* MEMORY PIN */
-        .custom-pin .memory-pin-box { width: 42px !important; height: 42px !important; border-radius: 50% !important; border: 2.5px solid #ea4335 !important; background: #fff !important; display: flex !important; align-items: center !important; justify-content: center !important; overflow: hidden !important; box-shadow: 0 0 0 2px rgba(234,67,53,0.20), 0 3px 12px rgba(0,0,0,0.65) !important; transition: transform 0.2s ease; }
-        .custom-pin:hover .memory-pin-box { transform: scale(1.1); box-shadow: 0 6px 18px rgba(0,0,0,0.55) !important; }
-        .custom-pin .memory-pin-box img { width: 100% !important; height: 100% !important; object-fit: cover !important; border-radius: 50% !important; display: block !important; }
 
-        /* =========================================================
-           WEATHER BADGE
-        ========================================================== */
-        .weather-badge { background: rgba(7,16,22,0.94) !important; color: #f7fafb !important; border: 1px solid rgba(255,255,255,0.12) !important; border-radius: 8px !important; padding: 3px 7px !important; font-size: 10px !important; line-height: 15px !important; font-weight: 600 !important; box-shadow: 0 4px 14px rgba(0,0,0,0.45) !important; backdrop-filter: blur(10px); white-space: nowrap; }
-        .leaflet-tooltip-left.weather-badge::before, .leaflet-tooltip-right.weather-badge::before { border: none !important; }
+        /* =========================================
+           BOTTOM INFO
+        ========================================= */
+        #bottom-info {
+            position: fixed;
+            left: 50%;
+            bottom: 17px;
+            transform: translateX(-50%);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            pointer-events: none;
+        }
 
-        /* =========================================================
-           BOTTOM STATUS PILLS
-        ========================================================== */
-        .bottom-pill { position: fixed; bottom: calc(env(safe-area-inset-bottom, 0px) + 18px); height: 34px; display: flex; align-items: center; gap: 8px; padding: 0 13px; border-radius: 18px; background: rgba(7,16,22,0.88); border: 1px solid rgba(255,255,255,0.10); color: #e9eef0; font-size: 11px; font-weight: 600; backdrop-filter: blur(12px); box-shadow: 0 6px 20px rgba(0,0,0,0.40); z-index: 3000; pointer-events: none; }
-        .pill-left { left: 18px; }
-        .pill-center { left: 50%; transform: translateX(-50%); }
-        .pill-divider { width: 1px; height: 13px; background: rgba(255,255,255,0.18); }
-        .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green-bright); box-shadow: 0 0 10px rgba(24,214,163,0.8); animation: livePulse 2s infinite; }
-        @keyframes livePulse { 0% { box-shadow: 0 0 0 0 rgba(24,214,163,0.35); } 70% { box-shadow: 0 0 0 6px rgba(24,214,163,0); } 100% { box-shadow: 0 0 0 0 rgba(24,214,163,0); } }
+        .bottom-pill {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            background: rgba(7, 16, 24, 0.9);
+            border: 1px solid var(--border);
+            color: #e9eef0;
+            font-size: 11px;
+            white-space: nowrap;
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.35);
+        }
 
-        /* =========================================================
-           CHAT UI
-        ========================================================== */
-        #chat-toggle-btn { position: fixed !important; right: 18px !important; bottom: calc(env(safe-area-inset-bottom, 0px) + 18px) !important; width: 54px !important; height: 54px !important; border-radius: 50% !important; background: var(--green) !important; color: #06110e !important; border: 1px solid rgba(255,255,255,0.08) !important; display: none; align-items: center !important; justify-content: center !important; box-shadow: 0 8px 26px rgba(0,168,132,0.35) !important; z-index: 99999 !important; transition: transform 0.15s ease; }
-        #chat-toggle-btn:active { transform: scale(0.91); }
+        .bottom-pill.live {
+            color: var(--green-bright);
+        }
 
-        #chat-container { position: fixed; right: 18px; bottom: 18px; width: 380px; height: 590px; max-width: calc(100vw - 36px); max-height: calc(100dvh - 36px); display: none; flex-direction: column; background: rgba(7,16,22,0.97); border: 1px solid rgba(255,255,255,0.10); border-radius: 18px; overflow: hidden; box-shadow: 0 20px 55px rgba(0,0,0,0.60); z-index: 99999; backdrop-filter: blur(18px); }
-        #chat-header { min-height: 64px; display: flex; align-items: center; gap: 12px; padding: 0 14px; background: rgba(255,255,255,0.025); border-bottom: 1px solid rgba(255,255,255,0.08); flex-shrink: 0; }
-        .header-avatar-wrapper { position: relative; width: 40px; height: 40px; flex-shrink: 0; }
-        #header-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 2px solid rgba(0,168,132,0.75); box-shadow: 0 0 0 3px rgba(0,168,132,0.10); }
-        .online-dot { position: absolute; right: -1px; bottom: -1px; width: 11px; height: 11px; border-radius: 50%; background: #22c55e; border: 2px solid #071016; box-shadow: 0 0 7px rgba(34,197,94,0.55); }
-        .header-info { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 2px; }
-        .header-info span:first-child { font-size: 14.5px; font-weight: 650; color: #f5f7f8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .header-info span:last-child { font-size: 11px; color: var(--green-bright); }
-        .header-info span:last-child::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 5px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px rgba(0,200,150,0.80); }
-        
-        #chat-minimize-btn { width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; border-radius: 9px; border: 1px solid rgba(255,255,255,0.07); background: rgba(255,255,255,0.045); color: #9aa8af; transition: all 0.15s ease; }
-        #chat-minimize-btn:hover { background: rgba(255,255,255,0.09); color: #ffffff; }
+        /* =========================================
+           MEMORY BUTTON
+        ========================================= */
+        #memoryButton {
+            position: fixed;
+            left: 16px;
+            bottom: 17px;
+            z-index: 1200;
+            width: 48px;
+            height: 48px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 14px;
+            background: rgba(7, 16, 24, 0.94);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 21px;
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            transition: transform 0.15s ease, background 0.15s ease;
+        }
 
-        #chat-messages { position: relative; flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 7px; background: radial-gradient(circle at 20% 20%, rgba(255,255,255,0.018), transparent 35%); scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.10) transparent; }
-        #chat-messages::-webkit-scrollbar { width: 4px; }
-        #chat-messages::-webkit-scrollbar-track { background: transparent; }
-        #chat-messages::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 10px; }
+        #memoryButton:hover {
+            background: rgba(16, 185, 129, 0.18);
+        }
 
-        .empty-state { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; pointer-events: none; width: 230px; }
-        #chat-messages:has(.chat-message) .empty-state { display: none; }
-        .empty-state p { font-size: 12px; color: var(--muted); line-height: 1.5; }
+        #memoryButton:active {
+            transform: scale(0.92);
+        }
 
-        .chat-message { position: relative; max-width: 82%; padding: 9px 12px !important; border-radius: 12px !important; font-size: 13px; line-height: 1.45; color: #e9edef; word-break: break-word; border: 1px solid rgba(255,255,255,0.035); box-shadow: 0 2px 7px rgba(0,0,0,0.16); }
-        .chat-message img, .chat-message video { max-width: 100%; border-radius: 9px; margin-top: 5px; }
-        .chat-message audio { max-width: 100%; margin-top: 5px; }
-        .msg-mine { align-self: flex-end; background: #005c4b; }
-        .msg-theirs { align-self: flex-start; background: #202c33; }
-        .msg-sender { margin-bottom: 3px; color: #53d7b7; font-size: 10.5px; font-weight: 700; }
+        #memoryPhotoInput {
+            display: none;
+        }
 
-        #chatForm { min-height: 62px; display: flex; align-items: center; gap: 7px; padding: 9px 12px; background: rgba(255,255,255,0.025); border-top: 1px solid rgba(255,255,255,0.08); position: relative; flex-shrink: 0; }
-        .input-icon { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; border: none; background: transparent; color: #8d9ba2; transition: color 0.15s ease, transform 0.15s ease; }
-        .input-icon:hover { color: #ffffff; }
-        .input-icon:active { transform: scale(0.9); }
-        .input-icon.yellow { color: #facc15; }
+        /* =========================================
+           CHAT TOGGLE
+        ========================================= */
+        #chat-toggle-btn {
+            position: fixed;
+            right: 16px;
+            bottom: 17px;
+            z-index: 1200;
+            width: 48px;
+            height: 48px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 50%;
+            background: rgba(7, 16, 24, 0.94);
+            color: white;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+        }
 
-        #chatInput { flex: 1; min-width: 0; height: 40px; border: 1px solid transparent; border-radius: 21px; outline: none; background: #17242c; color: #f4f7f8; padding: 0 15px; font-size: 13.5px; transition: border-color 0.15s ease, background 0.15s ease; }
-        #chatInput:focus { border-color: rgba(0,168,132,0.40); background: #1a2a33; }
-        #chatInput::placeholder { color: #697981; }
+        #chat-toggle-btn:active {
+            transform: scale(0.92);
+        }
 
-        .action-circle-btn { width: 40px; height: 40px; flex-shrink: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: none; background: var(--green); color: #06110e; transition: transform 0.15s ease, background 0.15s ease; }
-        .action-circle-btn:active { transform: scale(0.90); }
+        /* =========================================
+           CHAT
+        ========================================= */
+        #chat-container {
+            position: fixed;
+            right: 18px;
+            bottom: 18px;
+            z-index: 2000;
+            width: min(390px, calc(100vw - 28px));
+            height: min(600px, calc(100vh - 36px));
+            display: none;
+            flex-direction: column;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.10);
+            border-radius: 20px;
+            background: rgba(7, 16, 24, 0.97);
+            box-shadow: 0 20px 70px rgba(0, 0, 0, 0.65);
+            backdrop-filter: blur(18px);
+            -webkit-backdrop-filter: blur(18px);
+        }
 
-        #attachment-menu { position: absolute; left: 12px; bottom: 68px; min-width: 185px; padding: 7px; display: none; flex-direction: column; background: rgba(18,31,39,0.98); border: 1px solid rgba(255,255,255,0.10); border-radius: 13px; box-shadow: 0 14px 35px rgba(0,0,0,0.55); z-index: 5000; backdrop-filter: blur(15px); }
-        #attachment-menu button { padding: 10px 12px; border: none; border-radius: 8px; background: transparent; color: #c7d0d4; text-align: left; font-size: 13px; transition: background 0.15s ease, color 0.15s ease; }
-        #attachment-menu button:hover { background: rgba(255,255,255,0.06); color: #ffffff; }
+        #chat-header {
+            height: 58px;
+            flex: 0 0 58px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 14px;
+            border-bottom: 1px solid var(--border);
+        }
 
-        #emoji-picker-container { position: absolute; left: 12px; bottom: 68px; display: none; z-index: 5000; filter: drop-shadow(0 12px 30px rgba(0,0,0,0.55)); }
-        emoji-picker { width: 310px; height: 320px; --background: #17242c; --border-color: rgba(255,255,255,0.10); --indicator-color: var(--green); }
+        .chat-title {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+        }
 
-        /* =========================================================
+        .chat-title-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--green-bright);
+            box-shadow: 0 0 10px rgba(24, 214, 163, 0.75);
+        }
+
+        .chat-title-text {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .chat-title-text strong {
+            font-size: 13px;
+        }
+
+        .chat-title-text span {
+            margin-top: 2px;
+            color: var(--muted);
+            font-size: 9px;
+        }
+
+        #chat-minimize-btn {
+            width: 34px;
+            height: 34px;
+            border: 0;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.06);
+            color: #c8d1d5;
+            font-size: 18px;
+        }
+
+        #chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 13px;
+            display: flex;
+            flex-direction: column;
+            gap: 7px;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(255,255,255,0.14) transparent;
+        }
+
+        .chat-message {
+            max-width: 82%;
+            padding: 8px 10px;
+            border-radius: 13px;
+            font-size: 12px;
+            line-height: 1.4;
+            overflow-wrap: anywhere;
+        }
+
+        .msg-mine {
+            align-self: flex-end;
+            background: rgba(16, 185, 129, 0.18);
+            border: 1px solid rgba(16, 185, 129, 0.18);
+            border-bottom-right-radius: 4px;
+        }
+
+        .msg-theirs {
+            align-self: flex-start;
+            background: rgba(255, 255, 255, 0.065);
+            border: 1px solid rgba(255, 255, 255, 0.07);
+            border-bottom-left-radius: 4px;
+        }
+
+        .msg-sender {
+            margin-bottom: 3px;
+            color: var(--green-bright);
+            font-size: 9px;
+            font-weight: 750;
+        }
+
+        .chat-media {
+            display: block;
+            max-width: 100%;
+            max-height: 260px;
+            border-radius: 8px;
+        }
+
+        .chat-audio {
+            width: 100%;
+            height: 36px;
+        }
+
+        .chat-document {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            color: var(--green-bright);
+            text-decoration: none;
+            font-weight: 650;
+        }
+
+        #chat-form-area {
+            position: relative;
+            padding: 9px;
+            border-top: 1px solid var(--border);
+        }
+
+        #attachment-menu {
+            position: absolute;
+            left: 9px;
+            bottom: 62px;
+            z-index: 20;
+            display: none;
+            flex-direction: column;
+            gap: 3px;
+            width: 155px;
+            padding: 6px;
+            border: 1px solid var(--border);
+            border-radius: 13px;
+            background: rgba(7, 16, 24, 0.98);
+            box-shadow: var(--shadow);
+        }
+
+        #attachment-menu button {
+            border: 0;
+            border-radius: 8px;
+            padding: 9px;
+            background: transparent;
+            color: #dce5e8;
+            text-align: left;
+            font-size: 11px;
+        }
+
+        #attachment-menu button:hover {
+            background: rgba(255, 255, 255, 0.07);
+        }
+
+        #emoji-picker-container {
+            position: absolute;
+            right: 8px;
+            bottom: 62px;
+            z-index: 30;
+            display: none;
+            width: min(320px, calc(100vw - 40px));
+            box-shadow: var(--shadow);
+        }
+
+        #emojiPicker {
+            width: 100%;
+            max-width: 100%;
+        }
+
+        #chatForm {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .chat-icon-btn {
+            flex: 0 0 36px;
+            width: 36px;
+            height: 36px;
+            border: 0;
+            border-radius: 10px;
+            background: transparent;
+            color: var(--muted);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .chat-icon-btn:hover {
+            background: rgba(255,255,255,0.06);
+            color: white;
+        }
+
+        #chatInput {
+            min-width: 0;
+            flex: 1;
+            height: 38px;
+            padding: 0 11px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            outline: none;
+            background: rgba(255, 255, 255, 0.055);
+            color: white;
+            font-size: 12px;
+        }
+
+        #chatInput::placeholder {
+            color: #708087;
+        }
+
+        #chatInput:focus {
+            border-color: rgba(16, 185, 129, 0.45);
+        }
+
+        #chat-send {
+            display: none;
+            flex: 0 0 36px;
+            width: 36px;
+            height: 36px;
+            border: 0;
+            border-radius: 50%;
+            background: var(--green);
+            color: white;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #voiceButton {
+            display: flex;
+        }
+
+        /* =========================================
            JOIN SCREEN
-        ========================================================== */
-        #join-screen { position: fixed; inset: 0; z-index: 999999; display: flex; align-items: center; justify-content: center; padding: 20px; background: radial-gradient(circle at 50% 40%, rgba(0,200,150,0.10), transparent 38%), rgba(3,10,14,0.90); backdrop-filter: blur(14px); }
-        .join-box { width: min(100%, 370px); padding: 30px 24px; border-radius: 20px; background: rgba(9,18,24,0.97); border: 1px solid rgba(255,255,255,0.10); box-shadow: 0 22px 60px rgba(0,0,0,0.60); text-align: center; }
-        .join-box h2 { font-size: 23px; font-weight: 700; margin-bottom: 7px; }
-        .join-box p { font-size: 12.5px; color: var(--muted); margin-bottom: 24px; }
-        .join-box input[type="text"] { width: 100%; height: 48px; padding: 0 15px; border-radius: 12px; background: #17242c; border: 1px solid rgba(255,255,255,0.08); color: #ffffff; outline: none; font-size: 14px; margin-bottom: 12px; transition: border-color 0.2s ease; }
-        .join-box input[type="text"]:focus { border-color: rgba(0,168,132,0.45); }
-        .avatar-label { width: 100%; height: 48px; display: flex; align-items: center; justify-content: center; border: 1px dashed rgba(255,255,255,0.18); border-radius: 12px; color: var(--muted); font-size: 13px; cursor: pointer; margin-bottom: 22px; transition: border-color 0.15s ease, background 0.15s ease; }
-        .avatar-label:hover { border-color: rgba(0,168,132,0.50); background: rgba(0,168,132,0.05); }
-        .avatar-label input { display: none; }
-        .join-box button { width: 100%; height: 48px; border: none; border-radius: 12px; background: var(--green); color: #04100d; font-size: 15px; font-weight: 700; transition: transform 0.15s ease, background 0.15s ease; }
-        .join-box button:hover { background: var(--green-bright); }
-        .join-box button:active { transform: scale(0.98); }
+        ========================================= */
+        #join-screen {
+            position: fixed;
+            inset: 0;
+            z-index: 5000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            background: radial-gradient(circle at 50% 30%, rgba(16, 185, 129, 0.12), transparent 40%), #071018;
+        }
 
-        /* =========================================================
-           MOBILE RESPONSIVENESS
-        ========================================================== */
+        .join-card {
+            width: min(390px, 100%);
+            padding: 26px;
+            border: 1px solid rgba(255,255,255,0.10);
+            border-radius: 22px;
+            background: rgba(9, 20, 29, 0.94);
+            box-shadow: 0 25px 80px rgba(0,0,0,0.6);
+            text-align: center;
+        }
+
+        .join-logo {
+            width: 58px;
+            height: 58px;
+            margin: 0 auto 15px;
+            border-radius: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(16,185,129,0.12);
+            border: 1px solid rgba(16,185,129,0.20);
+            font-size: 27px;
+        }
+
+        .join-card h1 {
+            margin: 0;
+            font-size: 21px;
+            font-weight: 800;
+        }
+
+        .join-card p {
+            margin: 7px 0 21px;
+            color: var(--muted);
+            font-size: 11px;
+            line-height: 1.5;
+        }
+
+        #nameInput {
+            width: 100%;
+            height: 44px;
+            padding: 0 13px;
+            border: 1px solid rgba(255,255,255,0.09);
+            border-radius: 12px;
+            outline: none;
+            background: rgba(255,255,255,0.05);
+            color: white;
+            font-size: 13px;
+        }
+
+        #nameInput:focus {
+            border-color: rgba(16,185,129,0.45);
+        }
+
+        .avatar-upload {
+            margin-top: 10px;
+            display: block;
+            padding: 12px;
+            border: 1px dashed rgba(255,255,255,0.15);
+            border-radius: 12px;
+            color: #b8c4c9;
+            font-size: 11px;
+            cursor: pointer;
+        }
+
+        .avatar-upload:hover {
+            border-color: rgba(16,185,129,0.45);
+            color: var(--green-bright);
+        }
+
+        #avatarInput { display: none; }
+
+        #join-submit {
+            width: 100%;
+            height: 44px;
+            margin-top: 13px;
+            border: 0;
+            border-radius: 12px;
+            background: var(--green);
+            color: white;
+            font-size: 13px;
+            font-weight: 750;
+        }
+
+        #join-submit:active {
+            transform: scale(0.98);
+        }
+
+        /* =========================================
+           LIVE LOCATION AVATARS
+        ========================================= */
+        .leaflet-marker-icon.avatar-icon.own-live-avatar {
+            width: 36px !important;
+            height: 36px !important;
+            margin: 0 !important;
+            padding: 1px !important;
+            box-sizing: border-box !important;
+            border-radius: 50% !important;
+            object-fit: cover !important;
+            border: 2px solid var(--green) !important;
+            background: #071018 !important;
+            overflow: hidden !important;
+            display: block !important;
+            box-shadow: 0 0 0 2px rgba(16,185,129,0.18), 0 3px 10px rgba(0,0,0,0.65) !important;
+        }
+
+        .leaflet-marker-icon.avatar-icon.friend-marker {
+            width: 34px !important;
+            height: 34px !important;
+            margin: 0 !important;
+            padding: 1px !important;
+            box-sizing: border-box !important;
+            border-radius: 50% !important;
+            object-fit: cover !important;
+            border: 2px solid var(--blue) !important;
+            background: #071018 !important;
+            overflow: hidden !important;
+            display: block !important;
+            box-shadow: 0 0 0 2px rgba(96,165,250,0.15), 0 3px 10px rgba(0,0,0,0.6) !important;
+        }
+
+        /* =========================================
+           MEMORY PINS
+        ========================================= */
+        .custom-pin {
+            background: transparent !important;
+            border: 0 !important;
+        }
+
+        .memory-pin-box {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            overflow: hidden;
+            background: #071018;
+            border: 2px solid white;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.6);
+        }
+
+        .memory-pin-box img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        /* =========================================
+           WEATHER BADGE
+        ========================================= */
+        .weather-badge {
+            padding: 4px 7px !important;
+            border: 1px solid rgba(255,255,255,0.09) !important;
+            border-radius: 999px !important;
+            background: rgba(7,16,24,0.92) !important;
+            color: #e8eef0 !important;
+            font-size: 9px !important;
+            font-weight: 650 !important;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.45);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+
+        .weather-badge::before {
+            border-right-color: rgba(7,16,24,0.92) !important;
+        }
+
+        /* =========================================
+           MOBILE
+        ========================================= */
         @media (max-width: 600px) {
-            #map-tools { right: 14px; top: 14px; gap: 7px; }
-            #map-tools button { width: 40px; height: 40px; border-radius: 11px; }
-            #map-style-menu { right: 62px; top: 106px; }
+            #top-header { top: 10px; left: 10px; right: 10px; }
+            .brand-card { padding: 8px 10px; border-radius: 13px; }
+            .header-info strong { font-size: 12px; }
+            .header-info span { font-size: 9px; }
+            #header-avatar { width: 31px; height: 31px; }
 
-            .leaflet-marker-icon.own-live-avatar { width: 34px !important; height: 34px !important; margin-left: 5px !important; margin-top: 5px !important; }
-            .leaflet-marker-icon.friend-marker { width: 31px !important; height: 31px !important; margin-left: 5px !important; margin-top: 5px !important; }
+            #map-tools { right: 10px; top: 76px; gap: 6px; }
+            .map-tool-button { width: 40px; height: 40px; border-radius: 12px; }
+            #map-style-menu { right: 58px; top: 166px; }
 
-            #memoryButton { top: calc(env(safe-area-inset-top, 0px) + 15px) !important; left: 15px !important; }
-            #chat-container { inset: 0; width: 100vw; height: 100vh; height: 100dvh; max-width: none; max-height: none; border-radius: 0; border: none; }
-            #chat-header { height: calc(64px + env(safe-area-inset-top, 0px)); padding-top: env(safe-area-inset-top, 0px); }
-            #chatForm { padding-bottom: max(9px, env(safe-area-inset-bottom, 0px)); }
-            .bottom-pill { display: none; }
-            #chat-toggle-btn { right: 16px !important; bottom: calc(env(safe-area-inset-bottom, 0px) + 16px) !important; }
-            #emoji-picker-container { left: 8px; right: 8px; }
-            emoji-picker { width: min(310px, calc(100vw - 16px)); }
-            #attachment-menu { left: 8px; }
+            #bottom-info { bottom: 12px; max-width: calc(100vw - 125px); overflow: hidden; }
+            .bottom-pill { padding: 7px 9px; font-size: 10px; }
+
+            #memoryButton { left: 10px; bottom: 11px; width: 44px; height: 44px; }
+            #chat-toggle-btn { right: 10px; bottom: 11px; width: 44px; height: 44px; }
+
+            #chat-container { right: 0; bottom: 0; width: 100vw; height: 100dvh; border-radius: 0; border-left: 0; border-right: 0; border-bottom: 0; }
+
+            .leaflet-marker-icon.own-live-avatar { width: 36px !important; height: 36px !important; margin: 0 !important; }
+            .leaflet-marker-icon.friend-marker { width: 34px !important; height: 34px !important; margin: 0 !important; }
         }
 
-        /* VERY SMALL PHONES */
         @media (max-width: 380px) {
-            .leaflet-marker-icon.own-live-avatar { width: 32px !important; height: 32px !important; margin-left: 5px !important; margin-top: 5px !important; }
-            .leaflet-marker-icon.friend-marker { width: 28px !important; height: 28px !important; }
-            #chatInput { padding: 0 12px; font-size: 13px; }
-            #chatForm { gap: 4px; padding-left: 7px; padding-right: 7px; }
+            .leaflet-marker-icon.own-live-avatar { width: 34px !important; height: 34px !important; }
+            .leaflet-marker-icon.friend-marker { width: 32px !important; height: 32px !important; }
+            #bottom-info { max-width: calc(100vw - 110px); }
+            .bottom-pill { padding: 6px 8px; font-size: 9px; }
         }
 
-        @media (min-width: 601px) {
-            #chat-container { animation: chatWindowIn 0.20s ease-out; }
-            @keyframes chatWindowIn { from { opacity: 0; transform: translateY(10px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+        /* =========================================
+           ACCESSIBILITY / TOUCH
+        ========================================= */
+        button:focus-visible, input:focus-visible, label:focus-visible {
+            outline: 2px solid var(--green-bright);
+            outline-offset: 2px;
         }
-        @media (hover: none) { #memoryButton:hover, #chat-minimize-btn:hover, .input-icon:hover { background: inherit; } }
     </style>
 </head>
-
 <body>
 
+    <!-- MAP -->
     <div id="map"></div>
 
-    <!-- =========================================================
-         MAP TOOLS
-    ========================================================== -->
+    <!-- HEADER -->
+    <div id="top-header">
+        <div class="brand-card">
+            <div class="brand-dot"></div>
+            <div class="header-info">
+                <strong>Koraput Map</strong>
+                <span>Live location & memories</span>
+            </div>
+            <img id="header-avatar" src="satyam.png" alt="Profile">
+        </div>
+    </div>
+
+    <!-- MAP TOOLS -->
     <div id="map-tools">
-        <button id="my-location-btn" type="button" title="My location" aria-label="My location">⦿</button>
-        <button id="compass-btn" type="button" title="North" aria-label="Compass">
-            <span id="compass-icon">N</span>
-        </button>
-        <button id="map-style-btn" type="button" title="Map style" aria-label="Map style">◈</button>
+        <button id="my-location-btn" class="map-tool-button" type="button" title="My location" aria-label="My location">⦿</button>
+        <button id="compass-btn" class="map-tool-button" type="button" title="North" aria-label="Compass"><span id="compass-icon">N</span></button>
+        <button id="map-style-btn" class="map-tool-button" type="button" title="Map style" aria-label="Map style">◈</button>
     </div>
 
     <!-- MAP STYLE MENU -->
@@ -286,110 +818,80 @@
         <button type="button" data-style="dark">🌑 Dark</button>
     </div>
 
-    <!-- BOTTOM STATUS -->
-    <div class="bottom-pill pill-left">
-        <span style="font-size:14px;">☁️</span>
-        <span id="map-temp-display">Koraput</span>
-        <div class="pill-divider"></div>
-        <span>26°C</span>
+    <!-- BOTTOM INFO -->
+    <div id="bottom-info">
+        <div class="bottom-pill">📍 Koraput</div>
+        <div class="bottom-pill">🌡️ <span id="map-temp-display">--°C</span></div>
+        <div class="bottom-pill live">● Live Location</div>
     </div>
 
-    <div class="bottom-pill pill-center">
-        <div class="live-dot"></div>
-        <span>Live Location</span>
-    </div>
+    <!-- MEMORY BUTTON -->
+    <button id="memoryButton" type="button" title="Add memory" aria-label="Add memory">📸</button>
+    <input id="memoryPhotoInput" type="file" accept="image/*">
 
-    <!-- MEMORY CAMERA -->
-    <button id="memoryButton" type="button" title="Pin Memory Photo" aria-label="Pin Memory Photo">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
-            <circle cx="12" cy="13" r="4"></circle>
-        </svg>
-    </button>
-    <input type="file" id="memoryPhotoInput" accept="image/*">
+    <!-- CHAT TOGGLE -->
+    <button id="chat-toggle-btn" type="button" title="Open chat" aria-label="Open chat">💬</button>
 
-    <!-- CHAT OPEN BUTTON -->
-    <button id="chat-toggle-btn" type="button" aria-label="Open chat" title="Open chat">
-        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
-        </svg>
-    </button>
-
-    <!-- CHAT WINDOW -->
-    <div id="chat-container" role="dialog" aria-label="Koraput Group Chat">
+    <!-- CHAT -->
+    <div id="chat-container">
         <div id="chat-header">
-            <div class="header-avatar-wrapper">
-                <img id="header-avatar" src="satyam.png" alt="Profile">
-                <div class="online-dot"></div>
+            <div class="chat-title">
+                <div class="chat-title-dot"></div>
+                <div class="chat-title-text">
+                    <strong>Koraput Chat</strong>
+                    <span>Live group chat</span>
+                </div>
             </div>
-            <div class="header-info">
-                <span id="chat-user-title">Koraput Group</span>
-                <span>Online</span>
-            </div>
-            <button id="chat-minimize-btn" type="button" title="Minimize" aria-label="Minimize chat">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-            </button>
+            <button id="chat-minimize-btn" type="button" aria-label="Close chat">×</button>
         </div>
 
-        <div id="chat-messages" aria-live="polite">
-            <div class="empty-state">
-                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
-                    <line x1="9" y1="9" x2="15" y2="9"></line><line x1="9" y1="13" x2="15" y2="13"></line><line x1="9" y1="17" x2="12" y2="17"></line>
-                </svg>
-                <div style="font-weight:600; color:#e2e8f0; font-size:14px;">No messages yet</div>
-                <p>Start a conversation with your friends<br>in Koraput Group</p>
-            </div>
-        </div>
+        <div id="chat-messages"></div>
 
-        <form id="chatForm">
+        <div id="chat-form-area">
+            <!-- ATTACHMENT MENU -->
             <div id="attachment-menu">
-                <button type="button" id="att-media">🖼️ Photo / Video</button>
-                <button type="button" id="att-doc">📄 Document</button>
-                <button type="button" id="att-audio">🎵 Audio</button>
+                <button id="att-media" type="button">🖼️ Photo / Video</button>
+                <button id="att-doc" type="button">📄 Document</button>
+                <button id="att-audio" type="button">🎵 Audio</button>
             </div>
 
+            <!-- EMOJI -->
             <div id="emoji-picker-container">
                 <emoji-picker id="emojiPicker"></emoji-picker>
             </div>
 
-            <button type="button" id="emojiButton" class="input-icon yellow" title="Emoji" aria-label="Emoji">
-                <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><line x1="9" y1="9" x2="9.01" y2="9"></line><line x1="15" y1="9" x2="15.01" y2="9"></line></svg>
-            </button>
-
-            <button type="button" id="chat-attach-btn" class="input-icon" title="Attach" aria-label="Attach file">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
-            </button>
-
-            <input type="file" id="chatAttachment" hidden>
-            <input type="text" id="chatInput" placeholder="Message" autocomplete="off" maxlength="5000" aria-label="Message">
-
-            <button type="button" id="voiceButton" class="action-circle-btn" style="background:transparent; border:1px solid rgba(255,255,255,0.10); color:#8d9ba2; box-shadow:none;" title="Voice message" aria-label="Voice message">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="22"></line></svg>
-            </button>
-
-            <button type="submit" id="chat-send" class="action-circle-btn" style="display:none;" title="Send" aria-label="Send message">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-            </button>
-        </form>
+            <form id="chatForm">
+                <button id="chat-attach-btn" class="chat-icon-btn" type="button" title="Attach" aria-label="Attach">＋</button>
+                <button id="emojiButton" class="chat-icon-btn" type="button" title="Emoji" aria-label="Emoji">☺</button>
+                <input id="chatInput" type="text" autocomplete="off" maxlength="1000" placeholder="Type a message...">
+                <button id="voiceButton" class="chat-icon-btn" type="button" title="Voice message" aria-label="Voice message">🎙️</button>
+                <button id="chat-send" type="submit" title="Send" aria-label="Send">➤</button>
+            </form>
+            <input id="chatAttachment" type="file" hidden>
+        </div>
     </div>
 
     <!-- JOIN SCREEN -->
     <div id="join-screen">
-        <div class="join-box">
-            <h2>Koraput Map</h2>
-            <p>Join squad map and live tracker</p>
+        <div class="join-card">
+            <div class="join-logo">📍</div>
+            <h1>Welcome to Koraput Map</h1>
+            <p>Enter your name to join the live map, memories and chat.</p>
             <form id="join-form">
-                <input type="text" id="nameInput" placeholder="Your Name" maxlength="30" autocomplete="name" required>
-                <label class="avatar-label">
-                    <span id="avatar-label-text">Select Profile Photo</span>
-                    <input type="file" id="avatarInput" accept="image/*">
+                <input id="nameInput" type="text" maxlength="40" autocomplete="name" placeholder="Your name" required>
+                <label class="avatar-upload" for="avatarInput">
+                    <span id="avatar-label-text">Choose profile photo</span>
                 </label>
-                <button type="submit">Join Squad</button>
+                <input id="avatarInput" type="file" accept="image/*">
+                <button id="join-submit" type="submit">Enter Map</button>
             </form>
         </div>
     </div>
 
-    <script src="/app.js"></script>
+    <!-- SCRIPTS -->
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="app.js"></script>
+
 </body>
 </html>
