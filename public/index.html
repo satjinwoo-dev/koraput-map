@@ -1,1107 +1,1524 @@
-```
-<!-- Leaflet Engine -->
-<link
-    rel="stylesheet"
-    href="[https://unpkg.com/leaflet/dist/leaflet.css](https://unpkg.com/leaflet/dist/leaflet.css)"
->
-<script src="[https://unpkg.com/leaflet/dist/leaflet.js](https://unpkg.com/leaflet/dist/leaflet.js)"></script>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
 
-<!-- Socket.IO -->
-<script src="/socket.io/socket.io.js"></script>
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0,
+        maximum-scale=1.0,
+        user-scalable=no,
+        viewport-fit=cover"
+    >
 
-<!-- Emoji Picker -->
-<script
-    type="module"
-    src="[https://cdn.jsdelivr.net/npm/emoji-picker-element](https://cdn.jsdelivr.net/npm/emoji-picker-element)@^1/index.js">
-</script>
+    <meta name="theme-color" content="#071014">
 
-<style>
-    /* =====================================================
-       DESIGN SYSTEM
-       ===================================================== */
-    :root {
-        --bg: #071014;
-        --surface: #101c22;
-        --surface-2: #16252c;
-        --surface-3: #1c2d35;
+    <title>Koraput Map</title>
 
-        --text: #f3f7f8;
-        --muted: #8fa0a7;
-        --muted-2: #687980;
+    <!-- Leaflet -->
+    <link
+        rel="stylesheet"
+        href="https://unpkg.com/leaflet/dist/leaflet.css"
+    >
 
-        --accent: #00c896;
-        --accent-light: #27e6b1;
-        --accent-dark: #008f70;
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
-        --blue: #53bdeb;
+    <!-- Socket.IO -->
+    <script src="/socket.io/socket.io.js"></script>
 
-        --border: rgba(255,255,255,0.08);
-        --border-light: rgba(255,255,255,0.12);
+    <!-- Emoji Picker -->
+    <script
+        type="module"
+        src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js">
+    </script>
 
-        --shadow: 0 20px 60px rgba(0,0,0,0.55);
-        --soft-shadow: 0 8px 25px rgba(0,0,0,0.40);
-    }
+    <style>
 
-    /* =====================================================
-       RESET
-       ===================================================== */
-    * {
-        box-sizing: border-box;
-        margin: 0;
-        padding: 0;
-        -webkit-tap-highlight-color: transparent;
-    }
+        /* =====================================================
+           KORAPUT MAP — PREMIUM SATELLITE UI
+           app.js functionality is intentionally untouched
+           ===================================================== */
 
-    html, body {
-        width: 100%;
-        height: 100%;
-        overflow: hidden;
-        background: var(--bg);
-        color: var(--text);
-        font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    }
+        :root {
+            --bg: #071014;
+            --panel: rgba(9, 20, 26, 0.94);
+            --panel-2: rgba(18, 34, 42, 0.94);
 
-    button, input {
-        font-family: inherit;
-    }
+            --text: #f4f7f8;
+            --muted: #91a0a7;
 
-    button {
-        user-select: none;
-    }
+            --green: #00c896;
+            --green-light: #25e6b1;
 
-    /* =====================================================
-       MAP
-       ===================================================== */
-    #map {
-        position: fixed;
-        inset: 0;
-        width: 100vw;
-        height: 100vh;
-        height: 100dvh;
-        z-index: 1;
-        background: #081216;
-    }
+            --blue: #53bdeb;
 
-    /* =====================================================
-       LEAFLET CONTROLS
-       ===================================================== */
-    .leaflet-control {
-        border: none !important;
-    }
+            --border: rgba(255,255,255,0.09);
 
-    .leaflet-control-zoom {
-        margin-top: 18px !important;
-        margin-right: 18px !important;
-        overflow: hidden;
-        border: 1px solid rgba(255,255,255,0.12) !important;
-        border-radius: 14px !important;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.45) !important;
-    }
-
-    .leaflet-control-zoom a {
-        width: 42px !important;
-        height: 42px !important;
-        line-height: 42px !important;
-        background: rgba(9,18,23,0.94) !important;
-        color: #e9edef !important;
-        border: none !important;
-        font-size: 19px !important;
-        transition: background 0.18s ease, color 0.18s ease, transform 0.12s ease;
-    }
-
-    .leaflet-control-zoom a:hover {
-        background: #17272e !important;
-        color: var(--accent-light) !important;
-    }
-
-    .leaflet-control-zoom a:active {
-        transform: scale(0.92);
-    }
-
-    /* =====================================================
-       AVATAR ICON FIX (STRICT 44px ENFORCEMENT)
-       ===================================================== */
-    .custom-icon,
-    .custom-icon > div,
-    .custom-icon img,
-    .avatar-marker,
-    .avatar-marker img,
-    .leaflet-marker-icon.avatar-icon,
-    .leaflet-marker-icon.friend-marker {
-        width: 44px !important;
-        height: 44px !important;
-        min-width: 44px !important;
-        min-height: 44px !important;
-        max-width: 44px !important;
-        max-height: 44px !important;
-        border-radius: 50% !important;
-        object-fit: cover !important;
-        display: block !important;
-    }
-
-    .custom-icon > div,
-    .avatar-marker,
-    .leaflet-marker-icon.avatar-icon {
-        border: 3px solid var(--accent) !important;
-        background: #ffffff !important;
-        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5), 0 0 0 3px rgba(0, 200, 150, 0.15) !important;
-        overflow: hidden !important;
-    }
-
-    .custom-icon .friend,
-    .avatar-marker.friend,
-    .leaflet-marker-icon.friend-marker {
-        border-color: var(--blue) !important;
-        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5), 0 0 0 3px rgba(83, 189, 235, 0.15) !important;
-    }
-
-    /* =====================================================
-       WEATHER BADGE
-       ===================================================== */
-    .weather-badge {
-        background: rgba(7,17,22,0.96) !important;
-        border: 1px solid rgba(0,200,150,0.40) !important;
-        color: #f1f8f6 !important;
-        border-radius: 8px !important;
-        padding: 4px 7px !important;
-        font-size: 10px !important;
-        font-weight: 700 !important;
-        box-shadow: 0 5px 16px rgba(0,0,0,0.35);
-        backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px);
-    }
-
-    /* =====================================================
-       MEMORY CAMERA BUTTON
-       ===================================================== */
-    #memoryButton {
-        position: fixed !important;
-        top: calc(env(safe-area-inset-top, 0px) + 18px) !important;
-        left: 18px !important;
-        width: 50px !important;
-        height: 50px !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        border-radius: 16px !important;
-        background: linear-gradient(145deg, rgba(20,36,42,0.97), rgba(7,17,22,0.97)) !important;
-        border: 1px solid rgba(0,200,150,0.48) !important;
-        color: white !important;
-        font-size: 22px !important;
-        cursor: pointer !important;
-        box-shadow: 0 12px 30px rgba(0,0,0,0.48), inset 0 1px 0 rgba(255,255,255,0.08) !important;
-        z-index: 99999 !important;
-        outline: none;
-        transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
-    }
-
-    #memoryButton:hover {
-        border-color: rgba(0,230,170,0.80) !important;
-        box-shadow: 0 14px 35px rgba(0,0,0,0.55), 0 0 0 5px rgba(0,200,150,0.08) !important;
-    }
-
-    #memoryButton:active {
-        transform: scale(0.90);
-    }
-
-    #memoryPhotoInput {
-        display: none;
-    }
-
-    /* =====================================================
-       JOIN SCREEN
-       ===================================================== */
-    #join-screen {
-        position: fixed;
-        inset: 0;
-        z-index: 999999;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 20px;
-        background: radial-gradient(circle at 50% 40%, rgba(0,200,150,0.10), transparent 38%), rgba(3,10,14,0.90);
-        backdrop-filter: blur(18px);
-        -webkit-backdrop-filter: blur(18px);
-    }
-
-    .join-box {
-        position: relative;
-        width: min(92%, 390px);
-        padding: 34px 28px 28px;
-        border-radius: 24px;
-        background: linear-gradient(145deg, rgba(20,34,40,0.98), rgba(8,17,22,0.98));
-        border: 1px solid rgba(255,255,255,0.10);
-        box-shadow: 0 30px 90px rgba(0,0,0,0.65), inset 0 1px 0 rgba(255,255,255,0.06);
-        text-align: center;
-        overflow: hidden;
-    }
-
-    .join-box::before {
-        content: "";
-        position: absolute;
-        width: 190px;
-        height: 190px;
-        top: -130px;
-        left: 50%;
-        transform: translateX(-50%);
-        background: rgba(0,200,150,0.18);
-        filter: blur(55px);
-        pointer-events: none;
-    }
-
-    .join-box h2 {
-        position: relative;
-        margin-bottom: 7px;
-        color: #f5f8f9;
-        font-size: 27px;
-        font-weight: 800;
-        letter-spacing: -0.7px;
-    }
-
-    .join-box p {
-        position: relative;
-        margin-bottom: 25px;
-        color: var(--muted);
-        font-size: 13px;
-        line-height: 1.5;
-    }
-
-    .join-box input[type="text"] {
-        width: 100%;
-        height: 50px;
-        margin-bottom: 13px;
-        padding: 0 15px;
-        border: 1px solid rgba(255,255,255,0.08);
-        border-radius: 13px;
-        outline: none;
-        background: rgba(255,255,255,0.045);
-        color: #ffffff;
-        font-size: 14px;
-        transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
-    }
-
-    .join-box input[type="text"]::placeholder {
-        color: #718188;
-    }
-
-    .join-box input[type="text"]:focus {
-        border-color: rgba(0,200,150,0.65);
-        background: rgba(0,200,150,0.045);
-        box-shadow: 0 0 0 4px rgba(0,200,150,0.08);
-    }
-
-    .avatar-label {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        min-height: 50px;
-        margin-bottom: 18px;
-        padding: 12px 14px;
-        border: 1px dashed rgba(255,255,255,0.15);
-        border-radius: 13px;
-        background: rgba(255,255,255,0.025);
-        color: var(--muted);
-        font-size: 13px;
-        cursor: pointer;
-        transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
-    }
-
-    .avatar-label:hover {
-        border-color: rgba(0,200,150,0.55);
-        background: rgba(0,200,150,0.04);
-        color: #e4edef;
-    }
-
-    .avatar-label input {
-        display: none;
-    }
-
-    .join-box button {
-        width: 100%;
-        height: 50px;
-        border: none;
-        border-radius: 13px;
-        background: linear-gradient(135deg, var(--accent-light), var(--accent));
-        color: #04130f;
-        font-size: 14px;
-        font-weight: 800;
-        cursor: pointer;
-        box-shadow: 0 10px 25px rgba(0,200,150,0.22);
-        transition: transform 0.15s ease, filter 0.15s ease, box-shadow 0.15s ease;
-    }
-
-    .join-box button:hover {
-        filter: brightness(1.07);
-        box-shadow: 0 14px 32px rgba(0,200,150,0.28);
-    }
-
-    .join-box button:active {
-        transform: scale(0.98);
-    }
-
-    /* =====================================================
-       CHAT OPEN BUTTON
-       ===================================================== */
-    #chat-toggle-btn {
-        position: fixed !important;
-        right: 20px !important;
-        bottom: calc(env(safe-area-inset-bottom, 0px) + 22px) !important;
-        width: 58px !important;
-        height: 58px !important;
-        display: none;
-        align-items: center !important;
-        justify-content: center !important;
-        border-radius: 18px !important;
-        background: linear-gradient(145deg, #14dca9, #00a884) !important;
-        border: 1px solid rgba(255,255,255,0.15) !important;
-        color: #052019 !important;
-        font-size: 25px !important;
-        cursor: pointer !important;
-        box-shadow: 0 16px 38px rgba(0,0,0,0.52), 0 0 0 5px rgba(0,200,150,0.07) !important;
-        z-index: 99999 !important;
-        transition: transform 0.18s ease, box-shadow 0.18s ease;
-    }
-
-    #chat-toggle-btn:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 20px 45px rgba(0,0,0,0.58), 0 0 0 6px rgba(0,200,150,0.10) !important;
-    }
-
-    #chat-toggle-btn:active {
-        transform: scale(0.91);
-    }
-
-    /* =====================================================
-       CHAT WINDOW
-       ===================================================== */
-    #chat-container {
-        position: fixed;
-        right: 20px;
-        bottom: 20px;
-        width: 380px;
-        height: 570px;
-        max-width: calc(100vw - 32px);
-        max-height: calc(100dvh - 32px);
-        display: none;
-        flex-direction: column;
-        background: rgba(7,16,20,0.98);
-        border: 1px solid rgba(255,255,255,0.09);
-        border-radius: 21px;
-        overflow: hidden;
-        box-shadow: 0 30px 80px rgba(0,0,0,0.65), 0 8px 25px rgba(0,0,0,0.35);
-        z-index: 99999;
-    }
-
-    /* =====================================================
-       CHAT HEADER
-       ===================================================== */
-    #chat-header {
-        position: relative;
-        height: 68px;
-        flex-shrink: 0;
-        display: flex;
-        align-items: center;
-        gap: 11px;
-        padding: 0 14px;
-        background: linear-gradient(180deg, #1d3038, #16262d);
-        border-bottom: 1px solid rgba(255,255,255,0.06);
-    }
-
-    #chat-header::after {
-        content: "";
-        position: absolute;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        height: 1px;
-        background: linear-gradient(90deg, transparent, rgba(0,200,150,0.55), transparent);
-    }
-
-    #chat-header img {
-        width: 42px !important;
-        height: 42px !important;
-        min-width: 42px;
-        min-height: 42px;
-        max-width: 42px;
-        max-height: 42px;
-        flex-shrink: 0;
-        border-radius: 50%;
-        object-fit: cover;
-        border: 2px solid rgba(0,200,150,0.75);
-        box-shadow: 0 0 0 3px rgba(0,200,150,0.08);
-    }
-
-    .header-info {
-        flex: 1;
-        min-width: 0;
-        display: flex;
-        flex-direction: column;
-        gap: 3px;
-    }
-
-    .header-info span:first-child {
-        color: #f1f5f6;
-        font-size: 14px;
-        font-weight: 750;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    .header-info span:last-child {
-        color: #55d8b4;
-        font-size: 11px;
-    }
-
-    .header-info span:last-child::before {
-        content: "";
-        display: inline-block;
-        width: 6px;
-        height: 6px;
-        margin-right: 5px;
-        border-radius: 50%;
-        background: var(--accent);
-        box-shadow: 0 0 8px rgba(0,200,150,0.80);
-    }
-
-    .header-actions {
-        display: flex;
-        align-items: center;
-        gap: 5px;
-    }
-
-    .header-actions button {
-        width: 36px;
-        height: 36px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border: 1px solid rgba(255,255,255,0.06);
-        border-radius: 10px;
-        background: rgba(255,255,255,0.045);
-        color: #aebac1;
-        font-size: 19px;
-        cursor: pointer;
-        transition: background 0.15s ease, color 0.15s ease;
-    }
-
-    .header-actions button:hover {
-        background: rgba(255,255,255,0.09);
-        color: white;
-    }
-
-    /* =====================================================
-       CHAT MESSAGES
-       ===================================================== */
-    #chat-messages {
-        flex: 1;
-        min-height: 0;
-        overflow-y: auto;
-        padding: 17px 13px;
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-        background: radial-gradient(circle at 15% 10%, rgba(0,200,150,0.025), transparent 32%), #071014;
-        scrollbar-width: thin;
-        scrollbar-color: #30434a transparent;
-    }
-
-    #chat-messages::-webkit-scrollbar {
-        width: 5px;
-    }
-
-    #chat-messages::-webkit-scrollbar-track {
-        background: transparent;
-    }
-
-    #chat-messages::-webkit-scrollbar-thumb {
-        background: #30434a;
-        border-radius: 10px;
-    }
-
-    .chat-message {
-        position: relative;
-        max-width: 86%;
-        padding: 9px 12px !important;
-        border-radius: 13px !important;
-        border: 1px solid rgba(255,255,255,0.055);
-        color: #e9edef;
-        font-size: 13.5px;
-        line-height: 1.45;
-        word-break: break-word;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.16);
-    }
-
-    .chat-message strong {
-        display: block;
-        margin-bottom: 3px;
-        font-size: 10.5px;
-        font-weight: 750;
-        letter-spacing: 0.1px;
-    }
-
-    .chat-message img {
-        display: block;
-        max-width: 100%;
-        border-radius: 9px;
-        border: 1px solid rgba(255,255,255,0.08);
-        box-shadow: 0 5px 16px rgba(0,0,0,0.28);
-    }
-
-    .chat-message video {
-        display: block;
-    }
-
-    .chat-message audio {
-        display: block;
-        max-width: 100%;
-    }
-
-    .msg-bubble {
-        max-width: 80%;
-        padding: 8px 11px;
-        border-radius: 12px;
-        color: #e9edef;
-        font-size: 13.5px;
-        line-height: 1.4;
-        word-break: break-word;
-    }
-
-    .msg-mine {
-        align-self: flex-end;
-        background: #005c4b;
-    }
-
-    .msg-theirs {
-        align-self: flex-start;
-        background: #202c33;
-    }
-
-    .msg-sender {
-        margin-bottom: 3px;
-        color: #53d7b7;
-        font-size: 10.5px;
-        font-weight: 700;
-    }
-
-    /* =====================================================
-       CHAT INPUT
-       ===================================================== */
-    #chatForm {
-        position: relative;
-        height: 64px;
-        min-height: 64px;
-        flex-shrink: 0;
-        display: flex;
-        align-items: center;
-        gap: 5px;
-        padding: 8px 10px;
-        background: linear-gradient(180deg, #15252c, #101c22);
-        border-top: 1px solid rgba(255,255,255,0.06);
-    }
-
-    .input-icon {
-        width: 35px;
-        height: 35px;
-        flex-shrink: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border: none;
-        border-radius: 10px;
-        background: transparent;
-        color: #8d9da4;
-        font-size: 19px;
-        cursor: pointer;
-        transition: background 0.15s ease, color 0.15s ease;
-    }
-
-    .input-icon:hover {
-        background: rgba(255,255,255,0.06);
-        color: #ffffff;
-    }
-
-    #chatInput {
-        flex: 1;
-        min-width: 0;
-        height: 42px;
-        padding: 0 15px;
-        border: 1px solid rgba(255,255,255,0.06);
-        border-radius: 22px;
-        outline: none;
-        background: rgba(255,255,255,0.055);
-        color: #e9edef;
-        font-size: 13.5px;
-        transition: border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
-    }
-
-    #chatInput::placeholder {
-        color: #718188;
-    }
-
-    #chatInput:focus {
-        background: rgba(255,255,255,0.075);
-        border-color: rgba(0,200,150,0.32);
-        box-shadow: 0 0 0 3px rgba(0,200,150,0.05);
-    }
-
-    .action-circle-btn {
-        width: 42px;
-        height: 42px;
-        flex-shrink: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border: none;
-        border-radius: 50%;
-        background: linear-gradient(145deg, #14dca9, #00a884);
-        color: #052019;
-        font-size: 18px;
-        cursor: pointer;
-        box-shadow: 0 6px 18px rgba(0,0,0,0.28);
-        transition: transform 0.15s ease, filter 0.15s ease;
-    }
-
-    .action-circle-btn:hover {
-        filter: brightness(1.07);
-        transform: translateY(-1px);
-    }
-
-    .action-circle-btn:active {
-        transform: scale(0.91);
-    }
-
-    /* =====================================================
-       ATTACHMENT MENU
-       ===================================================== */
-    #attachment-menu {
-        position: absolute;
-        left: 10px;
-        bottom: 72px;
-        min-width: 195px;
-        padding: 7px;
-        display: none;
-        flex-direction: column;
-        border: 1px solid rgba(255,255,255,0.08);
-        border-radius: 15px;
-        background: rgba(25,40,47,0.98);
-        box-shadow: 0 18px 45px rgba(0,0,0,0.50);
-        z-index: 5000;
-    }
-
-    #attachment-menu button {
-        width: 100%;
-        padding: 11px 13px;
-        border: none;
-        border-radius: 9px;
-        background: transparent;
-        color: #d5dde0;
-        text-align: left;
-        font-size: 13px;
-        cursor: pointer;
-        transition: background 0.15s ease, color 0.15s ease;
-    }
-
-    #attachment-menu button:hover {
-        background: rgba(255,255,255,0.07);
-        color: white;
-    }
-
-    /* =====================================================
-       EMOJI PICKER
-       ===================================================== */
-    #emoji-picker-container {
-        position: absolute;
-        left: 10px;
-        bottom: 72px;
-        display: none;
-        z-index: 5000;
-        filter: drop-shadow(0 18px 40px rgba(0,0,0,0.55));
-    }
-
-    emoji-picker {
-        width: 320px;
-        height: 330px;
-    }
-
-    /* =====================================================
-       MEMORY PIN
-       ===================================================== */
-    .memory-pin-icon {
-        background: transparent !important;
-        border: none !important;
-    }
-
-    .memory-pin-icon > div {
-        transition: transform 0.18s ease, box-shadow 0.18s ease;
-    }
-
-    .memory-pin-icon:hover > div {
-        transform: scale(1.08);
-        box-shadow: 0 6px 18px rgba(0,0,0,0.55) !important;
-    }
-
-    /* =====================================================
-       LEAFLET POPUP
-       ===================================================== */
-    .leaflet-popup-content-wrapper {
-        background: rgba(11,21,26,0.98) !important;
-        color: #e9edef !important;
-        border: 1px solid rgba(255,255,255,0.08);
-        border-radius: 15px !important;
-        box-shadow: 0 18px 45px rgba(0,0,0,0.58) !important;
-    }
-
-    .leaflet-popup-tip {
-        background: #0b151a !important;
-    }
-
-    .leaflet-popup-content {
-        margin: 13px !important;
-    }
-
-    .leaflet-popup-close-button {
-        color: #91a1a8 !important;
-        font-size: 18px !important;
-    }
-
-    .leaflet-popup-close-button:hover {
-        color: white !important;
-    }
-
-    /* =====================================================
-       MOBILE
-       ===================================================== */
-    @media (max-width: 600px) {
-        #memoryButton {
-            top: calc(env(safe-area-inset-top, 0px) + 14px) !important;
-            left: 14px !important;
-            width: 48px !important;
-            height: 48px !important;
-            border-radius: 15px !important;
+            --shadow:
+                0 18px 55px rgba(0,0,0,0.52);
         }
 
-        .leaflet-control-zoom {
-            margin-top: 14px !important;
-            margin-right: 14px !important;
+
+        /* =====================================================
+           RESET
+           ===================================================== */
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+
+            -webkit-tap-highlight-color: transparent;
         }
 
-        .leaflet-control-zoom a {
-            width: 38px !important;
-            height: 38px !important;
-            line-height: 38px !important;
+        html,
+        body {
+            width: 100%;
+            height: 100%;
+
+            overflow: hidden;
+
+            background: var(--bg);
+
+            font-family:
+                Inter,
+                -apple-system,
+                BlinkMacSystemFont,
+                "Segoe UI",
+                Roboto,
+                Arial,
+                sans-serif;
+
+            color: var(--text);
         }
 
-        #chat-container {
+        button,
+        input {
+            font-family: inherit;
+        }
+
+
+        /* =====================================================
+           MAP
+           ===================================================== */
+
+        #map {
+            position: fixed;
+
             inset: 0;
+
             width: 100vw;
             height: 100vh;
             height: 100dvh;
-            max-width: none;
-            max-height: none;
-            border: none;
-            border-radius: 0;
-            box-shadow: none;
+
+            z-index: 1;
+
+            background: #071014;
         }
+
+
+        /* =====================================================
+           SATELLITE MAP LOOK
+           ===================================================== */
+
+        .leaflet-tile {
+            filter:
+                saturate(0.92)
+                contrast(1.04)
+                brightness(0.94);
+        }
+
+
+        /* =====================================================
+           LEAFLET ZOOM
+           ===================================================== */
+
+        .leaflet-control-zoom {
+            margin-top: 18px !important;
+            margin-right: 18px !important;
+
+            overflow: hidden;
+
+            border: 1px solid rgba(255,255,255,0.10)
+                !important;
+
+            border-radius: 12px !important;
+
+            box-shadow:
+                0 8px 25px rgba(0,0,0,0.42)
+                !important;
+        }
+
+        .leaflet-control-zoom a {
+            width: 40px !important;
+            height: 40px !important;
+
+            line-height: 40px !important;
+
+            background:
+                rgba(8,18,23,0.93)
+                !important;
+
+            color: white !important;
+
+            border: none !important;
+
+            transition: 0.15s ease;
+        }
+
+        .leaflet-control-zoom a:hover {
+            background: #14272e !important;
+
+            color: var(--green-light) !important;
+        }
+
+
+        /* =====================================================
+           📍 YOUR REAL-TIME GPS AVATAR
+           
+           SMALL + CIRCULAR
+           This is the important part.
+           ===================================================== */
+
+        .leaflet-marker-icon.avatar-icon {
+            width: 44px !important;
+            height: 44px !important;
+
+            min-width: 44px !important;
+            min-height: 44px !important;
+
+            max-width: 44px !important;
+            max-height: 44px !important;
+
+            border-radius: 50% !important;
+
+            object-fit: cover !important;
+
+            background: white !important;
+
+            border:
+                3px solid var(--green)
+                !important;
+
+            box-shadow:
+                0 4px 15px rgba(0,0,0,0.60),
+                0 0 0 3px rgba(0,200,150,0.13)
+                !important;
+
+            overflow: hidden !important;
+        }
+
+
+        /* =====================================================
+           👥 FRIEND GPS AVATAR
+           ===================================================== */
+
+        .leaflet-marker-icon.friend-marker {
+            width: 40px !important;
+            height: 40px !important;
+
+            min-width: 40px !important;
+            min-height: 40px !important;
+
+            max-width: 40px !important;
+            max-height: 40px !important;
+
+            border-radius: 50% !important;
+
+            object-fit: cover !important;
+
+            background: white !important;
+
+            border:
+                3px solid var(--blue)
+                !important;
+
+            box-shadow:
+                0 4px 14px rgba(0,0,0,0.55),
+                0 0 0 3px rgba(83,189,235,0.12)
+                !important;
+
+            overflow: hidden !important;
+        }
+
+
+        /* =====================================================
+           WEATHER BESIDE LOCATION
+           ===================================================== */
+
+        .weather-badge {
+            background:
+                rgba(7,18,23,0.96)
+                !important;
+
+            border:
+                1px solid rgba(0,200,150,0.38)
+                !important;
+
+            color: white !important;
+
+            border-radius: 8px !important;
+
+            padding:
+                4px 8px
+                !important;
+
+            font-size: 10px !important;
+
+            font-weight: 700 !important;
+
+            box-shadow:
+                0 5px 16px rgba(0,0,0,0.38);
+
+            backdrop-filter: blur(8px);
+        }
+
+
+        /* =====================================================
+           MEMORY CAMERA BUTTON
+           ===================================================== */
+
+        #memoryButton {
+            position: fixed !important;
+
+            top:
+                calc(
+                    env(safe-area-inset-top, 0px) + 18px
+                )
+                !important;
+
+            left: 18px !important;
+
+            width: 50px !important;
+            height: 50px !important;
+
+            display: flex !important;
+
+            align-items: center !important;
+            justify-content: center !important;
+
+            border-radius: 15px !important;
+
+            background:
+                rgba(7,20,26,0.94)
+                !important;
+
+            border:
+                1px solid rgba(0,200,150,0.48)
+                !important;
+
+            color: white !important;
+
+            font-size: 22px !important;
+
+            cursor: pointer !important;
+
+            z-index: 99999 !important;
+
+            box-shadow:
+                0 10px 30px rgba(0,0,0,0.50)
+                !important;
+
+            transition:
+                transform 0.16s ease,
+                background 0.16s ease;
+        }
+
+        #memoryButton:hover {
+            background:
+                rgba(16,40,48,0.97)
+                !important;
+        }
+
+        #memoryButton:active {
+            transform: scale(0.90);
+        }
+
+        #memoryPhotoInput {
+            display: none;
+        }
+
+
+        /* =====================================================
+           CHAT FLOATING BUTTON
+           ===================================================== */
+
+        #chat-toggle-btn {
+            position: fixed !important;
+
+            right: 22px !important;
+
+            bottom:
+                calc(
+                    env(safe-area-inset-bottom, 0px) + 22px
+                )
+                !important;
+
+            width: 58px !important;
+            height: 58px !important;
+
+            display: none;
+
+            align-items: center !important;
+            justify-content: center !important;
+
+            border: 1px solid rgba(255,255,255,0.13)
+                !important;
+
+            border-radius: 18px !important;
+
+            background:
+                linear-gradient(
+                    145deg,
+                    #17dbaa,
+                    #00a884
+                )
+                !important;
+
+            color: #032018 !important;
+
+            font-size: 25px !important;
+
+            cursor: pointer !important;
+
+            z-index: 99999 !important;
+
+            box-shadow:
+                0 15px 38px rgba(0,0,0,0.50),
+                0 0 0 5px rgba(0,200,150,0.07)
+                !important;
+
+            transition:
+                transform 0.16s ease;
+        }
+
+        #chat-toggle-btn:hover {
+            transform: translateY(-2px);
+        }
+
+        #chat-toggle-btn:active {
+            transform: scale(0.91);
+        }
+
+
+        /* =====================================================
+           CHAT WINDOW
+           ===================================================== */
+
+        #chat-container {
+            position: fixed;
+
+            right: 22px;
+            bottom: 22px;
+
+            width: 390px;
+            height: 575px;
+
+            max-width:
+                calc(100vw - 32px);
+
+            max-height:
+                calc(100dvh - 32px);
+
+            display: none;
+
+            flex-direction: column;
+
+            background:
+                rgba(5,15,20,0.97);
+
+            border:
+                1px solid rgba(255,255,255,0.10);
+
+            border-radius: 21px;
+
+            overflow: hidden;
+
+            box-shadow:
+                0 28px 80px rgba(0,0,0,0.65);
+
+            z-index: 99999;
+
+            backdrop-filter: blur(18px);
+        }
+
+
+        /* =====================================================
+           CHAT HEADER
+           ===================================================== */
 
         #chat-header {
-            height: calc(64px + env(safe-area-inset-top, 0px));
-            padding: env(safe-area-inset-top, 0px) 12px 0 12px;
+            position: relative;
+
+            height: 70px;
+
+            flex-shrink: 0;
+
+            display: flex;
+
+            align-items: center;
+
+            gap: 11px;
+
+            padding: 0 14px;
+
+            background:
+                linear-gradient(
+                    180deg,
+                    rgba(25,44,53,0.98),
+                    rgba(17,31,38,0.98)
+                );
+
+            border-bottom:
+                1px solid rgba(255,255,255,0.07);
         }
+
+        #chat-header::after {
+            content: "";
+
+            position: absolute;
+
+            bottom: 0;
+            left: 0;
+            right: 0;
+
+            height: 1px;
+
+            background:
+                linear-gradient(
+                    90deg,
+                    transparent,
+                    rgba(0,200,150,0.55),
+                    transparent
+                );
+        }
+
+
+        /* Small profile image in chat header */
+
+        #chat-header img {
+            width: 42px !important;
+            height: 42px !important;
+
+            min-width: 42px !important;
+            min-height: 42px !important;
+
+            max-width: 42px !important;
+            max-height: 42px !important;
+
+            border-radius: 50% !important;
+
+            object-fit: cover !important;
+
+            border:
+                2px solid rgba(0,200,150,0.72);
+
+            box-shadow:
+                0 0 0 3px rgba(0,200,150,0.08);
+        }
+
+
+        .header-info {
+            flex: 1;
+
+            min-width: 0;
+
+            display: flex;
+
+            flex-direction: column;
+
+            gap: 3px;
+        }
+
+        .header-info span:first-child {
+            color: white;
+
+            font-size: 14px;
+
+            font-weight: 750;
+
+            white-space: nowrap;
+
+            overflow: hidden;
+
+            text-overflow: ellipsis;
+        }
+
+        .header-info span:last-child {
+            color: #53d7b7;
+
+            font-size: 11px;
+        }
+
+        .header-info span:last-child::before {
+            content: "";
+
+            display: inline-block;
+
+            width: 6px;
+            height: 6px;
+
+            margin-right: 5px;
+
+            border-radius: 50%;
+
+            background: var(--green);
+
+            box-shadow:
+                0 0 8px rgba(0,200,150,0.80);
+        }
+
+
+        .header-actions {
+            display: flex;
+
+            align-items: center;
+        }
+
+        .header-actions button {
+            width: 38px;
+            height: 38px;
+
+            display: flex;
+
+            align-items: center;
+            justify-content: center;
+
+            border:
+                1px solid rgba(255,255,255,0.07);
+
+            border-radius: 11px;
+
+            background:
+                rgba(255,255,255,0.045);
+
+            color: #aebac1;
+
+            font-size: 19px;
+
+            cursor: pointer;
+        }
+
+        .header-actions button:hover {
+            color: white;
+
+            background:
+                rgba(255,255,255,0.09);
+        }
+
+
+        /* =====================================================
+           CHAT MESSAGES
+           ===================================================== */
 
         #chat-messages {
-            padding: 14px 10px;
+            flex: 1;
+
+            min-height: 0;
+
+            overflow-y: auto;
+
+            padding: 17px 13px;
+
+            display: flex;
+
+            flex-direction: column;
+
+            gap: 8px;
+
+            background:
+                radial-gradient(
+                    circle at 20% 10%,
+                    rgba(0,200,150,0.025),
+                    transparent 30%
+                ),
+                #071014;
+
+            scrollbar-width: thin;
+
+            scrollbar-color:
+                #30434a
+                transparent;
         }
+
+        #chat-messages::-webkit-scrollbar {
+            width: 5px;
+        }
+
+        #chat-messages::-webkit-scrollbar-thumb {
+            background: #30434a;
+
+            border-radius: 10px;
+        }
+
+
+        /* Actual message class created by app.js */
+
+        .chat-message {
+            max-width: 86%;
+
+            padding: 9px 12px !important;
+
+            border-radius: 13px !important;
+
+            border:
+                1px solid rgba(255,255,255,0.055);
+
+            color: #e9edef;
+
+            font-size: 13.5px;
+
+            line-height: 1.45;
+
+            word-break: break-word;
+
+            box-shadow:
+                0 4px 12px rgba(0,0,0,0.17);
+        }
+
+        .chat-message strong {
+            display: block;
+
+            margin-bottom: 3px;
+
+            font-size: 10.5px;
+
+            font-weight: 750;
+        }
+
+        .chat-message img {
+            display: block;
+
+            max-width: 100%;
+
+            border-radius: 9px;
+
+            margin-top: 5px;
+
+            box-shadow:
+                0 5px 16px rgba(0,0,0,0.30);
+        }
+
+
+        /* =====================================================
+           CHAT INPUT AREA
+           ===================================================== */
 
         #chatForm {
-            height: calc(64px + env(safe-area-inset-bottom, 0px));
-            min-height: calc(64px + env(safe-area-inset-bottom, 0px));
-            padding: 8px 8px max(8px, env(safe-area-inset-bottom, 0px));
+            position: relative;
+
+            height: 66px;
+            min-height: 66px;
+
+            flex-shrink: 0;
+
+            display: flex;
+
+            align-items: center;
+
+            gap: 5px;
+
+            padding: 8px 10px;
+
+            background:
+                linear-gradient(
+                    180deg,
+                    #15262e,
+                    #101c22
+                );
+
+            border-top:
+                1px solid rgba(255,255,255,0.06);
         }
 
-        #chatInput {
-            height: 42px;
-            font-size: 13px;
+
+        .input-icon {
+            width: 35px;
+            height: 35px;
+
+            flex-shrink: 0;
+
+            display: flex;
+
+            align-items: center;
+            justify-content: center;
+
+            border: none;
+
+            border-radius: 10px;
+
+            background: transparent;
+
+            color: #8c9ba2;
+
+            font-size: 19px;
+
+            cursor: pointer;
         }
+
+        .input-icon:hover {
+            background:
+                rgba(255,255,255,0.06);
+
+            color: white;
+        }
+
+
+        #chatInput {
+            flex: 1;
+
+            min-width: 0;
+
+            height: 42px;
+
+            padding: 0 15px;
+
+            border:
+                1px solid rgba(255,255,255,0.06);
+
+            border-radius: 22px;
+
+            outline: none;
+
+            background:
+                rgba(255,255,255,0.055);
+
+            color: white;
+
+            font-size: 13.5px;
+        }
+
+        #chatInput::placeholder {
+            color: #718188;
+        }
+
+        #chatInput:focus {
+            border-color:
+                rgba(0,200,150,0.35);
+
+            background:
+                rgba(255,255,255,0.07);
+        }
+
+
+        /* =====================================================
+           SEND / MICROPHONE
+           ===================================================== */
 
         .action-circle-btn {
             width: 42px;
             height: 42px;
+
+            flex-shrink: 0;
+
+            display: flex;
+
+            align-items: center;
+            justify-content: center;
+
+            border: none;
+
+            border-radius: 50%;
+
+            background:
+                linear-gradient(
+                    145deg,
+                    #17dbaa,
+                    #00a884
+                );
+
+            color: #052019;
+
+            font-size: 18px;
+
+            cursor: pointer;
+
+            box-shadow:
+                0 6px 18px rgba(0,0,0,0.30);
         }
 
+        .action-circle-btn:active {
+            transform: scale(0.91);
+        }
+
+
+        /* =====================================================
+           ATTACHMENT MENU
+           ===================================================== */
+
+        #attachment-menu {
+            position: absolute;
+
+            left: 10px;
+
+            bottom: 74px;
+
+            min-width: 195px;
+
+            padding: 7px;
+
+            display: none;
+
+            flex-direction: column;
+
+            border:
+                1px solid rgba(255,255,255,0.08);
+
+            border-radius: 15px;
+
+            background:
+                rgba(24,40,47,0.98);
+
+            box-shadow:
+                0 18px 45px rgba(0,0,0,0.52);
+
+            z-index: 5000;
+        }
+
+        #attachment-menu button {
+            width: 100%;
+
+            padding: 11px 13px;
+
+            border: none;
+
+            border-radius: 9px;
+
+            background: transparent;
+
+            color: #d4dde0;
+
+            text-align: left;
+
+            font-size: 13px;
+
+            cursor: pointer;
+        }
+
+        #attachment-menu button:hover {
+            background:
+                rgba(255,255,255,0.07);
+
+            color: white;
+        }
+
+
+        /* =====================================================
+           EMOJI PICKER
+           ===================================================== */
+
         #emoji-picker-container {
-            left: 5px;
-            right: 5px;
-            bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+            position: absolute;
+
+            left: 10px;
+
+            bottom: 74px;
+
+            display: none;
+
+            z-index: 5000;
         }
 
         emoji-picker {
-            width: min(320px, calc(100vw - 10px));
-            height: 320px;
+            width: 320px;
+            height: 330px;
         }
 
-        #attachment-menu {
-            left: 8px;
-            bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+
+        /* =====================================================
+           MEMORY PIN
+           ===================================================== */
+
+        .memory-pin-icon {
+            background: transparent !important;
+
+            border: none !important;
         }
 
-        .join-box {
-            width: min(92%, 370px);
-            padding: 30px 22px 24px;
-            border-radius: 21px;
+        .memory-pin-icon > div {
+            transition:
+                transform 0.16s ease;
         }
 
-        .join-box h2 {
-            font-size: 24px;
-        }
-    }
-
-    /* =====================================================
-       SMALL PHONES
-       ===================================================== */
-    @media (max-width: 380px) {
-        #chat-header img {
-            width: 39px !important;
-            height: 39px !important;
-            min-width: 39px;
-            min-height: 39px;
+        .memory-pin-icon:hover > div {
+            transform: scale(1.07);
         }
 
-        .input-icon {
-            width: 31px;
-            font-size: 18px;
+
+        /* =====================================================
+           POPUP
+           ===================================================== */
+
+        .leaflet-popup-content-wrapper {
+            background:
+                rgba(9,19,24,0.98)
+                !important;
+
+            color: #e9edef !important;
+
+            border-radius: 15px !important;
+
+            border:
+                1px solid rgba(255,255,255,0.08);
+
+            box-shadow:
+                0 18px 45px rgba(0,0,0,0.55)
+                !important;
         }
 
-        #chatInput {
-            padding: 0 12px;
-            font-size: 12.5px;
+        .leaflet-popup-tip {
+            background: #091318 !important;
         }
 
-        .action-circle-btn {
-            width: 39px;
-            height: 39px;
-        }
-    }
-
-    /* =====================================================
-       DESKTOP CHAT ANIMATION
-       ===================================================== */
-    @media (min-width: 601px) {
-        #chat-container {
-            animation: chatWindowIn 0.20s ease-out;
+        .leaflet-popup-content {
+            margin: 13px !important;
         }
 
-        @keyframes chatWindowIn {
-            from {
-                opacity: 0;
-                transform: translateY(10px) scale(0.98);
+        .leaflet-popup-close-button {
+            color: #91a1a8 !important;
+        }
+
+
+        /* =====================================================
+           MOBILE
+           ===================================================== */
+
+        @media (max-width: 600px) {
+
+            #memoryButton {
+                top:
+                    calc(
+                        env(safe-area-inset-top, 0px) + 13px
+                    )
+                    !important;
+
+                left: 13px !important;
+
+                width: 46px !important;
+                height: 46px !important;
+
+                border-radius: 14px !important;
+
+                font-size: 20px !important;
             }
-            to {
-                opacity: 1;
-                transform: translateY(0) scale(1);
+
+
+            .leaflet-control-zoom {
+                margin-top: 13px !important;
+                margin-right: 13px !important;
+            }
+
+            .leaflet-control-zoom a {
+                width: 36px !important;
+                height: 36px !important;
+
+                line-height: 36px !important;
+            }
+
+
+            /* Small real-time avatar on phone */
+
+            .leaflet-marker-icon.avatar-icon {
+                width: 42px !important;
+                height: 42px !important;
+
+                min-width: 42px !important;
+                min-height: 42px !important;
+
+                max-width: 42px !important;
+                max-height: 42px !important;
+            }
+
+            .leaflet-marker-icon.friend-marker {
+                width: 39px !important;
+                height: 39px !important;
+
+                min-width: 39px !important;
+                min-height: 39px !important;
+
+                max-width: 39px !important;
+                max-height: 39px !important;
+            }
+
+
+            /* Full-screen chat */
+
+            #chat-container {
+                inset: 0;
+
+                width: 100vw;
+
+                height: 100vh;
+                height: 100dvh;
+
+                max-width: none;
+                max-height: none;
+
+                border: none;
+
+                border-radius: 0;
+
+                box-shadow: none;
+            }
+
+
+            #chat-header {
+                height:
+                    calc(
+                        64px +
+                        env(safe-area-inset-top, 0px)
+                    );
+
+                padding:
+                    env(safe-area-inset-top, 0px)
+                    12px
+                    0
+                    12px;
+            }
+
+
+            #chat-messages {
+                padding:
+                    14px 10px;
+            }
+
+
+            #chatForm {
+                height:
+                    calc(
+                        64px +
+                        env(safe-area-inset-bottom, 0px)
+                    );
+
+                min-height:
+                    calc(
+                        64px +
+                        env(safe-area-inset-bottom, 0px)
+                    );
+
+                padding:
+                    8px
+                    8px
+                    max(
+                        8px,
+                        env(safe-area-inset-bottom, 0px)
+                    );
+            }
+
+
+            #chatInput {
+                height: 42px;
+
+                font-size: 13px;
+            }
+
+
+            #emoji-picker-container {
+                left: 5px;
+                right: 5px;
+
+                bottom:
+                    calc(
+                        72px +
+                        env(safe-area-inset-bottom, 0px)
+                    );
+            }
+
+
+            emoji-picker {
+                width:
+                    min(
+                        320px,
+                        calc(100vw - 10px)
+                    );
+
+                height: 320px;
+            }
+
+
+            #attachment-menu {
+                left: 7px;
+
+                bottom:
+                    calc(
+                        72px +
+                        env(safe-area-inset-bottom, 0px)
+                    );
+            }
+
+
+            #chat-toggle-btn {
+                right: 14px !important;
+
+                bottom:
+                    calc(
+                        env(safe-area-inset-bottom, 0px) + 16px
+                    )
+                    !important;
+
+                width: 54px !important;
+                height: 54px !important;
+
+                border-radius: 17px !important;
             }
         }
-    }
 
-    /* =====================================================
-       ACCESSIBILITY
-       ===================================================== */
-    @media (prefers-reduced-motion: reduce) {
-        *, *::before, *::after {
-            animation-duration: 0.01ms !important;
-            animation-iteration-count: 1 !important;
-            transition-duration: 0.01ms !important;
+
+        /* =====================================================
+           SMALL PHONES
+           ===================================================== */
+
+        @media (max-width: 380px) {
+
+            #chat-header img {
+                width: 39px !important;
+                height: 39px !important;
+
+                min-width: 39px !important;
+                min-height: 39px !important;
+            }
+
+            .input-icon {
+                width: 31px;
+
+                font-size: 18px;
+            }
+
+            #chatInput {
+                padding: 0 12px;
+
+                font-size: 12.5px;
+            }
+
+            .action-circle-btn {
+                width: 39px;
+                height: 39px;
+            }
         }
-    }
-</style>
 
-```
 
-```
-<!-- MAP -->
-<div id="map"></div>
+        /* =====================================================
+           DESKTOP CHAT OPEN ANIMATION
+           ===================================================== */
 
-<!-- MEMORY PHOTO -->
-<button
-    id="memoryButton"
-    type="button"
-    title="Pin Memory Photo"
-    aria-label="Pin Memory Photo"
->
-    📸
-</button>
+        @media (min-width: 601px) {
 
-<input
-    type="file"
-    id="memoryPhotoInput"
-    accept="image/*"
->
+            #chat-container {
+                animation:
+                    chatOpen
+                    0.20s
+                    ease-out;
+            }
 
-<!-- CHAT FLOAT BUTTON -->
-<button
-    id="chat-toggle-btn"
-    type="button"
-    aria-label="Open chat"
-    title="Open chat"
->
-    💬
-</button>
+            @keyframes chatOpen {
 
-<!-- CHAT WINDOW -->
-<div
-    id="chat-container"
-    role="dialog"
-    aria-label="Koraput Group Chat"
->
-    <!-- CHAT HEADER -->
-    <div id="chat-header">
-        <img
-            id="header-avatar"
-            src="satyam.png"
-            alt="Profile"
-        >
-        <div class="header-info">
-            <span id="chat-user-title">Koraput Group</span>
-            <span>online</span>
-        </div>
-        <div class="header-actions">
-            <button
-                id="chat-minimize-btn"
-                type="button"
-                title="Minimize"
-                aria-label="Minimize chat"
-            >
-                −
-            </button>
-        </div>
-    </div>
+                from {
+                    opacity: 0;
 
-    <!-- MESSAGES -->
+                    transform:
+                        translateY(10px)
+                        scale(0.98);
+                }
+
+                to {
+                    opacity: 1;
+
+                    transform:
+                        translateY(0)
+                        scale(1);
+                }
+            }
+        }
+
+
+        /* =====================================================
+           REDUCE MOTION
+           ===================================================== */
+
+        @media (prefers-reduced-motion: reduce) {
+
+            *,
+            *::before,
+            *::after {
+                animation: none !important;
+
+                transition: none !important;
+            }
+        }
+
+    </style>
+</head>
+
+
+<body>
+
+    <!-- =====================================================
+         MAP
+         ===================================================== -->
+
+    <div id="map"></div>
+
+
+    <!-- =====================================================
+         MEMORY CAMERA
+         ===================================================== -->
+
+    <button
+        id="memoryButton"
+        type="button"
+        title="Pin Memory Photo"
+        aria-label="Pin Memory Photo"
+    >
+        📸
+    </button>
+
+    <input
+        type="file"
+        id="memoryPhotoInput"
+        accept="image/*"
+    >
+
+
+    <!-- =====================================================
+         CHAT OPEN BUTTON
+         ===================================================== -->
+
+    <button
+        id="chat-toggle-btn"
+        type="button"
+        title="Open chat"
+        aria-label="Open chat"
+    >
+        💬
+    </button>
+
+
+    <!-- =====================================================
+         CHAT WINDOW
+         ===================================================== -->
+
     <div
-        id="chat-messages"
-        aria-live="polite"
-    ></div>
+        id="chat-container"
+        role="dialog"
+        aria-label="Koraput Group Chat"
+    >
 
-    <!-- CHAT INPUT -->
-    <form id="chatForm">
-        <!-- ATTACHMENT MENU -->
-        <div id="attachment-menu">
-            <button
-                type="button"
-                id="att-media"
+        <!-- HEADER -->
+
+        <div id="chat-header">
+
+            <img
+                id="header-avatar"
+                src="satyam.png"
+                alt="Profile"
             >
-                🖼️ Photo / Video
-            </button>
-            <button
-                type="button"
-                id="att-doc"
-            >
-                📄 Document
-            </button>
-            <button
-                type="button"
-                id="att-audio"
-            >
-                🎵 Audio
-            </button>
+
+            <div class="header-info">
+
+                <span id="chat-user-title">
+                    Koraput Group
+                </span>
+
+                <span>
+                    online
+                </span>
+
+            </div>
+
+
+            <div class="header-actions">
+
+                <button
+                    id="chat-minimize-btn"
+                    type="button"
+                    title="Minimize"
+                    aria-label="Minimize chat"
+                >
+                    −
+                </button>
+
+            </div>
+
         </div>
 
-        <!-- EMOJI PICKER -->
-        <div id="emoji-picker-container">
-            <emoji-picker id="emojiPicker"></emoji-picker>
-        </div>
 
-        <!-- EMOJI -->
-        <button
-            type="button"
-            id="emojiButton"
-            class="input-icon"
-            title="Emoji"
-            aria-label="Emoji"
-        >
-            😊
-        </button>
+        <!-- MESSAGE AREA -->
 
-        <!-- ATTACHMENT -->
-        <button
-            type="button"
-            id="chat-attach-btn"
-            class="input-icon"
-            title="Attach"
-            aria-label="Attach file"
-        >
-            📎
-        </button>
+        <div
+            id="chat-messages"
+            aria-live="polite"
+        ></div>
 
-        <!-- FILE INPUT -->
-        <input
-            type="file"
-            id="chatAttachment"
-            hidden
-        >
 
-        <!-- TEXT -->
-        <input
-            type="text"
-            id="chatInput"
-            placeholder="Message"
-            autocomplete="off"
-            maxlength="5000"
-            aria-label="Message"
-        >
+        <!-- INPUT -->
 
-        <!-- VOICE -->
-        <button
-            type="button"
-            id="voiceButton"
-            class="action-circle-btn"
-            title="Voice message"
-            aria-label="Voice message"
-        >
-            🎤
-        </button>
+        <form id="chatForm">
 
-        <!-- SEND -->
-        <button
-            type="submit"
-            id="chat-send"
-            class="action-circle-btn"
-            style="display:none;"
-            title="Send"
-            aria-label="Send message"
-        >
-            ➤
-        </button>
-    </form>
-</div>
+            <!-- ATTACHMENT MENU -->
 
-<!-- JOIN SCREEN -->
-<div id="join-screen">
-    <div class="join-box">
-        <h2>Koraput Map</h2>
-        <p>Join squad map and live tracker</p>
-        <form id="join-form">
+            <div id="attachment-menu">
+
+                <button
+                    type="button"
+                    id="att-media"
+                >
+                    🖼️ Photo / Video
+                </button>
+
+                <button
+                    type="button"
+                    id="att-doc"
+                >
+                    📄 Document
+                </button>
+
+                <button
+                    type="button"
+                    id="att-audio"
+                >
+                    🎵 Audio
+                </button>
+
+            </div>
+
+
+            <!-- EMOJI -->
+
+            <div id="emoji-picker-container">
+
+                <emoji-picker
+                    id="emojiPicker">
+                </emoji-picker>
+
+            </div>
+
+
+            <button
+                type="button"
+                id="emojiButton"
+                class="input-icon"
+                title="Emoji"
+                aria-label="Emoji"
+            >
+                😊
+            </button>
+
+
+            <button
+                type="button"
+                id="chat-attach-btn"
+                class="input-icon"
+                title="Attach"
+                aria-label="Attach"
+            >
+                📎
+            </button>
+
+
+            <input
+                type="file"
+                id="chatAttachment"
+                hidden
+            >
+
+
             <input
                 type="text"
-                id="nameInput"
-                placeholder="Your Name"
-                maxlength="30"
-                autocomplete="name"
-                required
+                id="chatInput"
+                placeholder="Message"
+                autocomplete="off"
+                maxlength="5000"
+                aria-label="Message"
             >
-            <label class="avatar-label">
-                <span id="avatar-label-text">Select Profile Photo</span>
-                <input
-                    type="file"
-                    id="avatarInput"
-                    accept="image/*"
-                >
-            </label>
-            <button type="submit">Join Squad</button>
+
+
+            <button
+                type="button"
+                id="voiceButton"
+                class="action-circle-btn"
+                title="Voice message"
+                aria-label="Voice message"
+            >
+                🎤
+            </button>
+
+
+            <button
+                type="submit"
+                id="chat-send"
+                class="action-circle-btn"
+                style="display:none;"
+                title="Send"
+                aria-label="Send"
+            >
+                ➤
+            </button>
+
         </form>
+
     </div>
-</div>
 
-<script src="/app.js"></script>
 
-```
+    <!-- =====================================================
+         JOIN SCREEN
+         ===================================================== -->
+
+    <div id="join-screen">
+
+        <div class="join-box">
+
+            <h2>
+                Koraput Map
+            </h2>
+
+            <p>
+                Join squad map and live tracker
+            </p>
+
+
+            <form id="join-form">
+
+                <input
+                    type="text"
+                    id="nameInput"
+                    placeholder="Your Name"
+                    maxlength="30"
+                    autocomplete="name"
+                    required
+                >
+
+
+                <label class="avatar-label">
+
+                    <span id="avatar-label-text">
+                        Select Profile Photo
+                    </span>
+
+                    <input
+                        type="file"
+                        id="avatarInput"
+                        accept="image/*"
+                    >
+
+                </label>
+
+
+                <button type="submit">
+                    Join Squad
+                </button>
+
+            </form>
+
+        </div>
+
+    </div>
+
+
+    <!-- =====================================================
+         YOUR EXISTING JAVASCRIPT
+         ===================================================== -->
+
+    <script src="/app.js"></script>
+
+</body>
+</html>
