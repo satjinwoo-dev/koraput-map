@@ -3,33 +3,37 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
-    <title>Koraput Map — Social</title>
+    <title>Koraput Map — Social Phase 2</title>
 
-    <!-- ==========================================
-         LEAFLET (NO GOOGLE API)
-         ========================================== -->
+    <!-- LEAFLET (No Google API) -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-    
+
     <script src="/socket.io/socket.io.js"></script>
     <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js"></script>
 
     <style>
-        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent;}
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; font-family: Arial, Helvetica, sans-serif; background: #0b141a; color: white; }
         button, input { font: inherit; }
         button { cursor: pointer; }
 
         /* ==========================================
-           MAP
+           LEAFLET MAP & ICONS
            ========================================== */
         #map { position: fixed; inset: 0; width: 100vw; height: 100dvh; display: block; z-index: 1; background: #0b141a;}
         .leaflet-control-attribution { display: none !important; }
 
         .leaflet-marker-icon.avatar-icon { border-radius: 50%; object-fit: cover; background: #071018; padding: 1px; overflow: hidden; display: block;}
-        .leaflet-marker-icon.avatar-icon.own-live-avatar { width: 36px !important; height: 36px !important; border: 2.5px solid #18d6a3; box-shadow: 0 0 0 2px rgba(24,214,163,0.18), 0 3px 10px rgba(0,0,0,0.65); animation: pulse 2s infinite;}
-        .leaflet-marker-icon.avatar-icon.friend-marker { width: 34px !important; height: 34px !important; border: 2px solid #60a5fa; box-shadow: 0 0 0 2px rgba(96,165,250,0.15), 0 3px 10px rgba(0,0,0,0.6);}
         
-        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(24, 214, 163, 0.7); } 70% { box-shadow: 0 0 0 15px rgba(24, 214, 163, 0); } 100% { box-shadow: 0 0 0 0 rgba(24, 214, 163, 0); } }
+        /* RADAR PULSE CSS */
+        @keyframes avatarRadarPulse {
+            0% { box-shadow: 0 0 0 0 rgba(24, 214, 163, 0.7), 0 3px 10px rgba(0,0,0,0.65); }
+            70% { box-shadow: 0 0 0 15px rgba(24, 214, 163, 0), 0 3px 10px rgba(0,0,0,0.65); }
+            100% { box-shadow: 0 0 0 0 rgba(24, 214, 163, 0), 0 3px 10px rgba(0,0,0,0.65); }
+        }
+        
+        .leaflet-marker-icon.avatar-icon.own-live-avatar { width: 36px !important; height: 36px !important; border: 2.5px solid #18d6a3; animation: avatarRadarPulse 2s infinite !important;}
+        .leaflet-marker-icon.avatar-icon.friend-marker { width: 34px !important; height: 34px !important; border: 2px solid #60a5fa; box-shadow: 0 0 0 2px rgba(96,165,250,0.15), 0 3px 10px rgba(0,0,0,0.6);}
 
         .custom-pin .memory-pin-box { width: 44px; height: 44px; border-radius: 50%; overflow: hidden; background: #071018; border: 2px solid white; box-shadow: 0 4px 14px rgba(0,0,0,0.6); }
         .custom-pin .memory-pin-box img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -38,56 +42,70 @@
         .weather-badge::before { border-right-color: rgba(16,26,32,0.92) !important; }
 
         /* ==========================================
-           MAP INFO PANEL
+           HEADER (PERFECT UI)
            ========================================== */
-        #map-info-panel { display: none; position: fixed; z-index: 7000; top: 18px; right: 18px; width: min(340px, calc(100vw - 36px)); max-height: 78dvh; overflow: auto; border-radius: 18px; background: #101a20ee; box-shadow: 0 14px 55px #0009; border: 1px solid #ffffff12; backdrop-filter: blur(10px);}
-        #close-map-info { position: absolute; right: 9px; top: 8px; width: 32px; height: 32px; border: 0; border-radius: 50%; background: #26343c; color: white; font-size: 22px; z-index: 2; }
-
-        .map-top { position: fixed; z-index: 5000; top: 18px; left: 18px; display: flex; gap: 8px; }
-        .map-btn { width: 46px; height: 46px; border: 1px solid #ffffff14; border-radius: 14px; background: #111b21e8; color: white; box-shadow: 0 5px 22px #0007; backdrop-filter: blur(10px);}
-        .map-btn:hover { background: #1c2a32; }
-
-        .map-style-menu { display: none; position: fixed; z-index: 6000; top: 70px; left: 18px; flex-direction: column; overflow: hidden; border-radius: 13px; background: #17242b; box-shadow: 0 10px 35px #0008; }
-        .map-style-menu button { border: 0; padding: 11px 14px; background: transparent; color: white; text-align: left; }
-        .map-style-menu button:hover, .map-style-menu button.active { background: #00a884; }
-
-        .bottom-info { position: fixed; z-index: 4000; left: 50%; bottom: 18px; transform: translateX(-50%); display: flex; gap: 8px; pointer-events: none;}
-        .pill { padding: 9px 13px; border-radius: 999px; background: #101a20e8; border: 1px solid #ffffff12; box-shadow: 0 5px 20px #0006; font-size: 13px; white-space: nowrap; backdrop-filter: blur(10px);}
-        .live-dot { display: inline-block; width: 7px; height: 7px; margin-right: 5px; border-radius: 50%; background: #18d6a3; box-shadow: 0 0 8px #18d6a3; }
-
-        .memory-button { position: fixed; z-index: 5000; left: 18px; bottom: 18px; width: 52px; height: 52px; border: 0; border-radius: 16px; background: #00a884; color: white; font-size: 23px; box-shadow: 0 6px 25px #0008; }
+        #top-header { position: fixed; top: 14px; left: 14px; right: 14px; z-index: 1000; display: flex; align-items: center; justify-content: space-between; pointer-events: none; }
+        .brand-card { display: flex; align-items: center; gap: 10px; padding: 9px 13px; background: rgba(7, 16, 24, 0.88); border: 1px solid rgba(255,255,255,0.10); border-radius: 15px; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); box-shadow: 0 12px 40px rgba(0,0,0,0.55); pointer-events: auto; }
+        .brand-dot { width: 9px; height: 9px; flex: 0 0 9px; border-radius: 50%; background: #18d6a3; box-shadow: 0 0 8px rgba(24, 214, 163, 0.9), 0 0 16px rgba(24, 214, 163, 0.35); }
+        .header-info { display: flex; flex-direction: column; line-height: 1.1; }
+        .header-info strong { font-size: 13px; font-weight: 750; letter-spacing: 0.2px; }
+        .header-info span { margin-top: 3px; color: #8d9ba2; font-size: 10px; }
+        .header-info span:last-child::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 5px; border-radius: 50%; background: #18d6a3; box-shadow: 0 0 8px rgba(24, 214, 163, 0.8); }
+        #header-avatar { width: 34px; height: 34px; object-fit: cover; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.18); background: #101b23; display: none; }
 
         /* ==========================================
-           JOIN SCREEN
+           MAP CONTROLS (RIGHT SIDE)
            ========================================== */
-        .join-screen { position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center; justify-content: center; background: #0009; backdrop-filter: blur(8px); }
-        .join-card { width: min(390px, calc(100% - 30px)); padding: 28px; border-radius: 22px; background: #111b21f5; box-shadow: 0 20px 70px #0009; text-align: center; }
-        .join-card h1 { margin: 0 0 8px; font-size: 22px;}
-        .join-card p { margin: 0 0 20px; color: #aebac1; font-size: 13px; }
-        .join-card input[type="text"] { width: 100%; padding: 13px; border: 1px solid #37454d; border-radius: 12px; background: #202c33; color: white; outline: 0; margin-bottom: 12px; font-size: 13px;}
-        .avatar-label { display: block; padding: 12px; border: 1px dashed #52616b; border-radius: 12px; color: #d5dde1; margin-bottom: 14px; cursor: pointer; font-size: 13px;}
-        .avatar-label input { display: none; }
-        .join-btn { width: 100%; padding: 13px; border: 0; border-radius: 12px; background: #00a884; color: white; font-weight: 700; font-size: 14px;}
+        #map-tools { position: fixed; right: 14px; top: 88px; z-index: 1000; display: flex; flex-direction: column; gap: 8px; }
+        .map-tool-button { width: 42px; height: 42px; border: 1px solid rgba(255,255,255,0.10); border-radius: 13px; background: rgba(7, 16, 24, 0.91); color: white; display: flex; align-items: center; justify-content: center; font-size: 18px; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); box-shadow: 0 12px 40px rgba(0,0,0,0.55); transition: transform 0.15s ease, background 0.15s ease; }
+        .map-tool-button:hover { background: rgba(16, 185, 129, 0.18); }
+        .map-tool-button:active { transform: scale(0.92); }
+        #compass-icon { display: block; font-size: 14px; font-weight: 800; transform-origin: center; }
+
+        #map-style-menu { display: none; position: fixed; right: 62px; top: 188px; z-index: 1100; flex-direction: column; gap: 5px; min-width: 145px; padding: 7px; border: 1px solid rgba(255,255,255,0.10); border-radius: 14px; background: rgba(7, 16, 24, 0.96); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 12px 40px rgba(0,0,0,0.55); }
+        #map-style-menu button { border: 0; border-radius: 9px; padding: 9px 11px; background: transparent; color: #dbe4e8; text-align: left; font-size: 12px; }
+        #map-style-menu button:hover, #map-style-menu button.active { background: rgba(16, 185, 129, 0.16); color: #18d6a3; }
 
         /* ==========================================
-           PROFILE POPUP CSS
+           BOTTOM PILLS
            ========================================== */
-        .profile-card { position: relative; padding: 24px 18px 18px; text-align: center; }
-        .profile-avatar-wrap { width: 82px; height: 82px; padding: 3px; margin: 4px auto 12px; border-radius: 50%; background: #00a884; box-shadow: 0 0 0 4px #00a88426, 0 8px 25px #0008; }
+        #bottom-info { position: fixed; left: 50%; bottom: 17px; transform: translateX(-50%); z-index: 1000; display: flex; align-items: center; gap: 7px; pointer-events: none;}
+        .bottom-pill { display: flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 999px; background: rgba(7, 16, 24, 0.9); border: 1px solid rgba(255,255,255,0.10); color: #e9eef0; font-size: 11px; white-space: nowrap; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); box-shadow: 0 8px 25px rgba(0, 0, 0, 0.35); }
+        .bottom-pill.live { color: #18d6a3; }
+
+        /* ==========================================
+           SQUARE BOTTOM BUTTONS
+           ========================================== */
+        #memoryButton { position: fixed; left: 16px; bottom: 17px; z-index: 1200; width: 48px; height: 48px; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 14px; background: rgba(7, 16, 24, 0.94); color: white; display: flex; align-items: center; justify-content: center; font-size: 21px; box-shadow: 0 12px 40px rgba(0,0,0,0.55); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); transition: transform 0.15s ease, background 0.15s ease; }
+        #memoryButton:hover { background: rgba(16, 185, 129, 0.18); }
+        #memoryButton:active { transform: scale(0.92); }
+
+        #chat-toggle-btn { position: fixed; right: 16px; bottom: 17px; z-index: 1200; width: 48px; height: 48px; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 14px; background: rgba(7, 16, 24, 0.94); color: white; display: flex; align-items: center; justify-content: center; font-size: 20px; box-shadow: 0 12px 40px rgba(0,0,0,0.55); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); transition: transform 0.15s ease; }
+        #chat-toggle-btn:active { transform: scale(0.92); }
+
+        /* ==========================================
+           PHASE 2 - PROFILE POPUP
+           ========================================== */
+        #map-info-panel { display: none; position: fixed; z-index: 7000; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(320px, calc(100vw - 30px)); padding: 0; overflow: hidden; border: 1px solid rgba(255,255,255,0.08); border-radius: 20px; background: #101a20; box-shadow: 0 25px 80px rgba(0,0,0,0.7); }
+        .profile-card { position: relative; text-align: center; padding: 24px 20px 20px; }
+        #close-map-info { position: absolute; top: 10px; right: 10px; width: 32px; height: 32px; border: 0; border-radius: 50%; background: #202c33; color: #fff; font-size: 21px; line-height: 32px; cursor: pointer; transition: background 0.15s ease; }
+        #close-map-info:hover { background: #2a3942; }
+        .profile-avatar-wrap { width: 82px; height: 82px; padding: 3px; margin: 4px auto 12px; border-radius: 50%; background: #00a884; box-shadow: 0 0 0 4px #00a88426, 0 8px 25px rgba(0,0,0,0.45); }
         .profile-avatar { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; background: #202c33; }
-        .profile-name { margin: 0; font-size: 21px; font-weight: bold;}
-        .profile-status { margin-top: 5px; color: #18d6a3; font-size: 13px; font-weight: 700; }
-        .profile-info { display: grid; gap: 8px; margin-top: 18px; }
-        .profile-row { display: flex; justify-content: space-between; gap: 10px; padding: 10px 12px; border-radius: 10px; background: #17242b; font-size: 13px; }
+        .profile-name { margin: 0; color: #fff; font-size: 20px; font-weight: 700; }
+        .profile-status { margin-top: 5px; color: #18d6a3; font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 5px; }
+        .profile-status::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #18d6a3; box-shadow: 0 0 8px rgba(24, 214, 163, 0.8); }
+        .profile-info { margin-top: 18px; display: grid; gap: 8px; }
+        .profile-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: 10px; background: #17242b; color: #d9e2e7; font-size: 13px; }
         .profile-label { color: #8fa1aa; }
-        .profile-focus { width: 100%; margin-top: 14px; padding: 11px; border: 0; border-radius: 10px; background: #00a884; color: white; font-weight: 700; }
+        .profile-focus { width: 100%; margin-top: 14px; padding: 11px; border: 0; border-radius: 10px; background: #00a884; color: #fff; font-weight: 700; cursor: pointer; transition: background 0.15s ease, transform 0.1s ease; }
+        .profile-focus:hover { background: #18d6a3; }
+        .profile-focus:active { transform: scale(0.98); }
 
         /* ==========================================
-           CHAT UI
+           PHASE 2 - CHAT UI
            ========================================== */
-        .chat-toggle { position: fixed; z-index: 8500; right: 18px; bottom: 18px; width: 58px; height: 58px; border: 0; border-radius: 50%; background: #00a884; color: white; font-size: 25px; box-shadow: 0 6px 25px #0008; }
         .unread-badge { position: absolute; right: -2px; top: -2px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: #ff3b30; color: white; font-size: 11px; font-weight: 700; display: none; align-items: center; justify-content: center; border: 2px solid #0b141a; }
-
         .chat { position: fixed; z-index: 9000; right: 18px; bottom: 18px; width: min(400px, calc(100vw - 30px)); height: min(650px, calc(100dvh - 36px)); display: none; flex-direction: column; overflow: hidden; border-radius: 18px; background: #111b21; box-shadow: 0 15px 60px #0009; }
         .chat-header { height: 60px; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; background: #202c33; }
         .chat-title { font-weight: 700; }
@@ -115,7 +133,6 @@
         .message-actions { display: flex; gap: 4px; position: absolute; right: 5px; bottom: -22px; z-index: 3; }
         .action-btn { border: 0; border-radius: 10px; background: #26343c; color: white; font-size: 11px; padding: 4px 6px; display: none; }
         .chat-message:hover .action-btn, .chat-message:focus-within .action-btn { display: block; }
-
         .reaction-row { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
         .reaction { border: 1px solid #ffffff18; border-radius: 10px; padding: 2px 6px; background: #17242b; color: white; font-size: 10px; }
 
@@ -135,18 +152,29 @@
         .chat-media { display: block; max-width: 260px; max-height: 240px; border-radius: 9px; margin-top: 5px; }
         .chat-audio { max-width: 260px; margin-top: 5px; }
         .chat-document { display: block; margin-top: 5px; padding: 9px; border-radius: 8px; background: #17242b; color: white; text-decoration: none; font-size: 12px;}
-        .memory-popup img { max-width: 220px; max-height: 180px; border-radius: 10px; display: block; margin-bottom: 7px;}
+
+        /* JOIN SCREEN */
+        .join-screen { position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.8); backdrop-filter: blur(8px); }
+        .join-card { width: min(390px, calc(100% - 30px)); padding: 28px; border-radius: 22px; background: #111b21; box-shadow: 0 20px 70px #0009; text-align: center; }
+        .join-card h1 { margin: 0 0 8px; font-size: 22px;}
+        .join-card p { margin: 0 0 20px; color: #aebac1; font-size: 13px; }
+        .join-card input[type="text"] { width: 100%; padding: 13px; border: 1px solid #37454d; border-radius: 12px; background: #202c33; color: white; outline: 0; margin-bottom: 12px; font-size: 13px;}
+        .avatar-label { display: block; padding: 12px; border: 1px dashed #52616b; border-radius: 12px; color: #d5dde1; margin-bottom: 14px; cursor: pointer; font-size: 13px;}
+        .avatar-label input { display: none; }
+        .join-btn { width: 100%; padding: 13px; border: 0; border-radius: 12px; background: #00a884; color: white; font-weight: 700; font-size: 14px;}
 
         @media (max-width:600px) {
-            .map-top { top: max(12px, env(safe-area-inset-top)); left: 12px; }
-            .memory-button { left: 12px; bottom: max(12px, env(safe-area-inset-bottom)); }
-            .chat-toggle { right: 12px; bottom: max(12px, env(safe-area-inset-bottom)); }
+            #top-header { top: 10px; left: 10px; right: 10px; }
+            .brand-card { padding: 8px 10px; border-radius: 13px; }
+            #map-tools { right: 10px; top: 76px; gap: 6px; }
+            .map-tool-button { width: 40px; height: 40px; border-radius: 12px; }
+            #map-style-menu { right: 58px; top: 166px; }
+            #bottom-info { bottom: 12px; max-width: calc(100vw - 125px); overflow: hidden; }
+            .bottom-pill { padding: 7px 9px; font-size: 10px; }
+            #memoryButton { left: 10px; bottom: 11px; width: 44px; height: 44px; }
+            #chat-toggle-btn { right: 10px; bottom: 11px; width: 44px; height: 44px; }
             .chat { right: 0; bottom: 0; width: 100vw; height: 100dvh; max-height: none; border-radius: 0; }
-            .chat-header { height: calc(60px + env(safe-area-inset-top)); padding-top: env(safe-area-inset-top); }
-            .chat-form { padding-bottom: max(8px, env(safe-area-inset-bottom)); }
-            .bottom-info { bottom: 76px; }
-            .map-style-menu { left: 12px; top: 70px; }
-            #map-info-panel { top: auto; right: 12px; left: 12px; bottom: 78px; width: auto; max-height: none; }
+            #map-info-panel { top: auto; right: 12px; left: 12px; bottom: 78px; width: auto; max-height: none; transform: none; }
         }
     </style>
 </head>
@@ -155,28 +183,23 @@
 <!-- MAP -->
 <div id="map"></div>
 
-<!-- PROFILE POPUP PANEL -->
-<div id="map-info-panel">
-    <div class="profile-card">
-        <button id="close-map-info" aria-label="Close">×</button>
-        <div class="profile-avatar-wrap">
-            <img id="popup-avatar" class="profile-avatar" src="" alt="Avatar">
+<!-- HEADER (PERFECT UI) -->
+<div id="top-header">
+    <div class="brand-card">
+        <div class="brand-dot"></div>
+        <div class="header-info">
+            <strong id="header-app-title">Rourkela Map</strong>
+            <span>Real-time Location</span>
         </div>
-        <h2 id="popup-name" class="profile-name">Friend</h2>
-        <div class="profile-status">● Online</div>
-        <div class="profile-info">
-            <div class="profile-row"><span class="profile-label">Distance</span><strong id="popup-dist">--</strong></div>
-            <div class="profile-row"><span class="profile-label">Weather</span><strong id="popup-weather">--</strong></div>
-        </div>
-        <button id="profile-focus-btn" class="profile-focus">View on Map</button>
+        <img id="header-avatar" src="satyam.png" alt="Profile">
     </div>
 </div>
 
-<!-- MAP CONTROLS -->
-<div class="map-top">
-    <button id="my-location-btn" class="map-btn" type="button" title="My location">⦿</button>
-    <button id="compass-btn" class="map-btn" type="button" title="Compass"><span id="compass-icon">N</span></button>
-    <button id="map-style-btn" class="map-btn" type="button" title="Map style">◈</button>
+<!-- MAP TOOLS (PERFECT UI) -->
+<div id="map-tools">
+    <button id="my-location-btn" class="map-tool-button" type="button" title="My location">⦿</button>
+    <button id="compass-btn" class="map-tool-button" type="button" title="Compass"><span id="compass-icon">N</span></button>
+    <button id="map-style-btn" class="map-tool-button" type="button" title="Map style">◈</button>
 </div>
 
 <div id="map-style-menu" class="map-style-menu">
@@ -185,15 +208,15 @@
     <button data-style="dark" type="button">🌑 Dark</button>
 </div>
 
-<!-- BOTTOM INFO -->
-<div class="bottom-info">
-    <div class="pill" id="pill-city">📍 Locating...</div>
-    <div class="pill" id="weather-pill">🌡️ --°C</div>
-    <div class="pill"><span class="live-dot"></span>Live Location</div>
+<!-- BOTTOM INFO (PERFECT UI) -->
+<div id="bottom-info">
+    <div class="bottom-pill" id="pill-city">📍 Locating...</div>
+    <div class="bottom-pill">🌡️ <span id="map-temp-display">--°C</span></div>
+    <div class="bottom-pill live">● Live Location</div>
 </div>
 
-<!-- MEMORY -->
-<button id="memoryButton" class="memory-button" type="button" title="Add memory">📸</button>
+<!-- MEMORY BUTTON (PERFECT UI) -->
+<button id="memoryButton" type="button" title="Add memory">📸</button>
 <input id="memoryPhotoInput" type="file" accept="image/*" hidden>
 
 <!-- JOIN SCREEN -->
@@ -210,7 +233,24 @@
 </section>
 
 <!-- CHAT BUTTON -->
-<button id="chat-toggle-btn" class="chat-toggle" type="button" title="Open chat">💬<span id="unread-badge" class="unread-badge">0</span></button>
+<button id="chat-toggle-btn" type="button" title="Open chat">💬<span id="unread-badge" class="unread-badge">0</span></button>
+
+<!-- PROFILE POPUP -->
+<div id="map-info-panel">
+    <div class="profile-card">
+        <button id="close-map-info" aria-label="Close">×</button>
+        <div class="profile-avatar-wrap">
+            <img id="popup-avatar" class="profile-avatar" src="" alt="Avatar">
+        </div>
+        <h2 id="popup-name" class="profile-name">Friend</h2>
+        <div class="profile-status">● Online</div>
+        <div class="profile-info">
+            <div class="profile-row"><span class="profile-label">📍 Distance</span><strong id="popup-dist">--</strong></div>
+            <div class="profile-row"><span class="profile-label">☁️ Weather</span><strong id="popup-weather">--</strong></div>
+        </div>
+        <button id="profile-focus-btn" class="profile-focus">View on Map</button>
+    </div>
+</div>
 
 <!-- CHAT -->
 <section id="chat-container" class="chat">
