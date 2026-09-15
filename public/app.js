@@ -1,5 +1,5 @@
 // ==========================================
-// KORAPUT MAP - FINAL CLIENT LOGIC (MIXED WITH PHASE 2)
+// KORAPUT MAP - FINAL CLIENT LOGIC
 // ==========================================
 
 "use strict";
@@ -80,12 +80,15 @@ let currentCityName = "";
 
 const friendMarkers = Object.create(null);
 const friendData = Object.create(null);
-const memoryMarkers = Object.create(null);
 
 let currentUser = {
     name: localStorage.getItem("koraput_name") || "",
     avatar: localStorage.getItem("koraput_avatar") || DEFAULT_AVATAR
 };
+
+window.currentUser = currentUser;
+window.map = map;
+window.socket = socket;
 
 // ==========================================
 // UTILITY FUNCTIONS
@@ -140,7 +143,7 @@ function isValidMediaDataURL(value) {
 }
 
 // ==========================================
-// DYNAMIC REVERSE GEOCODING (ROURKELA / LIVE CITY)
+// REVERSE GEOCODING & WEATHER
 // ==========================================
 
 async function fetchCityName(lat, lng) {
@@ -150,32 +153,22 @@ async function fetchCityName(lat, lng) {
         const response = await fetch(url, { headers: { "Accept-Language": "en" } });
         if (!response.ok) return "";
         const data = await response.json();
-        const city = data.address?.city || data.address?.town || data.address?.municipality || data.address?.county || data.address?.state_district || "Rourkela";
-        return city;
-    } catch {
-        return "Rourkela";
-    }
+        return data.address?.city || data.address?.town || data.address?.municipality || data.address?.county || "Rourkela";
+    } catch { return "Rourkela"; }
 }
-
-// ==========================================
-// WEATHER
-// ==========================================
 
 async function fetchWeather(lat, lng) {
     if (!isValidCoordinate(lat, lng)) return "";
     try {
         const url = `https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lng)}&current=temperature_2m,weather_code`;
         const response = await fetch(url);
-        if (!response.ok) throw new Error("Weather request failed");
+        if (!response.ok) return "";
         const data = await response.json();
-        const temperature = Number(data?.current?.temperature_2m);
-        const weatherCode = Number(data?.current?.weather_code);
-        if (!Number.isFinite(temperature)) return "";
-        return `${weatherEmoji(weatherCode)} ${Math.round(temperature)}°C`;
-    } catch (error) {
-        console.warn("Weather error:", error);
-        return "";
-    }
+        const temp = Number(data?.current?.temperature_2m);
+        const code = Number(data?.current?.weather_code);
+        if (!Number.isFinite(temp)) return "";
+        return `${weatherEmoji(code)} ${Math.round(temp)}°C`;
+    } catch { return ""; }
 }
 
 // ==========================================
@@ -185,9 +178,7 @@ async function fetchWeather(lat, lng) {
 function createOwnIcon(avatar) {
     return L.icon({
         iconUrl: avatar || DEFAULT_AVATAR,
-        iconSize: [36, 36],
-        iconAnchor: [18, 18],
-        popupAnchor: [0, -18],
+        iconSize: [36, 36], iconAnchor: [18, 18], popupAnchor: [0, -18],
         className: "avatar-icon own-live-avatar"
     });
 }
@@ -195,115 +186,92 @@ function createOwnIcon(avatar) {
 function createFriendIcon(avatar) {
     return L.icon({
         iconUrl: avatar || DEFAULT_AVATAR,
-        iconSize: [34, 34],
-        iconAnchor: [17, 17],
-        popupAnchor: [0, -17],
+        iconSize: [34, 34], iconAnchor: [17, 17], popupAnchor: [0, -17],
         className: "avatar-icon friend-marker"
     });
 }
 
-// ==========================================
-// LOCATION EMIT
-// ==========================================
-
 function emitLocation() {
     if (!myCoords || !currentUser.name || !isValidCoordinate(myCoords.lat, myCoords.lng)) return;
     socket.emit("updateLocation", {
-        name: currentUser.name,
-        avatar: currentUser.avatar || DEFAULT_AVATAR,
-        lat: myCoords.lat,
-        lng: myCoords.lng,
-        weather: currentWeatherData || ""
+        name: currentUser.name, avatar: currentUser.avatar || DEFAULT_AVATAR,
+        lat: myCoords.lat, lng: myCoords.lng, weather: currentWeatherData || ""
     });
 }
 
 // ==========================================
-// GPS & ACCURACY CIRCLE
+// GPS TRACKING
 // ==========================================
 
 function startLocationTracking() {
-    if (!navigator.geolocation) {
-        console.warn("Geolocation is not supported.");
-        return;
-    }
+    if (!navigator.geolocation) return;
 
-    locationWatchId = navigator.geolocation.watchPosition(
-        async (position) => {
-            const lat = Number(position.coords.latitude);
-            const lng = Number(position.coords.longitude);
-            const accuracy = Number(position.coords.accuracy);
+    locationWatchId = navigator.geolocation.watchPosition(async (position) => {
+        const lat = Number(position.coords.latitude);
+        const lng = Number(position.coords.longitude);
+        const accuracy = Number(position.coords.accuracy);
 
-            if (!isValidCoordinate(lat, lng)) return;
-            myCoords = { lat, lng };
+        if (!isValidCoordinate(lat, lng)) return;
+        myCoords = { lat, lng };
 
-            // Dynamic City Detection
-            if (!currentCityName) {
-                currentCityName = await fetchCityName(lat, lng);
-                if (currentCityName) {
-                    const headerTitle = document.getElementById("header-app-title");
-                    if (headerTitle) headerTitle.textContent = `${currentCityName} Map`;
-                    const pillCity = document.getElementById("pill-city");
-                    if (pillCity) pillCity.textContent = `📍 ${currentCityName}`;
-                }
+        if (!currentCityName) {
+            currentCityName = await fetchCityName(lat, lng);
+            if (currentCityName) {
+                const headerTitle = document.getElementById("header-app-title");
+                if (headerTitle) headerTitle.textContent = `${currentCityName} Map`;
+                const pillCity = document.getElementById("pill-city");
+                if (pillCity) pillCity.textContent = `📍 ${currentCityName}`;
             }
+        }
 
-            // GPS Accuracy Ring
-            if (Number.isFinite(accuracy) && accuracy > 0 && accuracy < 100000) {
-                if (!accuracyCircle) {
-                    accuracyCircle = L.circle([lat, lng], {
-                        radius: accuracy,
-                        color: "#10b981",
-                        weight: 2,
-                        opacity: 0.85,
-                        fillColor: "#10b981",
-                        fillOpacity: 0.15,
-                        interactive: false
-                    }).addTo(map);
-                } else {
-                    accuracyCircle.setLatLng([lat, lng]);
-                    accuracyCircle.setRadius(accuracy);
-                }
-            }
-
-            if (!ownMarker) {
-                ownMarker = L.marker([lat, lng], { icon: createOwnIcon(currentUser.avatar), zIndexOffset: 1000 }).addTo(map);
-                if (firstLocationFix) { map.setView([lat, lng], 16); firstLocationFix = false; }
+        if (Number.isFinite(accuracy) && accuracy > 0 && accuracy < 100000) {
+            if (!accuracyCircle) {
+                accuracyCircle = L.circle([lat, lng], {
+                    radius: accuracy, color: "#10b981", weight: 2, opacity: 0.85,
+                    fillColor: "#10b981", fillOpacity: 0.15, interactive: false
+                }).addTo(map);
             } else {
-                ownMarker.setLatLng([lat, lng]);
+                accuracyCircle.setLatLng([lat, lng]);
+                accuracyCircle.setRadius(accuracy);
             }
+        }
 
-            const weather = await fetchWeather(lat, lng);
-            if (weather) {
-                currentWeatherData = weather;
-                const tempElement = document.getElementById("map-temp-display");
-                if (tempElement) tempElement.textContent = weather;
+        if (!ownMarker) {
+            ownMarker = L.marker([lat, lng], { icon: createOwnIcon(currentUser.avatar), zIndexOffset: 1000 }).addTo(map);
+            if (firstLocationFix) { map.setView([lat, lng], 16); firstLocationFix = false; }
+        } else {
+            ownMarker.setLatLng([lat, lng]);
+        }
 
-                if (ownMarker) {
-                    ownMarker.unbindTooltip();
-                    ownMarker.bindTooltip(weather, { permanent: true, direction: "right", className: "weather-badge", offset: [15, 0] });
-                }
+        const weather = await fetchWeather(lat, lng);
+        if (weather) {
+            currentWeatherData = weather;
+            const tempElement = document.getElementById("map-temp-display");
+            if (tempElement) tempElement.textContent = weather;
+            if (ownMarker) {
+                ownMarker.unbindTooltip();
+                ownMarker.bindTooltip(weather, { permanent: true, direction: "right", className: "weather-badge", offset: [15, 0] });
             }
+        }
 
-            emitLocation();
-        },
-        (error) => console.warn("GPS Error:", error.message),
-        { enableHighAccuracy: true, timeout: 15000, maximumAge: 3000 }
-    );
+        emitLocation();
+        updateFriendBadges();
+    }, (error) => console.warn("GPS Error:", error.message), { enableHighAccuracy: true, timeout: 15000, maximumAge: 3000 });
 }
 
 // ==========================================
-// FRIENDS & PROFILE POPUP LOGIC
+// PROFILE POPUP & ONLINE SYNC
 // ==========================================
 
 function showProfilePopup(user) {
-    const popup = document.getElementById("map-info-panel");
+    const popup = document.getElementById("profile-popup");
     if (!popup || !user) return;
 
-    const avatar = document.getElementById("popup-avatar");
-    const name = document.getElementById("popup-name");
-    const status = popup.querySelector(".profile-status");
-    const weather = document.getElementById("popup-weather");
-    const distance = document.getElementById("popup-dist");
+    const avatar = document.getElementById("profile-popup-avatar");
+    const name = document.getElementById("profile-popup-name");
+    const status = document.getElementById("profile-popup-status");
+    const weather = document.getElementById("profile-popup-weather");
+    const distance = document.getElementById("profile-popup-distance");
 
     if (avatar) avatar.src = user.avatar || DEFAULT_AVATAR;
     if (name) name.textContent = cleanName(user.name) || "User";
@@ -318,168 +286,167 @@ function showProfilePopup(user) {
         }
     }
 
-    if (weather) weather.textContent = user.weather || "Unavailable";
+    if (weather) weather.textContent = user.weather || "Weather unavailable";
 
     if (distance && myCoords && isValidCoordinate(user.lat, user.lng)) {
         const km = haversineDistance(myCoords.lat, myCoords.lng, user.lat, user.lng);
-        distance.textContent = km ? `📍 ${km} km` : "📍 Location available";
+        distance.textContent = km ? `📍 ${km} km away` : "📍 Location available";
     } else if(distance) {
         distance.textContent = "📍 Location unavailable";
     }
 
-    popup.style.display = "block";
-    document.getElementById("profile-focus-btn").onclick = () => { map.setView([user.lat, user.lng], 16); hideProfilePopup(); };
+    popup.style.display = "flex";
+
+    const focusButton = document.getElementById("profile-focus-btn");
+    if (focusButton) {
+        focusButton.onclick = () => {
+            if (isValidCoordinate(user.lat, user.lng)) map.flyTo([user.lat, user.lng], 16, { animate: true, duration: 0.8 });
+            hideProfilePopup();
+        };
+    }
 }
 
 function hideProfilePopup() {
-    const popup = document.getElementById("map-info-panel");
-    if(popup) popup.style.display = "none";
+    const popup = document.getElementById("profile-popup");
+    if (popup) popup.style.display = "none";
 }
 
 function setupProfilePopup() {
-    const closeButton = document.getElementById("close-map-info");
-    const popup = document.getElementById("map-info-panel");
+    const closeButton = document.getElementById("profile-popup-close");
+    const popup = document.getElementById("profile-popup");
 
     closeButton?.addEventListener("click", hideProfilePopup);
-
     popup?.addEventListener("click", (event) => {
         if (event.target === popup) hideProfilePopup();
-    });
-
-    // Online users sync
-    socket.on("onlineUsers", (users) => {
-        if (!Array.isArray(users)) return;
-        users.forEach((user) => {
-            if (!user?.id || user.id === socket.id) return;
-            friendData[user.id] = { ...(friendData[user.id] || {}), ...user, online: true };
-        });
-        updateOnlineCount();
-    });
-
-    socket.on("userOnline", (user) => {
-        if (!user?.id || user.id === socket.id) return;
-        friendData[user.id] = { ...(friendData[user.id] || {}), ...user, online: true };
-        updateOnlineCount();
-    });
-
-    socket.on("userOffline", (data) => {
-        const id = data?.id;
-        if (!id) return;
-        if (friendData[id]) friendData[id].online = false;
-        if (friendMarkers[id]) friendMarkers[id].setOpacity(0.45);
-        updateOnlineCount();
     });
 }
 
 function updateOnlineCount() {
-    const onlineCount = document.getElementById("chat-subtitle");
-    let count = 0;
+    let friendCount = 0;
     Object.keys(friendData).forEach((id) => {
-        if (friendData[id] && friendData[id].online !== false) count++;
+        if (friendData[id] && friendData[id].online !== false) friendCount++;
     });
-    if (onlineCount) onlineCount.textContent = `${count} online`;
+
+    const totalOnline = currentUser.name ? friendCount + 1 : friendCount;
+    const elements = [
+        document.getElementById("online-count"),
+        document.getElementById("header-online-status"),
+        document.getElementById("chat-subtitle")
+    ];
+
+    elements.forEach((element) => {
+        if (element) element.textContent = `${totalOnline} online`;
+    });
 }
 
-socket.on("friendMoved", (data) => {
-    if (!data || !data.id) return;
-    const lat = Number(data.lat);
-    const lng = Number(data.lng);
+// ==========================================
+// RESTORED: FRIEND MARKER LOGIC
+// ==========================================
+
+function createOrUpdateFriendMarker(user) {
+    if (!user?.id) return;
+    const lat = Number(user.lat);
+    const lng = Number(user.lng);
+
     if (!isValidCoordinate(lat, lng)) return;
 
-    const name = cleanName(data.name);
-    if (name && name === currentUser.name) return;
+    const id = user.id;
+    const name = cleanName(user.name) || "Friend";
+    const avatar = isValidImageDataURL(user.avatar) ? user.avatar : (user.avatar || DEFAULT_AVATAR);
+    const weather = typeof user.weather === "string" ? user.weather.slice(0, 50) : "";
 
-    const avatar = isValidImageDataURL(data.avatar) ? data.avatar : (data.avatar || DEFAULT_AVATAR);
-    const weather = typeof data.weather === "string" ? data.weather.slice(0, 50) : "";
-
-    // Save friend data & online status
-    friendData[data.id] = { 
-        id: data.id, 
-        name: name || "Friend", 
-        avatar: avatar, 
-        lat: lat, 
-        lng: lng, 
-        weather: weather, 
-        online: true 
+    friendData[id] = {
+        ...(friendData[id] || {}),
+        id, name, avatar, lat, lng, weather,
+        online: user.online !== false
     };
 
-    let badge = weather;
-    if (myCoords) {
-        const distance = haversineDistance(myCoords.lat, myCoords.lng, lat, lng);
+    if (!friendMarkers[id]) {
+        friendMarkers[id] = L.marker([lat, lng], { icon: createFriendIcon(avatar) }).addTo(map);
+        friendMarkers[id].on("click", () => {
+            const friend = friendData[id];
+            if (friend) showProfilePopup(friend);
+        });
+    } else {
+        friendMarkers[id].setLatLng([lat, lng]);
+        friendMarkers[id].setIcon(createFriendIcon(avatar));
+        friendMarkers[id].setOpacity(user.online === false ? 0.45 : 1);
+    }
+
+    updateFriendMarkerTooltip(id);
+}
+
+function updateFriendMarkerTooltip(id) {
+    const marker = friendMarkers[id];
+    const friend = friendData[id];
+
+    if (!marker || !friend) return;
+    let badge = friend.weather || "";
+
+    if (myCoords && isValidCoordinate(friend.lat, friend.lng)) {
+        const distance = haversineDistance(myCoords.lat, myCoords.lng, friend.lat, friend.lng);
         if (distance) badge = `${badge ? badge + " | " : ""}📍 ${distance} km`;
     }
 
-    if (!friendMarkers[data.id]) {
-        friendMarkers[data.id] = L.marker([lat, lng], { icon: createFriendIcon(avatar) }).addTo(map);
-        
-        // CLICK EVENT ADDED FOR PROFILE POPUP (From your screenshot)
-        friendMarkers[data.id].on("click", () => {
-            const friend = friendData[data.id];
-            if (friend) showProfilePopup(friend);
-        });
-
-    } else {
-        friendMarkers[data.id].setLatLng([lat, lng]);
-        friendMarkers[data.id].setIcon(createFriendIcon(avatar));
-        friendMarkers[data.id].setOpacity(1); // Set to active opacity
-    }
-
-    const marker = friendMarkers[data.id];
     marker.unbindTooltip();
     if (badge) {
         marker.bindTooltip(badge, { permanent: true, direction: "right", className: "weather-badge", offset: [15, 0] });
     }
-});
+}
 
-socket.on("friendDisconnected", (id) => {
-    if (friendMarkers[id]) { map.removeLayer(friendMarkers[id]); delete friendMarkers[id]; }
-    if (friendData[id]) delete friendData[id];
+function updateFriendBadges() {
+    if (!myCoords) return;
+    Object.keys(friendMarkers).forEach((id) => {
+        updateFriendMarkerTooltip(id);
+    });
+}
+
+// Socket Events for Online Status & Location Sync
+socket.on("onlineUsers", (users) => {
+    if (!Array.isArray(users)) return;
+    users.forEach((user) => {
+        if (!user?.id || user.id === socket.id) return;
+        friendData[user.id] = { ...(friendData[user.id] || {}), ...user, online: true };
+        if (isValidCoordinate(user.lat, user.lng)) createOrUpdateFriendMarker(user);
+    });
     updateOnlineCount();
 });
 
-// ==========================================
-// MEMORY PHOTO PIN
-// ==========================================
-
-function renderMemoryPin(pin) {
-    if (!pin) return;
-    const lat = Number(pin.lat);
-    const lng = Number(pin.lng);
-    if (!isValidCoordinate(lat, lng)) return;
-    if (!isValidImageDataURL(pin.image)) return;
-
-    const pinId = String(pin.id || `${lat}_${lng}_${Date.now()}`);
-    if (memoryMarkers[pinId]) return;
-
-    const safeImage = escapeHTML(pin.image);
-    const safeName = escapeHTML(cleanName(pin.name) || "Memory");
-    const safeTime = escapeHTML(String(pin.time || "").slice(0, 100));
-
-    const icon = L.divIcon({
-        className: "custom-pin",
-        html: `<div class="memory-pin-box"><img src="${safeImage}" alt="Memory"></div>`,
-        iconSize: [44, 44],
-        iconAnchor: [22, 22]
-    });
-
-    const marker = L.marker([lat, lng], { icon }).addTo(map);
-
-    marker.bindPopup(`
-        <div style="text-align:center; color:#111; min-width:210px;">
-            <b>📸 ${safeName}</b><br><small style="color:#666">${safeTime}</small><br><br>
-            <img src="${safeImage}" alt="Memory" style="width:200px; max-width:100%; border-radius:8px; display:block; margin:auto;">
-        </div>
-    `);
-
-    memoryMarkers[pinId] = marker;
-}
-
-socket.on("loadMemoryPhotos", (pins) => {
-    if (!Array.isArray(pins)) return;
-    pins.forEach(renderMemoryPin);
+socket.on("userOnline", (user) => {
+    if (!user?.id || user.id === socket.id) return;
+    friendData[user.id] = { ...(friendData[user.id] || {}), ...user, online: true };
+    if (isValidCoordinate(user.lat, user.lng)) createOrUpdateFriendMarker(user);
+    updateOnlineCount();
 });
 
-socket.on("newMemoryPin", renderMemoryPin);
+socket.on("userOffline", (data) => {
+    const id = data?.id;
+    if (!id) return;
+    if (friendData[id]) friendData[id].online = false;
+    if (friendMarkers[id]) friendMarkers[id].setOpacity(0.45);
+    updateOnlineCount();
+});
+
+socket.on("friendMoved", (data) => {
+    if (!data?.id) return;
+    const lat = Number(data.lat);
+    const lng = Number(data.lng);
+    if (!isValidCoordinate(lat, lng)) return;
+    if (cleanName(data.name) === currentUser.name) return;
+
+    createOrUpdateFriendMarker({ ...data, lat, lng, online: true });
+    updateOnlineCount();
+});
+
+socket.on("friendDisconnected", (id) => {
+    if (!id) return;
+    if (friendMarkers[id]) {
+        map.removeLayer(friendMarkers[id]);
+        delete friendMarkers[id];
+    }
+    if (friendData[id]) delete friendData[id];
+    updateOnlineCount();
+});
 
 // ==========================================
 // USER JOIN
@@ -503,17 +470,17 @@ function setupUserJoin() {
             headerAvatar.src = currentUser.avatar || DEFAULT_AVATAR;
             headerAvatar.style.display = "block";
         }
+        updateOnlineCount();
+        socket.emit("profileReady", { name: currentUser.name, avatar: currentUser.avatar || DEFAULT_AVATAR });
     }
 
-    if (avatarInput) {
-        avatarInput.addEventListener("change", () => {
-            const file = avatarInput.files?.[0];
-            if (!file) return;
-            if (!ALLOWED_AVATAR_TYPES.includes(file.type)) { alert("Please select a valid image."); avatarInput.value = ""; return; }
-            if (file.size > MAX_AVATAR_FILE_SIZE) { alert("Profile photo must be under 3MB."); avatarInput.value = ""; return; }
-            if (avatarLabelText) avatarLabelText.textContent = "Photo Selected ✓";
-        });
-    }
+    avatarInput?.addEventListener("change", () => {
+        const file = avatarInput.files?.[0];
+        if (!file) return;
+        if (!ALLOWED_AVATAR_TYPES.includes(file.type)) { alert("Please select a valid image."); avatarInput.value = ""; return; }
+        if (file.size > MAX_AVATAR_FILE_SIZE) { alert("Profile photo must be under 3MB."); avatarInput.value = ""; return; }
+        if (avatarLabelText) avatarLabelText.textContent = "Photo Selected ✓";
+    });
 
     joinForm.addEventListener("submit", (event) => {
         event.preventDefault();
@@ -528,45 +495,43 @@ function setupUserJoin() {
             const reader = new FileReader();
             reader.onload = () => {
                 const result = String(reader.result || "");
-                if (!isValidImageDataURL(result)) { completeJoin(); return; }
-                currentUser.avatar = result;
-                localStorage.setItem("koraput_avatar", result);
+                if (isValidImageDataURL(result)) {
+                    currentUser.avatar = result;
+                    localStorage.setItem("koraput_avatar", result);
+                }
                 completeJoin();
             };
-            reader.onerror = () => completeJoin();
+            reader.onerror = completeJoin;
             reader.readAsDataURL(file);
         } else {
             completeJoin();
         }
-    });
 
-    function completeJoin() {
-        joinScreen.style.display = "none";
-        if (chatToggleBtn) chatToggleBtn.style.display = "flex";
-        if (headerAvatar) {
-            headerAvatar.src = currentUser.avatar || DEFAULT_AVATAR;
-            headerAvatar.style.display = "block";
+        function completeJoin() {
+            joinScreen.style.display = "none";
+            if (chatToggleBtn) chatToggleBtn.style.display = "flex";
+            if (headerAvatar) {
+                headerAvatar.src = currentUser.avatar || DEFAULT_AVATAR;
+                headerAvatar.style.display = "block";
+            }
+            if (ownMarker) ownMarker.setIcon(createOwnIcon(currentUser.avatar));
+
+            socket.emit("profileReady", { name: currentUser.name, avatar: currentUser.avatar || DEFAULT_AVATAR });
+            emitLocation();
+            updateOnlineCount();
+            setTimeout(() => map.invalidateSize(), 300);
         }
-        if (ownMarker) ownMarker.setIcon(createOwnIcon(currentUser.avatar));
-        emitLocation();
-
-        // EMIT PROFILE READY (From your screenshot)
-        socket.emit("profileReady", {
-            name: currentUser.name,
-            avatar: currentUser.avatar || DEFAULT_AVATAR
-        });
-
-        setTimeout(() => map.invalidateSize(), 300);
-    }
+    });
 }
 
 // ==========================================
-// MEMORY BUTTON
+// MEMORY BUTTON (UPLOAD)
 // ==========================================
 
 function setupMemoryButton() {
     const memoryBtn = document.getElementById("memoryButton");
     const memoryInput = document.getElementById("memoryPhotoInput");
+
     if (!memoryBtn || !memoryInput) return;
 
     memoryBtn.addEventListener("click", () => {
@@ -601,7 +566,7 @@ function setupMemoryButton() {
 }
 
 // ==========================================
-// CHAT (MIXED)
+// CHAT FUNCTIONALITY
 // ==========================================
 
 function setupChat() {
@@ -610,83 +575,59 @@ function setupChat() {
     const chatForm = document.getElementById("chatForm");
     const chatInput = document.getElementById("chatInput");
     const chatMessages = document.getElementById("chat-messages");
-    
-    // Adjusted DOM IDs to match Base HTML
-    const fileInput = document.getElementById("chatAttachment"); 
-    const attachButton = document.getElementById("chat-attach-btn"); 
+    const fileInput = document.getElementById("chatFileInput");
+    const attachButton = document.getElementById("chat-attach-btn");
     const emojiPicker = document.getElementById("emojiPicker");
     const emojiButton = document.getElementById("emojiButton");
     const voiceButton = document.getElementById("voiceButton");
     const sendButton = document.getElementById("chat-send");
     
     const typingIndicator = document.getElementById("typing-indicator");
-    const replyBar = document.getElementById("reply-preview-container"); 
-    const replyPreview = document.getElementById("reply-preview-text"); 
-    const replyCancel = document.getElementById("cancel-reply-btn"); 
+    const replyBar = document.getElementById("reply-bar");
+    const replyPreview = document.getElementById("reply-preview");
+    const replyCancel = document.getElementById("reply-cancel");
 
-    if (!chatContainer || !chatForm || !chatInput || !chatMessages) {
-        return;
-    }
+    const attachmentMenu = document.getElementById("attachment-menu");
+    const emojiContainer = document.getElementById("emoji-picker-container");
+
+    if (!chatContainer || !chatForm || !chatInput || !chatMessages) return;
 
     let unreadCount = 0;
     let typingTimer = null;
     let isTyping = false;
-
     let replyToMessage = null;
+    let reactingToMsgId = null; 
 
     const messageStore = new Map();
+    const reactionEmojis = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
 
-    const reactionEmojis = [
-        "👍", "❤️", "😂", "😮", "😢", "🔥"
-    ];
-
-    // ------------------------------------------
-    // CHAT OPEN / CLOSE
-    // ------------------------------------------
-
-    function isChatOpen() {
-        return chatContainer.style.display === "flex";
-    }
+    function isChatOpen() { return chatContainer.style.display === "flex" || chatContainer.classList.contains("open"); }
 
     function updateUnreadBadge() {
-        const badge = document.getElementById("unread-badge");
+        const badge = document.getElementById("chat-unread-badge");
         if (!badge) return;
-        badge.textContent = unreadCount;
+        badge.textContent = unreadCount > 99 ? "99+" : unreadCount;
         badge.style.display = unreadCount > 0 ? "flex" : "none";
     }
 
-    function markChatRead() {
-        unreadCount = 0;
-        updateUnreadBadge();
-    }
+    function markChatRead() { unreadCount = 0; updateUnreadBadge(); }
 
     function openChat() {
-        chatContainer.style.display = "flex";
-        if(chatToggle) chatToggle.style.display = "none";
+        chatContainer.classList.add("open");
+        chatContainer.style.display = "flex"; 
         markChatRead();
-        setTimeout(() => { chatInput.focus(); }, 100);
+        setTimeout(() => chatInput.focus(), 100);
     }
 
     function closeChat() {
+        chatContainer.classList.remove("open");
         chatContainer.style.display = "none";
-        if(chatToggle) chatToggle.style.display = "flex";
-        
-        // Hide popups when chat closes
-        const attachMenu = document.getElementById("attachment-menu");
-        if(attachMenu) attachMenu.style.display = "none";
-        const emojiContainer = document.getElementById("emoji-picker-container");
-        if(emojiContainer) emojiContainer.style.display = "none";
+        if (attachmentMenu) attachmentMenu.style.display = "none";
+        if (emojiContainer) emojiContainer.style.display = "none";
     }
 
-    chatToggle?.addEventListener("click", () => {
-        if (isChatOpen()) { closeChat(); } else { openChat(); }
-    });
-
+    chatToggle?.addEventListener("click", () => { if (isChatOpen()) closeChat(); else openChat(); });
     document.getElementById("chat-minimize-btn")?.addEventListener("click", closeChat);
-
-    // ------------------------------------------
-    // TYPING INDICATOR
-    // ------------------------------------------
 
     function sendTypingStatus(value) {
         if (!currentUser.name) return;
@@ -700,32 +641,17 @@ function setupChat() {
     }
 
     chatInput.addEventListener("input", () => {
-        if (!isTyping) {
-            isTyping = true;
-            sendTypingStatus(true);
-        }
-
+        if (!isTyping) { isTyping = true; sendTypingStatus(true); }
         clearTimeout(typingTimer);
-
-        typingTimer = setTimeout(() => {
-            stopTyping();
-        }, 1200);
-
+        typingTimer = setTimeout(stopTyping, 1200);
         updateSendButtons();
     });
 
-    chatInput.addEventListener("blur", () => {
-        clearTimeout(typingTimer);
-        stopTyping();
-    });
+    chatInput.addEventListener("blur", () => { clearTimeout(typingTimer); stopTyping(); });
 
     socket.on("typing", (data) => {
         if (!typingIndicator) return;
-
-        if (!data || data.id === socket.id) {
-            return;
-        }
-
+        if (!data || data.id === socket.id) return;
         if (data.isTyping) {
             typingIndicator.textContent = `${cleanName(data.name) || "Someone"} is typing…`;
             typingIndicator.style.display = "flex";
@@ -733,10 +659,6 @@ function setupChat() {
             typingIndicator.style.display = "none";
         }
     });
-
-    // ------------------------------------------
-    // REPLY
-    // ------------------------------------------
 
     function getReplyPreview(msg) {
         if (!msg) return "";
@@ -750,22 +672,9 @@ function setupChat() {
 
     function beginReply(msg) {
         if (!msg) return;
-
-        replyToMessage = {
-            id: msg.id,
-            name: msg.name || "User",
-            type: msg.type || "text",
-            preview: getReplyPreview(msg)
-        };
-
-        if (replyPreview) {
-            replyPreview.textContent = `↩ ${replyToMessage.name}: ${replyToMessage.preview}`;
-        }
-
-        if (replyBar) {
-            replyBar.style.display = "flex";
-        }
-
+        replyToMessage = { id: msg.id, name: msg.name || "User", type: msg.type || "text", preview: getReplyPreview(msg) };
+        if (replyPreview) replyPreview.textContent = `↩ ${replyToMessage.name}: ${replyToMessage.preview}`;
+        if (replyBar) replyBar.style.display = "flex";
         chatInput.focus();
     }
 
@@ -775,164 +684,107 @@ function setupChat() {
         if (replyBar) replyBar.style.display = "none";
     }
 
-    replyCancel?.addEventListener("click", (e) => { e.preventDefault(); clearReply(); });
-
-    // ------------------------------------------
-    // SEND BUTTON
-    // ------------------------------------------
+    replyCancel?.addEventListener("click", clearReply);
 
     function updateSendButtons() {
         if (!sendButton) return;
-
         const hasText = chatInput.value.trim().length > 0;
-
         if (hasText) {
             sendButton.style.display = "flex";
-            if (voiceButton) { voiceButton.style.display = "none"; }
+            if (voiceButton) voiceButton.style.display = "none";
         } else {
             sendButton.style.display = "none";
-            if (voiceButton) { voiceButton.style.display = "flex"; }
+            if (voiceButton) voiceButton.style.display = "flex";
         }
     }
 
-    // ------------------------------------------
-    // EMOJI PICKER
-    // ------------------------------------------
-
-    const emojiContainer = document.getElementById("emoji-picker-container");
-    const attachMenu = document.getElementById("attachment-menu");
-
     emojiButton?.addEventListener("click", (event) => {
         event.stopPropagation();
-        if(attachMenu) attachMenu.style.display = "none";
-        if (!emojiContainer) return;
-        emojiContainer.style.display = emojiContainer.style.display === "block" ? "none" : "block";
+        if (attachmentMenu) attachmentMenu.style.display = "none";
+        if (!emojiContainer && !emojiPicker) return;
+        const target = emojiContainer || emojiPicker;
+        target.style.display = target.style.display === "block" ? "none" : "block";
     });
 
     emojiPicker?.addEventListener("emoji-click", (event) => {
         const emoji = event.detail?.unicode;
         if (!emoji) return;
-
-        // Directly checking custom reaction implementation
         if (reactingToMsgId) {
              socket.emit("messageReaction", { messageId: reactingToMsgId, emoji });
-             emojiContainer.style.display = "none";
+             if(emojiContainer) emojiContainer.style.display = "none";
+             else emojiPicker.style.display = "none";
              reactingToMsgId = null;
         } else {
-             chatInput.value += emoji;
-             chatInput.focus();
-             updateSendButtons();
+             chatInput.value += emoji; chatInput.focus(); updateSendButtons();
         }
     });
 
-    // ------------------------------------------
-    // ATTACHMENT
-    // ------------------------------------------
+    window.reactTo = (msgId) => {
+        reactingToMsgId = msgId;
+        if (attachmentMenu) attachmentMenu.style.display = "none";
+        if (emojiContainer) emojiContainer.style.display = "block";
+        else if (emojiPicker) emojiPicker.style.display = "block";
+    };
 
     attachButton?.addEventListener("click", (event) => {
         event.stopPropagation();
         if(emojiContainer) emojiContainer.style.display = "none";
-        if(attachMenu) attachMenu.style.display = attachMenu.style.display === "flex" ? "none" : "flex";
+        else if(emojiPicker) emojiPicker.style.display = "none";
+        if(attachmentMenu) attachmentMenu.style.display = attachmentMenu.style.display === "flex" ? "none" : "flex";
+        else fileInput?.click(); 
     });
 
     document.addEventListener("click", (event) => {
-        if (attachMenu && !attachMenu.contains(event.target) && event.target !== attachButton) attachMenu.style.display = "none";
+        if (attachmentMenu && !attachmentMenu.contains(event.target) && event.target !== attachButton) attachmentMenu.style.display = "none";
         if (emojiContainer && !emojiContainer.contains(event.target) && event.target !== emojiButton) emojiContainer.style.display = "none";
     });
 
-    document.getElementById("att-media")?.addEventListener("click", () => { fileInput.accept="image/*,video/*"; fileInput.click(); if(attachMenu) attachMenu.style.display="none"; });
-    document.getElementById("att-doc")?.addEventListener("click", () => { fileInput.accept=".pdf,.doc,.docx,.txt,.zip"; fileInput.click(); if(attachMenu) attachMenu.style.display="none"; });
-    document.getElementById("att-audio")?.addEventListener("click", () => { fileInput.accept="audio/*"; fileInput.click(); if(attachMenu) attachMenu.style.display="none"; });
+    document.getElementById("att-media")?.addEventListener("click", () => { if(!fileInput) return; fileInput.accept="image/*,video/*"; fileInput.click(); if(attachmentMenu) attachmentMenu.style.display="none"; });
+    document.getElementById("att-doc")?.addEventListener("click", () => { if(!fileInput) return; fileInput.accept=".pdf,.doc,.docx,.txt,.zip"; fileInput.click(); if(attachmentMenu) attachmentMenu.style.display="none"; });
+    document.getElementById("att-audio")?.addEventListener("click", () => { if(!fileInput) return; fileInput.accept="audio/*"; fileInput.click(); if(attachmentMenu) attachmentMenu.style.display="none"; });
 
     fileInput?.addEventListener("change", () => {
         const file = fileInput.files?.[0];
         if (!file) return;
-
-        if (file.size > MAX_CHAT_FILE_SIZE) {
-            alert("File is too large. Maximum size is 5 MB.");
-            fileInput.value = "";
-            return;
-        }
+        if (file.size > MAX_CHAT_FILE_SIZE) { alert("File is too large. Maximum size is 5 MB."); fileInput.value = ""; return; }
 
         const reader = new FileReader();
         reader.onload = () => {
             let type = "document";
-            if (file.type.startsWith("image/")) { type = "image"; } 
-            else if (file.type.startsWith("video/")) { type = "video"; } 
-            else if (file.type.startsWith("audio/")) { type = "audio"; }
+            if (file.type.startsWith("image/")) type = "image";
+            else if (file.type.startsWith("video/")) type = "video";
+            else if (file.type.startsWith("audio/")) type = "audio";
 
-            socket.emit("chatMessage", {
-                name: currentUser.name,
-                type,
-                data: String(reader.result || ""),
-                replyTo: replyToMessage
-            });
-
-            clearReply();
-            fileInput.value = "";
+            socket.emit("chatMessage", { name: currentUser.name, type, data: String(reader.result || ""), replyTo: replyToMessage });
+            clearReply(); fileInput.value = "";
         };
-
         reader.readAsDataURL(file);
     });
-
-    // ------------------------------------------
-    // SEND MESSAGE
-    // ------------------------------------------
 
     function sendMessage() {
         const text = chatInput.value.trim().slice(0, MAX_CHAT_LENGTH);
         if (!text) return;
-
-        socket.emit("chatMessage", {
-            name: currentUser.name,
-            type: "text",
-            data: text,
-            replyTo: replyToMessage
-        });
-
-        chatInput.value = "";
-        clearReply();
-        stopTyping();
-        updateSendButtons();
-        chatInput.focus();
+        socket.emit("chatMessage", { name: currentUser.name, type: "text", data: text, replyTo: replyToMessage });
+        chatInput.value = ""; clearReply(); stopTyping(); updateSendButtons(); chatInput.focus();
     }
 
-    chatForm.addEventListener("submit", (event) => {
-        event.preventDefault();
-        sendMessage();
-    });
-
-    // ------------------------------------------
-    // REACTIONS
-    // ------------------------------------------
+    chatForm.addEventListener("submit", (event) => { event.preventDefault(); sendMessage(); });
 
     function renderReactions(messageElement, msg) {
         if (!messageElement) return;
-
-        let container = messageElement.querySelector(".reaction-row");
-        if (!container) {
-            container = document.createElement("div");
-            container.className = "reaction-row";
-            messageElement.appendChild(container);
-        }
-
+        const container = messageElement.querySelector(".reaction-row") || messageElement.querySelector(".message-reactions");
+        if (!container) return;
         container.innerHTML = "";
-        const reactions = msg.reactions || {};
 
+        const reactions = msg.reactions || {};
         Object.keys(reactions).forEach((emoji) => {
             const users = reactions[emoji];
-            if (!Array.isArray(users) || users.length === 0) { return; }
+            if (!Array.isArray(users) || users.length === 0) return;
 
             const chip = document.createElement("button");
-            chip.type = "button";
-            chip.className = "reaction"; // Mapped to base HTML class
-            chip.textContent = `${emoji} ${users.length}`;
+            chip.type = "button"; chip.className = "reaction-chip"; chip.textContent = `${emoji} ${users.length}`;
             chip.title = "Toggle reaction";
-
-            chip.addEventListener("click", () => {
-                socket.emit("messageReaction", { messageId: msg.id, emoji });
-            });
-
+            chip.addEventListener("click", () => { socket.emit("messageReaction", { messageId: msg.id, emoji }); });
             container.appendChild(chip);
         });
     }
@@ -941,166 +793,85 @@ function setupChat() {
         picker.innerHTML = "";
         reactionEmojis.forEach((emoji) => {
             const button = document.createElement("button");
-            button.type = "button";
-            button.className = "action-btn"; // Mapped to base HTML class
-            button.textContent = emoji;
-
-            button.addEventListener("click", () => {
-                socket.emit("messageReaction", { messageId: msg.id, emoji });
-            });
-
+            button.type = "button"; button.className = "action-btn"; button.textContent = emoji;
+            button.addEventListener("click", () => { socket.emit("messageReaction", { messageId: msg.id, emoji }); });
             picker.appendChild(button);
         });
     }
-
-    window.reactTo = (msgId) => {
-         reactingToMsgId = msgId;
-         if (emojiContainer) emojiContainer.style.display = "block";
-         if (attachMenu) attachMenu.style.display = "none";
-    };
-
-    // ------------------------------------------
-    // RENDER MESSAGE
-    // ------------------------------------------
 
     function renderMessage(msg) {
         if (!msg || !msg.id) return;
 
         const wrapper = document.createElement("div");
+        wrapper.className = "chat-message-wrap";
+        const message = document.createElement("div");
+        message.className = "chat-message";
+
         const mine = msg.senderId === socket.id;
-        wrapper.className = "chat-message" + (mine ? " msg-mine" : " msg-theirs");
-        wrapper.dataset.messageId = msg.id;
+        if (mine) message.classList.add("msg-mine"); else message.classList.add("msg-theirs");
 
-        // --------------------------------------
-        // SENDER NAME & TIME
-        // --------------------------------------
-        const sender = document.createElement("div");
-        sender.className = "msg-sender";
-        sender.textContent = cleanName(msg.name) || "User";
-        
-        if (msg.time) {
-            const date = new Date(msg.time);
-            const timeSpan = document.createElement("span");
-            timeSpan.style.color = "var(--muted)";
-            timeSpan.style.marginLeft = "5px";
-            timeSpan.style.fontSize = "9px";
-            timeSpan.textContent = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-            sender.appendChild(timeSpan);
+        if (!mine) {
+            const sender = document.createElement("div"); sender.className = "msg-sender"; sender.textContent = cleanName(msg.name) || "User";
+            message.appendChild(sender);
         }
-        wrapper.appendChild(sender);
 
-        // --------------------------------------
-        // REPLY QUOTE
-        // --------------------------------------
         if (msg.replyTo && msg.replyTo.preview) {
             const quote = document.createElement("div");
-            quote.className = "inline-reply"; // Optional CSS class if needed, fallback works
-            quote.style.borderLeft = "3px solid var(--green-bright)";
-            quote.style.padding = "4px";
-            quote.style.marginBottom = "4px";
-            quote.style.background = "rgba(255,255,255,0.05)";
+            quote.className = "reply-quote";
+            Object.assign(quote.style, { borderLeft: "3px solid var(--green-bright)", padding: "4px 6px", marginBottom: "6px", background: "rgba(0,0,0,0.15)", borderRadius: "4px", fontSize: "10px", color: "var(--muted)" });
             quote.innerHTML = `<b>${escapeHTML(msg.replyTo.name || "User")}</b><br>${escapeHTML(msg.replyTo.preview)}`;
-            wrapper.appendChild(quote);
+            message.appendChild(quote);
         }
 
-        // --------------------------------------
-        // CONTENT
-        // --------------------------------------
         const content = document.createElement("div");
+        if (msg.type === "text") { const text = document.createElement("div"); text.className = "message-text"; text.textContent = msg.data || ""; content.appendChild(text); } 
+        else if (msg.type === "image") { const image = document.createElement("img"); image.className = "chat-media"; image.src = msg.data; image.loading = "lazy"; content.appendChild(image); } 
+        else if (msg.type === "video") { const video = document.createElement("video"); video.className = "chat-media"; video.controls = true; video.preload = "metadata"; video.src = msg.data; content.appendChild(video); } 
+        else if (msg.type === "audio") { const audio = document.createElement("audio"); audio.className = "chat-audio"; audio.controls = true; audio.src = msg.data; content.appendChild(audio); } 
+        else if (msg.type === "document") { const link = document.createElement("a"); link.className = "chat-document"; link.href = msg.data; link.download = "Koraput-Map-file"; link.textContent = "📄 Download File"; content.appendChild(link); }
+        
+        message.appendChild(content);
 
-        if (msg.type === "text") {
-            content.textContent = msg.data || "";
+        const meta = document.createElement("div");
+        meta.className = "message-meta";
+        const time = document.createElement("span");
+        if (msg.time) {
+            const date = new Date(msg.time);
+            time.style.color = "var(--muted)"; time.style.fontSize = "9px"; time.style.display = "block"; time.style.marginTop = "3px"; time.style.textAlign = "right";
+            time.textContent = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
         }
-        else if (msg.type === "image") {
-            const image = document.createElement("img");
-            image.className = "chat-media";
-            image.src = msg.data;
-            image.alt = "Photo";
-            image.loading = "lazy";
-            content.appendChild(image);
-        }
-        else if (msg.type === "video") {
-            const video = document.createElement("video");
-            video.className = "chat-media";
-            video.controls = true;
-            video.preload = "metadata";
-            video.src = msg.data;
-            content.appendChild(video);
-        }
-        else if (msg.type === "audio") {
-            const audio = document.createElement("audio");
-            audio.className = "chat-audio";
-            audio.controls = true;
-            audio.src = msg.data;
-            content.appendChild(audio);
-        }
-        else if (msg.type === "document") {
-            const link = document.createElement("a");
-            link.className = "chat-document";
-            link.href = msg.data;
-            link.download = "Koraput-Map-file";
-            link.textContent = "📄 Download File";
-            content.appendChild(link);
-        }
+        meta.appendChild(time);
+        message.appendChild(meta);
 
-        wrapper.appendChild(content);
-
-        // --------------------------------------
-        // ACTIONS (Reaction Picker & Reply)
-        // --------------------------------------
         const actions = document.createElement("div");
         actions.className = "message-actions";
+        const picker = document.createElement("div"); picker.className = "reaction-picker"; picker.style.display = "flex"; picker.style.gap = "2px";
+        addReactionButtons(picker, msg); actions.appendChild(picker);
+        const replyButton = document.createElement("button"); replyButton.type = "button"; replyButton.className = "action-btn"; replyButton.textContent = "↩ Reply";
+        replyButton.addEventListener("click", () => beginReply(msg)); actions.appendChild(replyButton);
+        message.appendChild(actions);
 
-        const picker = document.createElement("div");
-        picker.style.display = "flex"; picker.style.gap = "2px";
-        addReactionButtons(picker, msg);
-        actions.appendChild(picker);
-
-        const replyButton = document.createElement("button");
-        replyButton.type = "button";
-        replyButton.className = "action-btn";
-        replyButton.textContent = "↩ Reply";
-        replyButton.addEventListener("click", () => beginReply(msg));
-        actions.appendChild(replyButton);
-
-        wrapper.appendChild(actions);
-        chatMessages.appendChild(wrapper);
+        const reactions = document.createElement("div"); reactions.className = "reaction-row"; message.appendChild(reactions);
+        wrapper.appendChild(message); chatMessages.appendChild(wrapper);
 
         msg.reactions = msg.reactions || {};
         messageStore.set(msg.id, { msg, element: wrapper });
         renderReactions(wrapper, msg);
 
-        // --------------------------------------
-        // UNREAD
-        // --------------------------------------
         const fromOtherUser = msg.senderId && msg.senderId !== socket.id;
-        if (fromOtherUser && !isChatOpen()) {
-            unreadCount++;
-            updateUnreadBadge();
-        }
-
+        if (fromOtherUser && !isChatOpen()) { unreadCount++; updateUnreadBadge(); }
         chatMessages.scrollTop = chatMessages.scrollHeight;
     }
 
     socket.on("chatMessage", renderMessage);
 
-    // ------------------------------------------
-    // REACTION UPDATE
-    // ------------------------------------------
-
     socket.on("messageReaction", (data) => {
         if (!data?.messageId) return;
-
         const stored = messageStore.get(String(data.messageId));
         if (!stored) return;
-
         stored.msg.reactions = data.reactions || {};
         renderReactions(stored.element, stored.msg);
     });
-
-    // ------------------------------------------
-    // INITIAL
-    // ------------------------------------------
 
     updateSendButtons();
     updateUnreadBadge();
@@ -1111,7 +882,74 @@ function setupChat() {
 // ==========================================
 
 function setupVoiceRecorder() {
-    // Basic logic intact to not break functionality
+    const voiceButton = document.getElementById("voiceButton");
+    const chatInput = document.getElementById("chatInput");
+    const sendBtn = document.getElementById("chat-send");
+    
+    if (!voiceButton) return;
+
+    let mediaRecorder = null;
+    let audioChunks = [];
+    let recording = false;
+
+    function resetVoiceButton() {
+        voiceButton.style.background = "transparent";
+        voiceButton.style.color = "var(--muted)";
+        voiceButton.innerHTML = "🎙️";
+        if (chatInput && sendBtn && chatInput.value.trim()) {
+            voiceButton.style.display = "none";
+            sendBtn.style.display = "flex";
+        }
+    }
+
+    voiceButton.addEventListener("click", async () => {
+        if (recording) { mediaRecorder?.stop(); return; }
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { alert("Voice recording is not supported in this browser."); return; }
+
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+            audioChunks = [];
+            let mimeType = "";
+            if (MediaRecorder.isTypeSupported("audio/webm")) mimeType = "audio/webm";
+            else if (MediaRecorder.isTypeSupported("audio/mp4")) mimeType = "audio/mp4";
+
+            mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+            recording = true;
+
+            voiceButton.textContent = "⏹";
+            voiceButton.title = "Stop recording";
+            voiceButton.style.background = "var(--green)";
+            voiceButton.style.color = "#fff";
+
+            mediaRecorder.ondataavailable = (event) => { if (event.data && event.data.size > 0) audioChunks.push(event.data); };
+
+            mediaRecorder.onstop = () => {
+                recording = false;
+                resetVoiceButton();
+                stream.getTracks().forEach((track) => track.stop());
+
+                const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType || "audio/webm" });
+                if (blob.size === 0) return;
+                if (blob.size > MAX_CHAT_FILE_SIZE) { alert("Voice message is too large."); return; }
+
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const data = String(reader.result || "");
+                    if (!/^data:audio\//i.test(data)) return;
+                    socket.emit("chatMessage", { name: currentUser.name, type: "audio", data: data, replyTo: null });
+                };
+                reader.onerror = () => { alert("Failed to read audio data."); };
+                reader.readAsDataURL(blob);
+            };
+
+            mediaRecorder.start();
+
+        } catch (error) {
+            console.warn("Microphone error:", error);
+            alert("Microphone permission was not granted.");
+        }
+    });
 }
 
 // ==========================================
@@ -1130,8 +968,8 @@ function setupMapControls() {
     });
 
     compassBtn?.addEventListener("click", () => {
-        if (!map) return;
-        map.setView(map.getCenter(), map.getZoom(), { animate: true });
+        const center = map.getCenter();
+        map.setView(center, map.getZoom(), { animate: true });
         const icon = document.getElementById("compass-icon");
         if (icon) icon.style.transform = "rotate(0deg)";
     });
@@ -1169,53 +1007,36 @@ function changeMapStyle(style) {
     if (style === "dark") darkLayer.addTo(map);
 
     currentMapStyle = style;
-
-    document.querySelectorAll("#map-style-menu button").forEach(button => {
+    document.querySelectorAll("#map-style-menu button").forEach((button) => {
         button.classList.toggle("active", button.dataset.style === style);
     });
-
     setTimeout(() => map.invalidateSize(), 100);
 }
 
 // ==========================================
-// UPDATE FRIEND DISTANCES
-// ==========================================
-
-function updateFriendBadges() {
-    if (!myCoords) return;
-    Object.keys(friendMarkers).forEach(id => {
-        const friend = friendData[id];
-        const marker = friendMarkers[id];
-        if (!friend || !marker) return;
-
-        const distance = haversineDistance(myCoords.lat, myCoords.lng, friend.lat, friend.lng);
-        let badge = friend.weather || "";
-        if (distance) badge = `${badge ? badge + " | " : ""}📍 ${distance} km`;
-
-        marker.unbindTooltip();
-        if (badge) {
-            marker.bindTooltip(badge, { permanent: true, direction: "right", className: "weather-badge", offset: [15, 0] });
-        }
-    });
-}
-
-// ==========================================
-// INITIALIZE EVERYTHING
+// INITIALIZE
 // ==========================================
 
 function setupEverything() {
     setupUserJoin();
     setupMemoryButton();
     setupChat();
-    setupProfilePopup(); // Injected!
+    setupVoiceRecorder();
+    setupProfilePopup();
     setupMapControls();
     startLocationTracking();
+    updateOnlineCount();
 }
 
-setInterval(() => {
-    emitLocation();
-    updateFriendBadges();
-}, 5000);
+// Ensure the code runs safely after DOM loads
+if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => {
+        setupEverything();
+        setInterval(() => { emitLocation(); updateFriendBadges(); }, 5000);
+    });
+} else {
+    setupEverything();
+    setInterval(() => { emitLocation(); updateFriendBadges(); }, 5000);
+}
 
-setupEverything();
-console.log("Koraput Map client loaded successfully.");
+console.log("Koraput Map Phase 2 Client Loaded Successfully!");
