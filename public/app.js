@@ -1,7 +1,12 @@
 "use strict";
 
 const socket = io({ transports: ["websocket", "polling"] });
+
+// ==========================================
+// CONSTANTS & STATE
+// ==========================================
 const DEFAULT_CENTER = [18.8136, 82.7153];
+const DEFAULT_ZOOM = 13;
 const DEFAULT_AVATAR = "satyam.png";
 const MAX_NAME = 40;
 const MAX_CHAT = 1000;
@@ -10,35 +15,43 @@ const MAX_MEMORY_FILE = 8 * 1024 * 1024;
 const MAX_AVATAR_FILE = 3 * 1024 * 1024;
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
-const map = L.map("map", { zoomControl: false, preferCanvas: true }).setView(DEFAULT_CENTER, 13);
-const satelliteLayer = L.tileLayer("https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}", { maxZoom: 20, subdomains: ["mt0","mt1","mt2","mt3"], attribution: "&copy; Google Maps" });
-const streetLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "&copy; OpenStreetMap contributors" });
-const darkLayer = L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", { maxZoom: 20, attribution: "&copy; CARTO" });
-satelliteLayer.addTo(map);
-let currentStyle = "satellite";
-
-let currentUser = { name: localStorage.getItem("koraput_name") || "", avatar: localStorage.getItem("koraput_avatar") || DEFAULT_AVATAR };
-let myCoords = null;
-let myWeather = "";
 let ownMarker = null;
 let accuracyCircle = null;
 let firstFix = true;
+let myCoords = null;
+let myWeather = "";
 let cityName = "";
+let currentStyle = "satellite";
+
 const friendMarkers = Object.create(null);
 const friendData = Object.create(null);
 
+// Phase 3 Memories State
+const memories = new Map();
+let currentGalleryFilter = "all";
+let currentGallerySearch = "";
+let selectedMemoryId = null;
+
+let currentUser = { 
+    name: localStorage.getItem("koraput_name") || "", 
+    avatar: localStorage.getItem("koraput_avatar") || DEFAULT_AVATAR 
+};
+
+// ==========================================
+// UTILITY FUNCTIONS
+// ==========================================
 const $ = id => document.getElementById(id);
 const escapeHTML = v => String(v ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;");
-const cleanName = v => String(v || "").trim().replace(/\s+/g," ").slice(0,MAX_NAME);
-const validCoord = (lat,lng) => Number.isFinite(lat)&&Number.isFinite(lng)&&lat>=-90&&lat<=90&&lng>=-180&&lng<=180;
+const cleanName = v => String(v || "User").trim().replace(/\s+/g," ").slice(0, MAX_NAME);
+const validCoord = (lat,lng) => Number.isFinite(lat) && Number.isFinite(lng) && lat>=-90 && lat<=90 && lng>=-180 && lng<=180;
 const validImageData = v => typeof v === "string" && /^data:image\/(jpeg|jpg|png|webp|gif);base64,/i.test(v);
 const validMediaData = v => typeof v === "string" && /^data:(image|video|audio|application|text)\//i.test(v);
 
 function distanceKm(a,b,c,d){
-    if(!validCoord(a,b)||!validCoord(c,d)) return "";
+    if(!validCoord(a,b) || !validCoord(c,d)) return "";
     const R=6371, p=Math.PI/180, dLat=(c-a)*p, dLon=(d-b)*p;
-    const x=Math.sin(dLat/2)**2+Math.cos(a*p)*Math.cos(c*p)*Math.sin(dLon/2)**2;
-    return (R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x))).toFixed(1);
+    const x=Math.sin(dLat/2)**2 + Math.cos(a*p)*Math.cos(c*p)*Math.sin(dLon/2)**2;
+    return (R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1-x))).toFixed(1);
 }
 
 function weatherEmoji(code){
@@ -48,285 +61,397 @@ function weatherEmoji(code){
 }
 
 async function fetchWeather(lat,lng){
-    try{
+    try {
         const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lng)}&current=temperature_2m,weather_code`);
-        if(!r.ok) throw new Error("weather"); const d=await r.json();
+        if(!r.ok) return ""; const d=await r.json();
         const t=Number(d?.current?.temperature_2m), code=Number(d?.current?.weather_code);
         return Number.isFinite(t) ? `${weatherEmoji(code)} ${Math.round(t)}°C` : "";
-    }catch(e){ console.warn("Weather error",e); return ""; }
+    } catch { return ""; }
 }
 
 async function fetchCity(lat,lng){
-    try{
-        const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}&zoom=10`,{headers:{"Accept-Language":"en"}});
-        if(!r.ok) return ""; const d=await r.json(); return d.address?.city||d.address?.town||d.address?.municipality||d.address?.county||"";
-    }catch{return "";}
+    try {
+        const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}&zoom=10`);
+        if(!r.ok) return ""; const d=await r.json();
+        return d.address?.city||d.address?.town||d.address?.county||"Rourkela";
+    } catch { return "Rourkela"; }
 }
 
-function ownIcon(){return L.icon({iconUrl:currentUser.avatar||DEFAULT_AVATAR,iconSize:[36,36],iconAnchor:[18,18],className:"avatar-icon own-live-avatar"});}
-function friendIcon(avatar){return L.icon({iconUrl:avatar||DEFAULT_AVATAR,iconSize:[34,34],iconAnchor:[17,17],className:"avatar-icon friend-marker"});}
+function ownIcon() { return L.icon({ iconUrl: currentUser.avatar, iconSize: [36,36], iconAnchor: [18,18], className: "avatar-icon own-live-avatar" }); }
+function friendIcon(avatar) { return L.icon({ iconUrl: avatar || DEFAULT_AVATAR, iconSize: [34,34], iconAnchor: [17,17], className: "avatar-icon friend-marker" }); }
 
-function updateOwnWeather(){
-    if(!ownMarker) return; ownMarker.unbindTooltip();
-    if(myWeather) ownMarker.bindTooltip(myWeather,{permanent:true,direction:"right",className:"weather-badge",offset:[15,0]});
-}
+// ==========================================
+// MAP INITIALIZATION
+// ==========================================
+const map = L.map("map", { zoomControl: false, preferCanvas: true }).setView(DEFAULT_CENTER, DEFAULT_ZOOM);
+const satelliteLayer = L.tileLayer("https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}", { maxZoom: 20, subdomains: ["mt0","mt1","mt2","mt3"], attribution: "&copy; Google Maps" });
+const streetLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "&copy; OSM" });
+const darkLayer = L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", { maxZoom: 20, attribution: "&copy; CARTO" });
+satelliteLayer.addTo(map);
+
+const memoryLayer = L.layerGroup().addTo(map);
+
+// ==========================================
+// CORE LOCATION LOGIC
+// ==========================================
+socket.on("connect", () => {
+    if (currentUser.name) socket.emit("profileReady", currentUser);
+});
 
 function emitLocation(){
-    if(!myCoords||!currentUser.name) return;
-    socket.emit("updateLocation",{name:currentUser.name,avatar:currentUser.avatar,lat:myCoords.lat,lng:myCoords.lng,weather:myWeather});
+    if(!myCoords || !currentUser.name) return;
+    socket.emit("updateLocation",{name:currentUser.name, avatar:currentUser.avatar, lat:myCoords.lat, lng:myCoords.lng, weather:myWeather});
 }
 
 function updateFriendBadges(){
     if(!myCoords) return;
     Object.keys(friendMarkers).forEach(id=>{
         const f=friendData[id], m=friendMarkers[id]; if(!f||!m) return;
-        let text=f.online===false?"Offline":(f.weather||""); const d=distanceKm(myCoords.lat,myCoords.lng,f.lat,f.lng);
+        let text = f.online===false ? "Offline" : (f.weather||"");
+        const d = distanceKm(myCoords.lat, myCoords.lng, f.lat, f.lng);
         if(d) text += `${text?" | ":""}📍 ${d} km`;
         m.unbindTooltip(); if(text) m.bindTooltip(text,{permanent:true,direction:"right",className:"weather-badge",offset:[15,0]});
     });
 }
 
+function startGPS(){
+    if(!navigator.geolocation) return console.warn("Geolocation disabled.");
+    navigator.geolocation.watchPosition(async p=>{
+        const lat=Number(p.coords.latitude), lng=Number(p.coords.longitude), acc=Number(p.coords.accuracy);
+        if(!validCoord(lat,lng)) return;
+        myCoords={lat,lng};
+
+        if(Number.isFinite(acc) && acc>0 && acc<100000){
+            if(!accuracyCircle) accuracyCircle=L.circle([lat,lng],{radius:acc,color:"#10b981",weight:2,opacity:.85,fillColor:"#10b981",fillOpacity:.15,interactive:false}).addTo(map);
+            else {accuracyCircle.setLatLng([lat,lng]); accuracyCircle.setRadius(acc);}
+        }
+
+        if(!ownMarker){
+            ownMarker = L.marker([lat,lng],{icon:ownIcon(),zIndexOffset:1000}).addTo(map);
+            if(firstFix){map.setView([lat,lng],16); firstFix=false;}
+        } else ownMarker.setLatLng([lat,lng]).setIcon(ownIcon());
+
+        if(!cityName){
+            cityName = await fetchCity(lat,lng);
+            if(cityName){ $("header-app-title").textContent=`${cityName} Map`; $("pill-city").textContent=`📍 ${cityName}`; }
+        }
+
+        const w = await fetchWeather(lat,lng);
+        if(w){
+            myWeather=w; $("map-temp-display").textContent=w;
+            ownMarker.unbindTooltip(); ownMarker.bindTooltip(w,{permanent:true,direction:"right",className:"weather-badge",offset:[15,0]});
+        }
+        emitLocation(); updateFriendBadges();
+    }, e=>console.warn("GPS error",e), {enableHighAccuracy:true,timeout:15000,maximumAge:3000});
+}
+
+// ==========================================
+// FRIENDS & PROFILES
+// ==========================================
 function showFriendProfile(id){
     const f=friendData[id]; if(!f) return;
-    $("profile-avatar").src=f.avatar||DEFAULT_AVATAR; $("profile-name").textContent=f.name||"Friend";
-    $("profile-status").textContent=f.online===false?"Offline":"Online";
-    const d=myCoords?distanceKm(myCoords.lat,myCoords.lng,f.lat,f.lng):"";
-    $("profile-distance").textContent=d?`📍 ${d} km away`:"Location unavailable";
-    $("profile-weather").textContent=f.weather||"Weather unavailable";
+    $("profile-popup-avatar").src = f.avatar||DEFAULT_AVATAR;
+    $("profile-popup-name").textContent = f.name||"Friend";
+    const st = $("profile-popup-status");
+    if(f.online!==false){ st.textContent="● Online"; st.style.color="#18d6a3"; } else { st.textContent="● Offline"; st.style.color="#8fa1aa"; }
+    const d = myCoords ? distanceKm(myCoords.lat,myCoords.lng,f.lat,f.lng) : "";
+    $("profile-popup-distance").textContent = d ? `📍 ${d} km away` : "📍 Location unavailable";
+    $("profile-popup-weather").textContent = f.weather || "Weather unavailable";
     $("profile-popup").style.display="flex";
-    $("profile-focus").onclick=()=>{map.flyTo([f.lat,f.lng],16,{animate:true,duration:.7}); $("profile-popup").style.display="none";};
+    $("profile-focus-btn").onclick=()=>{ if(validCoord(f.lat,f.lng)) map.flyTo([f.lat,f.lng],16,{animate:true}); $("profile-popup").style.display="none"; };
 }
 
-function renderFriend(data){
-    if(!data?.id||data.id===socket.id) return;
-    const lat=Number(data.lat),lng=Number(data.lng); if(!validCoord(lat,lng)) return;
-    const f=friendData[data.id]||{}; Object.assign(f,{id:data.id,name:cleanName(data.name)||"Friend",avatar:data.avatar||DEFAULT_AVATAR,lat,lng,weather:String(data.weather||"").slice(0,50),online:data.online!==false}); friendData[data.id]=f;
-    let m=friendMarkers[data.id];
-    if(!m){m=L.marker([lat,lng],{icon:friendIcon(f.avatar)}).addTo(map); m.on("click",()=>showFriendProfile(data.id)); friendMarkers[data.id]=m;}
-    else{m.setLatLng([lat,lng]);m.setIcon(friendIcon(f.avatar));m.setOpacity(f.online===false?.45:1);}
-    updateFriendBadges();
+function renderOnlineList(){
+    const box=$("online-list"); if(!box) return; box.innerHTML="";
+    const active=Object.values(friendData).filter(f=>f.online!==false);
+    if(!active.length){box.innerHTML=`<div style="color:#91a2ab;font-size:12px;padding:5px 0;">No friends online</div>`; return;}
+    active.forEach(u=>{
+        const btn=document.createElement("button"); btn.className="online-friend";
+        btn.innerHTML=`<img src="${escapeHTML(u.avatar||DEFAULT_AVATAR)}"><span><b>${escapeHTML(u.name)}</b></span><div class="status-dot"></div>`;
+        btn.onclick=()=>{ if(validCoord(u.lat,u.lng)){map.flyTo([u.lat,u.lng],16); showFriendProfile(u.id);} };
+        box.appendChild(btn);
+    });
 }
 
-function removeFriend(id){if(friendMarkers[id]){map.removeLayer(friendMarkers[id]);delete friendMarkers[id];}delete friendData[id];updateOnlineList();}
-
-function updateOnlineList(list){
-    if(Array.isArray(list)){ list.forEach(u=>{if(u?.id&&u.id!==socket.id){friendData[u.id]={...(friendData[u.id]||{}),...u}; if(validCoord(Number(u.lat),Number(u.lng))) renderFriend(u);}}); }
-    const friends=Object.values(friendData).filter(Boolean);
-    $("online-count").textContent=`${friends.filter(f=>f.online!==false).length} online`;
-    $("header-online-status").textContent=`${friends.filter(f=>f.online!==false).length+1} online`;
-    $("online-list").innerHTML=friends.length?friends.map(f=>`<button class="online-user" data-id="${escapeHTML(f.id)}"><img src="${escapeHTML(f.avatar||DEFAULT_AVATAR)}"><span><b>${escapeHTML(f.name||"Friend")}</b><small>${f.online===false?"Offline":"Online"}</small></span></button>`).join(""):"<div class=\"online-empty\">No other users online</div>";
+function updateOnlineCount(){
+    let c=0; Object.values(friendData).forEach(f=>{if(f.online!==false) c++;});
+    const tot = currentUser.name ? c+1 : c;
+    ["header-online-status","chat-subtitle"].forEach(i=>{if($(i)) $(i).textContent=`${tot} online`;});
 }
 
-socket.on("onlineUsers",users=>updateOnlineList(users));
-socket.on("userOnline",u=>{if(u?.id!==socket.id)renderFriend(u);updateOnlineList();});
-socket.on("friendMoved",renderFriend);
-socket.on("userOffline",({id})=>{if(friendData[id]){friendData[id].online=false;renderFriend(friendData[id]);}updateOnlineList();});
-socket.on("friendDisconnected",removeFriend);
-
-function startGPS(){
-    if(!navigator.geolocation){console.warn("Geolocation unavailable");return;}
-    navigator.geolocation.watchPosition(async p=>{
-        const lat=Number(p.coords.latitude),lng=Number(p.coords.longitude),acc=Number(p.coords.accuracy); if(!validCoord(lat,lng))return;
-        myCoords={lat,lng};
-        if(Number.isFinite(acc)&&acc>0&&acc<100000){if(!accuracyCircle) accuracyCircle=L.circle([lat,lng],{radius:acc,color:"#10b981",weight:2,opacity:.85,fillColor:"#10b981",fillOpacity:.15,interactive:false}).addTo(map);else{accuracyCircle.setLatLng([lat,lng]);accuracyCircle.setRadius(acc);}}
-        if(!ownMarker){ownMarker=L.marker([lat,lng],{icon:ownIcon(),zIndexOffset:1000}).addTo(map);if(firstFix){map.setView([lat,lng],16);firstFix=false;}}else ownMarker.setLatLng([lat,lng]);
-        if(!cityName){cityName=await fetchCity(lat,lng);if(cityName){$("header-app-title").textContent=`${cityName} Map`;$("pill-city").textContent=`📍 ${cityName}`;}}
-        const weather=await fetchWeather(lat,lng);if(weather){myWeather=weather;$("map-temp-display").textContent=weather;updateOwnWeather();}
-        emitLocation();updateFriendBadges();
-    },e=>console.warn("GPS error",e.message),{enableHighAccuracy:true,timeout:15000,maximumAge:3000});
+function createOrUpdateFriendMarker(u){
+    if(!u?.id || !validCoord(u.lat,u.lng)) return;
+    const av = validImageData(u.avatar)?u.avatar:DEFAULT_AVATAR;
+    friendData[u.id] = { id:u.id, name:cleanName(u.name), avatar:av, lat:Number(u.lat), lng:Number(u.lng), weather:u.weather||"", online:u.online!==false };
+    let m = friendMarkers[u.id];
+    if(!m){ m=L.marker([u.lat,u.lng],{icon:friendIcon(av)}).addTo(map); m.on("click",()=>showFriendProfile(u.id)); friendMarkers[u.id]=m; }
+    else { m.setLatLng([u.lat,u.lng]).setIcon(friendIcon(av)); m.setOpacity(u.online===false?0.45:1); }
+    updateFriendMarkerTooltip(u.id);
 }
 
+function updateFriendMarkerTooltip(id){
+    const m=friendMarkers[id], f=friendData[id]; if(!m||!f) return;
+    let b=f.weather||""; if(myCoords&&validCoord(f.lat,f.lng)){const d=distanceKm(myCoords.lat,myCoords.lng,f.lat,f.lng); if(d) b+=`${b?" | ":""}📍 ${d} km`;}
+    m.unbindTooltip(); if(b) m.bindTooltip(b,{permanent:true,direction:"right",className:"weather-badge",offset:[15,0]});
+}
+
+socket.on("onlineUsers", list=>{ if(Array.isArray(list)) list.forEach(u=>{ if(u.id!==socket.id){ friendData[u.id]={...(friendData[u.id]||{}),...u,online:true}; createOrUpdateFriendMarker(u);} }); updateOnlineCount(); renderOnlineList(); });
+socket.on("userOnline", u=>{ if(u.id!==socket.id){ friendData[u.id]={...(friendData[u.id]||{}),...u,online:true}; createOrUpdateFriendMarker(u); } updateOnlineCount(); renderOnlineList(); });
+socket.on("userOffline", d=>{ if(d?.id && friendData[d.id]){ friendData[d.id].online=false; if(friendMarkers[d.id]) friendMarkers[d.id].setOpacity(0.45); } updateOnlineCount(); renderOnlineList(); });
+socket.on("friendMoved", u=>{ if(u?.id && cleanName(u.name)!==currentUser.name) createOrUpdateFriendMarker({...u,online:true}); updateOnlineCount(); });
+socket.on("friendDisconnected", id=>{ if(friendMarkers[id]){map.removeLayer(friendMarkers[id]); delete friendMarkers[id];} delete friendData[id]; updateOnlineCount(); renderOnlineList(); });
+
+// ==========================================
+// SETUP JOIN
+// ==========================================
 function setupJoin(){
-    const screen=$("join-screen"),form=$("join-form"),name=$("nameInput"),avatar=$("avatarInput");
-    if(currentUser.name){screen.style.display="none";$("chat-toggle-btn").style.display="flex";$("header-avatar").src=currentUser.avatar;$("header-avatar").style.display="block";socket.emit("profileReady",currentUser);}
-    avatar?.addEventListener("change",()=>{const f=avatar.files?.[0];if(!f)return;if(!IMAGE_TYPES.includes(f.type)||f.size>MAX_AVATAR_FILE){alert("Choose a JPG, PNG, WEBP or GIF under 3MB.");avatar.value="";return;}$("avatar-label-text").textContent="Photo selected ✓";});
-    form?.addEventListener("submit",e=>{e.preventDefault();const n=cleanName(name.value);if(!n){alert("Please enter your name.");return;}currentUser.name=n;localStorage.setItem("koraput_name",n);const f=avatar.files?.[0];if(f){const r=new FileReader();r.onload=()=>{if(validImageData(r.result)){currentUser.avatar=r.result;localStorage.setItem("koraput_avatar",r.result);}finish();};r.readAsDataURL(f);}else finish();});
-    function finish(){screen.style.display="none";$("chat-toggle-btn").style.display="flex";$("header-avatar").src=currentUser.avatar;$("header-avatar").style.display="block";if(ownMarker)ownMarker.setIcon(ownIcon());socket.emit("profileReady",currentUser);emitLocation();setTimeout(()=>map.invalidateSize(),200);}
+    const sc=$("join-screen"), fm=$("join-form"), nameInp=$("nameInput"), avInp=$("avatarInput");
+    if(currentUser.name){ sc.style.display="none"; $("header-avatar").src=currentUser.avatar; $("header-avatar").style.display="block"; socket.emit("profileReady",currentUser); }
+    avInp?.addEventListener("change",()=>{ const f=avInp.files?.[0]; if(!f) return; if(!IMAGE_TYPES.includes(f.type)||f.size>MAX_AVATAR_FILE){alert("Invalid photo."); avInp.value=""; return;} $("avatar-label-text").textContent="Photo Selected ✓"; });
+    fm?.addEventListener("submit",e=>{
+        e.preventDefault(); const n=cleanName(nameInp.value); if(!n) return alert("Enter name.");
+        currentUser.name=n; localStorage.setItem("koraput_name",n);
+        const f=avInp.files?.[0];
+        if(f){ const r=new FileReader(); r.onload=()=>{ if(validImageData(r.result)){currentUser.avatar=r.result; localStorage.setItem("koraput_avatar",r.result);} done(); }; r.readAsDataURL(f); } else done();
+        function done(){ sc.style.display="none"; $("header-avatar").src=currentUser.avatar; $("header-avatar").style.display="block"; if(ownMarker) ownMarker.setIcon(ownIcon()); socket.emit("profileReady",currentUser); emitLocation(); updateOnlineCount(); setTimeout(()=>map.invalidateSize(),300); }
+    });
 }
 
+// ==========================================
+// MAP CONTROLS & COMPASS
+// ==========================================
 function setupMapControls(){
-    $("my-location-btn")?.addEventListener("click",()=>{if(myCoords)map.flyTo([myCoords.lat,myCoords.lng],Math.max(16,map.getZoom()),{animate:true,duration:.7});else alert("Waiting for GPS location...");});
-    $("compass-btn")?.addEventListener("click",()=>{$("compass-icon").style.transform="rotate(0deg)";map.setView(map.getCenter(),map.getZoom(),{animate:true});});
-    const menu=$("map-style-menu"); $("map-style-btn")?.addEventListener("click",e=>{e.stopPropagation();menu.style.display=menu.style.display==="flex"?"none":"flex";});
-    menu?.addEventListener("click",e=>{const b=e.target.closest("[data-style]");if(!b)return;const s=b.dataset.style;if(s===currentStyle){menu.style.display="none";return;}[satelliteLayer,streetLayer,darkLayer].forEach(l=>{if(map.hasLayer(l))map.removeLayer(l);});({satellite:satelliteLayer,street:streetLayer,dark:darkLayer}[s]).addTo(map);currentStyle=s;document.querySelectorAll("#map-style-menu button").forEach(x=>x.classList.toggle("active",x.dataset.style===s));menu.style.display="none";setTimeout(()=>map.invalidateSize(),100);});
-    document.addEventListener("click",e=>{if(menu&&!menu.contains(e.target)&&e.target!==$("map-style-btn"))menu.style.display="none";});
-    if(typeof DeviceOrientationEvent!=="undefined")window.addEventListener("deviceorientation",e=>{const icon=$("compass-icon");if(!icon)return;if(typeof e.webkitCompassHeading==="number")icon.style.transform=`rotate(${-e.webkitCompassHeading}deg)`;else if(typeof e.alpha==="number")icon.style.transform=`rotate(${e.alpha}deg)`;},true);
+    $("my-location-btn")?.addEventListener("click",()=>{ if(myCoords) map.flyTo([myCoords.lat,myCoords.lng],Math.max(map.getZoom(),16),{animate:true}); else alert("Waiting for GPS..."); });
+    $("compass-btn")?.addEventListener("click",()=>{ map.setView(map.getCenter(),map.getZoom(),{animate:true}); $("compass-icon").style.transform="rotate(0deg)"; });
+    $("map-style-btn")?.addEventListener("click",e=>{ e.stopPropagation(); const m=$("map-style-menu"); m.style.display=m.style.display==="flex"?"none":"flex"; });
+    $("map-style-menu")?.addEventListener("click",e=>{
+        const b=e.target.closest("[data-style]"); if(!b) return; const s=b.dataset.style; if(s===currentStyle){ $("map-style-menu").style.display="none"; return; }
+        [satelliteLayer,streetLayer,darkLayer].forEach(l=>{if(map.hasLayer(l)) map.removeLayer(l);});
+        ({satellite:satelliteLayer,street:streetLayer,dark:darkLayer})[s].addTo(map); currentStyle=s;
+        document.querySelectorAll("#map-style-menu button").forEach(x=>x.classList.toggle("active",x.dataset.style===s));
+        $("map-style-menu").style.display="none"; setTimeout(()=>map.invalidateSize(),100);
+    });
+    document.addEventListener("click",e=>{ if($("map-style-menu") && !$("map-style-menu").contains(e.target) && e.target!==$("map-style-btn")) $("map-style-menu").style.display="none"; });
+
+    // Compass Rotation Device Orientation
+    if (typeof DeviceOrientationEvent !== "undefined") {
+        window.addEventListener("deviceorientation", e => {
+            const icon = $("compass-icon"); if (!icon) return;
+            if (typeof e.webkitCompassHeading === "number") icon.style.transform = `rotate(${-e.webkitCompassHeading}deg)`;
+            else if (typeof e.alpha === "number") icon.style.transform = `rotate(${e.alpha}deg)`;
+        }, true);
+    }
 }
 
-let unread=0,replyTo=null,typingTimer=null,onlinePanel=false;
-const messageStore=new Map();
-function setUnread(){const b=$("chat-unread-badge");b.textContent=unread;b.style.display=unread?"flex":"none";}
-function chatOpen(){return $("chat-container").style.display==="flex";}
-function previewFor(msg){if(msg.type==="text")return String(msg.data).slice(0,160);if(msg.type==="image")return "📷 Photo";if(msg.type==="video")return "🎥 Video";if(msg.type==="audio")return "🎙️ Voice message";return "📎 File";}
-function beginReply(msg){replyTo=msg;$("reply-preview").textContent=`${cleanName(msg.name)}: ${previewFor(msg)}`;$("reply-bar").style.display="flex";$("chatInput").focus();}
-function clearReply(){replyTo=null;$("reply-bar").style.display="none";$("reply-preview").textContent="";}
-function renderReactions(el,msg){const box=el.querySelector(".message-reactions");if(!box)return;box.innerHTML="";Object.entries(msg.reactions||{}).forEach(([emoji,ids])=>{if(ids.length){const b=document.createElement("button");b.className="reaction-count";b.type="button";b.textContent=`${emoji} ${ids.length}`;b.onclick=()=>socket.emit("messageReaction",{messageId:msg.id,emoji});box.appendChild(b);}});}
-function renderMessage(msg){
-    if(!msg?.id||typeof msg.data!=="string")return; if(messageStore.has(msg.id))return;
-    const wrap=document.createElement("div");wrap.className="chat-row";const bubble=document.createElement("div");bubble.className="chat-message "+(msg.senderId===socket.id?"msg-mine":"msg-theirs");
-    const sender=document.createElement("div");sender.className="msg-sender";sender.textContent=cleanName(msg.name)||"User";bubble.appendChild(sender);
-    if(msg.replyTo){const q=document.createElement("div");q.className="reply-quote";q.textContent=`↩ ${cleanName(msg.replyTo.name)}: ${msg.replyTo.preview}`;bubble.appendChild(q);}
-    if(msg.type==="text"){const text=document.createElement("div");text.textContent=msg.data.slice(0,MAX_CHAT);bubble.appendChild(text);} 
-    else if(msg.type==="image"&&/^data:image\//i.test(msg.data)){const im=document.createElement("img");im.className="chat-media";im.src=msg.data;im.alt="Shared image";im.loading="lazy";bubble.appendChild(im);}
-    else if(msg.type==="video"&&/^data:video\//i.test(msg.data)){const v=document.createElement("video");v.className="chat-media";v.controls=true;v.preload="metadata";v.src=msg.data;bubble.appendChild(v);}
-    else if(msg.type==="audio"&&/^data:audio\//i.test(msg.data)){const a=document.createElement("audio");a.className="chat-audio";a.controls=true;a.src=msg.data;bubble.appendChild(a);}
-    else if(msg.type==="document"&&/^data:(application|text)\//i.test(msg.data)){const a=document.createElement("a");a.className="chat-document";a.href=msg.data;a.download="Koraput-Map-file";a.textContent="📄 Open / Download file";bubble.appendChild(a);}else return;
-    const actions=document.createElement("div");actions.className="message-actions";["👍","❤️","😂","😮","😢","🔥"].forEach(e=>{const b=document.createElement("button");b.type="button";b.className="reaction-chip";b.textContent=e;b.onclick=()=>socket.emit("messageReaction",{messageId:msg.id,emoji:e});actions.appendChild(b);});const rb=document.createElement("button");rb.type="button";rb.className="message-action-reply";rb.textContent="↩ Reply";rb.onclick=()=>beginReply(msg);actions.appendChild(rb);bubble.appendChild(actions);const reactions=document.createElement("div");reactions.className="message-reactions";bubble.appendChild(reactions);
-    wrap.appendChild(bubble);$("chat-messages").appendChild(wrap);messageStore.set(msg.id,{msg,wrap,bubble});renderReactions(bubble,msg);$("chat-messages").scrollTop=$("chat-messages").scrollHeight;
-    if(msg.senderId&&msg.senderId!==socket.id&&!chatOpen()){unread++;setUnread();}
-}
-
+// ==========================================
+// CHAT FUNCTIONALITY
+// ==========================================
 function setupChat(){
-    const form=$("chatForm"),input=$("chatInput"); if(!form||!input)return;
-    $("chat-toggle-btn").onclick=()=>{$("chat-container").style.display="flex";$("chat-toggle-btn").style.display="none";unread=0;setUnread();input.focus();};
-    $("chat-minimize-btn").onclick=()=>{$("chat-container").style.display="none";$("chat-toggle-btn").style.display="flex";};
-    $("reply-cancel").onclick=clearReply;
-    input.addEventListener("input",()=>{const has=!!input.value.trim();$("voiceButton").style.display=has?"none":"flex";$("chat-send").style.display=has?"flex":"flex";socket.emit("typing",true);clearTimeout(typingTimer);typingTimer=setTimeout(()=>socket.emit("typing",false),900);});
-    form.addEventListener("submit",e=>{e.preventDefault();const text=input.value.trim();if(!text||!currentUser.name)return;socket.emit("chatMessage",{name:currentUser.name,type:"text",data:text,replyTo});input.value="";clearReply();$("voiceButton").style.display="flex";input.focus();socket.emit("typing",false);});
-    const attachMenu=$("attachment-menu"),attach=$("chat-attach-btn"),emoji=$("emojiButton"),emojiBox=$("emoji-picker-container");
-    attach.onclick=e=>{e.stopPropagation();emojiBox.style.display="none";attachMenu.style.display=attachMenu.style.display==="flex"?"none":"flex";};emoji.onclick=e=>{e.stopPropagation();attachMenu.style.display="none";emojiBox.style.display=emojiBox.style.display==="block"?"none":"block";};
-    document.addEventListener("click",e=>{if(!attachMenu.contains(e.target)&&e.target!==attach)attachMenu.style.display="none";if(!emojiBox.contains(e.target)&&e.target!==emoji)emojiBox.style.display="none";});
-    $("emojiPicker")?.addEventListener("emoji-click",e=>{input.value+=e.detail.unicode;input.dispatchEvent(new Event("input"));input.focus();});
-    const picker=(accept)=>{const f=$("chatAttachment");f.accept=accept;f.click();};$("att-media").onclick=()=>picker("image/*,video/*");$("att-doc").onclick=()=>picker(".pdf,.doc,.docx,.txt,.zip");$("att-audio").onclick=()=>picker("audio/*");
-    $("chatAttachment").onchange=()=>{const f=$("chatAttachment").files?.[0];if(!f)return;if(f.size>MAX_CHAT_FILE){alert("Maximum file size is 5MB.");return;}let type=f.type.startsWith("image/")?"image":f.type.startsWith("video/")?"video":f.type.startsWith("audio/")?"audio":"document";const r=new FileReader();r.onload=()=>{if(validMediaData(r.result))socket.emit("chatMessage",{name:currentUser.name,type,data:r.result,replyTo});};r.readAsDataURL(f);$("chatAttachment").value="";};
-    $("online-btn").onclick=()=>{$("online-list").style.display=onlinePanel?"none":"block";onlinePanel=!onlinePanel;};$("online-list").onclick=e=>{const b=e.target.closest("[data-id]");if(b)showFriendProfile(b.dataset.id);};
-    socket.on("chatHistory",list=>{if(Array.isArray(list))list.forEach(renderMessage);});socket.on("chatMessage",renderMessage);
-    socket.on("messageReaction",d=>{const s=messageStore.get(String(d.messageId));if(!s)return;s.msg.reactions=d.reactions||{};renderReactions(s.bubble,s.msg);});
-    socket.on("typing",d=>{if(!d?.id||d.id===socket.id)return;const t=$("typing-indicator");if(d.isTyping){t.textContent=`${cleanName(d.name)||"Someone"} is typing…`;t.style.display="block";}else t.style.display="none";});
+    const cc=$("chat-container"), inp=$("chatInput"), send=$("chat-send"), vb=$("voiceButton"), tb=$("chat-toggle-btn");
+    let unread=0, typingTimer=null, isTyping=false, replyTo=null, reactingId=null;
+    const msgStore=new Map(), emojis=["👍","❤️","😂","😮","😢","🔥"];
+
+    function updateUnread(){ const b=$("chat-unread-badge"); b.textContent=unread>99?"99+":unread; b.style.display=unread>0?"flex":"none"; }
+    tb.onclick=()=>{ if(cc.classList.contains("open")){cc.classList.remove("open");cc.style.display="none";}else{cc.classList.add("open");cc.style.display="flex";unread=0;updateUnread();inp.focus();} };
+    $("chat-minimize-btn").onclick=()=>{cc.classList.remove("open");cc.style.display="none";};
+    $("online-btn").onclick=()=>{const l=$("online-list"); l.style.display=l.style.display==="block"?"none":"block"; renderOnlineList();};
+
+    inp.oninput=()=>{ if(!isTyping){isTyping=true;socket.emit("typing",true);} clearTimeout(typingTimer); typingTimer=setTimeout(()=>{isTyping=false;socket.emit("typing",false);},1200); send.style.display=inp.value.trim()?"flex":"none"; vb.style.display=inp.value.trim()?"none":"flex"; };
+    socket.on("typing",d=>{ const ind=$("typing-indicator"); if(d?.id===socket.id)return; if(d.isTyping){ind.textContent=`${cleanName(d.name)} is typing…`;ind.style.display="block";}else ind.style.display="none"; });
+
+    function beginReply(m){
+        let p="Message"; if(m.type==="text") p=m.data.slice(0,100); else if(m.type==="image") p="📷 Photo"; else if(m.type==="video") p="🎥 Video"; else if(m.type==="audio") p="🎙️ Voice";
+        replyTo={id:m.id, name:cleanName(m.name), type:m.type, preview:p}; $("reply-preview").textContent=`↩ ${replyTo.name}: ${replyTo.preview}`; $("reply-bar").style.display="flex"; inp.focus();
+    }
+    $("reply-cancel").onclick=()=>{replyTo=null; $("reply-bar").style.display="none";};
+
+    $("emojiButton").onclick=e=>{e.stopPropagation();$("attachment-menu").style.display="none";$("emoji-picker-container").style.display=$("emoji-picker-container").style.display==="block"?"none":"block";};
+    $("emojiPicker").addEventListener("emoji-click",e=>{
+        const em=e.detail.unicode; if(!em) return;
+        if(reactingId){socket.emit("messageReaction",{messageId:reactingId,emoji:em}); $("emoji-picker-container").style.display="none"; reactingId=null;}
+        else {inp.value+=em; inp.focus(); inp.dispatchEvent(new Event("input"));}
+    });
+    window.reactTo=id=>{reactingId=id; $("attachment-menu").style.display="none"; $("emoji-picker-container").style.display="block";};
+
+    $("chat-attach-btn").onclick=e=>{e.stopPropagation();$("emoji-picker-container").style.display="none";$("attachment-menu").style.display=$("attachment-menu").style.display==="flex"?"none":"flex";};
+    document.addEventListener("click",e=>{ if($("attachment-menu")&&!$("attachment-menu").contains(e.target)&&e.target!==$("chat-attach-btn"))$("attachment-menu").style.display="none"; if($("emoji-picker-container")&&!$("emoji-picker-container").contains(e.target)&&e.target!==$("emojiButton"))$("emoji-picker-container").style.display="none"; });
+
+    const fInp=$("chatFileInput");
+    $("att-media").onclick=()=>{fInp.accept="image/*,video/*";fInp.click();$("attachment-menu").style.display="none";};
+    $("att-doc").onclick=()=>{fInp.accept=".pdf,.doc,.docx,.txt,.zip";fInp.click();$("attachment-menu").style.display="none";};
+    $("att-audio").onclick=()=>{fInp.accept="audio/*";fInp.click();$("attachment-menu").style.display="none";};
+    fInp.onchange=()=>{
+        const f=fInp.files?.[0]; if(!f) return; if(f.size>MAX_CHAT_FILE){alert("File too large (Max 5MB)"); fInp.value=""; return;}
+        const r=new FileReader(); r.onload=()=>{
+            let t="document"; if(f.type.startsWith("image/"))t="image"; else if(f.type.startsWith("video/"))t="video"; else if(f.type.startsWith("audio/"))t="audio";
+            socket.emit("chatMessage",{name:currentUser.name,type:t,data:String(r.result),replyTo}); $("reply-cancel").click(); fInp.value="";
+        }; r.readAsDataURL(f);
+    };
+
+    $("chatForm").onsubmit=e=>{
+        e.preventDefault(); const t=inp.value.trim().slice(0,MAX_CHAT); if(!t)return;
+        socket.emit("chatMessage",{name:currentUser.name,type:"text",data:t,replyTo}); inp.value=""; $("reply-cancel").click(); inp.dispatchEvent(new Event("input")); inp.focus();
+    };
+
+    function renderReactions(w,m){
+        const c=w.querySelector(".reaction-row"); if(!c)return; c.innerHTML="";
+        Object.keys(m.reactions||{}).forEach(e=>{ const list=m.reactions[e]; if(!list.length)return;
+            const b=document.createElement("button"); b.type="button"; b.className="reaction-chip"; b.textContent=`${e} ${list.length}`;
+            b.onclick=()=>socket.emit("messageReaction",{messageId:m.id,emoji:e}); c.appendChild(b);
+        });
+    }
+
+    function renderMsg(m){
+        if(!m||!m.id||msgStore.has(m.id)) return;
+        const w=document.createElement("div"); w.className="chat-row"; w.dataset.id=m.id;
+        const b=document.createElement("div"); const mine=m.senderId===socket.id; b.className=`chat-message ${mine?"msg-mine":"msg-theirs"}`;
+        
+        if(!mine){const s=document.createElement("div"); s.className="msg-sender"; s.textContent=cleanName(m.name); b.appendChild(s);}
+        if(m.replyTo){const q=document.createElement("div"); q.className="reply-quote"; q.innerHTML=`<b>${escapeHTML(m.replyTo.name)}</b><br>${escapeHTML(m.replyTo.preview)}`; b.appendChild(q);}
+        
+        const c=document.createElement("div");
+        if(m.type==="text") c.innerHTML=`<div class="message-text">${escapeHTML(m.data)}</div>`;
+        else if(m.type==="image") c.innerHTML=`<img class="chat-media" src="${m.data}" loading="lazy">`;
+        else if(m.type==="video") c.innerHTML=`<video class="chat-media" controls src="${m.data}"></video>`;
+        else if(m.type==="audio") c.innerHTML=`<audio class="chat-audio" controls src="${m.data}"></audio>`;
+        else if(m.type==="document") c.innerHTML=`<a class="chat-document" href="${m.data}" download="KoraputMap-File" target="_blank">📄 Download File</a>`;
+        b.appendChild(c);
+
+        if(m.time) {const d=new Date(m.time); const t=document.createElement("div"); t.className="message-meta"; t.textContent=d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}); b.appendChild(t);}
+        
+        const a=document.createElement("div"); a.className="message-actions";
+        emojis.forEach(e=>{const btn=document.createElement("button"); btn.type="button"; btn.className="action-btn"; btn.textContent=e; btn.onclick=()=>socket.emit("messageReaction",{messageId:m.id,emoji:e}); a.appendChild(btn);});
+        const rep=document.createElement("button"); rep.type="button"; rep.className="action-btn"; rep.textContent="↩ Reply"; rep.onclick=()=>beginReply(m); a.appendChild(rep);
+        b.appendChild(a);
+
+        const rr=document.createElement("div"); rr.className="reaction-row"; b.appendChild(rr);
+        w.appendChild(b); $("chat-messages").appendChild(w); msgStore.set(m.id,{msg:m,el:w}); renderReactions(w,m);
+        
+        if(!mine && !cc.classList.contains("open")){unread++; updateUnreadBadge();}
+        $("chat-messages").scrollTop=$("chat-messages").scrollHeight;
+    }
+
+    socket.on("chatHistory", l=>{if(Array.isArray(l)) l.forEach(renderMsg);});
+    socket.on("chatMessage", renderMsg);
+    socket.on("messageReaction", d=>{ const s=msgStore.get(String(d.messageId)); if(s){s.msg.reactions=d.reactions||{}; renderReactions(s.el,s.msg);} });
 }
 
 function setupVoice(){
-    const btn=$("voiceButton");if(!btn)return;let rec=null,chunks=[];
-    btn.onclick=async()=>{if(rec?.state==="recording"){rec.stop();return;}if(!navigator.mediaDevices?.getUserMedia){alert("Voice recording is not supported.");return;}try{const stream=await navigator.mediaDevices.getUserMedia({audio:true});const mime=MediaRecorder.isTypeSupported("audio/webm")?"audio/webm":(MediaRecorder.isTypeSupported("audio/mp4")?"audio/mp4":"");rec=mime?new MediaRecorder(stream,{mimeType:mime}):new MediaRecorder(stream);chunks=[];rec.ondataavailable=e=>{if(e.data?.size)chunks.push(e.data);};rec.onstop=()=>{stream.getTracks().forEach(t=>t.stop());const blob=new Blob(chunks,{type:rec.mimeType||"audio/webm"});if(blob.size>MAX_CHAT_FILE){alert("Voice message is too large.");btn.textContent="🎙️";return;}const r=new FileReader();r.onload=()=>socket.emit("chatMessage",{name:currentUser.name,type:"audio",data:r.result,replyTo});r.readAsDataURL(blob);btn.textContent="🎙️";};rec.start();btn.textContent="⏹️";}catch(e){alert("Microphone access denied.");}};
+    const vb=$("voiceButton"); if(!vb)return; let rec=null, chunks=[], isRec=false;
+    vb.onclick=async()=>{
+        if(isRec){rec?.stop();return;} if(!navigator.mediaDevices?.getUserMedia){alert("Mic not supported.");return;}
+        try{
+            const str=await navigator.mediaDevices.getUserMedia({audio:true}); chunks=[];
+            let mt=MediaRecorder.isTypeSupported("audio/webm")?"audio/webm":(MediaRecorder.isTypeSupported("audio/mp4")?"audio/mp4":"");
+            rec=mt?new MediaRecorder(str,{mimeType:mt}):new MediaRecorder(str); isRec=true;
+            vb.textContent="⏹"; vb.style.background="var(--green)"; vb.style.color="#fff";
+            rec.ondataavailable=e=>{if(e.data.size>0)chunks.push(e.data);};
+            rec.onstop=()=>{
+                isRec=false; vb.style.background="transparent"; vb.style.color="var(--muted)"; vb.textContent="🎙️"; str.getTracks().forEach(t=>t.stop());
+                const blob=new Blob(chunks,{type:rec.mimeType||"audio/webm"}); if(blob.size===0)return; if(blob.size>MAX_CHAT_FILE)return alert("Voice too large.");
+                const r=new FileReader(); r.onload=()=>socket.emit("chatMessage",{name:currentUser.name,type:"audio",data:String(r.result),replyTo:null}); r.readAsDataURL(blob);
+            };
+            rec.start();
+        }catch{alert("Mic access denied.");}
+    };
 }
 
 // ==========================================
-// PHASE 3: MEMORY INTEGRATION
+// PHASE 3: MEMORY GALLERY & TIMELINE
 // ==========================================
-const memoriesList = [];
-let activeFilter = "all";
-let searchText = "";
-const memoryLayerGroup = L.layerGroup().addTo(map);
-const memoryMarkersMap = new Map();
+function setupMemories(){
+    const getMemDate = m => { const d=new Date(m?.time||0); return isNaN(d.getTime())?null:d; };
+    const fDate = m => { const d=getMemDate(m); return d ? d.toLocaleDateString([],{day:"2-digit",month:"short",year:"numeric"}) : "Unknown"; };
+    const fTime = m => { const d=getMemDate(m); return d ? d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}) : ""; };
 
-function initPhase3() {
-    const esc = v => String(v ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;");
-    const nameOf = m => String(m?.name||"Memory").trim().replace(/\s+/g," ").slice(0,40);
-    const dateOf = m => { const d=new Date(m?.time||0); return Number.isNaN(d.getTime())?null:d; };
-    const sameMine = m => typeof currentUser !== "undefined" && nameOf(m).toLowerCase()===String(currentUser.name||"").toLowerCase();
+    $("phase3-gallery-btn").onclick = () => { $("phase3-memory-overlay").style.display="flex"; renderGallery(); };
+    $("phase3-memory-close").onclick = () => $("phase3-memory-overlay").style.display="none";
+    $("p3-view-close").onclick = () => { $("phase3-photo-viewer").style.display="none"; selectedMemoryId=null; };
     
-    const getFiltered = () => {
-        const now=Date.now(), day=86400000;
-        return memoriesList.filter(m=>{
-            const d=dateOf(m);
-            const text=searchText.toLowerCase();
-            const search=!text||nameOf(m).toLowerCase().includes(text)||String(m.time||"").toLowerCase().includes(text);
-            if(!search)return false;
-            if(activeFilter==="mine"&&!sameMine(m))return false;
-            if(activeFilter==="others"&&sameMine(m))return false;
-            if(activeFilter==="today"&&(!d||now-d.getTime()>day||d.getTime()>now))return false;
-            if(activeFilter==="week"&&(!d||now-d.getTime()>7*day||d.getTime()>now))return false;
-            return true;
-        }).sort((a,b)=>(dateOf(b)?.getTime()||0)-(dateOf(a)?.getTime()||0));
+    document.querySelectorAll(".phase3-filter").forEach(b => {
+        b.onclick = () => { document.querySelectorAll(".phase3-filter").forEach(x=>x.classList.remove("active")); b.classList.add("active"); currentGalleryFilter=b.dataset.filter; renderGallery(); };
+    });
+    $("phase3-memory-search").oninput = e => { currentGallerySearch=e.target.value.toLowerCase(); renderGallery(); };
+    
+    $("p3-view-focus").onclick = () => {
+        const m = memories.get(selectedMemoryId);
+        if(m && validCoord(m.lat, m.lng)){ map.flyTo([m.lat,m.lng],17,{animate:true}); $("phase3-photo-viewer").style.display="none"; $("phase3-memory-overlay").style.display="none"; }
     };
-    const formatMemDate=m=>{const d=dateOf(m);return d?d.toLocaleString([], {dateStyle:"medium",timeStyle:"short"}):String(m?.time||"Unknown date");};
 
-    if(!$("phase3-memory-open")){
-        const style=document.createElement("style");
-        style.textContent=`
-        #phase3-memory-open{position:fixed;left:16px;bottom:76px;z-index:1200;width:48px;height:42px;border:1px solid rgba(255,255,255,.12);border-radius:13px;background:rgba(7,16,24,.94);color:#fff;box-shadow:0 10px 30px rgba(0,0,0,.45);font-size:18px}
-        #phase3-memory-overlay{position:fixed;inset:0;z-index:5000;display:none;background:rgba(0,0,0,.62);backdrop-filter:blur(7px);padding:20px}
-        #phase3-memory-panel{width:min(980px,100%);height:min(88vh,760px);margin:auto;background:#071018;border:1px solid rgba(255,255,255,.1);border-radius:22px;overflow:hidden;box-shadow:0 25px 90px rgba(0,0,0,.7);display:flex;flex-direction:column}
-        .p3-head{padding:16px 18px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;justify-content:space-between;gap:12px}.p3-head h2{margin:0;font-size:17px}.p3-head small{color:#8d9ba2}.p3-close{width:36px;height:36px;border:0;border-radius:10px;background:rgba(255,255,255,.07);color:#fff;font-size:20px}
-        .p3-toolbar{padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.07);display:flex;gap:7px;flex-wrap:wrap}.p3-toolbar button{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);color:#cbd5d9;border-radius:9px;padding:7px 10px;font-size:11px}.p3-toolbar button.active{background:rgba(16,185,129,.16);color:#18d6a3;border-color:rgba(16,185,129,.3)}#phase3-memory-search{margin-left:auto;min-width:180px;flex:1;max-width:280px;border:1px solid rgba(255,255,255,.08);border-radius:9px;background:rgba(255,255,255,.04);color:#fff;padding:8px 10px;outline:0}
-        #phase3-memory-content{flex:1;overflow:auto;padding:14px}.p3-section-title{font-size:11px;color:#8d9ba2;margin:4px 0 10px;text-transform:uppercase;letter-spacing:.08em}.p3-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}.p3-card{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.035);border-radius:14px;overflow:hidden;cursor:pointer;text-align:left;color:#fff}.p3-card img{display:block;width:100%;height:145px;object-fit:cover}.p3-card-body{padding:8px}.p3-card-body b{display:block;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.p3-card-body span{display:block;color:#8d9ba2;font-size:9px;margin-top:4px}.p3-empty{padding:35px 10px;text-align:center;color:#8d9ba2;font-size:12px}.p3-timeline{margin-top:18px}.p3-time-item{display:grid;grid-template-columns:80px 1fr;gap:10px;margin-bottom:9px}.p3-time-date{color:#8d9ba2;font-size:9px;padding-top:9px;text-align:right}.p3-time-card{display:flex;gap:10px;padding:8px;border:1px solid rgba(255,255,255,.07);border-radius:12px;background:rgba(255,255,255,.035);cursor:pointer}.p3-time-card img{width:62px;height:62px;border-radius:9px;object-fit:cover}.p3-time-card b{font-size:11px}.p3-time-card span{display:block;color:#8d9ba2;font-size:9px;margin-top:4px}
-        #phase3-photo-viewer{position:fixed;inset:0;z-index:6000;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.82);padding:20px}.p3-view-card{width:min(680px,100%);max-height:92vh;overflow:auto;background:#071018;border:1px solid rgba(255,255,255,.12);border-radius:18px;padding:14px}.p3-view-card img{display:block;width:100%;max-height:58vh;object-fit:contain;border-radius:11px;background:#000}.p3-view-meta{padding:10px 2px;color:#fff}.p3-view-meta b{font-size:14px}.p3-view-meta small{display:block;color:#8d9ba2;margin-top:4px}.p3-view-actions{display:flex;gap:7px;margin-top:10px}.p3-view-actions button{flex:1;border:0;border-radius:10px;padding:10px;background:rgba(255,255,255,.07);color:#fff}.p3-view-actions button.primary{background:#10b981}.p3-map-popup{min-width:210px;text-align:center}.p3-map-popup img{width:190px;height:135px;object-fit:cover;border-radius:9px;display:block;margin:8px auto}.p3-map-popup b{font-size:12px}.p3-map-popup small{color:#666}
-        .leaflet-popup-content-wrapper { background: #111b21 !important; color: #fff !important; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; box-shadow: 0 15px 40px rgba(0,0,0,0.6); }
-        .leaflet-popup-tip { background: #111b21 !important; border: 1px solid rgba(255,255,255,0.1); }
-        .leaflet-popup-close-button { color: #fff !important; }
-        @media(max-width:600px){#phase3-memory-open{left:10px;bottom:62px}#phase3-memory-overlay{padding:0}#phase3-memory-panel{height:100dvh;border-radius:0}.p3-grid{grid-template-columns:repeat(2,1fr)}.p3-card img{height:140px}.p3-time-item{grid-template-columns:58px 1fr}.p3-time-date{font-size:8px}}
-        `;
-        document.head.appendChild(style);
-        const openBtn=document.createElement("button");openBtn.id="phase3-memory-open";openBtn.type="button";openBtn.title="Memory gallery";openBtn.textContent="🖼️";document.body.appendChild(openBtn);
-        const overlay=document.createElement("div");overlay.id="phase3-memory-overlay";overlay.innerHTML=`<div id="phase3-memory-panel"><div class="p3-head"><div><h2>📸 Memory Gallery</h2><small id="phase3-memory-count">0 memories</small></div><button class="p3-close" id="phase3-memory-close">×</button></div><div class="p3-toolbar"><button data-filter="all" class="active">All</button><button data-filter="today">Today</button><button data-filter="week">This week</button><button data-filter="mine">Mine</button><button data-filter="others">Others</button><input id="phase3-memory-search" placeholder="Search memories…" maxlength="80"></div><div id="phase3-memory-content"><div class="p3-section-title">Gallery</div><div class="p3-grid" id="phase3-memory-grid"></div><div class="p3-timeline"><div class="p3-section-title">Photo timeline</div><div id="phase3-timeline-list"></div></div></div></div>`;document.body.appendChild(overlay);
-        const viewer=document.createElement("div");viewer.id="phase3-photo-viewer";viewer.innerHTML=`<div class="p3-view-card"><img id="p3-view-image" alt="Memory"><div class="p3-view-meta"><b id="p3-view-name"></b><small id="p3-view-date"></small><small id="p3-view-location"></small><div class="p3-view-actions"><button id="p3-view-focus" class="primary">📍 Focus on map</button><button id="p3-view-close">Close</button></div></div></div>`;document.body.appendChild(viewer);
+    function renderGallery(){
+        let arr = Array.from(memories.values());
+        if(currentGalleryFilter==="today"){ const today=new Date().setHours(0,0,0,0); arr=arr.filter(m=>getMemDate(m)?.getTime()>=today); }
+        else if(currentGalleryFilter==="week"){ const wk=Date.now()-7*86400000; arr=arr.filter(m=>getMemDate(m)?.getTime()>=wk); }
+        else if(currentGalleryFilter==="mine"){ arr=arr.filter(m=>cleanName(m.name)===currentUser.name); }
+        else if(currentGalleryFilter==="others"){ arr=arr.filter(m=>cleanName(m.name)!==currentUser.name); }
         
-        openBtn.onclick=()=>{overlay.style.display="flex";renderMemoriesUI();};
-        $("phase3-memory-close").onclick=()=>overlay.style.display="none";
-        overlay.onclick=e=>{if(e.target===overlay)overlay.style.display="none"};
-        $("p3-view-close").onclick=()=>viewer.style.display="none";
-        viewer.onclick=e=>{if(e.target===viewer)viewer.style.display="none"};
-        
-        overlay.querySelectorAll("[data-filter]").forEach(b=>b.onclick=()=>{activeFilter=b.dataset.filter;overlay.querySelectorAll("[data-filter]").forEach(x=>x.classList.toggle("active",x===b));renderMemoriesUI();});
-        $("phase3-memory-search").oninput=e=>{searchText=e.target.value.trim();renderMemoriesUI();};
-        document.addEventListener("keydown",e=>{if(e.key==="Escape"){overlay.style.display="none";viewer.style.display="none";}});
+        if(currentGallerySearch) arr=arr.filter(m=>cleanName(m.name).toLowerCase().includes(currentGallerySearch));
+        arr.sort((a,b) => (getMemDate(b)?.getTime()||0) - (getMemDate(a)?.getTime()||0));
+
+        $("phase3-memory-count").textContent = `${arr.length} memories`;
+        const grid=$("phase3-memory-grid"), time=$("phase3-timeline-list"), emp=$("phase3-memory-empty");
+        grid.innerHTML=""; time.innerHTML=""; emp.style.display=arr.length?"none":"block";
+
+        arr.forEach(m=>{
+            const c=document.createElement("div"); c.className="p3-card";
+            c.innerHTML=`<img src="${escapeHTML(m.image)}" loading="lazy"><div class="p3-card-info"><b>${escapeHTML(m.name)}</b><span>${escapeHTML(fDate(m))}</span></div>`;
+            c.onclick=()=>openView(m); grid.appendChild(c);
+
+            const t=document.createElement("div"); t.className="p3-time-item";
+            t.innerHTML=`<div class="p3-time-thumb"><img src="${escapeHTML(m.image)}" loading="lazy"></div><div class="p3-time-info"><b>${escapeHTML(m.name)}</b><span>${escapeHTML(fDate(m))} · ${escapeHTML(fTime(m))}</span></div>`;
+            t.onclick=()=>openView(m); time.appendChild(t);
+        });
     }
 
-    const openViewer = (m) => {
-        $("p3-view-image").src=m.image; $("p3-view-name").textContent=nameOf(m); $("p3-view-date").textContent=formatMemDate(m);
-        $("p3-view-location").textContent=validCoord(Number(m.lat),Number(m.lng))?`📍 ${Number(m.lat).toFixed(5)}, ${Number(m.lng).toFixed(5)}`:"Location unavailable";
-        $("p3-view-focus").onclick=()=>{map.flyTo([Number(m.lat),Number(m.lng)],17,{animate:true,duration:.7}); $("phase3-photo-viewer").style.display="none"; $("phase3-memory-overlay").style.display="none";};
+    function openView(m){
+        selectedMemoryId = m.id;
+        $("p3-view-image").src=m.image; $("p3-view-name").textContent=`📸 ${cleanName(m.name)}`;
+        $("p3-view-date").textContent=`${fDate(m)} · ${fTime(m)}`;
+        $("p3-view-location").textContent=validCoord(m.lat,m.lng)?`📍 ${Number(m.lat).toFixed(4)}, ${Number(m.lng).toFixed(4)}`:"📍 Location unavailable";
         $("phase3-photo-viewer").style.display="flex";
-    };
+    }
 
-    const renderMemoriesUI = () => {
-        const list=getFiltered(); $("phase3-memory-count").textContent=`${list.length} ${list.length===1?"memory":"memories"}`;
-        const grid=$("phase3-memory-grid"), timeline=$("phase3-timeline-list"); grid.innerHTML=""; timeline.innerHTML="";
-        if(!list.length){grid.innerHTML='<div class="p3-empty">No memories match this filter.</div>';timeline.innerHTML='<div class="p3-empty">Nothing to show in the timeline.</div>';return;}
-        list.forEach(m=>{
-            const card=document.createElement("button");card.type="button";card.className="p3-card";card.innerHTML=`<img src="${esc(m.image)}" alt="Memory"><div class="p3-card-body"><b>${esc(nameOf(m))}</b><span>${esc(formatMemDate(m))}</span></div>`;card.onclick=()=>openViewer(m);grid.appendChild(card);
-            const item=document.createElement("div");item.className="p3-time-item";item.innerHTML=`<div class="p3-time-date">${esc(formatMemDate(m).split(",")[0])}</div><div class="p3-time-card"><img src="${esc(m.image)}" alt=""><div><b>${esc(nameOf(m))}</b><span>${esc(formatMemDate(m))}</span><span>📍 ${Number(m.lat).toFixed(4)}, ${Number(m.lng).toFixed(4)}</span></div></div>`;item.querySelector(".p3-time-card").onclick=()=>openViewer(m);timeline.appendChild(item);
+    function renderPins(){
+        memoryLayer.clearLayers();
+        memories.forEach(m=>{
+            if(!validCoord(m.lat,m.lng) || !m.image) return;
+            const icon = L.divIcon({ className:"p3-memory-marker", html:`<div style="width:46px;height:46px;border-radius:50%;overflow:hidden;border:2px solid #fff;background:#071018;box-shadow:0 4px 15px rgba(0,0,0,.65)"><img src="${escapeHTML(m.image)}" style="width:100%;height:100%;object-fit:cover;display:block"></div>`, iconSize:[46,46], iconAnchor:[23,23]});
+            const marker = L.marker([m.lat,m.lng],{icon}).addTo(memoryLayer);
+            marker.bindPopup(`<div class="p3-map-popup"><img src="${escapeHTML(m.image)}"><b>📸 ${escapeHTML(m.name)}</b><small>${escapeHTML(fDate(m))}</small><button type="button" class="p3-open-map-memory">View Memory</button></div>`);
+            marker.on("popupopen",e=>{ const b=e.popup.getElement()?.querySelector(".p3-open-map-memory"); if(b) b.onclick=()=>openView(m); });
         });
+    }
+
+    socket.on("loadMemoryPhotos", list=>{ if(Array.isArray(list)){ memories.clear(); list.forEach(m=>{if(m?.image&&validCoord(m.lat,m.lng)) memories.set(String(m.id||Date.now()),m);}); renderPins(); }});
+    socket.on("newMemoryPin", m=>{ if(m?.image&&validCoord(m.lat,m.lng)){ memories.set(String(m.id||Date.now()),m); renderPins(); if($("phase3-memory-overlay").style.display==="block") renderGallery(); }});
+
+    const mInp=$("memoryPhotoInput");
+    $("memoryButton").onclick=()=>{ if(!currentUser.name) return alert("Join map first."); if(!myCoords) return alert("Waiting for GPS..."); mInp.click(); };
+    mInp.onchange=()=>{
+        const f=mInp.files?.[0]; if(!f) return;
+        if(!IMAGE_TYPES.includes(f.type)||f.size>MAX_MEMORY_FILE){alert("Invalid image or >8MB."); mInp.value=""; return;}
+        const r=new FileReader(); r.onload=()=>{
+            if(validImageData(r.result)){ alert("📸 Tap the map to drop your photo pin!"); map.once("click",e=>{ socket.emit("uploadMemoryPhoto",{name:currentUser.name,lat:e.latlng.lat,lng:e.latlng.lng,image:r.result}); }); }
+        }; r.readAsDataURL(f); mInp.value="";
     };
-
-    const memIcon = (m) => L.divIcon({className:"p3-memory-marker",html:`<div style="width:46px;height:46px;border-radius:50%;overflow:hidden;border:2px solid #fff;background:#071018;box-shadow:0 4px 16px rgba(0,0,0,.6)"><img src="${esc(m.image)}" style="width:100%;height:100%;object-fit:cover;display:block" alt="Memory"></div>`,iconSize:[46,46],iconAnchor:[23,23]});
-    
-    const renderMemMarkers = () => {
-        memoryLayerGroup.clearLayers(); memoryMarkersMap.clear();
-        memoriesList.forEach(m=>{
-            const lat=Number(m.lat),lng=Number(m.lng); if(!validCoord(lat,lng)||!validImageData(m.image))return;
-            const marker=L.marker([lat,lng],{icon:memIcon(m)}).addTo(memoryLayerGroup);
-            marker.bindPopup(`<div class="p3-map-popup"><b>📸 ${esc(nameOf(m))}</b><small>${esc(formatMemDate(m))}</small><img src="${esc(m.image)}" alt="Memory"><button type="button" class="p3-open-map-memory">View memory</button></div>`);
-            marker.on("popupopen",e=>{e.popup.getElement()?.querySelector(".p3-open-map-memory")?.addEventListener("click",()=>openViewer(m));});
-            memoryMarkersMap.set(String(m.id||`${lat}_${lng}`),marker);
-        });
-    };
-
-    const addMemSilent = (m) => {
-        if(!m||!validCoord(Number(m.lat),Number(m.lng))||!validImageData(m.image))return;
-        const id=String(m.id||`${m.lat}_${m.lng}_${m.time}`);
-        if(memoriesList.some(x=>String(x.id||`${x.lat}_${x.lng}_${x.time}`)===id))return;
-        memoriesList.push({...m,id}); if(memoriesList.length>500)memoriesList.shift();
-    };
-
-    socket.on("loadMemoryPhotos", list=>{ memoriesList.length=0; (Array.isArray(list)?list:[]).slice(-500).forEach(addMemSilent); renderMemMarkers(); if($("phase3-memory-overlay")?.style.display==="flex")renderMemoriesUI(); });
-    socket.on("newMemoryPin", m=>{ addMemSilent(m); renderMemMarkers(); if($("phase3-memory-overlay")?.style.display==="flex")renderMemoriesUI(); });
-
-    const memInput = $("memoryPhotoInput");
-    $("memoryButton")?.addEventListener("click", () => {
-        if(!currentUser.name) return alert("Join the map first.");
-        if(!myCoords) return alert("Waiting for GPS...");
-        memInput.click();
-    });
-    memInput?.addEventListener("change", () => {
-        const f = memInput.files?.[0]; if(!f) return;
-        if(!IMAGE_TYPES.includes(f.type) || f.size > MAX_MEMORY_FILE) { alert("Invalid image or >8MB."); memInput.value=""; return; }
-        const r = new FileReader();
-        r.onload = () => {
-            if(validImageData(r.result)){
-                socket.emit("uploadMemoryPhoto", {name: currentUser.name, lat: myCoords.lat, lng: myCoords.lng, image: r.result});
-            }
-        };
-        r.readAsDataURL(f); memInput.value="";
-    });
-
-    initPhase3();
 }
 
-$("profile-close")?.addEventListener("click",()=>$("profile-popup").style.display="none");
-$("profile-popup")?.addEventListener("click",e=>{if(e.target.id==="profile-popup")e.currentTarget.style.display="none";});
+// ==========================================
+// INITIALIZATION
+// ==========================================
+$("profile-popup-close")?.addEventListener("click",()=>$("profile-popup").style.display="none");
 
-socket.on("connect",()=>{if(currentUser.name)socket.emit("profileReady",currentUser);});
-setupJoin();setupMapControls();setupChat();setupVoice();startGPS();setupPhase3UI();
-setInterval(()=>{emitLocation();updateFriendBadges();},5000);
-console.log("Koraput Map loaded — Phase 1, 2 & 3 completely Integrated & Perfected.");
+function initApp(){
+    setupJoin();
+    setupMapControls();
+    setupChat();
+    setupVoice();
+    setupMemories();
+    startGPS();
+}
+
+if(document.readyState==="loading") document.addEventListener("DOMContentLoaded", initApp);
+else initApp();
+
+setInterval(()=>{emitLocation(); updateFriendBadges();}, 5000);
+console.log("Koraput Map ULTIMATE (Phase 1,2,3) initialized without any overlap issues.");
