@@ -1,1042 +1,332 @@
-// ==========================================
-// KORAPUT MAP - FINAL CLIENT LOGIC
-// ==========================================
-
 "use strict";
 
-const socket = io({
-    transports: ["websocket", "polling"]
-});
-
-// ==========================================
-// CONSTANTS
-// ==========================================
-
+const socket = io({ transports: ["websocket", "polling"] });
 const DEFAULT_CENTER = [18.8136, 82.7153];
-const DEFAULT_ZOOM = 13;
-
 const DEFAULT_AVATAR = "satyam.png";
+const MAX_NAME = 40;
+const MAX_CHAT = 1000;
+const MAX_CHAT_FILE = 5 * 1024 * 1024;
+const MAX_MEMORY_FILE = 8 * 1024 * 1024;
+const MAX_AVATAR_FILE = 3 * 1024 * 1024;
+const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
-const MAX_NAME_LENGTH = 40;
-const MAX_CHAT_LENGTH = 1000;
-
-const MAX_CHAT_FILE_SIZE = 5 * 1024 * 1024;
-const MAX_MEMORY_FILE_SIZE = 8 * 1024 * 1024;
-const MAX_AVATAR_FILE_SIZE = 3 * 1024 * 1024;
-
-const ALLOWED_MEMORY_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
-const ALLOWED_AVATAR_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
-
-// ==========================================
-// SOCKET STATUS
-// ==========================================
-
-socket.on("connect", () => console.log("Connected:", socket.id));
-socket.on("disconnect", () => console.log("Disconnected from server."));
-socket.on("connect_error", (error) => console.warn("Socket connection error:", error.message));
-
-// ==========================================
-// INITIALIZE MAP
-// ==========================================
-
-const map = L.map("map", {
-    zoomControl: false,
-    attributionControl: true,
-    preferCanvas: true
-}).setView(DEFAULT_CENTER, DEFAULT_ZOOM);
-
-// ==========================================
-// MAP LAYERS
-// ==========================================
-
-const satelliteLayer = L.tileLayer("https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}", {
-    maxZoom: 20, subdomains: ["mt0", "mt1", "mt2", "mt3"], attribution: "&copy; Google Maps"
-});
-
-const streetLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19, attribution: "&copy; OpenStreetMap contributors"
-});
-
-const darkLayer = L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-    maxZoom: 20, attribution: "&copy; CARTO"
-});
-
-let currentMapStyle = "satellite";
+const map = L.map("map", { zoomControl: false, preferCanvas: true }).setView(DEFAULT_CENTER, 13);
+const satelliteLayer = L.tileLayer("https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}", { maxZoom: 20, subdomains: ["mt0","mt1","mt2","mt3"], attribution: "&copy; Google Maps" });
+const streetLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "&copy; OpenStreetMap contributors" });
+const darkLayer = L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", { maxZoom: 20, attribution: "&copy; CARTO" });
 satelliteLayer.addTo(map);
+let currentStyle = "satellite";
 
-// ==========================================
-// GLOBAL STATE
-// ==========================================
-
+let currentUser = { name: localStorage.getItem("koraput_name") || "", avatar: localStorage.getItem("koraput_avatar") || DEFAULT_AVATAR };
+let myCoords = null;
+let myWeather = "";
 let ownMarker = null;
 let accuracyCircle = null;
-
-let firstLocationFix = true;
-let locationWatchId = null;
-
-let myCoords = null;
-let currentWeatherData = "";
-let currentCityName = "";
-
+let firstFix = true;
+let cityName = "";
 const friendMarkers = Object.create(null);
 const friendData = Object.create(null);
 
-let currentUser = {
-    name: localStorage.getItem("koraput_name") || "",
-    avatar: localStorage.getItem("koraput_avatar") || DEFAULT_AVATAR
-};
+const $ = id => document.getElementById(id);
+const escapeHTML = v => String(v ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;");
+const cleanName = v => String(v || "").trim().replace(/\s+/g," ").slice(0,MAX_NAME);
+const validCoord = (lat,lng) => Number.isFinite(lat)&&Number.isFinite(lng)&&lat>=-90&&lat<=90&&lng>=-180&&lng<=180;
+const validImageData = v => typeof v === "string" && /^data:image\/(jpeg|jpg|png|webp|gif);base64,/i.test(v);
+const validMediaData = v => typeof v === "string" && /^data:(image|video|audio|application|text)\//i.test(v);
 
-window.currentUser = currentUser;
-window.map = map;
-window.socket = socket;
-
-// ==========================================
-// UTILITY FUNCTIONS
-// ==========================================
-
-function escapeHTML(value) {
-    return String(value ?? "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
+function distanceKm(a,b,c,d){
+    if(!validCoord(a,b)||!validCoord(c,d)) return "";
+    const R=6371, p=Math.PI/180, dLat=(c-a)*p, dLon=(d-b)*p;
+    const x=Math.sin(dLat/2)**2+Math.cos(a*p)*Math.cos(c*p)*Math.sin(dLon/2)**2;
+    return (R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x))).toFixed(1);
 }
 
-function isValidCoordinate(lat, lng) {
-    return (Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180);
+function weatherEmoji(code){
+    if(code===0) return "☀️"; if([1,2,3].includes(code)) return "⛅"; if([45,48].includes(code)) return "🌫️";
+    if([51,53,55,56,57,61,63,65,66,67].includes(code)) return "🌧️"; if([71,73,75,77,85,86].includes(code)) return "❄️";
+    if([80,81,82].includes(code)) return "🌦️"; if([95,96,99].includes(code)) return "⛈️"; return "🌤️";
 }
 
-function cleanName(name) {
-    return String(name || "").trim().replace(/\s+/g, " ").slice(0, MAX_NAME_LENGTH);
+async function fetchWeather(lat,lng){
+    try{
+        const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lng)}&current=temperature_2m,weather_code`);
+        if(!r.ok) throw new Error("weather"); const d=await r.json();
+        const t=Number(d?.current?.temperature_2m), code=Number(d?.current?.weather_code);
+        return Number.isFinite(t) ? `${weatherEmoji(code)} ${Math.round(t)}°C` : "";
+    }catch(e){ console.warn("Weather error",e); return ""; }
 }
 
-function weatherEmoji(code) {
-    if (code === 0) return "☀️";
-    if ([1, 2, 3].includes(code)) return "⛅";
-    if ([45, 48].includes(code)) return "🌫️";
-    if ([51, 53, 55, 56, 57, 61, 63, 65, 66, 67].includes(code)) return "🌧️";
-    if ([71, 73, 75, 77, 85, 86].includes(code)) return "❄️";
-    if ([80, 81, 82].includes(code)) return "🌦️";
-    if ([95, 96, 99].includes(code)) return "⛈️";
-    return "🌤️";
+async function fetchCity(lat,lng){
+    try{
+        const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}&zoom=10`,{headers:{"Accept-Language":"en"}});
+        if(!r.ok) return ""; const d=await r.json(); return d.address?.city||d.address?.town||d.address?.municipality||d.address?.county||"";
+    }catch{return "";}
 }
 
-function haversineDistance(lat1, lon1, lat2, lon2) {
-    if (!isValidCoordinate(lat1, lon1) || !isValidCoordinate(lat2, lon2)) return "";
-    const R = 6371;
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
-    const distance = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return distance.toFixed(1);
+function ownIcon(){return L.icon({iconUrl:currentUser.avatar||DEFAULT_AVATAR,iconSize:[36,36],iconAnchor:[18,18],className:"avatar-icon own-live-avatar"});}
+function friendIcon(avatar){return L.icon({iconUrl:avatar||DEFAULT_AVATAR,iconSize:[34,34],iconAnchor:[17,17],className:"avatar-icon friend-marker"});}
+
+function updateOwnWeather(){
+    if(!ownMarker) return; ownMarker.unbindTooltip();
+    if(myWeather) ownMarker.bindTooltip(myWeather,{permanent:true,direction:"right",className:"weather-badge",offset:[15,0]});
 }
 
-function isValidImageDataURL(value) {
-    if (typeof value !== "string") return false;
-    return /^data:image\/(jpeg|jpg|png|webp|gif);base64,/i.test(value);
+function emitLocation(){
+    if(!myCoords||!currentUser.name) return;
+    socket.emit("updateLocation",{name:currentUser.name,avatar:currentUser.avatar,lat:myCoords.lat,lng:myCoords.lng,weather:myWeather});
 }
 
-function isValidMediaDataURL(value) {
-    if (typeof value !== "string") return false;
-    return /^data:(image|video|audio|application)\//i.test(value);
-}
-
-// ==========================================
-// REVERSE GEOCODING & WEATHER
-// ==========================================
-
-async function fetchCityName(lat, lng) {
-    if (!isValidCoordinate(lat, lng)) return "";
-    try {
-        const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}&zoom=10`;
-        const response = await fetch(url, { headers: { "Accept-Language": "en" } });
-        if (!response.ok) return "";
-        const data = await response.json();
-        return data.address?.city || data.address?.town || data.address?.municipality || data.address?.county || "Rourkela";
-    } catch { return "Rourkela"; }
-}
-
-async function fetchWeather(lat, lng) {
-    if (!isValidCoordinate(lat, lng)) return "";
-    try {
-        const url = `https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lng)}&current=temperature_2m,weather_code`;
-        const response = await fetch(url);
-        if (!response.ok) return "";
-        const data = await response.json();
-        const temp = Number(data?.current?.temperature_2m);
-        const code = Number(data?.current?.weather_code);
-        if (!Number.isFinite(temp)) return "";
-        return `${weatherEmoji(code)} ${Math.round(temp)}°C`;
-    } catch { return ""; }
-}
-
-// ==========================================
-// ICONS
-// ==========================================
-
-function createOwnIcon(avatar) {
-    return L.icon({
-        iconUrl: avatar || DEFAULT_AVATAR,
-        iconSize: [36, 36], iconAnchor: [18, 18], popupAnchor: [0, -18],
-        className: "avatar-icon own-live-avatar"
+function updateFriendBadges(){
+    if(!myCoords) return;
+    Object.keys(friendMarkers).forEach(id=>{
+        const f=friendData[id], m=friendMarkers[id]; if(!f||!m) return;
+        let text=f.online===false?"Offline":(f.weather||""); const d=distanceKm(myCoords.lat,myCoords.lng,f.lat,f.lng);
+        if(d) text += `${text?" | ":""}📍 ${d} km`;
+        m.unbindTooltip(); if(text) m.bindTooltip(text,{permanent:true,direction:"right",className:"weather-badge",offset:[15,0]});
     });
 }
 
-function createFriendIcon(avatar) {
-    return L.icon({
-        iconUrl: avatar || DEFAULT_AVATAR,
-        iconSize: [34, 34], iconAnchor: [17, 17], popupAnchor: [0, -17],
-        className: "avatar-icon friend-marker"
-    });
+function showFriendProfile(id){
+    const f=friendData[id]; if(!f) return;
+    $("profile-avatar").src=f.avatar||DEFAULT_AVATAR; $("profile-name").textContent=f.name||"Friend";
+    $("profile-status").textContent=f.online===false?"Offline":"Online";
+    const d=myCoords?distanceKm(myCoords.lat,myCoords.lng,f.lat,f.lng):"";
+    $("profile-distance").textContent=d?`📍 ${d} km away`:"Location unavailable";
+    $("profile-weather").textContent=f.weather||"Weather unavailable";
+    $("profile-popup").style.display="flex";
+    $("profile-focus").onclick=()=>{map.flyTo([f.lat,f.lng],16,{animate:true,duration:.7}); $("profile-popup").style.display="none";};
 }
 
-function emitLocation() {
-    if (!myCoords || !currentUser.name || !isValidCoordinate(myCoords.lat, myCoords.lng)) return;
-    socket.emit("updateLocation", {
-        name: currentUser.name, avatar: currentUser.avatar || DEFAULT_AVATAR,
-        lat: myCoords.lat, lng: myCoords.lng, weather: currentWeatherData || ""
-    });
+function renderFriend(data){
+    if(!data?.id||data.id===socket.id) return;
+    const lat=Number(data.lat),lng=Number(data.lng); if(!validCoord(lat,lng)) return;
+    const f=friendData[data.id]||{}; Object.assign(f,{id:data.id,name:cleanName(data.name)||"Friend",avatar:data.avatar||DEFAULT_AVATAR,lat,lng,weather:String(data.weather||"").slice(0,50),online:data.online!==false}); friendData[data.id]=f;
+    let m=friendMarkers[data.id];
+    if(!m){m=L.marker([lat,lng],{icon:friendIcon(f.avatar)}).addTo(map); m.on("click",()=>showFriendProfile(data.id)); friendMarkers[data.id]=m;}
+    else{m.setLatLng([lat,lng]);m.setIcon(friendIcon(f.avatar));m.setOpacity(f.online===false?.45:1);}
+    updateFriendBadges();
 }
 
-// ==========================================
-// GPS TRACKING
-// ==========================================
+function removeFriend(id){if(friendMarkers[id]){map.removeLayer(friendMarkers[id]);delete friendMarkers[id];}delete friendData[id];updateOnlineList();}
 
-function startLocationTracking() {
-    if (!navigator.geolocation) return;
-
-    locationWatchId = navigator.geolocation.watchPosition(async (position) => {
-        const lat = Number(position.coords.latitude);
-        const lng = Number(position.coords.longitude);
-        const accuracy = Number(position.coords.accuracy);
-
-        if (!isValidCoordinate(lat, lng)) return;
-        myCoords = { lat, lng };
-
-        if (!currentCityName) {
-            currentCityName = await fetchCityName(lat, lng);
-            if (currentCityName) {
-                const headerTitle = document.getElementById("header-app-title");
-                if (headerTitle) headerTitle.textContent = `${currentCityName} Map`;
-                const pillCity = document.getElementById("pill-city");
-                if (pillCity) pillCity.textContent = `📍 ${currentCityName}`;
-            }
-        }
-
-        if (Number.isFinite(accuracy) && accuracy > 0 && accuracy < 100000) {
-            if (!accuracyCircle) {
-                accuracyCircle = L.circle([lat, lng], {
-                    radius: accuracy, color: "#10b981", weight: 2, opacity: 0.85,
-                    fillColor: "#10b981", fillOpacity: 0.15, interactive: false
-                }).addTo(map);
-            } else {
-                accuracyCircle.setLatLng([lat, lng]);
-                accuracyCircle.setRadius(accuracy);
-            }
-        }
-
-        if (!ownMarker) {
-            ownMarker = L.marker([lat, lng], { icon: createOwnIcon(currentUser.avatar), zIndexOffset: 1000 }).addTo(map);
-            if (firstLocationFix) { map.setView([lat, lng], 16); firstLocationFix = false; }
-        } else {
-            ownMarker.setLatLng([lat, lng]);
-        }
-
-        const weather = await fetchWeather(lat, lng);
-        if (weather) {
-            currentWeatherData = weather;
-            const tempElement = document.getElementById("map-temp-display");
-            if (tempElement) tempElement.textContent = weather;
-            if (ownMarker) {
-                ownMarker.unbindTooltip();
-                ownMarker.bindTooltip(weather, { permanent: true, direction: "right", className: "weather-badge", offset: [15, 0] });
-            }
-        }
-
-        emitLocation();
-        updateFriendBadges();
-    }, (error) => console.warn("GPS Error:", error.message), { enableHighAccuracy: true, timeout: 15000, maximumAge: 3000 });
+function updateOnlineList(list){
+    if(Array.isArray(list)){ list.forEach(u=>{if(u?.id&&u.id!==socket.id){friendData[u.id]={...(friendData[u.id]||{}),...u}; if(validCoord(Number(u.lat),Number(u.lng))) renderFriend(u);}}); }
+    const friends=Object.values(friendData).filter(Boolean);
+    $("online-count").textContent=`${friends.filter(f=>f.online!==false).length} online`;
+    $("header-online-status").textContent=`${friends.filter(f=>f.online!==false).length+1} online`;
+    $("online-list").innerHTML=friends.length?friends.map(f=>`<button class="online-user" data-id="${escapeHTML(f.id)}"><img src="${escapeHTML(f.avatar||DEFAULT_AVATAR)}"><span><b>${escapeHTML(f.name||"Friend")}</b><small>${f.online===false?"Offline":"Online"}</small></span></button>`).join(""):"<div class=\"online-empty\">No other users online</div>";
 }
 
-// ==========================================
-// PROFILE POPUP & ONLINE SYNC
-// ==========================================
+socket.on("onlineUsers",users=>updateOnlineList(users));
+socket.on("userOnline",u=>{if(u?.id!==socket.id)renderFriend(u);updateOnlineList();});
+socket.on("friendMoved",renderFriend);
+socket.on("userOffline",({id})=>{if(friendData[id]){friendData[id].online=false;renderFriend(friendData[id]);}updateOnlineList();});
+socket.on("friendDisconnected",removeFriend);
 
-function showProfilePopup(user) {
-    const popup = document.getElementById("profile-popup");
-    if (!popup || !user) return;
-
-    const avatar = document.getElementById("profile-popup-avatar");
-    const name = document.getElementById("profile-popup-name");
-    const status = document.getElementById("profile-popup-status");
-    const weather = document.getElementById("profile-popup-weather");
-    const distance = document.getElementById("profile-popup-distance");
-
-    if (avatar) avatar.src = user.avatar || DEFAULT_AVATAR;
-    if (name) name.textContent = cleanName(user.name) || "User";
-
-    if (status) {
-        if (user.online !== false) {
-            status.textContent = "● Online";
-            status.style.color = "#18d6a3";
-        } else {
-            status.textContent = "● Offline";
-            status.style.color = "#8fa1aa";
-        }
-    }
-
-    if (weather) weather.textContent = user.weather || "Weather unavailable";
-
-    if (distance && myCoords && isValidCoordinate(user.lat, user.lng)) {
-        const km = haversineDistance(myCoords.lat, myCoords.lng, user.lat, user.lng);
-        distance.textContent = km ? `📍 ${km} km away` : "📍 Location available";
-    } else if(distance) {
-        distance.textContent = "📍 Location unavailable";
-    }
-
-    popup.style.display = "flex";
-
-    const focusButton = document.getElementById("profile-focus-btn");
-    if (focusButton) {
-        focusButton.onclick = () => {
-            if (isValidCoordinate(user.lat, user.lng)) map.flyTo([user.lat, user.lng], 16, { animate: true, duration: 0.8 });
-            hideProfilePopup();
-        };
-    }
+function startGPS(){
+    if(!navigator.geolocation){console.warn("Geolocation unavailable");return;}
+    navigator.geolocation.watchPosition(async p=>{
+        const lat=Number(p.coords.latitude),lng=Number(p.coords.longitude),acc=Number(p.coords.accuracy); if(!validCoord(lat,lng))return;
+        myCoords={lat,lng};
+        if(Number.isFinite(acc)&&acc>0&&acc<100000){if(!accuracyCircle) accuracyCircle=L.circle([lat,lng],{radius:acc,color:"#10b981",weight:2,opacity:.85,fillColor:"#10b981",fillOpacity:.15,interactive:false}).addTo(map);else{accuracyCircle.setLatLng([lat,lng]);accuracyCircle.setRadius(acc);}}
+        if(!ownMarker){ownMarker=L.marker([lat,lng],{icon:ownIcon(),zIndexOffset:1000}).addTo(map);if(firstFix){map.setView([lat,lng],16);firstFix=false;}}else ownMarker.setLatLng([lat,lng]);
+        if(!cityName){cityName=await fetchCity(lat,lng);if(cityName){$("header-app-title").textContent=`${cityName} Map`;$("pill-city").textContent=`📍 ${cityName}`;}}
+        const weather=await fetchWeather(lat,lng);if(weather){myWeather=weather;$("map-temp-display").textContent=weather;updateOwnWeather();}
+        emitLocation();updateFriendBadges();
+    },e=>console.warn("GPS error",e.message),{enableHighAccuracy:true,timeout:15000,maximumAge:3000});
 }
 
-function hideProfilePopup() {
-    const popup = document.getElementById("profile-popup");
-    if (popup) popup.style.display = "none";
+function setupJoin(){
+    const screen=$("join-screen"),form=$("join-form"),name=$("nameInput"),avatar=$("avatarInput");
+    if(currentUser.name){screen.style.display="none";$("chat-toggle-btn").style.display="flex";$("header-avatar").src=currentUser.avatar;$("header-avatar").style.display="block";socket.emit("profileReady",currentUser);}
+    avatar?.addEventListener("change",()=>{const f=avatar.files?.[0];if(!f)return;if(!IMAGE_TYPES.includes(f.type)||f.size>MAX_AVATAR_FILE){alert("Choose a JPG, PNG, WEBP or GIF under 3MB.");avatar.value="";return;}$("avatar-label-text").textContent="Photo selected ✓";});
+    form?.addEventListener("submit",e=>{e.preventDefault();const n=cleanName(name.value);if(!n){alert("Please enter your name.");return;}currentUser.name=n;localStorage.setItem("koraput_name",n);const f=avatar.files?.[0];if(f){const r=new FileReader();r.onload=()=>{if(validImageData(r.result)){currentUser.avatar=r.result;localStorage.setItem("koraput_avatar",r.result);}finish();};r.readAsDataURL(f);}else finish();});
+    function finish(){screen.style.display="none";$("chat-toggle-btn").style.display="flex";$("header-avatar").src=currentUser.avatar;$("header-avatar").style.display="block";if(ownMarker)ownMarker.setIcon(ownIcon());socket.emit("profileReady",currentUser);emitLocation();setTimeout(()=>map.invalidateSize(),200);}
 }
 
-function setupProfilePopup() {
-    const closeButton = document.getElementById("profile-popup-close");
-    const popup = document.getElementById("profile-popup");
-
-    closeButton?.addEventListener("click", hideProfilePopup);
-    popup?.addEventListener("click", (event) => {
-        if (event.target === popup) hideProfilePopup();
-    });
+function setupMapControls(){
+    $("my-location-btn")?.addEventListener("click",()=>{if(myCoords)map.flyTo([myCoords.lat,myCoords.lng],Math.max(16,map.getZoom()),{animate:true,duration:.7});else alert("Waiting for GPS location...");});
+    $("compass-btn")?.addEventListener("click",()=>{$("compass-icon").style.transform="rotate(0deg)";map.setView(map.getCenter(),map.getZoom(),{animate:true});});
+    const menu=$("map-style-menu"); $("map-style-btn")?.addEventListener("click",e=>{e.stopPropagation();menu.style.display=menu.style.display==="flex"?"none":"flex";});
+    menu?.addEventListener("click",e=>{const b=e.target.closest("[data-style]");if(!b)return;const s=b.dataset.style;if(s===currentStyle){menu.style.display="none";return;}[satelliteLayer,streetLayer,darkLayer].forEach(l=>{if(map.hasLayer(l))map.removeLayer(l);});({satellite:satelliteLayer,street:streetLayer,dark:darkLayer}[s]).addTo(map);currentStyle=s;document.querySelectorAll("#map-style-menu button").forEach(x=>x.classList.toggle("active",x.dataset.style===s));menu.style.display="none";setTimeout(()=>map.invalidateSize(),100);});
+    document.addEventListener("click",e=>{if(menu&&!menu.contains(e.target)&&e.target!==$("map-style-btn"))menu.style.display="none";});
+    if(typeof DeviceOrientationEvent!=="undefined")window.addEventListener("deviceorientation",e=>{const icon=$("compass-icon");if(!icon)return;if(typeof e.webkitCompassHeading==="number")icon.style.transform=`rotate(${-e.webkitCompassHeading}deg)`;else if(typeof e.alpha==="number")icon.style.transform=`rotate(${e.alpha}deg)`;},true);
 }
 
-function updateOnlineCount() {
-    let friendCount = 0;
-    Object.keys(friendData).forEach((id) => {
-        if (friendData[id] && friendData[id].online !== false) friendCount++;
-    });
+let unread=0,replyTo=null,typingTimer=null,onlinePanel=false;
+const messageStore=new Map();
+function setUnread(){const b=$("chat-unread-badge");b.textContent=unread;b.style.display=unread?"flex":"none";}
+function chatOpen(){return $("chat-container").style.display==="flex";}
+function previewFor(msg){if(msg.type==="text")return String(msg.data).slice(0,160);if(msg.type==="image")return "📷 Photo";if(msg.type==="video")return "🎥 Video";if(msg.type==="audio")return "🎙️ Voice message";return "📎 File";}
+function beginReply(msg){replyTo=msg;$("reply-preview").textContent=`${cleanName(msg.name)}: ${previewFor(msg)}`;$("reply-bar").style.display="flex";$("chatInput").focus();}
+function clearReply(){replyTo=null;$("reply-bar").style.display="none";$("reply-preview").textContent="";}
+function renderReactions(el,msg){const box=el.querySelector(".message-reactions");if(!box)return;box.innerHTML="";Object.entries(msg.reactions||{}).forEach(([emoji,ids])=>{if(ids.length){const b=document.createElement("button");b.className="reaction-count";b.type="button";b.textContent=`${emoji} ${ids.length}`;b.onclick=()=>socket.emit("messageReaction",{messageId:msg.id,emoji});box.appendChild(b);}});}
+function renderMessage(msg){
+    if(!msg?.id||typeof msg.data!=="string")return; if(messageStore.has(msg.id))return;
+    const wrap=document.createElement("div");wrap.className="chat-row";const bubble=document.createElement("div");bubble.className="chat-message "+(msg.senderId===socket.id?"msg-mine":"msg-theirs");
+    const sender=document.createElement("div");sender.className="msg-sender";sender.textContent=cleanName(msg.name)||"User";bubble.appendChild(sender);
+    if(msg.replyTo){const q=document.createElement("div");q.className="reply-quote";q.textContent=`↩ ${cleanName(msg.replyTo.name)}: ${msg.replyTo.preview}`;bubble.appendChild(q);}
+    if(msg.type==="text"){const text=document.createElement("div");text.textContent=msg.data.slice(0,MAX_CHAT);bubble.appendChild(text);} 
+    else if(msg.type==="image"&&/^data:image\//i.test(msg.data)){const im=document.createElement("img");im.className="chat-media";im.src=msg.data;im.alt="Shared image";im.loading="lazy";bubble.appendChild(im);}
+    else if(msg.type==="video"&&/^data:video\//i.test(msg.data)){const v=document.createElement("video");v.className="chat-media";v.controls=true;v.preload="metadata";v.src=msg.data;bubble.appendChild(v);}
+    else if(msg.type==="audio"&&/^data:audio\//i.test(msg.data)){const a=document.createElement("audio");a.className="chat-audio";a.controls=true;a.src=msg.data;bubble.appendChild(a);}
+    else if(msg.type==="document"&&/^data:(application|text)\//i.test(msg.data)){const a=document.createElement("a");a.className="chat-document";a.href=msg.data;a.download="Koraput-Map-file";a.textContent="📄 Open / Download file";bubble.appendChild(a);}else return;
+    const actions=document.createElement("div");actions.className="message-actions";["👍","❤️","😂","😮","😢","🔥"].forEach(e=>{const b=document.createElement("button");b.type="button";b.className="reaction-chip";b.textContent=e;b.onclick=()=>socket.emit("messageReaction",{messageId:msg.id,emoji:e});actions.appendChild(b);});const rb=document.createElement("button");rb.type="button";rb.className="message-action-reply";rb.textContent="↩ Reply";rb.onclick=()=>beginReply(msg);actions.appendChild(rb);bubble.appendChild(actions);const reactions=document.createElement("div");reactions.className="message-reactions";bubble.appendChild(reactions);
+    wrap.appendChild(bubble);$("chat-messages").appendChild(wrap);messageStore.set(msg.id,{msg,wrap,bubble});renderReactions(bubble,msg);$("chat-messages").scrollTop=$("chat-messages").scrollHeight;
+    if(msg.senderId&&msg.senderId!==socket.id&&!chatOpen()){unread++;setUnread();}
+}
 
-    const totalOnline = currentUser.name ? friendCount + 1 : friendCount;
-    const elements = [
-        document.getElementById("online-count"),
-        document.getElementById("header-online-status"),
-        document.getElementById("chat-subtitle")
-    ];
+function setupChat(){
+    const form=$("chatForm"),input=$("chatInput"); if(!form||!input)return;
+    $("chat-toggle-btn").onclick=()=>{$("chat-container").style.display="flex";$("chat-toggle-btn").style.display="none";unread=0;setUnread();input.focus();};
+    $("chat-minimize-btn").onclick=()=>{$("chat-container").style.display="none";$("chat-toggle-btn").style.display="flex";};
+    $("reply-cancel").onclick=clearReply;
+    input.addEventListener("input",()=>{const has=!!input.value.trim();$("voiceButton").style.display=has?"none":"flex";$("chat-send").style.display=has?"flex":"flex";socket.emit("typing",true);clearTimeout(typingTimer);typingTimer=setTimeout(()=>socket.emit("typing",false),900);});
+    form.addEventListener("submit",e=>{e.preventDefault();const text=input.value.trim();if(!text||!currentUser.name)return;socket.emit("chatMessage",{name:currentUser.name,type:"text",data:text,replyTo});input.value="";clearReply();$("voiceButton").style.display="flex";input.focus();socket.emit("typing",false);});
+    const attachMenu=$("attachment-menu"),attach=$("chat-attach-btn"),emoji=$("emojiButton"),emojiBox=$("emoji-picker-container");
+    attach.onclick=e=>{e.stopPropagation();emojiBox.style.display="none";attachMenu.style.display=attachMenu.style.display==="flex"?"none":"flex";};emoji.onclick=e=>{e.stopPropagation();attachMenu.style.display="none";emojiBox.style.display=emojiBox.style.display==="block"?"none":"block";};
+    document.addEventListener("click",e=>{if(!attachMenu.contains(e.target)&&e.target!==attach)attachMenu.style.display="none";if(!emojiBox.contains(e.target)&&e.target!==emoji)emojiBox.style.display="none";});
+    $("emojiPicker")?.addEventListener("emoji-click",e=>{input.value+=e.detail.unicode;input.dispatchEvent(new Event("input"));input.focus();});
+    const picker=(accept)=>{const f=$("chatAttachment");f.accept=accept;f.click();};$("att-media").onclick=()=>picker("image/*,video/*");$("att-doc").onclick=()=>picker(".pdf,.doc,.docx,.txt,.zip");$("att-audio").onclick=()=>picker("audio/*");
+    $("chatAttachment").onchange=()=>{const f=$("chatAttachment").files?.[0];if(!f)return;if(f.size>MAX_CHAT_FILE){alert("Maximum file size is 5MB.");return;}let type=f.type.startsWith("image/")?"image":f.type.startsWith("video/")?"video":f.type.startsWith("audio/")?"audio":"document";const r=new FileReader();r.onload=()=>{if(validMediaData(r.result))socket.emit("chatMessage",{name:currentUser.name,type,data:r.result,replyTo});};r.readAsDataURL(f);$("chatAttachment").value="";};
+    $("online-btn").onclick=()=>{$("online-list").style.display=onlinePanel?"none":"block";onlinePanel=!onlinePanel;};$("online-list").onclick=e=>{const b=e.target.closest("[data-id]");if(b)showFriendProfile(b.dataset.id);};
+    socket.on("chatHistory",list=>{if(Array.isArray(list))list.forEach(renderMessage);});socket.on("chatMessage",renderMessage);
+    socket.on("messageReaction",d=>{const s=messageStore.get(String(d.messageId));if(!s)return;s.msg.reactions=d.reactions||{};renderReactions(s.bubble,s.msg);});
+    socket.on("typing",d=>{if(!d?.id||d.id===socket.id)return;const t=$("typing-indicator");if(d.isTyping){t.textContent=`${cleanName(d.name)||"Someone"} is typing…`;t.style.display="block";}else t.style.display="none";});
+}
 
-    elements.forEach((element) => {
-        if (element) element.textContent = `${totalOnline} online`;
-    });
+function setupVoice(){
+    const btn=$("voiceButton");if(!btn)return;let rec=null,chunks=[];
+    btn.onclick=async()=>{if(rec?.state==="recording"){rec.stop();return;}if(!navigator.mediaDevices?.getUserMedia){alert("Voice recording is not supported.");return;}try{const stream=await navigator.mediaDevices.getUserMedia({audio:true});const mime=MediaRecorder.isTypeSupported("audio/webm")?"audio/webm":(MediaRecorder.isTypeSupported("audio/mp4")?"audio/mp4":"");rec=mime?new MediaRecorder(stream,{mimeType:mime}):new MediaRecorder(stream);chunks=[];rec.ondataavailable=e=>{if(e.data?.size)chunks.push(e.data);};rec.onstop=()=>{stream.getTracks().forEach(t=>t.stop());const blob=new Blob(chunks,{type:rec.mimeType||"audio/webm"});if(blob.size>MAX_CHAT_FILE){alert("Voice message is too large.");btn.textContent="🎙️";return;}const r=new FileReader();r.onload=()=>socket.emit("chatMessage",{name:currentUser.name,type:"audio",data:r.result,replyTo});r.readAsDataURL(blob);btn.textContent="🎙️";};rec.start();btn.textContent="⏹️";}catch(e){alert("Microphone access denied.");}};
 }
 
 // ==========================================
-// RESTORED: FRIEND MARKER LOGIC
+// PHASE 3: MEMORY INTEGRATION
 // ==========================================
+const memoriesList = [];
+let activeFilter = "all";
+let searchText = "";
+const memoryLayerGroup = L.layerGroup().addTo(map);
+const memoryMarkersMap = new Map();
 
-function createOrUpdateFriendMarker(user) {
-    if (!user?.id) return;
-    const lat = Number(user.lat);
-    const lng = Number(user.lng);
-
-    if (!isValidCoordinate(lat, lng)) return;
-
-    const id = user.id;
-    const name = cleanName(user.name) || "Friend";
-    const avatar = isValidImageDataURL(user.avatar) ? user.avatar : (user.avatar || DEFAULT_AVATAR);
-    const weather = typeof user.weather === "string" ? user.weather.slice(0, 50) : "";
-
-    friendData[id] = {
-        ...(friendData[id] || {}),
-        id, name, avatar, lat, lng, weather,
-        online: user.online !== false
-    };
-
-    if (!friendMarkers[id]) {
-        friendMarkers[id] = L.marker([lat, lng], { icon: createFriendIcon(avatar) }).addTo(map);
-        friendMarkers[id].on("click", () => {
-            const friend = friendData[id];
-            if (friend) showProfilePopup(friend);
-        });
-    } else {
-        friendMarkers[id].setLatLng([lat, lng]);
-        friendMarkers[id].setIcon(createFriendIcon(avatar));
-        friendMarkers[id].setOpacity(user.online === false ? 0.45 : 1);
-    }
-
-    updateFriendMarkerTooltip(id);
-}
-
-function updateFriendMarkerTooltip(id) {
-    const marker = friendMarkers[id];
-    const friend = friendData[id];
-
-    if (!marker || !friend) return;
-    let badge = friend.weather || "";
-
-    if (myCoords && isValidCoordinate(friend.lat, friend.lng)) {
-        const distance = haversineDistance(myCoords.lat, myCoords.lng, friend.lat, friend.lng);
-        if (distance) badge = `${badge ? badge + " | " : ""}📍 ${distance} km`;
-    }
-
-    marker.unbindTooltip();
-    if (badge) {
-        marker.bindTooltip(badge, { permanent: true, direction: "right", className: "weather-badge", offset: [15, 0] });
-    }
-}
-
-function updateFriendBadges() {
-    if (!myCoords) return;
-    Object.keys(friendMarkers).forEach((id) => {
-        updateFriendMarkerTooltip(id);
-    });
-}
-
-// Socket Events for Online Status & Location Sync
-socket.on("onlineUsers", (users) => {
-    if (!Array.isArray(users)) return;
-    users.forEach((user) => {
-        if (!user?.id || user.id === socket.id) return;
-        friendData[user.id] = { ...(friendData[user.id] || {}), ...user, online: true };
-        if (isValidCoordinate(user.lat, user.lng)) createOrUpdateFriendMarker(user);
-    });
-    updateOnlineCount();
-});
-
-socket.on("userOnline", (user) => {
-    if (!user?.id || user.id === socket.id) return;
-    friendData[user.id] = { ...(friendData[user.id] || {}), ...user, online: true };
-    if (isValidCoordinate(user.lat, user.lng)) createOrUpdateFriendMarker(user);
-    updateOnlineCount();
-});
-
-socket.on("userOffline", (data) => {
-    const id = data?.id;
-    if (!id) return;
-    if (friendData[id]) friendData[id].online = false;
-    if (friendMarkers[id]) friendMarkers[id].setOpacity(0.45);
-    updateOnlineCount();
-});
-
-socket.on("friendMoved", (data) => {
-    if (!data?.id) return;
-    const lat = Number(data.lat);
-    const lng = Number(data.lng);
-    if (!isValidCoordinate(lat, lng)) return;
-    if (cleanName(data.name) === currentUser.name) return;
-
-    createOrUpdateFriendMarker({ ...data, lat, lng, online: true });
-    updateOnlineCount();
-});
-
-socket.on("friendDisconnected", (id) => {
-    if (!id) return;
-    if (friendMarkers[id]) {
-        map.removeLayer(friendMarkers[id]);
-        delete friendMarkers[id];
-    }
-    if (friendData[id]) delete friendData[id];
-    updateOnlineCount();
-});
-
-// ==========================================
-// USER JOIN
-// ==========================================
-
-function setupUserJoin() {
-    const joinScreen = document.getElementById("join-screen");
-    const joinForm = document.getElementById("join-form");
-    const nameInput = document.getElementById("nameInput");
-    const avatarInput = document.getElementById("avatarInput");
-    const avatarLabelText = document.getElementById("avatar-label-text");
-    const chatToggleBtn = document.getElementById("chat-toggle-btn");
-    const headerAvatar = document.getElementById("header-avatar");
-
-    if (!joinScreen || !joinForm) return;
-
-    if (currentUser.name) {
-        joinScreen.style.display = "none";
-        if (chatToggleBtn) chatToggleBtn.style.display = "flex";
-        if (headerAvatar) {
-            headerAvatar.src = currentUser.avatar || DEFAULT_AVATAR;
-            headerAvatar.style.display = "block";
-        }
-        updateOnlineCount();
-        socket.emit("profileReady", { name: currentUser.name, avatar: currentUser.avatar || DEFAULT_AVATAR });
-    }
-
-    avatarInput?.addEventListener("change", () => {
-        const file = avatarInput.files?.[0];
-        if (!file) return;
-        if (!ALLOWED_AVATAR_TYPES.includes(file.type)) { alert("Please select a valid image."); avatarInput.value = ""; return; }
-        if (file.size > MAX_AVATAR_FILE_SIZE) { alert("Profile photo must be under 3MB."); avatarInput.value = ""; return; }
-        if (avatarLabelText) avatarLabelText.textContent = "Photo Selected ✓";
-    });
-
-    joinForm.addEventListener("submit", (event) => {
-        event.preventDefault();
-        const name = cleanName(nameInput?.value);
-        if (!name) { alert("Please enter your name."); nameInput?.focus(); return; }
-
-        currentUser.name = name;
-        localStorage.setItem("koraput_name", name);
-
-        const file = avatarInput?.files?.[0];
-        if (file) {
-            const reader = new FileReader();
-            reader.onload = () => {
-                const result = String(reader.result || "");
-                if (isValidImageDataURL(result)) {
-                    currentUser.avatar = result;
-                    localStorage.setItem("koraput_avatar", result);
-                }
-                completeJoin();
-            };
-            reader.onerror = completeJoin;
-            reader.readAsDataURL(file);
-        } else {
-            completeJoin();
-        }
-
-        function completeJoin() {
-            joinScreen.style.display = "none";
-            if (chatToggleBtn) chatToggleBtn.style.display = "flex";
-            if (headerAvatar) {
-                headerAvatar.src = currentUser.avatar || DEFAULT_AVATAR;
-                headerAvatar.style.display = "block";
-            }
-            if (ownMarker) ownMarker.setIcon(createOwnIcon(currentUser.avatar));
-
-            socket.emit("profileReady", { name: currentUser.name, avatar: currentUser.avatar || DEFAULT_AVATAR });
-            emitLocation();
-            updateOnlineCount();
-            setTimeout(() => map.invalidateSize(), 300);
-        }
-    });
-}
-
-// ==========================================
-// MEMORY BUTTON (UPLOAD)
-// ==========================================
-
-function setupMemoryButton() {
-    const memoryBtn = document.getElementById("memoryButton");
-    const memoryInput = document.getElementById("memoryPhotoInput");
-
-    if (!memoryBtn || !memoryInput) return;
-
-    memoryBtn.addEventListener("click", () => {
-        if (!currentUser.name) { alert("Please join the map first."); return; }
-        if (!myCoords) { alert("GPS location loading... please wait."); return; }
-        memoryInput.click();
-    });
-
-    memoryInput.addEventListener("change", () => {
-        const file = memoryInput.files?.[0];
-        if (!file) return;
-        if (!ALLOWED_MEMORY_TYPES.includes(file.type)) { alert("Please select a valid image."); memoryInput.value = ""; return; }
-        if (file.size > MAX_MEMORY_FILE_SIZE) { alert("Memory photo must be under 8MB."); memoryInput.value = ""; return; }
-
-        const reader = new FileReader();
-        reader.onload = () => {
-            const image = String(reader.result || "");
-            if (!isValidImageDataURL(image)) { alert("Unable to read this image."); return; }
-            alert("📸 Tap anywhere on the map to pin this photo!");
-            map.once("click", (event) => {
-                if (!event.latlng || !isValidCoordinate(event.latlng.lat, event.latlng.lng)) return;
-                socket.emit("uploadMemoryPhoto", {
-                    name: currentUser.name, lat: event.latlng.lat, lng: event.latlng.lng,
-                    image, time: new Date().toLocaleString()
-                });
-            });
-        };
-        reader.onerror = () => { alert("Could not read the photo."); };
-        reader.readAsDataURL(file);
-        memoryInput.value = "";
-    });
-}
-
-// ==========================================
-// CHAT FUNCTIONALITY
-// ==========================================
-
-function setupChat() {
-    const chatContainer = document.getElementById("chat-container");
-    const chatToggle = document.getElementById("chat-toggle-btn");
-    const chatForm = document.getElementById("chatForm");
-    const chatInput = document.getElementById("chatInput");
-    const chatMessages = document.getElementById("chat-messages");
-    const fileInput = document.getElementById("chatFileInput");
-    const attachButton = document.getElementById("chat-attach-btn");
-    const emojiPicker = document.getElementById("emojiPicker");
-    const emojiButton = document.getElementById("emojiButton");
-    const voiceButton = document.getElementById("voiceButton");
-    const sendButton = document.getElementById("chat-send");
+function initPhase3() {
+    const esc = v => String(v ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;");
+    const nameOf = m => String(m?.name||"Memory").trim().replace(/\s+/g," ").slice(0,40);
+    const dateOf = m => { const d=new Date(m?.time||0); return Number.isNaN(d.getTime())?null:d; };
+    const sameMine = m => typeof currentUser !== "undefined" && nameOf(m).toLowerCase()===String(currentUser.name||"").toLowerCase();
     
-    const typingIndicator = document.getElementById("typing-indicator");
-    const replyBar = document.getElementById("reply-bar");
-    const replyPreview = document.getElementById("reply-preview");
-    const replyCancel = document.getElementById("reply-cancel");
-
-    const attachmentMenu = document.getElementById("attachment-menu");
-    const emojiContainer = document.getElementById("emoji-picker-container");
-
-    if (!chatContainer || !chatForm || !chatInput || !chatMessages) return;
-
-    let unreadCount = 0;
-    let typingTimer = null;
-    let isTyping = false;
-    let replyToMessage = null;
-    let reactingToMsgId = null; 
-
-    const messageStore = new Map();
-    const reactionEmojis = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
-
-    function isChatOpen() { return chatContainer.style.display === "flex" || chatContainer.classList.contains("open"); }
-
-    function updateUnreadBadge() {
-        const badge = document.getElementById("chat-unread-badge");
-        if (!badge) return;
-        badge.textContent = unreadCount > 99 ? "99+" : unreadCount;
-        badge.style.display = unreadCount > 0 ? "flex" : "none";
-    }
-
-    function markChatRead() { unreadCount = 0; updateUnreadBadge(); }
-
-    function openChat() {
-        chatContainer.classList.add("open");
-        chatContainer.style.display = "flex"; 
-        markChatRead();
-        setTimeout(() => chatInput.focus(), 100);
-    }
-
-    function closeChat() {
-        chatContainer.classList.remove("open");
-        chatContainer.style.display = "none";
-        if (attachmentMenu) attachmentMenu.style.display = "none";
-        if (emojiContainer) emojiContainer.style.display = "none";
-    }
-
-    chatToggle?.addEventListener("click", () => { if (isChatOpen()) closeChat(); else openChat(); });
-    document.getElementById("chat-minimize-btn")?.addEventListener("click", closeChat);
-
-    function sendTypingStatus(value) {
-        if (!currentUser.name) return;
-        socket.emit("typing", Boolean(value));
-    }
-
-    function stopTyping() {
-        if (!isTyping) return;
-        isTyping = false;
-        sendTypingStatus(false);
-    }
-
-    chatInput.addEventListener("input", () => {
-        if (!isTyping) { isTyping = true; sendTypingStatus(true); }
-        clearTimeout(typingTimer);
-        typingTimer = setTimeout(stopTyping, 1200);
-        updateSendButtons();
-    });
-
-    chatInput.addEventListener("blur", () => { clearTimeout(typingTimer); stopTyping(); });
-
-    socket.on("typing", (data) => {
-        if (!typingIndicator) return;
-        if (!data || data.id === socket.id) return;
-        if (data.isTyping) {
-            typingIndicator.textContent = `${cleanName(data.name) || "Someone"} is typing…`;
-            typingIndicator.style.display = "flex";
-        } else {
-            typingIndicator.style.display = "none";
-        }
-    });
-
-    function getReplyPreview(msg) {
-        if (!msg) return "";
-        if (msg.type === "text") return String(msg.data || "").slice(0, 150);
-        if (msg.type === "image") return "📷 Photo";
-        if (msg.type === "video") return "🎥 Video";
-        if (msg.type === "audio") return "🎙️ Voice message";
-        if (msg.type === "document") return "📄 File";
-        return "Message";
-    }
-
-    function beginReply(msg) {
-        if (!msg) return;
-        replyToMessage = { id: msg.id, name: msg.name || "User", type: msg.type || "text", preview: getReplyPreview(msg) };
-        if (replyPreview) replyPreview.textContent = `↩ ${replyToMessage.name}: ${replyToMessage.preview}`;
-        if (replyBar) replyBar.style.display = "flex";
-        chatInput.focus();
-    }
-
-    function clearReply() {
-        replyToMessage = null;
-        if (replyPreview) replyPreview.textContent = "";
-        if (replyBar) replyBar.style.display = "none";
-    }
-
-    replyCancel?.addEventListener("click", clearReply);
-
-    function updateSendButtons() {
-        if (!sendButton) return;
-        const hasText = chatInput.value.trim().length > 0;
-        if (hasText) {
-            sendButton.style.display = "flex";
-            if (voiceButton) voiceButton.style.display = "none";
-        } else {
-            sendButton.style.display = "none";
-            if (voiceButton) voiceButton.style.display = "flex";
-        }
-    }
-
-    emojiButton?.addEventListener("click", (event) => {
-        event.stopPropagation();
-        if (attachmentMenu) attachmentMenu.style.display = "none";
-        if (!emojiContainer && !emojiPicker) return;
-        const target = emojiContainer || emojiPicker;
-        target.style.display = target.style.display === "block" ? "none" : "block";
-    });
-
-    emojiPicker?.addEventListener("emoji-click", (event) => {
-        const emoji = event.detail?.unicode;
-        if (!emoji) return;
-        if (reactingToMsgId) {
-             socket.emit("messageReaction", { messageId: reactingToMsgId, emoji });
-             if(emojiContainer) emojiContainer.style.display = "none";
-             else emojiPicker.style.display = "none";
-             reactingToMsgId = null;
-        } else {
-             chatInput.value += emoji; chatInput.focus(); updateSendButtons();
-        }
-    });
-
-    window.reactTo = (msgId) => {
-        reactingToMsgId = msgId;
-        if (attachmentMenu) attachmentMenu.style.display = "none";
-        if (emojiContainer) emojiContainer.style.display = "block";
-        else if (emojiPicker) emojiPicker.style.display = "block";
+    const getFiltered = () => {
+        const now=Date.now(), day=86400000;
+        return memoriesList.filter(m=>{
+            const d=dateOf(m);
+            const text=searchText.toLowerCase();
+            const search=!text||nameOf(m).toLowerCase().includes(text)||String(m.time||"").toLowerCase().includes(text);
+            if(!search)return false;
+            if(activeFilter==="mine"&&!sameMine(m))return false;
+            if(activeFilter==="others"&&sameMine(m))return false;
+            if(activeFilter==="today"&&(!d||now-d.getTime()>day||d.getTime()>now))return false;
+            if(activeFilter==="week"&&(!d||now-d.getTime()>7*day||d.getTime()>now))return false;
+            return true;
+        }).sort((a,b)=>(dateOf(b)?.getTime()||0)-(dateOf(a)?.getTime()||0));
     };
+    const formatMemDate=m=>{const d=dateOf(m);return d?d.toLocaleString([], {dateStyle:"medium",timeStyle:"short"}):String(m?.time||"Unknown date");};
 
-    attachButton?.addEventListener("click", (event) => {
-        event.stopPropagation();
-        if(emojiContainer) emojiContainer.style.display = "none";
-        else if(emojiPicker) emojiPicker.style.display = "none";
-        if(attachmentMenu) attachmentMenu.style.display = attachmentMenu.style.display === "flex" ? "none" : "flex";
-        else fileInput?.click(); 
-    });
-
-    document.addEventListener("click", (event) => {
-        if (attachmentMenu && !attachmentMenu.contains(event.target) && event.target !== attachButton) attachmentMenu.style.display = "none";
-        if (emojiContainer && !emojiContainer.contains(event.target) && event.target !== emojiButton) emojiContainer.style.display = "none";
-    });
-
-    document.getElementById("att-media")?.addEventListener("click", () => { if(!fileInput) return; fileInput.accept="image/*,video/*"; fileInput.click(); if(attachmentMenu) attachmentMenu.style.display="none"; });
-    document.getElementById("att-doc")?.addEventListener("click", () => { if(!fileInput) return; fileInput.accept=".pdf,.doc,.docx,.txt,.zip"; fileInput.click(); if(attachmentMenu) attachmentMenu.style.display="none"; });
-    document.getElementById("att-audio")?.addEventListener("click", () => { if(!fileInput) return; fileInput.accept="audio/*"; fileInput.click(); if(attachmentMenu) attachmentMenu.style.display="none"; });
-
-    fileInput?.addEventListener("change", () => {
-        const file = fileInput.files?.[0];
-        if (!file) return;
-        if (file.size > MAX_CHAT_FILE_SIZE) { alert("File is too large. Maximum size is 5 MB."); fileInput.value = ""; return; }
-
-        const reader = new FileReader();
-        reader.onload = () => {
-            let type = "document";
-            if (file.type.startsWith("image/")) type = "image";
-            else if (file.type.startsWith("video/")) type = "video";
-            else if (file.type.startsWith("audio/")) type = "audio";
-
-            socket.emit("chatMessage", { name: currentUser.name, type, data: String(reader.result || ""), replyTo: replyToMessage });
-            clearReply(); fileInput.value = "";
-        };
-        reader.readAsDataURL(file);
-    });
-
-    function sendMessage() {
-        const text = chatInput.value.trim().slice(0, MAX_CHAT_LENGTH);
-        if (!text) return;
-        socket.emit("chatMessage", { name: currentUser.name, type: "text", data: text, replyTo: replyToMessage });
-        chatInput.value = ""; clearReply(); stopTyping(); updateSendButtons(); chatInput.focus();
-    }
-
-    chatForm.addEventListener("submit", (event) => { event.preventDefault(); sendMessage(); });
-
-    function renderReactions(messageElement, msg) {
-        if (!messageElement) return;
-        const container = messageElement.querySelector(".reaction-row") || messageElement.querySelector(".message-reactions");
-        if (!container) return;
-        container.innerHTML = "";
-
-        const reactions = msg.reactions || {};
-        Object.keys(reactions).forEach((emoji) => {
-            const users = reactions[emoji];
-            if (!Array.isArray(users) || users.length === 0) return;
-
-            const chip = document.createElement("button");
-            chip.type = "button"; chip.className = "reaction-chip"; chip.textContent = `${emoji} ${users.length}`;
-            chip.title = "Toggle reaction";
-            chip.addEventListener("click", () => { socket.emit("messageReaction", { messageId: msg.id, emoji }); });
-            container.appendChild(chip);
-        });
-    }
-
-    function addReactionButtons(picker, msg) {
-        picker.innerHTML = "";
-        reactionEmojis.forEach((emoji) => {
-            const button = document.createElement("button");
-            button.type = "button"; button.className = "action-btn"; button.textContent = emoji;
-            button.addEventListener("click", () => { socket.emit("messageReaction", { messageId: msg.id, emoji }); });
-            picker.appendChild(button);
-        });
-    }
-
-    function renderMessage(msg) {
-        if (!msg || !msg.id) return;
-
-        const wrapper = document.createElement("div");
-        wrapper.className = "chat-message-wrap";
-        const message = document.createElement("div");
-        message.className = "chat-message";
-
-        const mine = msg.senderId === socket.id;
-        if (mine) message.classList.add("msg-mine"); else message.classList.add("msg-theirs");
-
-        if (!mine) {
-            const sender = document.createElement("div"); sender.className = "msg-sender"; sender.textContent = cleanName(msg.name) || "User";
-            message.appendChild(sender);
-        }
-
-        if (msg.replyTo && msg.replyTo.preview) {
-            const quote = document.createElement("div");
-            quote.className = "reply-quote";
-            Object.assign(quote.style, { borderLeft: "3px solid var(--green-bright)", padding: "4px 6px", marginBottom: "6px", background: "rgba(0,0,0,0.15)", borderRadius: "4px", fontSize: "10px", color: "var(--muted)" });
-            quote.innerHTML = `<b>${escapeHTML(msg.replyTo.name || "User")}</b><br>${escapeHTML(msg.replyTo.preview)}`;
-            message.appendChild(quote);
-        }
-
-        const content = document.createElement("div");
-        if (msg.type === "text") { const text = document.createElement("div"); text.className = "message-text"; text.textContent = msg.data || ""; content.appendChild(text); } 
-        else if (msg.type === "image") { const image = document.createElement("img"); image.className = "chat-media"; image.src = msg.data; image.loading = "lazy"; content.appendChild(image); } 
-        else if (msg.type === "video") { const video = document.createElement("video"); video.className = "chat-media"; video.controls = true; video.preload = "metadata"; video.src = msg.data; content.appendChild(video); } 
-        else if (msg.type === "audio") { const audio = document.createElement("audio"); audio.className = "chat-audio"; audio.controls = true; audio.src = msg.data; content.appendChild(audio); } 
-        else if (msg.type === "document") { const link = document.createElement("a"); link.className = "chat-document"; link.href = msg.data; link.download = "Koraput-Map-file"; link.textContent = "📄 Download File"; content.appendChild(link); }
+    if(!$("phase3-memory-open")){
+        const style=document.createElement("style");
+        style.textContent=`
+        #phase3-memory-open{position:fixed;left:16px;bottom:76px;z-index:1200;width:48px;height:42px;border:1px solid rgba(255,255,255,.12);border-radius:13px;background:rgba(7,16,24,.94);color:#fff;box-shadow:0 10px 30px rgba(0,0,0,.45);font-size:18px}
+        #phase3-memory-overlay{position:fixed;inset:0;z-index:5000;display:none;background:rgba(0,0,0,.62);backdrop-filter:blur(7px);padding:20px}
+        #phase3-memory-panel{width:min(980px,100%);height:min(88vh,760px);margin:auto;background:#071018;border:1px solid rgba(255,255,255,.1);border-radius:22px;overflow:hidden;box-shadow:0 25px 90px rgba(0,0,0,.7);display:flex;flex-direction:column}
+        .p3-head{padding:16px 18px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;justify-content:space-between;gap:12px}.p3-head h2{margin:0;font-size:17px}.p3-head small{color:#8d9ba2}.p3-close{width:36px;height:36px;border:0;border-radius:10px;background:rgba(255,255,255,.07);color:#fff;font-size:20px}
+        .p3-toolbar{padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.07);display:flex;gap:7px;flex-wrap:wrap}.p3-toolbar button{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);color:#cbd5d9;border-radius:9px;padding:7px 10px;font-size:11px}.p3-toolbar button.active{background:rgba(16,185,129,.16);color:#18d6a3;border-color:rgba(16,185,129,.3)}#phase3-memory-search{margin-left:auto;min-width:180px;flex:1;max-width:280px;border:1px solid rgba(255,255,255,.08);border-radius:9px;background:rgba(255,255,255,.04);color:#fff;padding:8px 10px;outline:0}
+        #phase3-memory-content{flex:1;overflow:auto;padding:14px}.p3-section-title{font-size:11px;color:#8d9ba2;margin:4px 0 10px;text-transform:uppercase;letter-spacing:.08em}.p3-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}.p3-card{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.035);border-radius:14px;overflow:hidden;cursor:pointer;text-align:left;color:#fff}.p3-card img{display:block;width:100%;height:145px;object-fit:cover}.p3-card-body{padding:8px}.p3-card-body b{display:block;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.p3-card-body span{display:block;color:#8d9ba2;font-size:9px;margin-top:4px}.p3-empty{padding:35px 10px;text-align:center;color:#8d9ba2;font-size:12px}.p3-timeline{margin-top:18px}.p3-time-item{display:grid;grid-template-columns:80px 1fr;gap:10px;margin-bottom:9px}.p3-time-date{color:#8d9ba2;font-size:9px;padding-top:9px;text-align:right}.p3-time-card{display:flex;gap:10px;padding:8px;border:1px solid rgba(255,255,255,.07);border-radius:12px;background:rgba(255,255,255,.035);cursor:pointer}.p3-time-card img{width:62px;height:62px;border-radius:9px;object-fit:cover}.p3-time-card b{font-size:11px}.p3-time-card span{display:block;color:#8d9ba2;font-size:9px;margin-top:4px}
+        #phase3-photo-viewer{position:fixed;inset:0;z-index:6000;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.82);padding:20px}.p3-view-card{width:min(680px,100%);max-height:92vh;overflow:auto;background:#071018;border:1px solid rgba(255,255,255,.12);border-radius:18px;padding:14px}.p3-view-card img{display:block;width:100%;max-height:58vh;object-fit:contain;border-radius:11px;background:#000}.p3-view-meta{padding:10px 2px;color:#fff}.p3-view-meta b{font-size:14px}.p3-view-meta small{display:block;color:#8d9ba2;margin-top:4px}.p3-view-actions{display:flex;gap:7px;margin-top:10px}.p3-view-actions button{flex:1;border:0;border-radius:10px;padding:10px;background:rgba(255,255,255,.07);color:#fff}.p3-view-actions button.primary{background:#10b981}.p3-map-popup{min-width:210px;text-align:center}.p3-map-popup img{width:190px;height:135px;object-fit:cover;border-radius:9px;display:block;margin:8px auto}.p3-map-popup b{font-size:12px}.p3-map-popup small{color:#666}
+        .leaflet-popup-content-wrapper { background: #111b21 !important; color: #fff !important; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; box-shadow: 0 15px 40px rgba(0,0,0,0.6); }
+        .leaflet-popup-tip { background: #111b21 !important; border: 1px solid rgba(255,255,255,0.1); }
+        .leaflet-popup-close-button { color: #fff !important; }
+        @media(max-width:600px){#phase3-memory-open{left:10px;bottom:62px}#phase3-memory-overlay{padding:0}#phase3-memory-panel{height:100dvh;border-radius:0}.p3-grid{grid-template-columns:repeat(2,1fr)}.p3-card img{height:140px}.p3-time-item{grid-template-columns:58px 1fr}.p3-time-date{font-size:8px}}
+        `;
+        document.head.appendChild(style);
+        const openBtn=document.createElement("button");openBtn.id="phase3-memory-open";openBtn.type="button";openBtn.title="Memory gallery";openBtn.textContent="🖼️";document.body.appendChild(openBtn);
+        const overlay=document.createElement("div");overlay.id="phase3-memory-overlay";overlay.innerHTML=`<div id="phase3-memory-panel"><div class="p3-head"><div><h2>📸 Memory Gallery</h2><small id="phase3-memory-count">0 memories</small></div><button class="p3-close" id="phase3-memory-close">×</button></div><div class="p3-toolbar"><button data-filter="all" class="active">All</button><button data-filter="today">Today</button><button data-filter="week">This week</button><button data-filter="mine">Mine</button><button data-filter="others">Others</button><input id="phase3-memory-search" placeholder="Search memories…" maxlength="80"></div><div id="phase3-memory-content"><div class="p3-section-title">Gallery</div><div class="p3-grid" id="phase3-memory-grid"></div><div class="p3-timeline"><div class="p3-section-title">Photo timeline</div><div id="phase3-timeline-list"></div></div></div></div>`;document.body.appendChild(overlay);
+        const viewer=document.createElement("div");viewer.id="phase3-photo-viewer";viewer.innerHTML=`<div class="p3-view-card"><img id="p3-view-image" alt="Memory"><div class="p3-view-meta"><b id="p3-view-name"></b><small id="p3-view-date"></small><small id="p3-view-location"></small><div class="p3-view-actions"><button id="p3-view-focus" class="primary">📍 Focus on map</button><button id="p3-view-close">Close</button></div></div></div>`;document.body.appendChild(viewer);
         
-        message.appendChild(content);
-
-        const meta = document.createElement("div");
-        meta.className = "message-meta";
-        const time = document.createElement("span");
-        if (msg.time) {
-            const date = new Date(msg.time);
-            time.style.color = "var(--muted)"; time.style.fontSize = "9px"; time.style.display = "block"; time.style.marginTop = "3px"; time.style.textAlign = "right";
-            time.textContent = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-        }
-        meta.appendChild(time);
-        message.appendChild(meta);
-
-        const actions = document.createElement("div");
-        actions.className = "message-actions";
-        const picker = document.createElement("div"); picker.className = "reaction-picker"; picker.style.display = "flex"; picker.style.gap = "2px";
-        addReactionButtons(picker, msg); actions.appendChild(picker);
-        const replyButton = document.createElement("button"); replyButton.type = "button"; replyButton.className = "action-btn"; replyButton.textContent = "↩ Reply";
-        replyButton.addEventListener("click", () => beginReply(msg)); actions.appendChild(replyButton);
-        message.appendChild(actions);
-
-        const reactions = document.createElement("div"); reactions.className = "reaction-row"; message.appendChild(reactions);
-        wrapper.appendChild(message); chatMessages.appendChild(wrapper);
-
-        msg.reactions = msg.reactions || {};
-        messageStore.set(msg.id, { msg, element: wrapper });
-        renderReactions(wrapper, msg);
-
-        const fromOtherUser = msg.senderId && msg.senderId !== socket.id;
-        if (fromOtherUser && !isChatOpen()) { unreadCount++; updateUnreadBadge(); }
-        chatMessages.scrollTop = chatMessages.scrollHeight;
+        openBtn.onclick=()=>{overlay.style.display="flex";renderMemoriesUI();};
+        $("phase3-memory-close").onclick=()=>overlay.style.display="none";
+        overlay.onclick=e=>{if(e.target===overlay)overlay.style.display="none"};
+        $("p3-view-close").onclick=()=>viewer.style.display="none";
+        viewer.onclick=e=>{if(e.target===viewer)viewer.style.display="none"};
+        
+        overlay.querySelectorAll("[data-filter]").forEach(b=>b.onclick=()=>{activeFilter=b.dataset.filter;overlay.querySelectorAll("[data-filter]").forEach(x=>x.classList.toggle("active",x===b));renderMemoriesUI();});
+        $("phase3-memory-search").oninput=e=>{searchText=e.target.value.trim();renderMemoriesUI();};
+        document.addEventListener("keydown",e=>{if(e.key==="Escape"){overlay.style.display="none";viewer.style.display="none";}});
     }
 
-    socket.on("chatMessage", renderMessage);
+    const openViewer = (m) => {
+        $("p3-view-image").src=m.image; $("p3-view-name").textContent=nameOf(m); $("p3-view-date").textContent=formatMemDate(m);
+        $("p3-view-location").textContent=validCoord(Number(m.lat),Number(m.lng))?`📍 ${Number(m.lat).toFixed(5)}, ${Number(m.lng).toFixed(5)}`:"Location unavailable";
+        $("p3-view-focus").onclick=()=>{map.flyTo([Number(m.lat),Number(m.lng)],17,{animate:true,duration:.7}); $("phase3-photo-viewer").style.display="none"; $("phase3-memory-overlay").style.display="none";};
+        $("phase3-photo-viewer").style.display="flex";
+    };
 
-    socket.on("messageReaction", (data) => {
-        if (!data?.messageId) return;
-        const stored = messageStore.get(String(data.messageId));
-        if (!stored) return;
-        stored.msg.reactions = data.reactions || {};
-        renderReactions(stored.element, stored.msg);
-    });
+    const renderMemoriesUI = () => {
+        const list=getFiltered(); $("phase3-memory-count").textContent=`${list.length} ${list.length===1?"memory":"memories"}`;
+        const grid=$("phase3-memory-grid"), timeline=$("phase3-timeline-list"); grid.innerHTML=""; timeline.innerHTML="";
+        if(!list.length){grid.innerHTML='<div class="p3-empty">No memories match this filter.</div>';timeline.innerHTML='<div class="p3-empty">Nothing to show in the timeline.</div>';return;}
+        list.forEach(m=>{
+            const card=document.createElement("button");card.type="button";card.className="p3-card";card.innerHTML=`<img src="${esc(m.image)}" alt="Memory"><div class="p3-card-body"><b>${esc(nameOf(m))}</b><span>${esc(formatMemDate(m))}</span></div>`;card.onclick=()=>openViewer(m);grid.appendChild(card);
+            const item=document.createElement("div");item.className="p3-time-item";item.innerHTML=`<div class="p3-time-date">${esc(formatMemDate(m).split(",")[0])}</div><div class="p3-time-card"><img src="${esc(m.image)}" alt=""><div><b>${esc(nameOf(m))}</b><span>${esc(formatMemDate(m))}</span><span>📍 ${Number(m.lat).toFixed(4)}, ${Number(m.lng).toFixed(4)}</span></div></div>`;item.querySelector(".p3-time-card").onclick=()=>openViewer(m);timeline.appendChild(item);
+        });
+    };
 
-    updateSendButtons();
-    updateUnreadBadge();
-}
-
-// ==========================================
-// VOICE RECORDER
-// ==========================================
-
-function setupVoiceRecorder() {
-    const voiceButton = document.getElementById("voiceButton");
-    const chatInput = document.getElementById("chatInput");
-    const sendBtn = document.getElementById("chat-send");
+    const memIcon = (m) => L.divIcon({className:"p3-memory-marker",html:`<div style="width:46px;height:46px;border-radius:50%;overflow:hidden;border:2px solid #fff;background:#071018;box-shadow:0 4px 16px rgba(0,0,0,.6)"><img src="${esc(m.image)}" style="width:100%;height:100%;object-fit:cover;display:block" alt="Memory"></div>`,iconSize:[46,46],iconAnchor:[23,23]});
     
-    if (!voiceButton) return;
+    const renderMemMarkers = () => {
+        memoryLayerGroup.clearLayers(); memoryMarkersMap.clear();
+        memoriesList.forEach(m=>{
+            const lat=Number(m.lat),lng=Number(m.lng); if(!validCoord(lat,lng)||!validImageData(m.image))return;
+            const marker=L.marker([lat,lng],{icon:memIcon(m)}).addTo(memoryLayerGroup);
+            marker.bindPopup(`<div class="p3-map-popup"><b>📸 ${esc(nameOf(m))}</b><small>${esc(formatMemDate(m))}</small><img src="${esc(m.image)}" alt="Memory"><button type="button" class="p3-open-map-memory">View memory</button></div>`);
+            marker.on("popupopen",e=>{e.popup.getElement()?.querySelector(".p3-open-map-memory")?.addEventListener("click",()=>openViewer(m));});
+            memoryMarkersMap.set(String(m.id||`${lat}_${lng}`),marker);
+        });
+    };
 
-    let mediaRecorder = null;
-    let audioChunks = [];
-    let recording = false;
+    const addMemSilent = (m) => {
+        if(!m||!validCoord(Number(m.lat),Number(m.lng))||!validImageData(m.image))return;
+        const id=String(m.id||`${m.lat}_${m.lng}_${m.time}`);
+        if(memoriesList.some(x=>String(x.id||`${x.lat}_${x.lng}_${x.time}`)===id))return;
+        memoriesList.push({...m,id}); if(memoriesList.length>500)memoriesList.shift();
+    };
 
-    function resetVoiceButton() {
-        voiceButton.style.background = "transparent";
-        voiceButton.style.color = "var(--muted)";
-        voiceButton.innerHTML = "🎙️";
-        if (chatInput && sendBtn && chatInput.value.trim()) {
-            voiceButton.style.display = "none";
-            sendBtn.style.display = "flex";
-        }
-    }
+    socket.on("loadMemoryPhotos", list=>{ memoriesList.length=0; (Array.isArray(list)?list:[]).slice(-500).forEach(addMemSilent); renderMemMarkers(); if($("phase3-memory-overlay")?.style.display==="flex")renderMemoriesUI(); });
+    socket.on("newMemoryPin", m=>{ addMemSilent(m); renderMemMarkers(); if($("phase3-memory-overlay")?.style.display==="flex")renderMemoriesUI(); });
 
-    voiceButton.addEventListener("click", async () => {
-        if (recording) { mediaRecorder?.stop(); return; }
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { alert("Voice recording is not supported in this browser."); return; }
-
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
-            audioChunks = [];
-            let mimeType = "";
-            if (MediaRecorder.isTypeSupported("audio/webm")) mimeType = "audio/webm";
-            else if (MediaRecorder.isTypeSupported("audio/mp4")) mimeType = "audio/mp4";
-
-            mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
-            recording = true;
-
-            voiceButton.textContent = "⏹";
-            voiceButton.title = "Stop recording";
-            voiceButton.style.background = "var(--green)";
-            voiceButton.style.color = "#fff";
-
-            mediaRecorder.ondataavailable = (event) => { if (event.data && event.data.size > 0) audioChunks.push(event.data); };
-
-            mediaRecorder.onstop = () => {
-                recording = false;
-                resetVoiceButton();
-                stream.getTracks().forEach((track) => track.stop());
-
-                const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType || "audio/webm" });
-                if (blob.size === 0) return;
-                if (blob.size > MAX_CHAT_FILE_SIZE) { alert("Voice message is too large."); return; }
-
-                const reader = new FileReader();
-                reader.onload = () => {
-                    const data = String(reader.result || "");
-                    if (!/^data:audio\//i.test(data)) return;
-                    socket.emit("chatMessage", { name: currentUser.name, type: "audio", data: data, replyTo: null });
-                };
-                reader.onerror = () => { alert("Failed to read audio data."); };
-                reader.readAsDataURL(blob);
-            };
-
-            mediaRecorder.start();
-
-        } catch (error) {
-            console.warn("Microphone error:", error);
-            alert("Microphone permission was not granted.");
-        }
+    const memInput = $("memoryPhotoInput");
+    $("memoryButton")?.addEventListener("click", () => {
+        if(!currentUser.name) return alert("Join the map first.");
+        if(!myCoords) return alert("Waiting for GPS...");
+        memInput.click();
     });
+    memInput?.addEventListener("change", () => {
+        const f = memInput.files?.[0]; if(!f) return;
+        if(!IMAGE_TYPES.includes(f.type) || f.size > MAX_MEMORY_FILE) { alert("Invalid image or >8MB."); memInput.value=""; return; }
+        const r = new FileReader();
+        r.onload = () => {
+            if(validImageData(r.result)){
+                socket.emit("uploadMemoryPhoto", {name: currentUser.name, lat: myCoords.lat, lng: myCoords.lng, image: r.result});
+            }
+        };
+        r.readAsDataURL(f); memInput.value="";
+    });
+
+    initPhase3();
 }
 
-// ==========================================
-// MAP CONTROLS
-// ==========================================
+$("profile-close")?.addEventListener("click",()=>$("profile-popup").style.display="none");
+$("profile-popup")?.addEventListener("click",e=>{if(e.target.id==="profile-popup")e.currentTarget.style.display="none";});
 
-function setupMapControls() {
-    const locationBtn = document.getElementById("my-location-btn");
-    const compassBtn = document.getElementById("compass-btn");
-    const styleBtn = document.getElementById("map-style-btn");
-    const styleMenu = document.getElementById("map-style-menu");
-
-    locationBtn?.addEventListener("click", () => {
-        if (!myCoords) { alert("Waiting for GPS location..."); return; }
-        map.flyTo([myCoords.lat, myCoords.lng], Math.max(map.getZoom(), 16), { animate: true, duration: 0.8 });
-    });
-
-    compassBtn?.addEventListener("click", () => {
-        const center = map.getCenter();
-        map.setView(center, map.getZoom(), { animate: true });
-        const icon = document.getElementById("compass-icon");
-        if (icon) icon.style.transform = "rotate(0deg)";
-    });
-
-    styleBtn?.addEventListener("click", (event) => {
-        event.stopPropagation();
-        if (!styleMenu) return;
-        styleMenu.style.display = styleMenu.style.display === "flex" ? "none" : "flex";
-    });
-
-    styleMenu?.addEventListener("click", (event) => {
-        const button = event.target.closest("[data-style]");
-        if (!button) return;
-        changeMapStyle(button.dataset.style);
-        styleMenu.style.display = "none";
-    });
-
-    document.addEventListener("click", (event) => {
-        if (styleMenu && styleBtn && !styleMenu.contains(event.target) && event.target !== styleBtn) {
-            styleMenu.style.display = "none";
-        }
-    });
-}
-
-function changeMapStyle(style) {
-    if (!["satellite", "street", "dark"].includes(style)) return;
-    if (style === currentMapStyle) return;
-
-    if (currentMapStyle === "satellite") map.removeLayer(satelliteLayer);
-    if (currentMapStyle === "street") map.removeLayer(streetLayer);
-    if (currentMapStyle === "dark") map.removeLayer(darkLayer);
-
-    if (style === "satellite") satelliteLayer.addTo(map);
-    if (style === "street") streetLayer.addTo(map);
-    if (style === "dark") darkLayer.addTo(map);
-
-    currentMapStyle = style;
-    document.querySelectorAll("#map-style-menu button").forEach((button) => {
-        button.classList.toggle("active", button.dataset.style === style);
-    });
-    setTimeout(() => map.invalidateSize(), 100);
-}
-
-// ==========================================
-// INITIALIZE
-// ==========================================
-
-function setupEverything() {
-    setupUserJoin();
-    setupMemoryButton();
-    setupChat();
-    setupVoiceRecorder();
-    setupProfilePopup();
-    setupMapControls();
-    startLocationTracking();
-    updateOnlineCount();
-}
-
-// Ensure the code runs safely after DOM loads
-if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", () => {
-        setupEverything();
-        setInterval(() => { emitLocation(); updateFriendBadges(); }, 5000);
-    });
-} else {
-    setupEverything();
-    setInterval(() => { emitLocation(); updateFriendBadges(); }, 5000);
-}
-
-console.log("Koraput Map Phase 2 Client Loaded Successfully!");
+socket.on("connect",()=>{if(currentUser.name)socket.emit("profileReady",currentUser);});
+setupJoin();setupMapControls();setupChat();setupVoice();startGPS();setupPhase3UI();
+setInterval(()=>{emitLocation();updateFriendBadges();},5000);
+console.log("Koraput Map loaded — Phase 1, 2 & 3 completely Integrated & Perfected.");
