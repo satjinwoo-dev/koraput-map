@@ -6,7 +6,6 @@ const DEFAULT_AVATAR = "satyam.png";
 const MAX_NAME = 40;
 const MAX_CHAT_FILE = 5 * 1024 * 1024;
 const MAX_MEMORY_FILE = 8 * 1024 * 1024;
-const MAX_AVATAR_FILE = 3 * 1024 * 1024;
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
 const map = L.map("map", { zoomControl: false, preferCanvas: true }).setView(DEFAULT_CENTER, 13);
@@ -20,26 +19,30 @@ let myCoords = null, myWeather = "", ownMarker = null, accuracyCircle = null, ci
 const friendMarkers = Object.create(null);
 const friendData = Object.create(null);
 
-const locationHistory = [];
-const historyPolyline = L.polyline([], { color: '#3b82f6', weight: 4, opacity: 0.8, dashArray: '5, 10' }).addTo(map);
+// Location History Persistent via localStorage
+let locationHistory = [];
+try {
+    const stored = localStorage.getItem("koraput_history");
+    if (stored) locationHistory = JSON.parse(stored);
+    if (!Array.isArray(locationHistory)) locationHistory = [];
+} catch(e) { locationHistory = []; }
+
+const p4LayerGroup = L.layerGroup().addTo(map);
+const historyPolyline = L.polyline(locationHistory, { color: '#3b82f6', weight: 4, opacity: 0.8, dashArray: '5, 10' }).addTo(p4LayerGroup);
 
 let mapActionMode = null; 
 let pendingMemoryImage = null; 
 let measurePoints = [];
-const p4LayerGroup = L.layerGroup().addTo(map);
 let currentTrip = null;
 let tripMarker = null;
 
 const memories = new Map();
 const memoryLayer = L.layerGroup().addTo(map);
-let currentGalleryFilter = "all";
-let currentGallerySearch = "";
-let selectedMemoryId = null;
+let currentGalleryFilter = "all", currentGallerySearch = "", selectedMemoryId = null;
 
 const $ = id => document.getElementById(id);
 const cleanName = v => String(v || "User").trim().replace(/\s+/g," ").slice(0, MAX_NAME);
 const validCoord = (lat,lng) => Number.isFinite(lat) && Number.isFinite(lng) && lat>=-90 && lat<=90 && lng>=-180 && lng<=180;
-// Relaxed Image Validation so it never fails on mobile
 const validImageData = v => typeof v === "string" && v.startsWith("data:image/");
 
 function distanceKm(a,b,c,d){
@@ -52,10 +55,8 @@ function escapeHTML(v) { return String(v ?? "").replace(/&/g,"&amp;").replace(/<
 socket.on("connect", () => { if (currentUser.name) socket.emit("profileReady", currentUser); });
 
 function showToast(message, duration = 4000) {
-    const container = $("toast-container");
-    if(!container) return;
-    const toast = document.createElement("div");
-    toast.className = "toast"; toast.textContent = message;
+    const container = $("toast-container"); if(!container) return;
+    const toast = document.createElement("div"); toast.className = "toast"; toast.textContent = message;
     container.appendChild(toast);
     setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, duration);
 }
@@ -72,8 +73,11 @@ function startGPS() {
         if(!validCoord(lat,lng)) return;
         myCoords={lat,lng};
 
+        // Persistent history storage
         locationHistory.push([lat, lng]);
+        if(locationHistory.length > 1000) locationHistory.shift(); 
         historyPolyline.setLatLngs(locationHistory);
+        localStorage.setItem("koraput_history", JSON.stringify(locationHistory));
 
         if(!ownMarker){
             ownMarker = L.marker([lat,lng],{icon:L.icon({iconUrl:currentUser.avatar, iconSize:[36,36], iconAnchor:[18,18], className:"avatar-icon own-live-avatar"}), zIndexOffset:1000}).addTo(map);
@@ -103,7 +107,7 @@ socket.on("onlineUsers", list=>{ if(Array.isArray(list)) list.forEach(u=>{ if(u.
 socket.on("userOnline", u=>{ if(u.id!==socket.id){ friendData[u.id]={...(friendData[u.id]||{}),...u,online:true}; createOrUpdateFriendMarker(u); } updateOnlineUI(); });
 socket.on("userOffline", d=>{ if(d?.id && friendData[d.id]){ friendData[d.id].online=false; if(friendMarkers[d.id]) friendMarkers[d.id].setOpacity(0.45); } updateOnlineUI(); });
 socket.on("friendMoved", u=>{ if(u?.id) createOrUpdateFriendMarker({...u,online:true}); updateOnlineUI(); updateTripPanel();});
-socket.on("friendDisconnected", id=>{ if(friendMarkers[id]){map.removeLayer(friendMarkers[id]); delete friendMarkers[id];} delete friendData[id]; updateOnlineUI(); });
+socket.on("friendDisconnected", id=>{ if(friendMarkers[id]){map.removeLayer(friendMarkers[id]); delete friendMarkers[id];} delete friendData[id]; updateOnlineUI(); updateTripPanel();});
 
 function createOrUpdateFriendMarker(u){
     if(!u?.id || !validCoord(u.lat,u.lng)) return;
@@ -122,8 +126,7 @@ function updateOnlineUI(){
     Object.values(friendData).filter(f=>f.online!==false).forEach(u=>{
         const btn=document.createElement("button"); btn.className="online-friend";
         btn.innerHTML=`<img src="${escapeHTML(u.avatar)}"><span><b>${escapeHTML(u.name)}</b></span><div class="status-dot"></div>`;
-        btn.onclick=()=>{ map.flyTo([u.lat,u.lng],16); showProfilePopup(u); };
-        box.appendChild(btn);
+        btn.onclick=()=>{ map.flyTo([u.lat,u.lng],16); showProfilePopup(u); }; box.appendChild(btn);
     });
 }
 
@@ -144,7 +147,7 @@ function setupAdvancedTools() {
         mapActionMode = mapActionMode === 'measure' ? null : 'measure';
         $("measure-btn").classList.toggle("active-tool", mapActionMode === 'measure');
         $("geofence-btn").classList.remove("active-tool"); $("trip-btn").classList.remove("active-tool");
-        if(mapActionMode !== 'measure') { p4LayerGroup.clearLayers(); measurePoints = []; }
+        if(mapActionMode !== 'measure') { p4LayerGroup.eachLayer(l => { if(!l.options?.isGeofence) map.removeLayer(l); }); measurePoints = []; }
         else showToast("📍 Tap two points on the map to measure distance");
     };
 
@@ -162,7 +165,6 @@ function setupAdvancedTools() {
         if(mapActionMode === 'trip') showToast("🚗 Tap the map to set Group Trip Destination");
     };
 
-    // GLOBAL MAP CLICK HANDLER (Fix for Memory Pinning)
     map.on('click', (e) => {
         if (mapActionMode === 'measure') {
             measurePoints.push(e.latlng);
@@ -171,14 +173,20 @@ function setupAdvancedTools() {
                 L.polyline(measurePoints, {color: '#f59e0b', weight: 4, dashArray: '5, 5'}).addTo(p4LayerGroup);
                 const d = distanceKm(measurePoints[0].lat, measurePoints[0].lng, measurePoints[1].lat, measurePoints[1].lng);
                 showToast(`📏 Distance: ${d} km`, 5000);
-                setTimeout(() => { p4LayerGroup.clearLayers(); measurePoints = []; mapActionMode = null; $("measure-btn").classList.remove("active-tool"); }, 5000);
+                setTimeout(() => { p4LayerGroup.eachLayer(l => { if(!l.options?.isGeofence) map.removeLayer(l); }); measurePoints = []; mapActionMode = null; $("measure-btn").classList.remove("active-tool"); }, 5000);
             }
         } 
         else if (mapActionMode === 'geofence') {
             const name = prompt("Enter Geofence Name (e.g., Home, College):");
             if (name && name.trim()) {
-                socket.emit("addGeofence", { name: name.trim(), lat: e.latlng.lat, lng: e.latlng.lng, radius: 500 });
-                showToast(`⭕ Geofence '${name}' created!`);
+                const radInput = prompt("Enter Geofence Radius in meters (10 to 50000):", "500");
+                const radius = Number(radInput);
+                if (Number.isFinite(radius) && radius >= 10 && radius <= 50000) {
+                    socket.emit("addGeofence", { name: name.trim(), lat: e.latlng.lat, lng: e.latlng.lng, radius: radius });
+                    showToast(`⭕ Geofence '${name}' created with ${radius}m radius!`);
+                } else {
+                    showToast("❌ Invalid radius! Must be between 10 and 50000 meters.");
+                }
             }
             mapActionMode = null; $("geofence-btn").classList.remove("active-tool");
         }
@@ -191,13 +199,11 @@ function setupAdvancedTools() {
             mapActionMode = null; $("trip-btn").classList.remove("active-tool");
         }
         else if (mapActionMode === 'memory') {
-            // Memory is Pinned Here!
             if (pendingMemoryImage) {
                 socket.emit("uploadMemoryPhoto", { name: currentUser.name, lat: e.latlng.lat, lng: e.latlng.lng, image: pendingMemoryImage });
                 showToast("✅ Memory pinned successfully!");
             }
-            mapActionMode = null;
-            pendingMemoryImage = null;
+            mapActionMode = null; pendingMemoryImage = null;
         }
     });
 
@@ -209,6 +215,7 @@ function setupAdvancedTools() {
         });
     });
 
+    // FIX 1: Proper Object-based ID matching for Group Trips
     socket.on("tripData", trip => {
         currentTrip = trip;
         if(tripMarker) { map.removeLayer(tripMarker); tripMarker = null; }
@@ -216,24 +223,47 @@ function setupAdvancedTools() {
             $("trip-panel").style.display = "flex";
             $("trip-title").textContent = `Trip to ${trip.name}`;
             tripMarker = L.marker([trip.lat, trip.lng], { icon: L.divIcon({className: 'geofence-marker', html: '🏁'}) }).addTo(map);
+
+            const isMember = trip.members.some(m => m.id === socket.id);
+            const isHost = trip.hostId === socket.id;
+            const actionBtn = $("trip-action-btn");
+            
+            if (actionBtn) {
+                if (isHost) {
+                    actionBtn.textContent = "End Trip";
+                    actionBtn.style.color = "#ef4444"; actionBtn.style.background = "rgba(239, 68, 68, 0.2)";
+                    actionBtn.onclick = () => socket.emit("leaveTrip");
+                } else if (isMember) {
+                    actionBtn.textContent = "Leave Trip";
+                    actionBtn.style.color = "#f59e0b"; actionBtn.style.background = "rgba(245, 158, 11, 0.2)";
+                    actionBtn.onclick = () => socket.emit("leaveTrip");
+                } else {
+                    actionBtn.textContent = "Join Trip";
+                    actionBtn.style.color = "#10b981"; actionBtn.style.background = "rgba(16, 185, 129, 0.2)";
+                    actionBtn.onclick = () => socket.emit("joinTrip");
+                }
+            }
             updateTripPanel();
         } else {
             if($("trip-panel")) $("trip-panel").style.display = "none";
         }
     });
-
-    if($("trip-end-btn")) $("trip-end-btn").onclick = () => socket.emit("endTrip");
 }
 
 function updateTripPanel() {
     if(!currentTrip) return;
     const list = $("trip-members-list"); if(!list) return;
     list.innerHTML = "";
-    if(myCoords && currentUser.name) {
+    
+    const isMember = currentTrip.members.some(m => m.id === socket.id);
+
+    if(myCoords && currentUser.name && isMember) {
         const d = distanceKm(myCoords.lat, myCoords.lng, currentTrip.lat, currentTrip.lng);
         list.innerHTML += `<div class="trip-member"><div><img src="${escapeHTML(currentUser.avatar)}"> You</div> <span>${d} km</span></div>`;
     }
-    Object.values(friendData).filter(f=>f.online!==false).forEach(f => {
+    
+    // Filter matching active members by socket ID
+    Object.values(friendData).filter(f => f.online !== false && currentTrip.members.some(m => m.id === f.id)).forEach(f => {
         const d = distanceKm(f.lat, f.lng, currentTrip.lat, currentTrip.lng);
         list.innerHTML += `<div class="trip-member"><div><img src="${escapeHTML(f.avatar)}"> ${escapeHTML(f.name)}</div> <span>${d} km</span></div>`;
     });
@@ -254,45 +284,19 @@ function setupBasicControls(){
 }
 
 // ==========================================
-// CHAT FUNCTIONALITY (Buttons Fixed)
+// CHAT FUNCTIONALITY
 // ==========================================
 function setupChat(){
     const cc=$("chat-container"), inp=$("chatInput"), send=$("chat-send"), vb=$("voiceButton");
     let unread=0, typingTimer=null, replyTo=null, reactingId=null;
     const msgStore=new Map(), emojis=["👍","❤️","😂","😮","😢","🔥"];
 
-    function updateUnreadBadge(){ 
-        const b=$("chat-unread-badge"); 
-        if(!b) return;
-        b.textContent=unread>99?"99+":unread; 
-        b.style.display=unread>0?"flex":"none"; 
-    }
+    function updateUnreadBadge(){ const b=$("chat-unread-badge"); if(!b) return; b.textContent=unread>99?"99+":unread; b.style.display=unread>0?"flex":"none"; }
 
-    $("chat-toggle-btn").onclick = () => { 
-        cc.style.display = "flex"; 
-        $("chat-toggle-btn").style.display = "none";
-        unread=0; updateUnreadBadge(); 
-        inp.focus(); 
-    };
-
-    $("chat-minimize-btn").onclick = () => { 
-        cc.style.display = "none"; 
-        $("chat-toggle-btn").style.display = "flex"; 
-    };
-
-    // FIX: Left Chat Button (Online Users)
-    $("online-btn").onclick = (e) => { 
-        e.stopPropagation();
-        const l=$("online-list"); 
-        l.style.display = l.style.display === "block" ? "none" : "block"; 
-        updateOnlineUI(); 
-    };
-
-    document.addEventListener("click", e => {
-        if ($("online-list") && !$("online-list").contains(e.target) && e.target !== $("online-btn")) {
-            $("online-list").style.display = "none";
-        }
-    });
+    $("chat-toggle-btn").onclick = () => { cc.style.display = "flex"; $("chat-toggle-btn").style.display = "none"; unread=0; updateUnreadBadge(); inp.focus(); };
+    $("chat-minimize-btn").onclick = () => { cc.style.display = "none"; $("chat-toggle-btn").style.display = "flex"; };
+    $("online-btn").onclick = (e) => { e.stopPropagation(); const l=$("online-list"); l.style.display = l.style.display === "block" ? "none" : "block"; updateOnlineUI(); };
+    document.addEventListener("click", e => { if ($("online-list") && !$("online-list").contains(e.target) && e.target !== $("online-btn")) $("online-list").style.display = "none"; });
 
     inp.oninput=()=>{ socket.emit("typing",true); clearTimeout(typingTimer); typingTimer=setTimeout(()=>socket.emit("typing",false), 1200); send.style.display=inp.value.trim()?"flex":"none"; vb.style.display=inp.value.trim()?"none":"flex"; };
     socket.on("typing", d=>{ const t=$("typing-indicator"); if(d.id!==socket.id && d.isTyping){t.textContent=`${escapeHTML(d.name)} is typing…`; t.style.display="block";}else t.style.display="none"; });
@@ -360,7 +364,7 @@ function setupVoice(){
 }
 
 // ==========================================
-// MEMORY GALLERY & PINNING (Camera Fixed)
+// MEMORY GALLERY & PINNING
 // ==========================================
 function setupMemories(){
     $("phase3-gallery-btn").onclick = () => { $("phase3-memory-overlay").style.display="block"; renderMemGallery(); };
@@ -408,21 +412,11 @@ function setupMemories(){
     socket.on("loadMemoryPhotos", l=>{ memories.clear(); l.forEach(m=>memories.set(m.id,m)); renderPins(); });
     socket.on("newMemoryPin", m=>{ memories.set(m.id,m); renderPins(); if($("phase3-memory-overlay").style.display==="block") renderMemGallery(); });
 
-    // FIX: Camera Pinning
     const mInp=$("memoryPhotoInput");
-    $("memoryButton").onclick=()=>{ 
-        if(!currentUser.name) return alert("Join map first."); 
-        mInp.click(); 
-    };
+    $("memoryButton").onclick=()=>{ if(!currentUser.name) return alert("Join map first."); mInp.click(); };
     
-    // NEW FIX: Trigger Camera directly from inside Gallery
     const addMemBtn = $("p3-add-memory-btn");
-    if(addMemBtn) {
-        addMemBtn.onclick = () => {
-            $("phase3-memory-overlay").style.display="none";
-            $("memoryButton").click();
-        };
-    }
+    if(addMemBtn) addMemBtn.onclick = () => { $("phase3-memory-overlay").style.display="none"; $("memoryButton").click(); };
     
     mInp.onchange=()=>{
         const f=mInp.files?.[0]; if(!f) return;
@@ -432,7 +426,7 @@ function setupMemories(){
             if(validImageData(r.result)){ 
                 pendingMemoryImage = r.result;
                 mapActionMode = 'memory';
-                alert("📸 Photo Selected!\n\nTap ANYWHERE on the map to pin it."); // Inescapable Prompt
+                alert("📸 Photo Selected!\n\nTap ANYWHERE on the map to pin it.");
             }
         }; 
         r.readAsDataURL(f); mInp.value="";
