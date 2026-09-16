@@ -13,13 +13,13 @@ app.use(express.static(path.join(__dirname, "public")));
 const users = new Map();
 const messages = new Map();
 const memoryPhotos = [];
-const geofences = new Map(); // Phase 4
-let activeTrip = null;       // Phase 4
+const geofences = new Map(); 
+let activeTrip = null; 
 
 const MAX_MESSAGES = 200;
 const MAX_MEMORY_PHOTOS = 100;
-const MAX_MESSAGE_DATA = 8 * 1024 * 1024;
-const MAX_MEMORY_DATA = 7 * 1024 * 1024;
+const MAX_MESSAGE_DATA = 8 * 1024 * 1024; // 8MB for Chat
+const MAX_MEMORY_DATA = 7 * 1024 * 1024;  // 7MB for Memories
 
 const REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
 const CHAT_TYPES = ["text", "image", "video", "audio", "document"];
@@ -40,8 +40,8 @@ function safeAvatar(v) {
     return "satyam.png";
 }
 
-function validDataUrl(v, type) {
-    if (typeof v !== "string" || v.length > MAX_MESSAGE_DATA) return false;
+function validDataUrl(v, type, maxSize) {
+    if (typeof v !== "string" || v.length > maxSize) return false;
     return new RegExp(`^data:${type}\\/`, "i").test(v);
 }
 
@@ -65,13 +65,11 @@ function publicUser(id) {
 }
 
 io.on("connection", (socket) => {
-    console.log("User connected:", socket.id);
-
     socket.emit("loadMemoryPhotos", memoryPhotos);
     socket.emit("onlineUsers", [...users.keys()].map(publicUser).filter(Boolean));
     socket.emit("chatHistory", [...messages.values()]);
-    socket.emit("loadGeofences", [...geofences.values()]); // Phase 4
-    socket.emit("tripData", activeTrip); // Phase 4
+    socket.emit("loadGeofences", [...geofences.values()]); 
+    socket.emit("tripData", activeTrip); 
 
     socket.on("profileReady", (data = {}) => {
         const old = users.get(socket.id) || {};
@@ -92,18 +90,14 @@ io.on("connection", (socket) => {
         const old = users.get(socket.id) || {};
         const newFences = {};
         
-        // Phase 4: Check Geofences
         geofences.forEach(f => {
             const dist = haversineDistance(lat, lng, f.lat, f.lng);
             const inside = dist <= f.radius;
             newFences[f.id] = inside;
             
             if (old.fences) {
-                if (inside && !old.fences[f.id]) {
-                    io.emit("geofenceAlert", { type: "enter", user: old.name || data.name, fence: f.name });
-                } else if (!inside && old.fences[f.id]) {
-                    io.emit("geofenceAlert", { type: "leave", user: old.name || data.name, fence: f.name });
-                }
+                if (inside && !old.fences[f.id]) io.emit("geofenceAlert", { type: "enter", user: old.name || data.name, fence: f.name });
+                else if (!inside && old.fences[f.id]) io.emit("geofenceAlert", { type: "leave", user: old.name || data.name, fence: f.name });
             }
         });
 
@@ -146,33 +140,70 @@ io.on("connection", (socket) => {
 
     socket.on("uploadMemoryPhoto", (data = {}) => {
         const lat = Number(data.lat), lng = Number(data.lng);
-        if (!validCoord(lat, -90, 90) || !validCoord(lng, -180, 180) || !validDataUrl(data.image, "image")) return;
+        if (!validCoord(lat, -90, 90) || !validCoord(lng, -180, 180)) return;
+        if (!validDataUrl(data.image, "image", MAX_MEMORY_DATA)) return; 
+        
         const user = users.get(socket.id);
-        const pin = { id: `${socket.id}-${Date.now()}`, name: user?.name || cleanName(data.name), lat, lng, image: data.image, time: new Date().toISOString() };
+        const pin = { id: `${socket.id}-${Date.now()}-${crypto.randomBytes(3).toString("hex")}`, name: user?.name || cleanName(data.name), lat, lng, image: data.image, time: new Date().toISOString() };
         memoryPhotos.push(pin); while (memoryPhotos.length > MAX_MEMORY_PHOTOS) memoryPhotos.shift();
         io.emit("newMemoryPin", pin);
     });
 
-    // PHASE 4: Geofence & Trip Events
+    // FINAL FIX: Absolute robust Geofence IDs
     socket.on("addGeofence", (f = {}) => {
         if (!validCoord(f.lat, -90, 90) || !validCoord(f.lng, -180, 180) || !f.name) return;
-        const fence = { id: Date.now().toString(), name: cleanName(f.name), lat: Number(f.lat), lng: Number(f.lng), radius: Number(f.radius) || 500 };
+        const radius = Number(f.radius);
+        if (!Number.isFinite(radius) || radius < 10 || radius > 50000) return; 
+
+        const fence = { 
+            id: `${Date.now()}-${crypto.randomBytes(4).toString("hex")}`, 
+            name: cleanName(f.name), 
+            lat: Number(f.lat), 
+            lng: Number(f.lng), 
+            radius: radius 
+        };
         geofences.set(fence.id, fence);
         io.emit("loadGeofences", [...geofences.values()]);
     });
 
     socket.on("startTrip", (t = {}) => {
         if (!validCoord(t.lat, -90, 90) || !validCoord(t.lng, -180, 180)) return;
-        activeTrip = { name: cleanName(t.name) || "Destination", lat: Number(t.lat), lng: Number(t.lng) };
+        const u = users.get(socket.id);
+        const uName = u ? u.name : "User";
+        activeTrip = { 
+            id: Date.now().toString(), 
+            name: cleanName(t.name) || "Destination", 
+            lat: Number(t.lat), 
+            lng: Number(t.lng), 
+            hostId: socket.id, 
+            members: [{ id: socket.id, name: uName }]
+        };
         io.emit("tripData", activeTrip);
     });
 
-    socket.on("endTrip", () => {
-        activeTrip = null;
-        io.emit("tripData", null);
+    socket.on("joinTrip", () => {
+        if (activeTrip && !activeTrip.members.some(m => m.id === socket.id)) {
+            const u = users.get(socket.id);
+            activeTrip.members.push({ id: socket.id, name: u ? u.name : "User" });
+            io.emit("tripData", activeTrip);
+        }
+    });
+
+    socket.on("leaveTrip", () => {
+        if (activeTrip) {
+            activeTrip.members = activeTrip.members.filter(m => m.id !== socket.id);
+            if (activeTrip.hostId === socket.id || activeTrip.members.length === 0) activeTrip = null; 
+            io.emit("tripData", activeTrip);
+        }
     });
 
     socket.on("disconnect", () => {
+        if (activeTrip) {
+            activeTrip.members = activeTrip.members.filter(m => m.id !== socket.id);
+            if (activeTrip.hostId === socket.id || activeTrip.members.length === 0) activeTrip = null;
+            io.emit("tripData", activeTrip);
+        }
+
         users.delete(socket.id);
         socket.broadcast.emit("typing", { id: socket.id, name: "", isTyping: false });
         socket.broadcast.emit("friendDisconnected", socket.id);
