@@ -8,7 +8,6 @@ const MAX_CHAT_FILE = 5 * 1024 * 1024;
 const MAX_MEMORY_FILE = 8 * 1024 * 1024;
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
-// Prevent infinite map scrolling/repeating worlds
 const map = L.map("map", { 
     zoomControl: false, 
     preferCanvas: true,
@@ -37,6 +36,9 @@ try {
 
 const p4LayerGroup = L.layerGroup().addTo(map);
 const historyPolyline = L.polyline(locationHistory, { color: '#3b82f6', weight: 4, opacity: 0.8, dashArray: '5, 10' }).addTo(p4LayerGroup);
+
+// NEVIGATION LAYER
+const navigationLayer = L.layerGroup().addTo(map);
 
 let mapActionMode = null; 
 let pendingMemoryImage = null; 
@@ -96,21 +98,124 @@ async function fetchWeather(lat,lng){
 async function fetchCity(lat,lng){
     try {
         const r = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=en`);
-        if (r.ok) {
-            const d = await r.json();
-            const c = d.city || d.locality || d.principalSubdivision;
-            if (c) return c;
-        }
+        if (r.ok) { const d = await r.json(); const c = d.city || d.locality || d.principalSubdivision; if (c) return c; }
     } catch (e) {}
     try {
         const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}&zoom=10`);
-        if (r.ok) {
-            const d = await r.json();
-            return d.address?.city || d.address?.town || d.address?.county || "Rourkela";
-        }
+        if (r.ok) { const d = await r.json(); return d.address?.city || d.address?.town || d.address?.county || "Rourkela"; }
     } catch { return "Rourkela"; }
 }
 
+// ==========================================
+// NAVIGATION (OSRM API)
+// ==========================================
+const Navigation = {
+    active: false,
+    targetId: null,
+    targetCoords: null,
+    routeLayer: L.layerGroup().addTo(map),
+    
+    async start(friendId) {
+        const f = friendData[friendId];
+        if(!f || !validCoord(f.lat, f.lng) || !myCoords) return showToast("Location not available for routing.");
+        this.active = true;
+        this.targetId = friendId;
+        this.targetCoords = { lat: f.lat, lng: f.lng };
+        
+        if($("profile-popup")) $("profile-popup").style.display = "none";
+        if($("nav-title-name")) $("nav-title-name").textContent = f.name;
+        if($("nav-panel")) $("nav-panel").style.display = "flex";
+        
+        await this.calculate();
+    },
+    
+    async calculate() {
+        if(!this.active || !myCoords || !this.targetCoords) return;
+        this.routeLayer.clearLayers();
+        // CHANGED: "Calculating safest route..." -> "Calculating best route..."
+        if($("nav-instructions")) $("nav-instructions").innerHTML = "<i>Analyzing roads & finding optimal route...</i>";
+        
+        try {
+            // Fetch best road driving route
+            const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${myCoords.lng},${myCoords.lat};${this.targetCoords.lng},${this.targetCoords.lat}?steps=true&geometries=geojson&overview=full`);
+            if(!res.ok) throw new Error("Route failed");
+            
+            const data = await res.json();
+            
+            if(data.routes && data.routes.length > 0) {
+                const r = data.routes[0];
+                const coords = r.geometry.coordinates.map(c => [c[1], c[0]]); 
+                
+                const path = L.polyline(coords, {
+                    color: '#18d6a3', 
+                    weight: 5, 
+                    opacity: 0.8, 
+                    className: 'nav-path-animated'
+                }).addTo(this.routeLayer);
+
+                map.fitBounds(path.getBounds(), { padding: [50, 50] });
+
+                const distKm = (r.distance / 1000).toFixed(1);
+                const timeMin = Math.round(r.duration / 60);
+                
+                // CHANGED: "🚗 Route" 
+                showToast(`🚗 Best Route: ${distKm} km • ⏱️ ${timeMin} mins`, 6000);
+                if($("nav-stats")) $("nav-stats").innerHTML = `🚗 ${distKm} km &nbsp; ⏱️ ${timeMin} min`;
+                
+                let instHTML = "";
+                if(r.legs[0] && r.legs[0].steps) {
+                    const steps = r.legs[0].steps.slice(0, 4);
+                    steps.forEach(s => {
+                        let arrow = "↑";
+                        if(s.maneuver.modifier) {
+                            if(s.maneuver.modifier.includes('right')) arrow = "↱";
+                            if(s.maneuver.modifier.includes('left')) arrow = "↰";
+                        }
+                        instHTML += `<div style="padding:4px 0;">${arrow} ${s.maneuver.instruction}</div>`;
+                    });
+                }
+                if($("nav-instructions")) $("nav-instructions").innerHTML = instHTML || "Follow the highlighted route on the map.";
+                
+            } else {
+                if($("nav-instructions")) $("nav-instructions").innerHTML = "<i>No viable road route found.</i>";
+            }
+        } catch (e) {
+            console.error("Routing error:", e);
+            if($("nav-instructions")) $("nav-instructions").innerHTML = "<i>Navigation error. Try again later.</i>";
+        }
+    },
+    
+    stop() {
+        this.active = false;
+        this.targetId = null;
+        this.targetCoords = null;
+        this.routeLayer.clearLayers();
+        if($("nav-panel")) $("nav-panel").style.display = "none";
+        if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
+    },
+    
+    onLiveUpdate() {
+        if(!this.active) return;
+        if(this.targetId && friendData[this.targetId]) {
+            const f = friendData[this.targetId];
+            if(!this.targetCoords) return;
+            const dist = distanceKm(this.targetCoords.lat, this.targetCoords.lng, f.lat, f.lng);
+            // Auto Recalculate if friend moves > 100 meters
+            if(Number(dist) > 0.1) {
+                this.targetCoords = { lat: f.lat, lng: f.lng };
+                this.calculate();
+            }
+        }
+    }
+};
+
+if($("nav-recalc-btn")) $("nav-recalc-btn").onclick = () => Navigation.calculate();
+if($("nav-exit-btn")) $("nav-exit-btn").onclick = () => Navigation.stop();
+
+
+// ==========================================
+// CORE SYSTEM
+// ==========================================
 socket.on("connect", () => { if (currentUser.name) socket.emit("profileReady", currentUser); });
 
 function showToast(message, duration = 4000) {
@@ -125,7 +230,6 @@ socket.on("geofenceAlert", (data) => {
     showToast(`🔔 ${data.user} has ${action} ${data.fence}!`);
 });
 
-// FIXED GPS: RESTORED FETCHCITY & FETCHWEATHER CALLS
 function startGPS() {
     if(!navigator.geolocation) return;
     navigator.geolocation.watchPosition(async p=>{
@@ -150,7 +254,6 @@ function startGPS() {
             else {accuracyCircle.setLatLng([lat,lng]); accuracyCircle.setRadius(acc);}
         }
 
-        // 1. Fetch and update city
         if (!cityName) {
             cityName = await fetchCity(lat, lng);
             if (cityName) {
@@ -159,7 +262,6 @@ function startGPS() {
             }
         }
 
-        // 2. Fetch and update weather
         if (!myWeather || Date.now() - lastWeatherFetch > 180000) {
             const w = await fetchWeather(lat, lng);
             if (w) {
@@ -173,7 +275,9 @@ function startGPS() {
         }
         
         socket.emit("updateLocation",{name:currentUser.name, avatar:currentUser.avatar, lat, lng, weather:myWeather});
-        updateFriendBadges(); updateTripPanel();
+        updateFriendBadges(); 
+        updateTripPanel();
+        Navigation.onLiveUpdate(); 
     }, e=>console.warn("GPS error",e), {enableHighAccuracy:true,timeout:15000,maximumAge:3000});
 }
 
@@ -189,8 +293,8 @@ function updateFriendBadges(){
 socket.on("onlineUsers", list=>{ if(Array.isArray(list)) list.forEach(u=>{ if(u.id!==socket.id){ friendData[u.id]={...(friendData[u.id]||{}),...u,online:true}; createOrUpdateFriendMarker(u);} }); updateOnlineUI(); });
 socket.on("userOnline", u=>{ if(u.id!==socket.id){ friendData[u.id]={...(friendData[u.id]||{}),...u,online:true}; createOrUpdateFriendMarker(u); } updateOnlineUI(); });
 socket.on("userOffline", d=>{ if(d?.id && friendData[d.id]){ friendData[d.id].online=false; if(friendMarkers[d.id]) friendMarkers[d.id].setOpacity(0.45); } updateOnlineUI(); });
-socket.on("friendMoved", u=>{ if(u?.id) createOrUpdateFriendMarker({...u,online:true}); updateOnlineUI(); updateTripPanel();});
-socket.on("friendDisconnected", id=>{ if(friendMarkers[id]){map.removeLayer(friendMarkers[id]); delete friendMarkers[id];} delete friendData[id]; updateOnlineUI(); updateTripPanel();});
+socket.on("friendMoved", u=>{ if(u?.id) { createOrUpdateFriendMarker({...u,online:true}); updateOnlineUI(); updateTripPanel(); Navigation.onLiveUpdate(); }});
+socket.on("friendDisconnected", id=>{ if(friendMarkers[id]){map.removeLayer(friendMarkers[id]); delete friendMarkers[id];} delete friendData[id]; updateOnlineUI(); });
 
 function createOrUpdateFriendMarker(u){
     if(!u?.id || !validCoord(u.lat,u.lng)) return;
@@ -220,6 +324,13 @@ function showProfilePopup(u) {
     if(st) { st.textContent = u.online!==false ? "● Online" : "● Offline"; st.style.color = u.online!==false ? "#18d6a3" : "#8fa1aa"; }
     if($("profile-popup-distance")) $("profile-popup-distance").textContent = myCoords ? `${distanceKm(myCoords.lat,myCoords.lng,u.lat,u.lng)} km away` : "--";
     if($("profile-popup-weather")) $("profile-popup-weather").textContent = u.weather || "--";
+    
+    if($("profile-nav-btn")) {
+        $("profile-nav-btn").onclick = () => {
+            if(validCoord(u.lat, u.lng)) Navigation.start(u.id);
+        };
+    }
+    
     if($("profile-popup")) $("profile-popup").style.display="flex";
     if($("profile-focus-btn")) $("profile-focus-btn").onclick=()=>{ map.flyTo([u.lat,u.lng],16); $("profile-popup").style.display="none"; };
 }
