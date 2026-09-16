@@ -149,7 +149,6 @@ io.on("connection", (socket) => {
         io.emit("newMemoryPin", pin);
     });
 
-    // FINAL FIX: Absolute robust Geofence IDs
     socket.on("addGeofence", (f = {}) => {
         if (!validCoord(f.lat, -90, 90) || !validCoord(f.lng, -180, 180) || !f.name) return;
         const radius = Number(f.radius);
