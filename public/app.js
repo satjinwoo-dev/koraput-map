@@ -8,7 +8,7 @@ const MAX_CHAT_FILE = 5 * 1024 * 1024;
 const MAX_MEMORY_FILE = 8 * 1024 * 1024;
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
-// FIX: Prevent infinite map scrolling/repeating worlds
+// Prevent infinite map scrolling/repeating worlds
 const map = L.map("map", { 
     zoomControl: false, 
     preferCanvas: true,
@@ -24,6 +24,7 @@ satelliteLayer.addTo(map);
 
 let currentUser = { name: localStorage.getItem("koraput_name") || "", avatar: localStorage.getItem("koraput_avatar") || DEFAULT_AVATAR };
 let myCoords = null, myWeather = "", ownMarker = null, accuracyCircle = null, cityName = "";
+let lastWeatherFetch = 0;
 const friendMarkers = Object.create(null);
 const friendData = Object.create(null);
 
@@ -59,7 +60,6 @@ function distanceKm(a,b,c,d){
 }
 function escapeHTML(v) { return String(v ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;"); }
 
-// FIX: Custom DivIcons to prevent Leaflet from clipping the border
 function ownIcon() { 
     return L.divIcon({ 
         className: "custom-own-icon", 
@@ -78,6 +78,39 @@ function friendIcon(avatar) {
     }); 
 }
 
+function weatherEmoji(code){
+    if(code===0) return "☀️"; if([1,2,3].includes(code)) return "⛅"; if([45,48].includes(code)) return "🌫️";
+    if([51,53,55,56,57,61,63,65,66,67].includes(code)) return "🌧️"; if([71,73,75,77,85,86].includes(code)) return "❄️";
+    if([80,81,82].includes(code)) return "🌦️"; if([95,96,99].includes(code)) return "⛈️"; return "🌤️";
+}
+
+async function fetchWeather(lat,lng){
+    try {
+        const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lng)}&current=temperature_2m,weather_code`);
+        if(!r.ok) return ""; const d = await r.json();
+        const t = Number(d?.current?.temperature_2m), code = Number(d?.current?.weather_code);
+        return Number.isFinite(t) ? `${weatherEmoji(code)} ${Math.round(t)}°C` : "";
+    } catch { return ""; }
+}
+
+async function fetchCity(lat,lng){
+    try {
+        const r = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=en`);
+        if (r.ok) {
+            const d = await r.json();
+            const c = d.city || d.locality || d.principalSubdivision;
+            if (c) return c;
+        }
+    } catch (e) {}
+    try {
+        const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}&zoom=10`);
+        if (r.ok) {
+            const d = await r.json();
+            return d.address?.city || d.address?.town || d.address?.county || "Rourkela";
+        }
+    } catch { return "Rourkela"; }
+}
+
 socket.on("connect", () => { if (currentUser.name) socket.emit("profileReady", currentUser); });
 
 function showToast(message, duration = 4000) {
@@ -92,6 +125,7 @@ socket.on("geofenceAlert", (data) => {
     showToast(`🔔 ${data.user} has ${action} ${data.fence}!`);
 });
 
+// FIXED GPS: RESTORED FETCHCITY & FETCHWEATHER CALLS
 function startGPS() {
     if(!navigator.geolocation) return;
     navigator.geolocation.watchPosition(async p=>{
@@ -107,11 +141,35 @@ function startGPS() {
         if(!ownMarker){
             ownMarker = L.marker([lat,lng],{icon:ownIcon(), zIndexOffset:1000}).addTo(map);
             map.setView([lat,lng], 16);
-        } else ownMarker.setLatLng([lat,lng]);
+        } else {
+            ownMarker.setLatLng([lat,lng]);
+        }
 
         if(acc>0 && acc<100000){
             if(!accuracyCircle) accuracyCircle=L.circle([lat,lng],{radius:acc, color:"#10b981", weight:2, fillOpacity:.15}).addTo(map);
             else {accuracyCircle.setLatLng([lat,lng]); accuracyCircle.setRadius(acc);}
+        }
+
+        // 1. Fetch and update city
+        if (!cityName) {
+            cityName = await fetchCity(lat, lng);
+            if (cityName) {
+                if ($("header-app-title")) $("header-app-title").textContent = `${cityName} Map`;
+                if ($("pill-city")) $("pill-city").textContent = `📍 ${cityName}`;
+            }
+        }
+
+        // 2. Fetch and update weather
+        if (!myWeather || Date.now() - lastWeatherFetch > 180000) {
+            const w = await fetchWeather(lat, lng);
+            if (w) {
+                myWeather = w;
+                lastWeatherFetch = Date.now();
+                if ($("map-temp-display")) $("map-temp-display").textContent = w;
+                if (ownMarker) {
+                    ownMarker.unbindTooltip().bindTooltip(w, { permanent: true, direction: "right", className: "weather-badge", offset: [15, 0] });
+                }
+            }
         }
         
         socket.emit("updateLocation",{name:currentUser.name, avatar:currentUser.avatar, lat, lng, weather:myWeather});
@@ -306,9 +364,6 @@ function setupBasicControls(){
     if (window.DeviceOrientationEvent) window.addEventListener("deviceorientation", e => { const icon = $("compass-icon"); if (icon) icon.style.transform = `rotate(${e.webkitCompassHeading ? -e.webkitCompassHeading : e.alpha}deg)`; }, true);
 }
 
-// ==========================================
-// CHAT FUNCTIONALITY
-// ==========================================
 function setupChat(){
     const cc=$("chat-container"), inp=$("chatInput"), send=$("chat-send"), vb=$("voiceButton");
     let unread=0, typingTimer=null, replyTo=null, reactingId=null;
@@ -344,7 +399,6 @@ function setupChat(){
         if(m.senderId!==socket.id) b.innerHTML+=`<div class="msg-sender">${escapeHTML(m.name)}</div>`;
         if(m.replyTo) b.innerHTML+=`<div class="reply-quote"><b>${escapeHTML(m.replyTo.name)}</b><br>${escapeHTML(m.replyTo.preview)}</div>`;
         
-        // CSS properties added below ensure word break for long URLs/Text
         if(m.type==="text") b.innerHTML+=`<div style="word-wrap:break-word;word-break:break-word;">${escapeHTML(m.data)}</div>`;
         else if(m.type==="image") b.innerHTML+=`<img class="chat-media" src="${m.data}">`;
         else if(m.type==="video") b.innerHTML+=`<video class="chat-media" controls src="${m.data}"></video>`;
@@ -387,9 +441,6 @@ function setupVoice(){
     };
 }
 
-// ==========================================
-// MEMORY GALLERY & PINNING
-// ==========================================
 function setupMemories(){
     $("phase3-gallery-btn").onclick = () => { $("phase3-memory-overlay").style.display="block"; renderMemGallery(); };
     $("phase3-memory-close").onclick = () => $("phase3-memory-overlay").style.display="none";
@@ -457,9 +508,6 @@ function setupMemories(){
     };
 }
 
-// ==========================================
-// INIT
-// ==========================================
 function setupJoin(){
     if(currentUser.name){ $("join-screen").style.display="none"; $("header-avatar").style.display="block"; $("header-avatar").src=currentUser.avatar; socket.emit("profileReady",currentUser); }
     $("join-form").onsubmit=e=>{ e.preventDefault(); currentUser.name=cleanName($("nameInput").value); localStorage.setItem("koraput_name",currentUser.name);
