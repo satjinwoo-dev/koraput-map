@@ -8,7 +8,15 @@ const MAX_CHAT_FILE = 5 * 1024 * 1024;
 const MAX_MEMORY_FILE = 8 * 1024 * 1024;
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
-const map = L.map("map", { zoomControl: false, preferCanvas: true }).setView(DEFAULT_CENTER, 13);
+// FIX: Prevent infinite map scrolling/repeating worlds
+const map = L.map("map", { 
+    zoomControl: false, 
+    preferCanvas: true,
+    minZoom: 3,
+    maxBounds: [[-90, -180], [90, 180]],
+    maxBoundsViscosity: 1.0
+}).setView(DEFAULT_CENTER, 13);
+
 const satelliteLayer = L.tileLayer("https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}", { maxZoom: 20, subdomains: ["mt0","mt1","mt2","mt3"] });
 const streetLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 });
 const darkLayer = L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", { maxZoom: 20 });
@@ -19,7 +27,6 @@ let myCoords = null, myWeather = "", ownMarker = null, accuracyCircle = null, ci
 const friendMarkers = Object.create(null);
 const friendData = Object.create(null);
 
-// Location History Persistent via localStorage
 let locationHistory = [];
 try {
     const stored = localStorage.getItem("koraput_history");
@@ -52,6 +59,25 @@ function distanceKm(a,b,c,d){
 }
 function escapeHTML(v) { return String(v ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;"); }
 
+// FIX: Custom DivIcons to prevent Leaflet from clipping the border
+function ownIcon() { 
+    return L.divIcon({ 
+        className: "custom-own-icon", 
+        html: `<div style="width:100%; height:100%; border-radius:50%; border:2.5px solid #18d6a3; overflow:hidden; background:#071018; box-sizing:border-box; box-shadow:0 0 10px rgba(24,214,163,0.5);"><img src="${escapeHTML(currentUser.avatar)}" style="width:100%; height:100%; object-fit:cover; display:block;"></div>`,
+        iconSize: [38, 38], 
+        iconAnchor: [19, 19] 
+    }); 
+}
+
+function friendIcon(avatar) { 
+    return L.divIcon({ 
+        className: "custom-friend-icon", 
+        html: `<div style="width:100%; height:100%; border-radius:50%; border:2px solid #60a5fa; overflow:hidden; background:#071018; box-sizing:border-box;"><img src="${escapeHTML(avatar)}" style="width:100%; height:100%; object-fit:cover; display:block;"></div>`,
+        iconSize: [36, 36], 
+        iconAnchor: [18, 18] 
+    }); 
+}
+
 socket.on("connect", () => { if (currentUser.name) socket.emit("profileReady", currentUser); });
 
 function showToast(message, duration = 4000) {
@@ -73,14 +99,13 @@ function startGPS() {
         if(!validCoord(lat,lng)) return;
         myCoords={lat,lng};
 
-        // Persistent history storage
         locationHistory.push([lat, lng]);
         if(locationHistory.length > 1000) locationHistory.shift(); 
         historyPolyline.setLatLngs(locationHistory);
         localStorage.setItem("koraput_history", JSON.stringify(locationHistory));
 
         if(!ownMarker){
-            ownMarker = L.marker([lat,lng],{icon:L.icon({iconUrl:currentUser.avatar, iconSize:[36,36], iconAnchor:[18,18], className:"avatar-icon own-live-avatar"}), zIndexOffset:1000}).addTo(map);
+            ownMarker = L.marker([lat,lng],{icon:ownIcon(), zIndexOffset:1000}).addTo(map);
             map.setView([lat,lng], 16);
         } else ownMarker.setLatLng([lat,lng]);
 
@@ -113,7 +138,7 @@ function createOrUpdateFriendMarker(u){
     if(!u?.id || !validCoord(u.lat,u.lng)) return;
     friendData[u.id] = { id:u.id, name:u.name||"Friend", avatar:u.avatar||DEFAULT_AVATAR, lat:u.lat, lng:u.lng, weather:u.weather||"", online:u.online!==false };
     let m = friendMarkers[u.id];
-    if(!m){ m=L.marker([u.lat,u.lng],{icon:L.icon({iconUrl:u.avatar, iconSize:[34,34], className:"avatar-icon friend-marker"})}).addTo(map); m.on("click",()=>showProfilePopup(u)); friendMarkers[u.id]=m; }
+    if(!m){ m=L.marker([u.lat,u.lng],{icon:friendIcon(u.avatar)}).addTo(map); m.on("click",()=>showProfilePopup(u)); friendMarkers[u.id]=m; }
     else { m.setLatLng([u.lat,u.lng]); m.setOpacity(u.online===false?0.45:1); }
     updateFriendBadges();
 }
@@ -215,7 +240,6 @@ function setupAdvancedTools() {
         });
     });
 
-    // FIX 1: Proper Object-based ID matching for Group Trips
     socket.on("tripData", trip => {
         currentTrip = trip;
         if(tripMarker) { map.removeLayer(tripMarker); tripMarker = null; }
@@ -262,7 +286,6 @@ function updateTripPanel() {
         list.innerHTML += `<div class="trip-member"><div><img src="${escapeHTML(currentUser.avatar)}"> You</div> <span>${d} km</span></div>`;
     }
     
-    // Filter matching active members by socket ID
     Object.values(friendData).filter(f => f.online !== false && currentTrip.members.some(m => m.id === f.id)).forEach(f => {
         const d = distanceKm(f.lat, f.lng, currentTrip.lat, currentTrip.lng);
         list.innerHTML += `<div class="trip-member"><div><img src="${escapeHTML(f.avatar)}"> ${escapeHTML(f.name)}</div> <span>${d} km</span></div>`;
@@ -321,7 +344,8 @@ function setupChat(){
         if(m.senderId!==socket.id) b.innerHTML+=`<div class="msg-sender">${escapeHTML(m.name)}</div>`;
         if(m.replyTo) b.innerHTML+=`<div class="reply-quote"><b>${escapeHTML(m.replyTo.name)}</b><br>${escapeHTML(m.replyTo.preview)}</div>`;
         
-        if(m.type==="text") b.innerHTML+=`<div>${escapeHTML(m.data)}</div>`;
+        // CSS properties added below ensure word break for long URLs/Text
+        if(m.type==="text") b.innerHTML+=`<div style="word-wrap:break-word;word-break:break-word;">${escapeHTML(m.data)}</div>`;
         else if(m.type==="image") b.innerHTML+=`<img class="chat-media" src="${m.data}">`;
         else if(m.type==="video") b.innerHTML+=`<video class="chat-media" controls src="${m.data}"></video>`;
         else if(m.type==="audio") b.innerHTML+=`<audio class="chat-audio" controls src="${m.data}"></audio>`;
