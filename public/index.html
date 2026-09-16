@@ -4,18 +4,14 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
     <meta name="theme-color" content="#071018">
-    <meta name="description" content="Koraput Live Map — realtime location, friends, chat and memories">
     <title>Koraput Live Map</title>
     
-    <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-    
-    <!-- Emoji Picker Element -->
     <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js"></script>
     
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-        :root { --bg: #071018; --panel: rgba(7, 16, 24, 0.96); --border: rgba(255, 255, 255, 0.10); --green: #10b981; --green-bright: #18d6a3; --blue: #60a5fa; --text: #f5f7f8; --muted: #8d9ba2; --shadow: 0 12px 40px rgba(0, 0, 0, 0.55); }
+        :root { --bg: #071018; --border: rgba(255, 255, 255, 0.10); --green: #10b981; --green-bright: #18d6a3; --blue: #60a5fa; --text: #f5f7f8; --muted: #8d9ba2; --shadow: 0 12px 40px rgba(0, 0, 0, 0.55); }
         html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: var(--bg); color: var(--text); font-family: Inter, system-ui, sans-serif; }
         button, input { font: inherit; outline: none; cursor: pointer; } input { cursor: text; }
 
@@ -24,7 +20,8 @@
 
         #top-header { position: fixed; top: 14px; left: 14px; right: 14px; z-index: 1000; display: flex; justify-content: space-between; pointer-events: none; }
         .brand-card { pointer-events: auto; display: flex; align-items: center; gap: 10px; padding: 9px 13px; background: rgba(7, 16, 24, 0.88); border: 1px solid var(--border); border-radius: 15px; backdrop-filter: blur(14px); box-shadow: var(--shadow); }
-        .brand-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--green-bright); box-shadow: 0 0 14px var(--green-bright); }
+        /* FIX: Prevent dot from shrinking */
+        .brand-dot { flex: 0 0 9px; width: 9px; height: 9px; border-radius: 50%; background: var(--green-bright); box-shadow: 0 0 14px var(--green-bright); }
         .header-info { display: flex; flex-direction: column; line-height: 1.1; }
         .header-info strong { font-size: 13px; font-weight: 750; }
         .header-info span { margin-top: 3px; color: var(--muted); font-size: 9px; }
@@ -37,7 +34,7 @@
         #trip-panel { position: fixed; top: 14px; right: 14px; z-index: 1000; width: 220px; background: rgba(7, 16, 24, 0.92); border: 1px solid var(--border); border-radius: 15px; padding: 12px; backdrop-filter: blur(14px); box-shadow: var(--shadow); display: none; flex-direction: column; }
         .trip-head { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px; margin-bottom: 8px; }
         .trip-head strong { font-size: 12px; color: var(--green-bright); }
-        #trip-end-btn { background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 0; border-radius: 6px; padding: 4px 8px; font-size: 9px; font-weight: 700; }
+        #trip-action-btn { background: rgba(16, 185, 129, 0.2); color: var(--green-bright); border: 0; border-radius: 6px; padding: 4px 8px; font-size: 9px; font-weight: 700; transition: 0.2s; }
         #trip-members-list { display: flex; flex-direction: column; gap: 6px; max-height: 150px; overflow-y: auto; }
         .trip-member { display: flex; justify-content: space-between; font-size: 10px; color: white; align-items: center; }
         .trip-member img { width: 20px; height: 20px; border-radius: 50%; margin-right: 6px; }
@@ -54,8 +51,9 @@
         #map-style-menu button { border: 0; border-radius: 9px; padding: 9px 11px; background: transparent; color: #dbe4e8; text-align: left; font-size: 12px; }
         #map-style-menu button.active, #map-style-menu button:hover { background: rgba(16, 185, 129, 0.16); color: var(--green-bright); }
 
+        /* FIX: Better vertical alignment for bottom pills */
         #bottom-info { position: fixed; left: 50%; bottom: 17px; transform: translateX(-50%); z-index: 1000; display: flex; gap: 7px; pointer-events: none; }
-        .bottom-pill { padding: 8px 12px; border: 1px solid var(--border); border-radius: 999px; background: rgba(7, 16, 24, 0.9); color: #e9eef0; font-size: 10px; white-space: nowrap; backdrop-filter: blur(14px); box-shadow: 0 8px 25px rgba(0,0,0,0.35); }
+        .bottom-pill { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 14px; border: 1px solid var(--border); border-radius: 999px; background: rgba(7, 16, 24, 0.9); color: #e9eef0; font-size: 11px; font-weight: 600; white-space: nowrap; backdrop-filter: blur(14px); box-shadow: 0 8px 25px rgba(0,0,0,0.35); line-height: 1; }
         .bottom-pill.live { color: var(--green-bright); }
 
         #memoryButton, #chat-toggle-btn { position: fixed; bottom: 17px; z-index: 1200; width: 48px; height: 48px; border: 1px solid var(--border); background: rgba(7, 16, 24, 0.94); color: white; display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow); backdrop-filter: blur(14px); transition: transform 0.15s; }
@@ -68,7 +66,7 @@
         .join-logo { width: 58px; height: 58px; margin: 0 auto 15px; border-radius: 18px; display: flex; align-items: center; justify-content: center; background: rgba(16, 185, 129, 0.12); font-size: 27px; }
         .join-card h1 { margin: 0; font-size: 21px; }
         .join-card input { width: 100%; height: 44px; padding: 0 13px; border: 1px solid rgba(255, 255, 255, 0.09); border-radius: 12px; background: rgba(255, 255, 255, 0.05); color: white; font-size: 13px; margin-top: 15px;}
-        .avatar-upload { display: block; margin-top: 10px; padding: 12px; border: 1px dashed rgba(255, 255, 255, 0.15); border-radius: 12px; color: #b8c4c9; font-size: 11px; }
+        .avatar-upload { display: block; margin-top: 10px; padding: 12px; border: 1px dashed rgba(255, 255, 255, 0.15); border-radius: 12px; color: #b8c4c9; font-size: 11px; cursor: pointer; }
         #join-submit { margin-top: 13px; width: 100%; height: 44px; border: 0; border-radius: 12px; background: var(--green); color: white; font-weight: 750; font-size: 13px; }
 
         #profile-popup { position: fixed; inset: 0; z-index: 5500; display: none; align-items: center; justify-content: center; padding: 18px; background: rgba(0,0,0,0.45); backdrop-filter: blur(5px); }
@@ -115,12 +113,15 @@
         #typing-indicator { display: none; padding: 0 13px 5px; color: var(--muted); font-size: 10px; }
         #chat-form-area { padding: 9px; border-top: 1px solid var(--border); background: #111b21; }
         #reply-bar { display: none; align-items: center; justify-content: space-between; padding: 6px 10px; margin-bottom: 8px; background: #16252b; border-left: 3px solid var(--green-bright); border-radius: 6px; font-size: 11px; color: #aebac1; }
+        
         #attachment-menu, #emoji-picker-container { position: absolute; z-index: 30; display: none; background: rgba(7, 16, 24, 0.98); border: 1px solid var(--border); border-radius: 13px; }
         #attachment-menu { left: 9px; bottom: 62px; width: 155px; padding: 6px; }
-        #attachment-menu button { width: 100%; border: 0; border-radius: 8px; padding: 9px; background: transparent; color: #dce5e8; text-align: left; font-size: 11px; }
+        /* FIX: Align attachment menu icons properly */
+        #attachment-menu button { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; border-radius: 8px; padding: 10px 12px; background: transparent; color: #dce5e8; text-align: left; font-size: 12px; font-weight: 600; }
         #attachment-menu button:hover { background: rgba(255,255,255,0.07); }
         #emoji-picker-container { right: 8px; bottom: 62px; width: min(320px, calc(100vw - 40px)); }
         emoji-picker { width: 100%; height: 300px; --background: #101a20; --border-color: rgba(255,255,255,0.1); }
+        
         #chatForm { display: flex; align-items: center; gap: 6px; }
         .chat-icon-btn { flex: 0 0 36px; width: 36px; height: 36px; border: 0; border-radius: 10px; background: transparent; color: var(--muted); font-size: 16px; }
         .chat-icon-btn:hover { background: rgba(255, 255, 255, 0.06); color: white; }
@@ -137,25 +138,45 @@
         .phase3-filter.active { background: rgba(16,185,129,0.16); border-color: rgba(24,214,163,0.35); color: var(--green-bright); }
         #phase3-memory-search { flex: 1; min-width: 120px; border: 1px solid var(--border); border-radius: 999px; padding: 7px 11px; background: rgba(255,255,255,.04); color: white; font-size: 10px; }
         #phase3-memory-content { flex: 1; overflow-y: auto; padding: 14px; }
-        #phase3-memory-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
-        .p3-card { position: relative; aspect-ratio: 1/1; border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; overflow: hidden; cursor: pointer; }
-        .p3-card img { width: 100%; height: 100%; object-fit: cover; }
-        .p3-card-info { position: absolute; left: 0; right: 0; bottom: 0; padding: 24px 8px 8px; background: linear-gradient(transparent, rgba(0,0,0,0.8)); color: white; }
         
+        /* FIX: Robust Grid and Image sizing so they never break out */
+        #phase3-memory-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
+        .p3-card { position: relative; width: 100%; padding-top: 100%; border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; overflow: hidden; cursor: pointer; display: block; background: #0c171e; }
+        .p3-card img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
+        .p3-card-info { position: absolute; left: 0; right: 0; bottom: 0; padding: 24px 8px 8px; background: linear-gradient(transparent, rgba(0,0,0,0.8)); color: white; display: flex; flex-direction: column; justify-content: flex-end; }
+        .p3-card-info b { font-size: 11px; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .p3-card-info span { font-size: 9px; color: #bdc8cd; margin-top: 3px;}
+        
+        /* FIX: Bulletproof Timeline Layout */
+        .p3-timeline { margin-top: 24px; }
+        .p3-section-title { font-size: 12px; color: white; font-weight: 750; margin-bottom: 10px; }
+        .p3-time-item { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.05); cursor: pointer; }
+        .p3-time-thumb { flex: 0 0 52px; width: 52px; height: 52px; border-radius: 10px; overflow: hidden; background: #0c171e; display: block; }
+        .p3-time-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .p3-time-info { display: flex; flex-direction: column; justify-content: center; flex: 1; min-width: 0; }
+        .p3-time-info b { font-size: 12px; color: white; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .p3-time-info span { font-size: 10px; color: var(--muted); margin-top: 4px; }
+
         #phase3-photo-viewer { position: fixed; inset: 0; z-index: 9000; display: none; align-items: center; justify-content: center; padding: 18px; background: rgba(0,0,0,0.88); }
         .p3-view-card { width: min(700px, 100%); max-height: calc(100vh - 36px); display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 20px; background: #0c171e; }
-        #p3-view-image { width: 100%; max-height: 58vh; object-fit: contain; background: #000; }
+        #p3-view-image { width: 100%; max-height: 55vh; object-fit: contain; background: #000; display: block; border-radius: 12px 12px 0 0; }
         .p3-view-meta { padding: 15px; }
 
-        .avatar-icon { border-radius: 50%; }
-        .own-live-avatar { border: 2.5px solid var(--green-bright) !important; animation: radar 2s infinite; }
-        .friend-marker { border: 2px solid var(--blue) !important; }
+        /* FIX: Stop Leaflet from clipping avatars with custom L.divIcon */
+        .custom-own-icon div { animation: radar 2s infinite; }
+        .geofence-marker { background: transparent !important; border: 0 !important; display: flex; align-items: center; justify-content: center; font-size: 20px; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
         .p3-memory-marker { background: transparent !important; border: 0 !important; }
         .weather-badge { padding: 4px 7px !important; border: 1px solid rgba(255,255,255,0.09)!important; border-radius: 999px!important; background: rgba(7,16,24,0.92)!important; color: white!important; font-size: 9px!important; }
+        
+        /* POPUP FIXES */
         .leaflet-popup-content-wrapper { background: #111b21 !important; color: #fff !important; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; box-shadow: 0 15px 40px rgba(0,0,0,0.6); }
         .leaflet-popup-tip { background: #111b21 !important; border: 1px solid rgba(255,255,255,0.1); }
         .leaflet-popup-close-button { color: #fff !important; }
-        .geofence-marker { background: transparent !important; border: 0 !important; display: flex; align-items: center; justify-content: center; font-size: 20px; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
+        .p3-map-popup { width: 230px; padding: 3px; color: #111; text-align: center; }
+        .p3-map-popup img { width: 100%; max-height: 180px; object-fit: cover; border-radius: 10px; margin-bottom: 9px; display: block; }
+        .p3-map-popup b { font-size: 14px; color: var(--green-bright); }
+        .p3-map-popup small { display: block; font-size: 10px; color: #8fa1aa; margin-top: 4px; }
+        .p3-open-map-memory { width: 100%; margin-top: 9px; padding: 8px; border: 0; border-radius: 8px; background: var(--green); color: white; font-weight: 700; }
 
         @media(max-width: 600px) {
             #map-tools { right: 10px; top: 76px; }
@@ -188,7 +209,7 @@
 <div id="trip-panel">
     <div class="trip-head">
         <strong id="trip-title">Group Trip Active</strong>
-        <button id="trip-end-btn">End Trip</button>
+        <button id="trip-action-btn">Join Trip</button>
     </div>
     <div id="trip-members-list"></div>
 </div>
@@ -244,7 +265,6 @@
             </div>
         </div>
         <div class="chat-head-actions">
-            <!-- Fixed Online Users Button -->
             <button id="online-btn" class="chat-head-btn" type="button" title="Online users">👥</button>
             <button id="chat-minimize-btn" class="chat-head-btn" type="button" title="Close chat">×</button>
         </div>
@@ -282,7 +302,6 @@
                 <small id="phase3-memory-count">0 memories</small>
             </div>
             <div style="display:flex; gap:10px; align-items:center;">
-                <!-- New Clear "Add Photo" Button inside Gallery -->
                 <button id="p3-add-memory-btn" style="background:var(--green); border:0; padding:6px 12px; border-radius:8px; color:white; font-size:12px; font-weight:bold; cursor:pointer;">+ Add Photo</button>
                 <button id="phase3-memory-close" style="background:transparent; border:0; color:white; font-size:24px; cursor:pointer;">×</button>
             </div>
@@ -297,6 +316,7 @@
             <div class="p3-section-title">Gallery</div>
             <div id="phase3-memory-grid"></div>
             <div id="phase3-memory-empty" style="display:none; text-align:center; padding:20px; color:#888;">No memories found.</div>
+            
             <div class="p3-timeline">
                 <div class="p3-section-title">Photo Timeline</div>
                 <div id="phase3-timeline-list"></div>
@@ -311,7 +331,7 @@
         <div class="p3-view-meta">
             <b id="p3-view-name">Memory</b>
             <small id="p3-view-date">--</small>
-            <div id="p3-view-location" class="loc" style="margin-top:8px; padding:6px; background:rgba(255,255,255,0.1); border-radius:6px; display:inline-block; font-size:10px;">📍 Location</div>
+            <div id="p3-view-location" class="loc">📍 Location</div>
             <div class="p3-view-actions" style="display:flex; gap:10px; margin-top:12px;">
                 <button id="p3-view-focus" style="flex:1; padding:10px; border-radius:8px; border:0; background:rgba(16,185,129,0.2); color:#18d6a3; font-weight:bold;">📍 Focus on map</button>
                 <button id="p3-view-close" style="flex:1; padding:10px; border-radius:8px; border:0; background:rgba(255,255,255,0.1); color:white; font-weight:bold;">Close</button>
