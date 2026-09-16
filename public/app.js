@@ -1,65 +1,134 @@
 "use strict";
 
 const socket = io({ transports: ["websocket", "polling"] });
+
+// ==========================================
+// CONSTANTS & STATE
+// ==========================================
 const DEFAULT_CENTER = [18.8136, 82.7153];
+const DEFAULT_ZOOM = 13;
 const DEFAULT_AVATAR = "satyam.png";
 const MAX_NAME = 40;
+const MAX_CHAT = 1000;
 const MAX_CHAT_FILE = 5 * 1024 * 1024;
 const MAX_MEMORY_FILE = 8 * 1024 * 1024;
 const MAX_AVATAR_FILE = 3 * 1024 * 1024;
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
-const map = L.map("map", { zoomControl: false, preferCanvas: true }).setView(DEFAULT_CENTER, 13);
-const satelliteLayer = L.tileLayer("https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}", { maxZoom: 20, subdomains: ["mt0","mt1","mt2","mt3"] });
-const streetLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 });
-const darkLayer = L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", { maxZoom: 20 });
-satelliteLayer.addTo(map);
+let ownMarker = null;
+let accuracyCircle = null;
+let firstFix = true;
+let myCoords = null;
+let myWeather = "";
+let cityName = "";
+let currentStyle = "satellite";
 
-let currentUser = { name: localStorage.getItem("koraput_name") || "", avatar: localStorage.getItem("koraput_avatar") || DEFAULT_AVATAR };
-let myCoords = null, myWeather = "", ownMarker = null, accuracyCircle = null, cityName = "";
 const friendMarkers = Object.create(null);
 const friendData = Object.create(null);
 
 // Phase 4 States
 const locationHistory = [];
-const historyPolyline = L.polyline([], { color: '#3b82f6', weight: 4, opacity: 0.8, dashArray: '5, 10' }).addTo(map);
-
-let mapActionMode = null; // 'measure', 'geofence', 'trip'
+const p4LayerGroup = L.layerGroup();
+let historyPolyline = null;
+let mapActionMode = null; // 'measure', 'geofence', 'trip', 'memory'
+let pendingMemoryImage = null; // Stores image before tapping map
 let measurePoints = [];
-const p4LayerGroup = L.layerGroup().addTo(map);
 let currentTrip = null;
 let tripMarker = null;
 
+// Phase 3 Memories State
+const memories = new Map();
+let currentGalleryFilter = "all";
+let currentGallerySearch = "";
+let selectedMemoryId = null;
+
+let currentUser = { 
+    name: localStorage.getItem("koraput_name") || "", 
+    avatar: localStorage.getItem("koraput_avatar") || DEFAULT_AVATAR 
+};
+
+// ==========================================
+// MAP INITIALIZATION
+// ==========================================
+const map = L.map("map", { zoomControl: false, preferCanvas: true }).setView(DEFAULT_CENTER, DEFAULT_ZOOM);
+
+const satelliteLayer = L.tileLayer("https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}", { maxZoom: 20, subdomains: ["mt0","mt1","mt2","mt3"] });
+const streetLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 });
+const darkLayer = L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", { maxZoom: 20 });
+satelliteLayer.addTo(map);
+
+const memoryLayer = L.layerGroup().addTo(map);
+p4LayerGroup.addTo(map);
+historyPolyline = L.polyline([], { color: '#3b82f6', weight: 4, opacity: 0.8, dashArray: '5, 10' }).addTo(p4LayerGroup);
+
+// ==========================================
+// UTILITY FUNCTIONS
+// ==========================================
 const $ = id => document.getElementById(id);
+const escapeHTML = v => String(v ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;");
 const cleanName = v => String(v || "User").trim().replace(/\s+/g," ").slice(0, MAX_NAME);
 const validCoord = (lat,lng) => Number.isFinite(lat) && Number.isFinite(lng) && lat>=-90 && lat<=90 && lng>=-180 && lng<=180;
-const distanceKm = (a,b,c,d) => {
+const validImageData = v => typeof v === "string" && /^data:image\/(jpeg|jpg|png|webp|gif);base64,/i.test(v);
+
+function distanceKm(a,b,c,d){
     if(!validCoord(a,b) || !validCoord(c,d)) return "";
     const p = Math.PI/180, a1 = 0.5 - Math.cos((c-a)*p)/2 + Math.cos(a*p)*Math.cos(c*p)*Math.sin((d-b)*p/2)**2;
     return (12742 * Math.asin(Math.sqrt(a1))).toFixed(2);
-};
+}
 
-socket.on("connect", () => { if (currentUser.name) socket.emit("profileReady", currentUser); });
+function weatherEmoji(code){
+    if(code===0) return "☀️"; if([1,2,3].includes(code)) return "⛅"; if([45,48].includes(code)) return "🌫️";
+    if([51,53,55,56,57,61,63,65,66,67].includes(code)) return "🌧️"; if([71,73,75,77,85,86].includes(code)) return "❄️";
+    if([80,81,82].includes(code)) return "🌦️"; if([95,96,99].includes(code)) return "⛈️"; return "🌤️";
+}
+
+async function fetchWeather(lat,lng){
+    try {
+        const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lng)}&current=temperature_2m,weather_code`);
+        if(!r.ok) return ""; const d=await r.json();
+        const t=Number(d?.current?.temperature_2m), code=Number(d?.current?.weather_code);
+        return Number.isFinite(t) ? `${weatherEmoji(code)} ${Math.round(t)}°C` : "";
+    } catch { return ""; }
+}
+
+async function fetchCity(lat,lng){
+    try {
+        const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}&zoom=10`);
+        if(!r.ok) return ""; const d=await r.json();
+        return d.address?.city||d.address?.town||d.address?.county||"Rourkela";
+    } catch { return "Rourkela"; }
+}
+
+function ownIcon() { return L.icon({ iconUrl: currentUser.avatar, iconSize: [36,36], iconAnchor: [18,18], className: "avatar-icon own-live-avatar" }); }
 
 // ==========================================
-// TOAST NOTIFICATIONS (Phase 4)
+// TOAST NOTIFICATIONS
 // ==========================================
 function showToast(message, duration = 4000) {
     const container = $("toast-container");
+    if(!container) return;
     const toast = document.createElement("div");
-    toast.className = "toast"; toast.textContent = message;
+    toast.className = "toast"; 
+    toast.textContent = message;
     container.appendChild(toast);
     setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, duration);
 }
+
+// ==========================================
+// LOCATION TRACKING
+// ==========================================
+socket.on("connect", () => { if (currentUser.name) socket.emit("profileReady", currentUser); });
 
 socket.on("geofenceAlert", (data) => {
     const action = data.type === "enter" ? "entered" : "left";
     showToast(`🔔 ${data.user} has ${action} ${data.fence}!`);
 });
 
-// ==========================================
-// LOCATION TRACKING & HISTORY (Phase 4 Update)
-// ==========================================
+function emitLocation(){
+    if(!myCoords || !currentUser.name) return;
+    socket.emit("updateLocation",{name:currentUser.name, avatar:currentUser.avatar, lat:myCoords.lat, lng:myCoords.lng, weather:myWeather});
+}
+
 function startGPS() {
     if(!navigator.geolocation) return;
     navigator.geolocation.watchPosition(async p=>{
@@ -67,14 +136,16 @@ function startGPS() {
         if(!validCoord(lat,lng)) return;
         myCoords={lat,lng};
 
-        // Phase 4: Location History Trail Update
+        // Update Location History Trail
         locationHistory.push([lat, lng]);
         historyPolyline.setLatLngs(locationHistory);
 
         if(!ownMarker){
-            ownMarker = L.marker([lat,lng],{icon:L.icon({iconUrl:currentUser.avatar, iconSize:[36,36], iconAnchor:[18,18], className:"avatar-icon own-live-avatar"}), zIndexOffset:1000}).addTo(map);
+            ownMarker = L.marker([lat,lng],{icon:ownIcon(), zIndexOffset:1000}).addTo(map);
             map.setView([lat,lng], 16);
-        } else ownMarker.setLatLng([lat,lng]);
+        } else {
+            ownMarker.setLatLng([lat,lng]);
+        }
 
         if(acc>0 && acc<100000){
             if(!accuracyCircle) accuracyCircle=L.circle([lat,lng],{radius:acc, color:"#10b981", weight:2, fillOpacity:.15}).addTo(map);
@@ -82,13 +153,23 @@ function startGPS() {
         }
 
         if(!cityName) {
-            try{ const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=10`); const d=await r.json(); cityName=d.address?.city||"Rourkela"; $("header-app-title").textContent=`${cityName} Map`; $("pill-city").textContent=`📍 ${cityName}`; }catch{}
+            cityName = await fetchCity(lat,lng);
+            if(cityName) { 
+                if($("header-app-title")) $("header-app-title").textContent=`${cityName} Map`; 
+                if($("pill-city")) $("pill-city").textContent=`📍 ${cityName}`; 
+            }
         }
         
-        try{ const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,weather_code`); const d=await r.json(); myWeather=`${Math.round(d.current.temperature_2m)}°C`; ownMarker.unbindTooltip().bindTooltip(myWeather,{permanent:true,direction:"right",className:"weather-badge",offset:[15,0]}); }catch{}
+        const w = await fetchWeather(lat,lng);
+        if(w){
+            myWeather = w; 
+            if($("map-temp-display")) $("map-temp-display").textContent = w;
+            ownMarker.unbindTooltip().bindTooltip(w,{permanent:true,direction:"right",className:"weather-badge",offset:[15,0]});
+        }
         
-        socket.emit("updateLocation",{name:currentUser.name, avatar:currentUser.avatar, lat, lng, weather:myWeather});
-        updateFriendBadges(); updateTripPanel();
+        emitLocation(); 
+        updateFriendBadges(); 
+        updateTripPanel();
     }, e=>console.warn("GPS error",e), {enableHighAccuracy:true,timeout:15000,maximumAge:3000});
 }
 
@@ -121,33 +202,36 @@ function createOrUpdateFriendMarker(u){
 
 function updateOnlineUI(){
     let c=0; Object.values(friendData).forEach(f=>{if(f.online!==false) c++;});
-    $("header-online-status").textContent = `${currentUser.name ? c+1 : c} online`;
-    $("chat-subtitle").textContent = `${currentUser.name ? c+1 : c} online`;
+    if($("header-online-status")) $("header-online-status").textContent = `${currentUser.name ? c+1 : c} online`;
+    if($("chat-subtitle")) $("chat-subtitle").textContent = `${currentUser.name ? c+1 : c} online`;
     const box=$("online-list"); if(!box) return; box.innerHTML="";
     Object.values(friendData).filter(f=>f.online!==false).forEach(u=>{
         const btn=document.createElement("button"); btn.className="online-friend";
-        btn.innerHTML=`<img src="${u.avatar}"><span><b>${u.name}</b></span><div class="status-dot"></div>`;
+        btn.innerHTML=`<img src="${escapeHTML(u.avatar)}"><span><b>${escapeHTML(u.name)}</b></span><div class="status-dot"></div>`;
         btn.onclick=()=>{ map.flyTo([u.lat,u.lng],16); showProfilePopup(u); };
         box.appendChild(btn);
     });
 }
 
 function showProfilePopup(u) {
-    $("profile-popup-avatar").src=u.avatar; $("profile-popup-name").textContent=u.name;
-    $("profile-popup-status").textContent = u.online!==false ? "● Online" : "● Offline";
-    $("profile-popup-status").style.color = u.online!==false ? "#18d6a3" : "#8fa1aa";
-    $("profile-popup-distance").textContent = myCoords ? `${distanceKm(myCoords.lat,myCoords.lng,u.lat,u.lng)} km away` : "--";
-    $("profile-popup-weather").textContent = u.weather || "--";
-    $("profile-popup").style.display="flex";
-    $("profile-focus-btn").onclick=()=>{ map.flyTo([u.lat,u.lng],16); $("profile-popup").style.display="none"; };
+    if($("profile-popup-avatar")) $("profile-popup-avatar").src=u.avatar; 
+    if($("profile-popup-name")) $("profile-popup-name").textContent=u.name;
+    const st = $("profile-popup-status");
+    if(st) {
+        st.textContent = u.online!==false ? "● Online" : "● Offline";
+        st.style.color = u.online!==false ? "#18d6a3" : "#8fa1aa";
+    }
+    if($("profile-popup-distance")) $("profile-popup-distance").textContent = myCoords ? `${distanceKm(myCoords.lat,myCoords.lng,u.lat,u.lng)} km away` : "--";
+    if($("profile-popup-weather")) $("profile-popup-weather").textContent = u.weather || "--";
+    if($("profile-popup")) $("profile-popup").style.display="flex";
+    if($("profile-focus-btn")) $("profile-focus-btn").onclick=()=>{ map.flyTo([u.lat,u.lng],16); $("profile-popup").style.display="none"; };
 }
 $("profile-popup-close")?.addEventListener("click",()=>$("profile-popup").style.display="none");
 
 // ==========================================
-// PHASE 4: ADVANCED MAP TOOLS 
+// MAP TOOLS & MAP CLICK (Tap Anywhere Logic)
 // ==========================================
 function setupAdvancedTools() {
-    // 1. Distance Measurement Tool
     $("measure-btn").onclick = () => {
         mapActionMode = mapActionMode === 'measure' ? null : 'measure';
         $("measure-btn").classList.toggle("active-tool", mapActionMode === 'measure');
@@ -156,7 +240,6 @@ function setupAdvancedTools() {
         else showToast("📍 Tap two points on the map to measure distance");
     };
 
-    // 2. Geofence Tool
     $("geofence-btn").onclick = () => {
         mapActionMode = mapActionMode === 'geofence' ? null : 'geofence';
         $("geofence-btn").classList.toggle("active-tool", mapActionMode === 'geofence');
@@ -164,7 +247,6 @@ function setupAdvancedTools() {
         if(mapActionMode === 'geofence') showToast("⭕ Tap the map to set a Geofence area");
     };
 
-    // 3. Trip Mode Tool
     $("trip-btn").onclick = () => {
         mapActionMode = mapActionMode === 'trip' ? null : 'trip';
         $("trip-btn").classList.toggle("active-tool", mapActionMode === 'trip');
@@ -172,7 +254,7 @@ function setupAdvancedTools() {
         if(mapActionMode === 'trip') showToast("🚗 Tap the map to set Group Trip Destination");
     };
 
-    // Global Map Click Handler
+    // GLOBAL MAP CLICK HANDLER (Handles All Tap Logic)
     map.on('click', (e) => {
         if (mapActionMode === 'measure') {
             measurePoints.push(e.latlng);
@@ -181,7 +263,7 @@ function setupAdvancedTools() {
                 L.polyline(measurePoints, {color: '#f59e0b', weight: 4, dashArray: '5, 5'}).addTo(p4LayerGroup);
                 const d = distanceKm(measurePoints[0].lat, measurePoints[0].lng, measurePoints[1].lat, measurePoints[1].lng);
                 showToast(`📏 Distance: ${d} km`, 5000);
-                setTimeout(() => { p4LayerGroup.clearLayers(); measurePoints = []; }, 5000);
+                setTimeout(() => { p4LayerGroup.clearLayers(); measurePoints = []; mapActionMode = null; $("measure-btn").classList.remove("active-tool"); }, 5000);
             }
         } 
         else if (mapActionMode === 'geofence') {
@@ -200,9 +282,17 @@ function setupAdvancedTools() {
             }
             mapActionMode = null; $("trip-btn").classList.remove("active-tool");
         }
+        else if (mapActionMode === 'memory') {
+            // FIX: This triggers when you tap map after selecting a photo
+            if (pendingMemoryImage) {
+                socket.emit("uploadMemoryPhoto", { name: currentUser.name, lat: e.latlng.lat, lng: e.latlng.lng, image: pendingMemoryImage });
+                showToast("✅ Memory pinned successfully!");
+            }
+            mapActionMode = null;
+            pendingMemoryImage = null;
+        }
     });
 
-    // Render Geofences from Server
     socket.on("loadGeofences", fences => {
         map.eachLayer(l => { if(l.options?.isGeofence) map.removeLayer(l); });
         fences.forEach(f => {
@@ -211,47 +301,39 @@ function setupAdvancedTools() {
         });
     });
 
-    // Handle Trip Data
     socket.on("tripData", trip => {
         currentTrip = trip;
         if(tripMarker) { map.removeLayer(tripMarker); tripMarker = null; }
-        
         if(trip) {
             $("trip-panel").style.display = "flex";
             $("trip-title").textContent = `Trip to ${trip.name}`;
             tripMarker = L.marker([trip.lat, trip.lng], { icon: L.divIcon({className: 'geofence-marker', html: '🏁'}) }).addTo(map);
             updateTripPanel();
         } else {
-            $("trip-panel").style.display = "none";
+            if($("trip-panel")) $("trip-panel").style.display = "none";
         }
     });
 
-    $("trip-end-btn").onclick = () => socket.emit("endTrip");
+    if($("trip-end-btn")) $("trip-end-btn").onclick = () => socket.emit("endTrip");
 }
 
 function updateTripPanel() {
     if(!currentTrip) return;
-    const list = $("trip-members-list"); list.innerHTML = "";
-    
-    // My Distance
+    const list = $("trip-members-list"); if(!list) return;
+    list.innerHTML = "";
     if(myCoords && currentUser.name) {
         const d = distanceKm(myCoords.lat, myCoords.lng, currentTrip.lat, currentTrip.lng);
-        list.innerHTML += `<div class="trip-member"><div><img src="${currentUser.avatar}"> You</div> <span>${d} km</span></div>`;
+        list.innerHTML += `<div class="trip-member"><div><img src="${escapeHTML(currentUser.avatar)}"> You</div> <span>${d} km</span></div>`;
     }
-    
-    // Friends Distance
     Object.values(friendData).filter(f=>f.online!==false).forEach(f => {
         const d = distanceKm(f.lat, f.lng, currentTrip.lat, currentTrip.lng);
-        list.innerHTML += `<div class="trip-member"><div><img src="${f.avatar}"> ${f.name}</div> <span>${d} km</span></div>`;
+        list.innerHTML += `<div class="trip-member"><div><img src="${escapeHTML(f.avatar)}"> ${escapeHTML(f.name)}</div> <span>${d} km</span></div>`;
     });
 }
 
-// ==========================================
-// BASIC MAP CONTROLS
-// ==========================================
 function setupBasicControls(){
     $("my-location-btn").onclick = () => { if(myCoords) map.flyTo([myCoords.lat,myCoords.lng], 16); };
-    $("compass-btn").onclick = () => map.setView(map.getCenter(), map.getZoom(), {animate:true});
+    $("compass-btn").onclick = () => { map.setView(map.getCenter(), map.getZoom(), {animate:true}); $("compass-icon").style.transform="rotate(0deg)"; };
     $("map-style-btn").onclick = (e) => { e.stopPropagation(); $("map-style-menu").style.display = $("map-style-menu").style.display==="flex"?"none":"flex"; };
     $("map-style-menu").onclick = (e) => {
         const b=e.target.closest("[data-style]"); if(!b) return; const s=b.dataset.style;
@@ -271,24 +353,54 @@ function setupChat(){
     let unread=0, typingTimer=null, replyTo=null, reactingId=null;
     const msgStore=new Map(), emojis=["👍","❤️","😂","😮","😢","🔥"];
 
-    function updateUnread(){ const b=$("chat-unread-badge"); b.textContent=unread; b.style.display=unread>0?"flex":"none"; }
-    $("chat-toggle-btn").onclick=()=>{ if(cc.style.display==="flex"){cc.style.display="none";}else{cc.style.display="flex";unread=0;updateUnread();inp.focus();} };
-    $("chat-minimize-btn").onclick=()=>{cc.style.display="none";};
-    $("online-btn").onclick=()=>{$("online-list").style.display=$("online-list").style.display==="block"?"none":"block"; renderOnlineList();};
+    function updateUnreadBadge(){ 
+        const b=$("chat-unread-badge"); 
+        if(!b) return;
+        b.textContent=unread>99?"99+":unread; 
+        b.style.display=unread>0?"flex":"none"; 
+    }
+
+    // Toggle Chat (Fixed)
+    $("chat-toggle-btn").onclick = () => { 
+        cc.style.display = "flex"; 
+        $("chat-toggle-btn").style.display = "none";
+        unread=0; updateUnreadBadge(); 
+        inp.focus(); 
+    };
+
+    // Close Chat (Fixed)
+    $("chat-minimize-btn").onclick = () => { 
+        cc.style.display = "none"; 
+        $("chat-toggle-btn").style.display = "flex"; 
+    };
+
+    // Online Users Toggle (Fixed)
+    $("online-btn").onclick = (e) => { 
+        e.stopPropagation();
+        const l=$("online-list"); 
+        l.style.display = l.style.display === "block" ? "none" : "block"; 
+        renderOnlineList(); 
+    };
+
+    document.addEventListener("click", e => {
+        if ($("online-list") && !$("online-list").contains(e.target) && e.target !== $("online-btn")) {
+            $("online-list").style.display = "none";
+        }
+    });
 
     inp.oninput=()=>{ socket.emit("typing",true); clearTimeout(typingTimer); typingTimer=setTimeout(()=>socket.emit("typing",false), 1200); send.style.display=inp.value.trim()?"flex":"none"; vb.style.display=inp.value.trim()?"none":"flex"; };
-    socket.on("typing", d=>{ const t=$("typing-indicator"); if(d.id!==socket.id && d.isTyping){t.textContent=`${d.name} is typing…`; t.style.display="block";}else t.style.display="none"; });
+    socket.on("typing", d=>{ const t=$("typing-indicator"); if(d.id!==socket.id && d.isTyping){t.textContent=`${escapeHTML(d.name)} is typing…`; t.style.display="block";}else t.style.display="none"; });
 
     $("reply-cancel").onclick=()=>{replyTo=null; $("reply-bar").style.display="none";};
-    $("emojiButton").onclick=(e)=>{e.stopPropagation(); $("emoji-picker-container").style.display=$("emoji-picker-container").style.display==="block"?"none":"block";};
+    $("emojiButton").onclick=(e)=>{e.stopPropagation(); $("attachment-menu").style.display="none"; $("emoji-picker-container").style.display=$("emoji-picker-container").style.display==="block"?"none":"block";};
     $("emojiPicker").addEventListener("emoji-click",e=>{ const em=e.detail.unicode; if(reactingId){socket.emit("messageReaction",{messageId:reactingId,emoji:em});$("emoji-picker-container").style.display="none";reactingId=null;}else{inp.value+=em;inp.focus();send.style.display="flex";vb.style.display="none";} });
     
-    $("chat-attach-btn").onclick=(e)=>{e.stopPropagation(); $("attachment-menu").style.display=$("attachment-menu").style.display==="flex"?"none":"flex";};
+    $("chat-attach-btn").onclick=(e)=>{e.stopPropagation(); $("emoji-picker-container").style.display="none"; $("attachment-menu").style.display=$("attachment-menu").style.display==="flex"?"none":"flex";};
     const fInp=$("chatFileInput");
     $("att-media").onclick=()=>{fInp.accept="image/*,video/*";fInp.click();$("attachment-menu").style.display="none";};
     $("att-doc").onclick=()=>{fInp.accept=".pdf,.doc,.txt,.zip";fInp.click();$("attachment-menu").style.display="none";};
     $("att-audio").onclick=()=>{fInp.accept="audio/*";fInp.click();$("attachment-menu").style.display="none";};
-    fInp.onchange=()=>{ const f=fInp.files?.[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ socket.emit("chatMessage",{name:currentUser.name, type:f.type.split('/')[0]==="image"?"image":f.type.split('/')[0]==="video"?"video":f.type.split('/')[0]==="audio"?"audio":"document", data:r.result, replyTo}); $("reply-cancel").click();}; r.readAsDataURL(f); };
+    fInp.onchange=()=>{ const f=fInp.files?.[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ socket.emit("chatMessage",{name:currentUser.name, type:f.type.split('/')[0]==="image"?"image":f.type.split('/')[0]==="video"?"video":f.type.split('/')[0]==="audio"?"audio":"document", data:r.result, replyTo}); $("reply-cancel").click();}; r.readAsDataURL(f); fInp.value="";};
 
     $("chatForm").onsubmit=e=>{ e.preventDefault(); const t=inp.value.trim(); if(t){socket.emit("chatMessage",{name:currentUser.name,type:"text",data:t,replyTo}); inp.value=""; $("reply-cancel").click(); send.style.display="none"; vb.style.display="flex"; inp.focus();} };
 
@@ -296,10 +408,10 @@ function setupChat(){
         if(msgStore.has(m.id)) return;
         const w=document.createElement("div"); w.className="chat-row "+(m.senderId===socket.id?"mine":"");
         const b=document.createElement("div"); b.className="chat-message "+(m.senderId===socket.id?"msg-mine":"msg-theirs");
-        if(m.senderId!==socket.id) b.innerHTML+=`<div class="msg-sender">${m.name}</div>`;
-        if(m.replyTo) b.innerHTML+=`<div class="reply-quote"><b>${m.replyTo.name}</b><br>${m.replyTo.preview}</div>`;
+        if(m.senderId!==socket.id) b.innerHTML+=`<div class="msg-sender">${escapeHTML(m.name)}</div>`;
+        if(m.replyTo) b.innerHTML+=`<div class="reply-quote"><b>${escapeHTML(m.replyTo.name)}</b><br>${escapeHTML(m.replyTo.preview)}</div>`;
         
-        if(m.type==="text") b.innerHTML+=`<div>${m.data}</div>`;
+        if(m.type==="text") b.innerHTML+=`<div>${escapeHTML(m.data)}</div>`;
         else if(m.type==="image") b.innerHTML+=`<img class="chat-media" src="${m.data}">`;
         else if(m.type==="video") b.innerHTML+=`<video class="chat-media" controls src="${m.data}"></video>`;
         else if(m.type==="audio") b.innerHTML+=`<audio class="chat-audio" controls src="${m.data}"></audio>`;
@@ -321,8 +433,28 @@ function setupChat(){
     socket.on("messageReaction", d=>{ const s=msgStore.get(d.messageId); if(s){ const c=s.el.querySelector(".reaction-row"); c.innerHTML=""; Object.keys(d.reactions).forEach(e=>{ if(d.reactions[e].length){ const b=document.createElement("button"); b.className="reaction-chip"; b.textContent=`${e} ${d.reactions[e].length}`; b.onclick=()=>socket.emit("messageReaction",{messageId:d.messageId,emoji:e}); c.appendChild(b);} }); }});
 }
 
+function setupVoice(){
+    const vb=$("voiceButton"); if(!vb)return; let rec=null, chunks=[], isRec=false;
+    vb.onclick=async()=>{
+        if(isRec){rec?.stop();return;} if(!navigator.mediaDevices?.getUserMedia){alert("Mic not supported.");return;}
+        try{
+            const str=await navigator.mediaDevices.getUserMedia({audio:true}); chunks=[];
+            let mt=MediaRecorder.isTypeSupported("audio/webm")?"audio/webm":(MediaRecorder.isTypeSupported("audio/mp4")?"audio/mp4":"");
+            rec=mt?new MediaRecorder(str,{mimeType:mt}):new MediaRecorder(str); isRec=true;
+            vb.textContent="⏹"; vb.style.background="var(--green)"; vb.style.color="#fff";
+            rec.ondataavailable=e=>{if(e.data.size>0)chunks.push(e.data);};
+            rec.onstop=()=>{
+                isRec=false; vb.style.background="transparent"; vb.style.color="var(--muted)"; vb.textContent="🎙️"; str.getTracks().forEach(t=>t.stop());
+                const blob=new Blob(chunks,{type:rec.mimeType||"audio/webm"}); if(blob.size===0)return; if(blob.size>MAX_CHAT_FILE)return alert("Voice too large.");
+                const r=new FileReader(); r.onload=()=>socket.emit("chatMessage",{name:currentUser.name,type:"audio",data:String(r.result),replyTo:null}); r.readAsDataURL(blob);
+            };
+            rec.start();
+        }catch{alert("Mic access denied.");}
+    };
+}
+
 // ==========================================
-// PHASE 3: MEMORY GALLERY
+// MEMORY GALLERY & PINNING
 // ==========================================
 function setupMemories(){
     $("phase3-gallery-btn").onclick = () => { $("phase3-memory-overlay").style.display="block"; renderMemGallery(); };
@@ -348,22 +480,21 @@ function setupMemories(){
 
         arr.forEach(m=>{
             const c=document.createElement("div"); c.className="p3-card";
-            c.innerHTML=`<img src="${m.image}" loading="lazy"><div class="p3-card-info"><b>${m.name}</b><span>${new Date(m.time).toLocaleDateString()}</span></div>`;
+            c.innerHTML=`<img src="${escapeHTML(m.image)}" loading="lazy"><div class="p3-card-info"><b>${escapeHTML(m.name)}</b><span>${new Date(m.time).toLocaleDateString()}</span></div>`;
             c.onclick=()=>{selectedMemoryId=m.id; $("p3-view-image").src=m.image; $("p3-view-name").textContent=m.name; $("p3-view-date").textContent=new Date(m.time).toLocaleString(); $("phase3-photo-viewer").style.display="flex";}; grid.appendChild(c);
             
             const t=document.createElement("div"); t.className="p3-time-item";
-            t.innerHTML=`<div class="p3-time-thumb"><img src="${m.image}" loading="lazy"></div><div class="p3-time-info"><b>${m.name}</b><span>${new Date(m.time).toLocaleString()}</span></div>`;
+            t.innerHTML=`<div class="p3-time-thumb"><img src="${escapeHTML(m.image)}" loading="lazy"></div><div class="p3-time-info"><b>${escapeHTML(m.name)}</b><span>${new Date(m.time).toLocaleString()}</span></div>`;
             t.onclick=c.onclick; time.appendChild(t);
         });
     }
 
-    const memLayer = L.layerGroup().addTo(map);
     function renderPins(){
-        memLayer.clearLayers();
+        memoryLayer.clearLayers();
         memories.forEach(m=>{
-            const icon = L.divIcon({ className:"p3-memory-marker", html:`<div style="width:46px;height:46px;border-radius:50%;overflow:hidden;border:2px solid #fff;background:#071018;box-shadow:0 4px 15px rgba(0,0,0,.65)"><img src="${m.image}" style="width:100%;height:100%;object-fit:cover;"></div>`, iconSize:[46,46], iconAnchor:[23,23]});
-            const marker = L.marker([m.lat,m.lng],{icon}).addTo(memLayer);
-            marker.bindPopup(`<div class="p3-map-popup"><img src="${m.image}"><b>📸 ${m.name}</b><button class="p3-open-map-memory">View</button></div>`);
+            const icon = L.divIcon({ className:"p3-memory-marker", html:`<div style="width:46px;height:46px;border-radius:50%;overflow:hidden;border:2px solid #fff;background:#071018;box-shadow:0 4px 15px rgba(0,0,0,.65)"><img src="${escapeHTML(m.image)}" style="width:100%;height:100%;object-fit:cover;"></div>`, iconSize:[46,46], iconAnchor:[23,23]});
+            const marker = L.marker([m.lat,m.lng],{icon}).addTo(memoryLayer);
+            marker.bindPopup(`<div class="p3-map-popup"><img src="${escapeHTML(m.image)}"><b>📸 ${escapeHTML(m.name)}</b><button class="p3-open-map-memory">View</button></div>`);
             marker.on("popupopen",e=>{ const b=e.popup.getElement()?.querySelector(".p3-open-map-memory"); if(b) b.onclick=()=>{selectedMemoryId=m.id; $("p3-view-image").src=m.image; $("p3-view-name").textContent=m.name; $("p3-view-date").textContent=new Date(m.time).toLocaleString(); $("phase3-photo-viewer").style.display="flex";}; });
         });
     }
@@ -371,10 +502,24 @@ function setupMemories(){
     socket.on("loadMemoryPhotos", l=>{ memories.clear(); l.forEach(m=>memories.set(m.id,m)); renderPins(); });
     socket.on("newMemoryPin", m=>{ memories.set(m.id,m); renderPins(); if($("phase3-memory-overlay").style.display==="block") renderMemGallery(); });
 
-    $("memoryButton").onclick=()=>$("memoryPhotoInput").click();
-    $("memoryPhotoInput").onchange=()=>{
-        const f=$("memoryPhotoInput").files?.[0]; if(!f)return;
-        const r=new FileReader(); r.onload=()=>{ map.once("click",e=>socket.emit("uploadMemoryPhoto",{name:currentUser.name,lat:e.latlng.lat,lng:e.latlng.lng,image:r.result})); showToast("📸 Tap map to pin photo"); }; r.readAsDataURL(f);
+    const mInp=$("memoryPhotoInput");
+    $("memoryButton").onclick=()=>{ 
+        if(!currentUser.name) return alert("Join map first."); 
+        mInp.click(); 
+    };
+    
+    mInp.onchange=()=>{
+        const f=mInp.files?.[0]; if(!f) return;
+        if(!IMAGE_TYPES.includes(f.type)||f.size>MAX_MEMORY_FILE){alert("Invalid image or >8MB."); mInp.value=""; return;}
+        const r=new FileReader(); 
+        r.onload=()=>{
+            if(validImageData(r.result)){ 
+                pendingMemoryImage = r.result;
+                mapActionMode = 'memory';
+                showToast("📸 Tap anywhere on the map to pin your photo!", 5000);
+            }
+        }; 
+        r.readAsDataURL(f); mInp.value="";
     };
 }
 
