@@ -1,133 +1,69 @@
 "use strict";
 
 const socket = io({ transports: ["websocket", "polling"] });
-
-// ==========================================
-// CONSTANTS & STATE
-// ==========================================
 const DEFAULT_CENTER = [18.8136, 82.7153];
-const DEFAULT_ZOOM = 13;
 const DEFAULT_AVATAR = "satyam.png";
 const MAX_NAME = 40;
-const MAX_CHAT = 1000;
 const MAX_CHAT_FILE = 5 * 1024 * 1024;
 const MAX_MEMORY_FILE = 8 * 1024 * 1024;
 const MAX_AVATAR_FILE = 3 * 1024 * 1024;
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
-let ownMarker = null;
-let accuracyCircle = null;
-let firstFix = true;
-let myCoords = null;
-let myWeather = "";
-let cityName = "";
-let currentStyle = "satellite";
-
-const friendMarkers = Object.create(null);
-const friendData = Object.create(null);
-
-// Phase 4 States
-const locationHistory = [];
-const p4LayerGroup = L.layerGroup();
-let historyPolyline = null;
-let mapActionMode = null; // 'measure', 'geofence', 'trip', 'memory'
-let pendingMemoryImage = null; // Stores image before tapping map
-let measurePoints = [];
-let currentTrip = null;
-let tripMarker = null;
-
-// Phase 3 Memories State
-const memories = new Map();
-let currentGalleryFilter = "all";
-let currentGallerySearch = "";
-let selectedMemoryId = null;
-
-let currentUser = { 
-    name: localStorage.getItem("koraput_name") || "", 
-    avatar: localStorage.getItem("koraput_avatar") || DEFAULT_AVATAR 
-};
-
-// ==========================================
-// MAP INITIALIZATION
-// ==========================================
-const map = L.map("map", { zoomControl: false, preferCanvas: true }).setView(DEFAULT_CENTER, DEFAULT_ZOOM);
-
+const map = L.map("map", { zoomControl: false, preferCanvas: true }).setView(DEFAULT_CENTER, 13);
 const satelliteLayer = L.tileLayer("https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}", { maxZoom: 20, subdomains: ["mt0","mt1","mt2","mt3"] });
 const streetLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 });
 const darkLayer = L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", { maxZoom: 20 });
 satelliteLayer.addTo(map);
 
-const memoryLayer = L.layerGroup().addTo(map);
-p4LayerGroup.addTo(map);
-historyPolyline = L.polyline([], { color: '#3b82f6', weight: 4, opacity: 0.8, dashArray: '5, 10' }).addTo(p4LayerGroup);
+let currentUser = { name: localStorage.getItem("koraput_name") || "", avatar: localStorage.getItem("koraput_avatar") || DEFAULT_AVATAR };
+let myCoords = null, myWeather = "", ownMarker = null, accuracyCircle = null, cityName = "";
+const friendMarkers = Object.create(null);
+const friendData = Object.create(null);
 
-// ==========================================
-// UTILITY FUNCTIONS
-// ==========================================
+const locationHistory = [];
+const historyPolyline = L.polyline([], { color: '#3b82f6', weight: 4, opacity: 0.8, dashArray: '5, 10' }).addTo(map);
+
+let mapActionMode = null; 
+let pendingMemoryImage = null; 
+let measurePoints = [];
+const p4LayerGroup = L.layerGroup().addTo(map);
+let currentTrip = null;
+let tripMarker = null;
+
+const memories = new Map();
+const memoryLayer = L.layerGroup().addTo(map);
+let currentGalleryFilter = "all";
+let currentGallerySearch = "";
+let selectedMemoryId = null;
+
 const $ = id => document.getElementById(id);
-const escapeHTML = v => String(v ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;");
 const cleanName = v => String(v || "User").trim().replace(/\s+/g," ").slice(0, MAX_NAME);
 const validCoord = (lat,lng) => Number.isFinite(lat) && Number.isFinite(lng) && lat>=-90 && lat<=90 && lng>=-180 && lng<=180;
-const validImageData = v => typeof v === "string" && /^data:image\/(jpeg|jpg|png|webp|gif);base64,/i.test(v);
+// Relaxed Image Validation so it never fails on mobile
+const validImageData = v => typeof v === "string" && v.startsWith("data:image/");
 
 function distanceKm(a,b,c,d){
     if(!validCoord(a,b) || !validCoord(c,d)) return "";
     const p = Math.PI/180, a1 = 0.5 - Math.cos((c-a)*p)/2 + Math.cos(a*p)*Math.cos(c*p)*Math.sin((d-b)*p/2)**2;
     return (12742 * Math.asin(Math.sqrt(a1))).toFixed(2);
 }
+function escapeHTML(v) { return String(v ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;"); }
 
-function weatherEmoji(code){
-    if(code===0) return "☀️"; if([1,2,3].includes(code)) return "⛅"; if([45,48].includes(code)) return "🌫️";
-    if([51,53,55,56,57,61,63,65,66,67].includes(code)) return "🌧️"; if([71,73,75,77,85,86].includes(code)) return "❄️";
-    if([80,81,82].includes(code)) return "🌦️"; if([95,96,99].includes(code)) return "⛈️"; return "🌤️";
-}
+socket.on("connect", () => { if (currentUser.name) socket.emit("profileReady", currentUser); });
 
-async function fetchWeather(lat,lng){
-    try {
-        const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lng)}&current=temperature_2m,weather_code`);
-        if(!r.ok) return ""; const d=await r.json();
-        const t=Number(d?.current?.temperature_2m), code=Number(d?.current?.weather_code);
-        return Number.isFinite(t) ? `${weatherEmoji(code)} ${Math.round(t)}°C` : "";
-    } catch { return ""; }
-}
-
-async function fetchCity(lat,lng){
-    try {
-        const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}&zoom=10`);
-        if(!r.ok) return ""; const d=await r.json();
-        return d.address?.city||d.address?.town||d.address?.county||"Rourkela";
-    } catch { return "Rourkela"; }
-}
-
-function ownIcon() { return L.icon({ iconUrl: currentUser.avatar, iconSize: [36,36], iconAnchor: [18,18], className: "avatar-icon own-live-avatar" }); }
-
-// ==========================================
-// TOAST NOTIFICATIONS
-// ==========================================
 function showToast(message, duration = 4000) {
     const container = $("toast-container");
     if(!container) return;
     const toast = document.createElement("div");
-    toast.className = "toast"; 
-    toast.textContent = message;
+    toast.className = "toast"; toast.textContent = message;
     container.appendChild(toast);
     setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, duration);
 }
-
-// ==========================================
-// LOCATION TRACKING
-// ==========================================
-socket.on("connect", () => { if (currentUser.name) socket.emit("profileReady", currentUser); });
 
 socket.on("geofenceAlert", (data) => {
     const action = data.type === "enter" ? "entered" : "left";
     showToast(`🔔 ${data.user} has ${action} ${data.fence}!`);
 });
-
-function emitLocation(){
-    if(!myCoords || !currentUser.name) return;
-    socket.emit("updateLocation",{name:currentUser.name, avatar:currentUser.avatar, lat:myCoords.lat, lng:myCoords.lng, weather:myWeather});
-}
 
 function startGPS() {
     if(!navigator.geolocation) return;
@@ -136,40 +72,21 @@ function startGPS() {
         if(!validCoord(lat,lng)) return;
         myCoords={lat,lng};
 
-        // Update Location History Trail
         locationHistory.push([lat, lng]);
         historyPolyline.setLatLngs(locationHistory);
 
         if(!ownMarker){
-            ownMarker = L.marker([lat,lng],{icon:ownIcon(), zIndexOffset:1000}).addTo(map);
+            ownMarker = L.marker([lat,lng],{icon:L.icon({iconUrl:currentUser.avatar, iconSize:[36,36], iconAnchor:[18,18], className:"avatar-icon own-live-avatar"}), zIndexOffset:1000}).addTo(map);
             map.setView([lat,lng], 16);
-        } else {
-            ownMarker.setLatLng([lat,lng]);
-        }
+        } else ownMarker.setLatLng([lat,lng]);
 
         if(acc>0 && acc<100000){
             if(!accuracyCircle) accuracyCircle=L.circle([lat,lng],{radius:acc, color:"#10b981", weight:2, fillOpacity:.15}).addTo(map);
             else {accuracyCircle.setLatLng([lat,lng]); accuracyCircle.setRadius(acc);}
         }
-
-        if(!cityName) {
-            cityName = await fetchCity(lat,lng);
-            if(cityName) { 
-                if($("header-app-title")) $("header-app-title").textContent=`${cityName} Map`; 
-                if($("pill-city")) $("pill-city").textContent=`📍 ${cityName}`; 
-            }
-        }
         
-        const w = await fetchWeather(lat,lng);
-        if(w){
-            myWeather = w; 
-            if($("map-temp-display")) $("map-temp-display").textContent = w;
-            ownMarker.unbindTooltip().bindTooltip(w,{permanent:true,direction:"right",className:"weather-badge",offset:[15,0]});
-        }
-        
-        emitLocation(); 
-        updateFriendBadges(); 
-        updateTripPanel();
+        socket.emit("updateLocation",{name:currentUser.name, avatar:currentUser.avatar, lat, lng, weather:myWeather});
+        updateFriendBadges(); updateTripPanel();
     }, e=>console.warn("GPS error",e), {enableHighAccuracy:true,timeout:15000,maximumAge:3000});
 }
 
@@ -182,9 +99,6 @@ function updateFriendBadges(){
     });
 }
 
-// ==========================================
-// FRIENDS HANDLING
-// ==========================================
 socket.on("onlineUsers", list=>{ if(Array.isArray(list)) list.forEach(u=>{ if(u.id!==socket.id){ friendData[u.id]={...(friendData[u.id]||{}),...u,online:true}; createOrUpdateFriendMarker(u);} }); updateOnlineUI(); });
 socket.on("userOnline", u=>{ if(u.id!==socket.id){ friendData[u.id]={...(friendData[u.id]||{}),...u,online:true}; createOrUpdateFriendMarker(u); } updateOnlineUI(); });
 socket.on("userOffline", d=>{ if(d?.id && friendData[d.id]){ friendData[d.id].online=false; if(friendMarkers[d.id]) friendMarkers[d.id].setOpacity(0.45); } updateOnlineUI(); });
@@ -217,10 +131,7 @@ function showProfilePopup(u) {
     if($("profile-popup-avatar")) $("profile-popup-avatar").src=u.avatar; 
     if($("profile-popup-name")) $("profile-popup-name").textContent=u.name;
     const st = $("profile-popup-status");
-    if(st) {
-        st.textContent = u.online!==false ? "● Online" : "● Offline";
-        st.style.color = u.online!==false ? "#18d6a3" : "#8fa1aa";
-    }
+    if(st) { st.textContent = u.online!==false ? "● Online" : "● Offline"; st.style.color = u.online!==false ? "#18d6a3" : "#8fa1aa"; }
     if($("profile-popup-distance")) $("profile-popup-distance").textContent = myCoords ? `${distanceKm(myCoords.lat,myCoords.lng,u.lat,u.lng)} km away` : "--";
     if($("profile-popup-weather")) $("profile-popup-weather").textContent = u.weather || "--";
     if($("profile-popup")) $("profile-popup").style.display="flex";
@@ -228,9 +139,6 @@ function showProfilePopup(u) {
 }
 $("profile-popup-close")?.addEventListener("click",()=>$("profile-popup").style.display="none");
 
-// ==========================================
-// MAP TOOLS & MAP CLICK (Tap Anywhere Logic)
-// ==========================================
 function setupAdvancedTools() {
     $("measure-btn").onclick = () => {
         mapActionMode = mapActionMode === 'measure' ? null : 'measure';
@@ -254,7 +162,7 @@ function setupAdvancedTools() {
         if(mapActionMode === 'trip') showToast("🚗 Tap the map to set Group Trip Destination");
     };
 
-    // GLOBAL MAP CLICK HANDLER (Handles All Tap Logic)
+    // GLOBAL MAP CLICK HANDLER (Fix for Memory Pinning)
     map.on('click', (e) => {
         if (mapActionMode === 'measure') {
             measurePoints.push(e.latlng);
@@ -283,7 +191,7 @@ function setupAdvancedTools() {
             mapActionMode = null; $("trip-btn").classList.remove("active-tool");
         }
         else if (mapActionMode === 'memory') {
-            // FIX: This triggers when you tap map after selecting a photo
+            // Memory is Pinned Here!
             if (pendingMemoryImage) {
                 socket.emit("uploadMemoryPhoto", { name: currentUser.name, lat: e.latlng.lat, lng: e.latlng.lng, image: pendingMemoryImage });
                 showToast("✅ Memory pinned successfully!");
@@ -346,7 +254,7 @@ function setupBasicControls(){
 }
 
 // ==========================================
-// CHAT FUNCTIONALITY
+// CHAT FUNCTIONALITY (Buttons Fixed)
 // ==========================================
 function setupChat(){
     const cc=$("chat-container"), inp=$("chatInput"), send=$("chat-send"), vb=$("voiceButton");
@@ -360,7 +268,6 @@ function setupChat(){
         b.style.display=unread>0?"flex":"none"; 
     }
 
-    // Toggle Chat (Fixed)
     $("chat-toggle-btn").onclick = () => { 
         cc.style.display = "flex"; 
         $("chat-toggle-btn").style.display = "none";
@@ -368,18 +275,17 @@ function setupChat(){
         inp.focus(); 
     };
 
-    // Close Chat (Fixed)
     $("chat-minimize-btn").onclick = () => { 
         cc.style.display = "none"; 
         $("chat-toggle-btn").style.display = "flex"; 
     };
 
-    // Online Users Toggle (Fixed)
+    // FIX: Left Chat Button (Online Users)
     $("online-btn").onclick = (e) => { 
         e.stopPropagation();
         const l=$("online-list"); 
         l.style.display = l.style.display === "block" ? "none" : "block"; 
-        renderOnlineList(); 
+        updateOnlineUI(); 
     };
 
     document.addEventListener("click", e => {
@@ -454,7 +360,7 @@ function setupVoice(){
 }
 
 // ==========================================
-// MEMORY GALLERY & PINNING
+// MEMORY GALLERY & PINNING (Camera Fixed)
 // ==========================================
 function setupMemories(){
     $("phase3-gallery-btn").onclick = () => { $("phase3-memory-overlay").style.display="block"; renderMemGallery(); };
@@ -502,11 +408,21 @@ function setupMemories(){
     socket.on("loadMemoryPhotos", l=>{ memories.clear(); l.forEach(m=>memories.set(m.id,m)); renderPins(); });
     socket.on("newMemoryPin", m=>{ memories.set(m.id,m); renderPins(); if($("phase3-memory-overlay").style.display==="block") renderMemGallery(); });
 
+    // FIX: Camera Pinning
     const mInp=$("memoryPhotoInput");
     $("memoryButton").onclick=()=>{ 
         if(!currentUser.name) return alert("Join map first."); 
         mInp.click(); 
     };
+    
+    // NEW FIX: Trigger Camera directly from inside Gallery
+    const addMemBtn = $("p3-add-memory-btn");
+    if(addMemBtn) {
+        addMemBtn.onclick = () => {
+            $("phase3-memory-overlay").style.display="none";
+            $("memoryButton").click();
+        };
+    }
     
     mInp.onchange=()=>{
         const f=mInp.files?.[0]; if(!f) return;
@@ -516,7 +432,7 @@ function setupMemories(){
             if(validImageData(r.result)){ 
                 pendingMemoryImage = r.result;
                 mapActionMode = 'memory';
-                showToast("📸 Tap anywhere on the map to pin your photo!", 5000);
+                alert("📸 Photo Selected!\n\nTap ANYWHERE on the map to pin it."); // Inescapable Prompt
             }
         }; 
         r.readAsDataURL(f); mInp.value="";
