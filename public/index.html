@@ -30,7 +30,7 @@
         .toast { padding: 10px 16px; background: rgba(16, 185, 129, 0.9); color: white; font-size: 11px; font-weight: 700; border-radius: 999px; box-shadow: 0 8px 20px rgba(0,0,0,0.5); backdrop-filter: blur(10px); animation: fadeInDown 0.3s ease forwards; text-align: center; }
         @keyframes fadeInDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
 
-        /* NAVIGATION PANEL */
+        /* 1-on-1 NAVIGATION PANEL */
         #nav-panel { position: fixed; top: 14px; left: 50%; transform: translateX(-50%); z-index: 2000; width: min(340px, 92vw); background: rgba(7, 16, 24, 0.96); border: 1px solid var(--border); border-radius: 18px; padding: 16px; backdrop-filter: blur(16px); box-shadow: var(--shadow); display: none; flex-direction: column; }
         .nav-header { display: flex; align-items: center; gap: 8px; color: var(--green-bright); font-weight: 700; font-size: 14px; margin-bottom: 12px; }
         .nav-stats { display: flex; justify-content: space-between; color: white; font-size: 18px; font-weight: 800; margin-bottom: 12px; }
@@ -43,6 +43,19 @@
         .nav-path-animated { stroke-dasharray: 15, 15; animation: navFlow 1s linear infinite; }
         @keyframes navFlow { from { stroke-dashoffset: 30; } to { stroke-dashoffset: 0; } }
 
+        /* MULTI-PERSON GROUP NAVIGATION MODALS */
+        #group-nav-setup { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 4000; width: min(320px, 90vw); background: rgba(7, 16, 24, 0.98); border: 1px solid var(--border); border-radius: 18px; padding: 18px; flex-direction: column; box-shadow: var(--shadow); }
+        .gn-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 12px; margin-bottom: 12px; }
+        .gn-header strong { color: var(--green-bright); font-size: 16px; }
+        #group-nav-close-btn { background: transparent; border: 0; color: white; font-size: 20px; }
+        #group-nav-friend-list { display: flex; flex-direction: column; gap: 10px; max-height: 200px; overflow-y: auto; margin-bottom: 16px; }
+        #group-nav-next-btn { width: 100%; padding: 12px; border: 0; border-radius: 10px; background: var(--green); color: white; font-weight: bold; font-size: 13px; }
+
+        #group-nav-active { display: none; position: fixed; top: 14px; left: 50%; transform: translateX(-50%); z-index: 2000; width: min(340px, 92vw); background: rgba(7, 16, 24, 0.96); border: 1px solid var(--border); border-radius: 18px; padding: 16px; backdrop-filter: blur(16px); box-shadow: var(--shadow); flex-direction: column; }
+        #group-nav-stop-btn { background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 0; border-radius: 6px; padding: 4px 8px; font-weight: bold; font-size: 10px; }
+        #group-nav-stats-list { display: flex; flex-direction: column; gap: 8px; max-height: 300px; overflow-y: auto; }
+
+        /* TRIP PANEL */
         #trip-panel { position: fixed; top: 14px; right: 14px; z-index: 1000; width: 220px; background: rgba(7, 16, 24, 0.92); border: 1px solid var(--border); border-radius: 15px; padding: 12px; backdrop-filter: blur(14px); box-shadow: var(--shadow); display: none; flex-direction: column; }
         .trip-head { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px; margin-bottom: 8px; }
         .trip-head strong { font-size: 12px; color: var(--green-bright); }
@@ -102,7 +115,6 @@
         .chat-title-text span { color: var(--muted); font-size: 9px; }
         .chat-head-actions { display: flex; align-items: center; gap: 6px; }
         .chat-head-btn { width: 34px; height: 34px; border: 0; border-radius: 10px; background: rgba(255, 255, 255, 0.06); color: white; margin-left:6px; display: flex; align-items: center; justify-content: center; font-size: 16px; }
-        
         #online-list { position: absolute; right: 14px; top: 58px; z-index: 10; display: none; width: 210px; max-height: 300px; overflow-y: auto; padding: 6px; border: 1px solid var(--border); border-radius: 12px; background: rgba(7, 16, 24, 0.98); box-shadow: 0 15px 50px rgba(0,0,0,0.6); }
         .online-friend { display: flex; align-items: center; gap: 8px; padding: 8px; border: 0; background: transparent; color: white; border-radius: 8px; width: 100%; text-align: left; }
         .online-friend:hover { background: rgba(255, 255, 255, 0.06); }
@@ -205,16 +217,35 @@
 <div id="toast-container"></div>
 <div id="map"></div>
 
-<!-- NAVIGATION PANEL -->
+<!-- 1-ON-1 NAVIGATION PANEL -->
 <div id="nav-panel">
     <div class="nav-header">🧭 Navigating to <span id="nav-title-name" style="margin-left:4px;">Friend</span></div>
     <div class="nav-stats" id="nav-stats">🚗 -- km &nbsp; ⏱️ -- min</div>
-    <!-- CHANGED: "Calculating safest route" -> "Calculating best route..." -->
     <div class="nav-instructions" id="nav-instructions">Calculating best route...</div>
     <div class="nav-actions">
         <button id="nav-recalc-btn" type="button">🔄 Recalculate</button>
         <button id="nav-exit-btn" type="button">❌ Exit Route</button>
     </div>
+</div>
+
+<!-- GROUP NAVIGATION SETUP MODAL -->
+<div id="group-nav-setup" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); z-index:4000; width:min(320px, 90vw); background:rgba(7, 16, 24, 0.98); border:1px solid var(--border); border-radius:18px; padding:18px; flex-direction:column; box-shadow:var(--shadow);">
+    <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:12px; margin-bottom:12px;">
+        <strong style="color:var(--green-bright); font-size:16px;">👥 Group Navigation</strong>
+        <button id="group-nav-close-btn" style="background:transparent; border:0; color:white; font-size:20px;">×</button>
+    </div>
+    <p style="font-size:11px; color:var(--muted); margin-top:0;">Select up to 3 friends to calculate simultaneous routes to a common destination.</p>
+    <div id="group-nav-friend-list" style="display:flex; flex-direction:column; gap:10px; max-height:200px; overflow-y:auto; margin-bottom:16px;"></div>
+    <button id="group-nav-next-btn" style="width:100%; padding:12px; border:0; border-radius:10px; background:var(--green); color:white; font-weight:bold; font-size:13px;">Next: Choose Destination 📍</button>
+</div>
+
+<!-- GROUP NAVIGATION ACTIVE PANEL -->
+<div id="group-nav-active" style="display:none; position:fixed; top:14px; left:50%; transform:translateX(-50%); z-index:2000; width:min(340px, 92vw); background:rgba(7, 16, 24, 0.96); border:1px solid var(--border); border-radius:18px; padding:16px; backdrop-filter:blur(16px); box-shadow:var(--shadow); flex-direction:column;">
+    <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:10px; margin-bottom:10px;">
+        <strong style="color:var(--green-bright); font-size:14px;">📍 Group Convergence</strong>
+        <button id="group-nav-stop-btn" style="background:rgba(239, 68, 68, 0.2); color:#ef4444; border:0; border-radius:6px; padding:4px 8px; font-weight:bold; font-size:10px;">Stop Route</button>
+    </div>
+    <div id="group-nav-stats-list" style="display:flex; flex-direction:column; gap:8px; max-height:300px; overflow-y:auto;"></div>
 </div>
 
 <div id="top-header">
@@ -241,6 +272,10 @@
     <button id="compass-btn" class="map-tool-button" title="Compass"><span id="compass-icon">N</span></button>
     <button id="map-style-btn" class="map-tool-button" title="Map style">◈</button>
     <button id="phase3-gallery-btn" class="map-tool-button" title="Memory Gallery">🖼️</button>
+    
+    <!-- NEW: Group Navigation Button -->
+    <button id="group-nav-btn" class="map-tool-button" title="Group Navigation">🗺️</button>
+    
     <button id="measure-btn" class="map-tool-button" title="Measure Distance">📏</button>
     <button id="geofence-btn" class="map-tool-button" title="Set Geofence">⭕</button>
     <button id="trip-btn" class="map-tool-button" title="Start Group Trip">🚗</button>
