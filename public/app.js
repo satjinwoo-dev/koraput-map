@@ -36,9 +36,12 @@ try {
 
 const p4LayerGroup = L.layerGroup().addTo(map);
 const historyPolyline = L.polyline(locationHistory, { color: '#3b82f6', weight: 4, opacity: 0.8, dashArray: '5, 10' }).addTo(p4LayerGroup);
-
-// NEVIGATION LAYER
 const navigationLayer = L.layerGroup().addTo(map);
+
+// NEW: Group Trip Routes Layer
+const tripRoutesLayer = L.layerGroup().addTo(map);
+const tripLastFetchedCoords = {}; 
+const routeColors = ['#18d6a3', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6']; // Different colors for different friends
 
 let mapActionMode = null; 
 let pendingMemoryImage = null; 
@@ -66,8 +69,7 @@ function ownIcon() {
     return L.divIcon({ 
         className: "custom-own-icon", 
         html: `<div style="width:100%; height:100%; border-radius:50%; border:2.5px solid #18d6a3; overflow:hidden; background:#071018; box-sizing:border-box; box-shadow:0 0 10px rgba(24,214,163,0.5);"><img src="${escapeHTML(currentUser.avatar)}" style="width:100%; height:100%; object-fit:cover; display:block;"></div>`,
-        iconSize: [38, 38], 
-        iconAnchor: [19, 19] 
+        iconSize: [38, 38], iconAnchor: [19, 19] 
     }); 
 }
 
@@ -75,8 +77,7 @@ function friendIcon(avatar) {
     return L.divIcon({ 
         className: "custom-friend-icon", 
         html: `<div style="width:100%; height:100%; border-radius:50%; border:2px solid #60a5fa; overflow:hidden; background:#071018; box-sizing:border-box;"><img src="${escapeHTML(avatar)}" style="width:100%; height:100%; object-fit:cover; display:block;"></div>`,
-        iconSize: [36, 36], 
-        iconAnchor: [18, 18] 
+        iconSize: [36, 36], iconAnchor: [18, 18] 
     }); 
 }
 
@@ -107,111 +108,70 @@ async function fetchCity(lat,lng){
 }
 
 // ==========================================
-// NAVIGATION (OSRM API)
+// 1-on-1 NAVIGATION (Personal)
 // ==========================================
 const Navigation = {
-    active: false,
-    targetId: null,
-    targetCoords: null,
-    routeLayer: L.layerGroup().addTo(map),
-    
+    active: false, targetId: null, targetCoords: null,
     async start(friendId) {
         const f = friendData[friendId];
         if(!f || !validCoord(f.lat, f.lng) || !myCoords) return showToast("Location not available for routing.");
-        this.active = true;
-        this.targetId = friendId;
-        this.targetCoords = { lat: f.lat, lng: f.lng };
+        this.active = true; this.targetId = friendId; this.targetCoords = { lat: f.lat, lng: f.lng };
         
         if($("profile-popup")) $("profile-popup").style.display = "none";
         if($("nav-title-name")) $("nav-title-name").textContent = f.name;
         if($("nav-panel")) $("nav-panel").style.display = "flex";
-        
         await this.calculate();
     },
-    
     async calculate() {
         if(!this.active || !myCoords || !this.targetCoords) return;
-        this.routeLayer.clearLayers();
-        // CHANGED: "Calculating safest route..." -> "Calculating best route..."
+        navigationLayer.clearLayers();
         if($("nav-instructions")) $("nav-instructions").innerHTML = "<i>Analyzing roads & finding optimal route...</i>";
-        
         try {
-            // Fetch best road driving route
             const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${myCoords.lng},${myCoords.lat};${this.targetCoords.lng},${this.targetCoords.lat}?steps=true&geometries=geojson&overview=full`);
             if(!res.ok) throw new Error("Route failed");
-            
             const data = await res.json();
             
             if(data.routes && data.routes.length > 0) {
                 const r = data.routes[0];
                 const coords = r.geometry.coordinates.map(c => [c[1], c[0]]); 
-                
-                const path = L.polyline(coords, {
-                    color: '#18d6a3', 
-                    weight: 5, 
-                    opacity: 0.8, 
-                    className: 'nav-path-animated'
-                }).addTo(this.routeLayer);
-
+                const path = L.polyline(coords, { color: '#18d6a3', weight: 5, opacity: 0.8, className: 'nav-path-animated' }).addTo(navigationLayer);
                 map.fitBounds(path.getBounds(), { padding: [50, 50] });
 
                 const distKm = (r.distance / 1000).toFixed(1);
                 const timeMin = Math.round(r.duration / 60);
-                
-                // CHANGED: "🚗 Route" 
                 showToast(`🚗 Best Route: ${distKm} km • ⏱️ ${timeMin} mins`, 6000);
                 if($("nav-stats")) $("nav-stats").innerHTML = `🚗 ${distKm} km &nbsp; ⏱️ ${timeMin} min`;
                 
                 let instHTML = "";
                 if(r.legs[0] && r.legs[0].steps) {
-                    const steps = r.legs[0].steps.slice(0, 4);
-                    steps.forEach(s => {
+                    r.legs[0].steps.slice(0, 4).forEach(s => {
                         let arrow = "↑";
-                        if(s.maneuver.modifier) {
-                            if(s.maneuver.modifier.includes('right')) arrow = "↱";
-                            if(s.maneuver.modifier.includes('left')) arrow = "↰";
-                        }
+                        if(s.maneuver.modifier) { if(s.maneuver.modifier.includes('right')) arrow = "↱"; if(s.maneuver.modifier.includes('left')) arrow = "↰"; }
                         instHTML += `<div style="padding:4px 0;">${arrow} ${s.maneuver.instruction}</div>`;
                     });
                 }
                 if($("nav-instructions")) $("nav-instructions").innerHTML = instHTML || "Follow the highlighted route on the map.";
-                
-            } else {
-                if($("nav-instructions")) $("nav-instructions").innerHTML = "<i>No viable road route found.</i>";
-            }
-        } catch (e) {
-            console.error("Routing error:", e);
-            if($("nav-instructions")) $("nav-instructions").innerHTML = "<i>Navigation error. Try again later.</i>";
-        }
+            } else { if($("nav-instructions")) $("nav-instructions").innerHTML = "<i>No viable road route found.</i>"; }
+        } catch (e) { if($("nav-instructions")) $("nav-instructions").innerHTML = "<i>Navigation error. Try again later.</i>"; }
     },
-    
     stop() {
-        this.active = false;
-        this.targetId = null;
-        this.targetCoords = null;
-        this.routeLayer.clearLayers();
+        this.active = false; this.targetId = null; this.targetCoords = null;
+        navigationLayer.clearLayers();
         if($("nav-panel")) $("nav-panel").style.display = "none";
         if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
     },
-    
     onLiveUpdate() {
         if(!this.active) return;
         if(this.targetId && friendData[this.targetId]) {
             const f = friendData[this.targetId];
             if(!this.targetCoords) return;
             const dist = distanceKm(this.targetCoords.lat, this.targetCoords.lng, f.lat, f.lng);
-            // Auto Recalculate if friend moves > 100 meters
-            if(Number(dist) > 0.1) {
-                this.targetCoords = { lat: f.lat, lng: f.lng };
-                this.calculate();
-            }
+            if(Number(dist) > 0.1) { this.targetCoords = { lat: f.lat, lng: f.lng }; this.calculate(); }
         }
     }
 };
-
 if($("nav-recalc-btn")) $("nav-recalc-btn").onclick = () => Navigation.calculate();
 if($("nav-exit-btn")) $("nav-exit-btn").onclick = () => Navigation.stop();
-
 
 // ==========================================
 // CORE SYSTEM
@@ -245,9 +205,7 @@ function startGPS() {
         if(!ownMarker){
             ownMarker = L.marker([lat,lng],{icon:ownIcon(), zIndexOffset:1000}).addTo(map);
             map.setView([lat,lng], 16);
-        } else {
-            ownMarker.setLatLng([lat,lng]);
-        }
+        } else { ownMarker.setLatLng([lat,lng]); }
 
         if(acc>0 && acc<100000){
             if(!accuracyCircle) accuracyCircle=L.circle([lat,lng],{radius:acc, color:"#10b981", weight:2, fillOpacity:.15}).addTo(map);
@@ -265,18 +223,16 @@ function startGPS() {
         if (!myWeather || Date.now() - lastWeatherFetch > 180000) {
             const w = await fetchWeather(lat, lng);
             if (w) {
-                myWeather = w;
-                lastWeatherFetch = Date.now();
+                myWeather = w; lastWeatherFetch = Date.now();
                 if ($("map-temp-display")) $("map-temp-display").textContent = w;
-                if (ownMarker) {
-                    ownMarker.unbindTooltip().bindTooltip(w, { permanent: true, direction: "right", className: "weather-badge", offset: [15, 0] });
-                }
+                if (ownMarker) ownMarker.unbindTooltip().bindTooltip(w, { permanent: true, direction: "right", className: "weather-badge", offset: [15, 0] });
             }
         }
         
         socket.emit("updateLocation",{name:currentUser.name, avatar:currentUser.avatar, lat, lng, weather:myWeather});
         updateFriendBadges(); 
         updateTripPanel();
+        updateGroupTripRoutes(); // Update multi-routes
         Navigation.onLiveUpdate(); 
     }, e=>console.warn("GPS error",e), {enableHighAccuracy:true,timeout:15000,maximumAge:3000});
 }
@@ -293,7 +249,7 @@ function updateFriendBadges(){
 socket.on("onlineUsers", list=>{ if(Array.isArray(list)) list.forEach(u=>{ if(u.id!==socket.id){ friendData[u.id]={...(friendData[u.id]||{}),...u,online:true}; createOrUpdateFriendMarker(u);} }); updateOnlineUI(); });
 socket.on("userOnline", u=>{ if(u.id!==socket.id){ friendData[u.id]={...(friendData[u.id]||{}),...u,online:true}; createOrUpdateFriendMarker(u); } updateOnlineUI(); });
 socket.on("userOffline", d=>{ if(d?.id && friendData[d.id]){ friendData[d.id].online=false; if(friendMarkers[d.id]) friendMarkers[d.id].setOpacity(0.45); } updateOnlineUI(); });
-socket.on("friendMoved", u=>{ if(u?.id) { createOrUpdateFriendMarker({...u,online:true}); updateOnlineUI(); updateTripPanel(); Navigation.onLiveUpdate(); }});
+socket.on("friendMoved", u=>{ if(u?.id) { createOrUpdateFriendMarker({...u,online:true}); updateOnlineUI(); updateTripPanel(); updateGroupTripRoutes(); Navigation.onLiveUpdate(); }});
 socket.on("friendDisconnected", id=>{ if(friendMarkers[id]){map.removeLayer(friendMarkers[id]); delete friendMarkers[id];} delete friendData[id]; updateOnlineUI(); });
 
 function createOrUpdateFriendMarker(u){
@@ -325,17 +281,16 @@ function showProfilePopup(u) {
     if($("profile-popup-distance")) $("profile-popup-distance").textContent = myCoords ? `${distanceKm(myCoords.lat,myCoords.lng,u.lat,u.lng)} km away` : "--";
     if($("profile-popup-weather")) $("profile-popup-weather").textContent = u.weather || "--";
     
-    if($("profile-nav-btn")) {
-        $("profile-nav-btn").onclick = () => {
-            if(validCoord(u.lat, u.lng)) Navigation.start(u.id);
-        };
-    }
+    if($("profile-nav-btn")) $("profile-nav-btn").onclick = () => { if(validCoord(u.lat, u.lng)) Navigation.start(u.id); };
     
     if($("profile-popup")) $("profile-popup").style.display="flex";
     if($("profile-focus-btn")) $("profile-focus-btn").onclick=()=>{ map.flyTo([u.lat,u.lng],16); $("profile-popup").style.display="none"; };
 }
 $("profile-popup-close")?.addEventListener("click",()=>$("profile-popup").style.display="none");
 
+// ==========================================
+// ADVANCED MAP TOOLS & GEOFENCE
+// ==========================================
 function setupAdvancedTools() {
     $("measure-btn").onclick = () => {
         mapActionMode = mapActionMode === 'measure' ? null : 'measure';
@@ -377,10 +332,8 @@ function setupAdvancedTools() {
                 const radius = Number(radInput);
                 if (Number.isFinite(radius) && radius >= 10 && radius <= 50000) {
                     socket.emit("addGeofence", { name: name.trim(), lat: e.latlng.lat, lng: e.latlng.lng, radius: radius });
-                    showToast(`⭕ Geofence '${name}' created with ${radius}m radius!`);
-                } else {
-                    showToast("❌ Invalid radius! Must be between 10 and 50000 meters.");
-                }
+                    showToast(`⭕ Geofence '${name}' created!`);
+                } else showToast("❌ Invalid radius!");
             }
             mapActionMode = null; $("geofence-btn").classList.remove("active-tool");
         }
@@ -388,7 +341,7 @@ function setupAdvancedTools() {
             const name = prompt("Enter Trip Destination Name:");
             if (name && name.trim()) {
                 socket.emit("startTrip", { name: name.trim(), lat: e.latlng.lat, lng: e.latlng.lng });
-                showToast(`🚗 Trip started to ${name}!`);
+                showToast(`🚗 Group Trip started to ${name}!`);
             }
             mapActionMode = null; $("trip-btn").classList.remove("active-tool");
         }
@@ -412,37 +365,43 @@ function setupAdvancedTools() {
     socket.on("tripData", trip => {
         currentTrip = trip;
         if(tripMarker) { map.removeLayer(tripMarker); tripMarker = null; }
-        if(trip) {
-            $("trip-panel").style.display = "flex";
-            $("trip-title").textContent = `Trip to ${trip.name}`;
-            tripMarker = L.marker([trip.lat, trip.lng], { icon: L.divIcon({className: 'geofence-marker', html: '🏁'}) }).addTo(map);
-
-            const isMember = trip.members.some(m => m.id === socket.id);
-            const isHost = trip.hostId === socket.id;
-            const actionBtn = $("trip-action-btn");
-            
-            if (actionBtn) {
-                if (isHost) {
-                    actionBtn.textContent = "End Trip";
-                    actionBtn.style.color = "#ef4444"; actionBtn.style.background = "rgba(239, 68, 68, 0.2)";
-                    actionBtn.onclick = () => socket.emit("leaveTrip");
-                } else if (isMember) {
-                    actionBtn.textContent = "Leave Trip";
-                    actionBtn.style.color = "#f59e0b"; actionBtn.style.background = "rgba(245, 158, 11, 0.2)";
-                    actionBtn.onclick = () => socket.emit("leaveTrip");
-                } else {
-                    actionBtn.textContent = "Join Trip";
-                    actionBtn.style.color = "#10b981"; actionBtn.style.background = "rgba(16, 185, 129, 0.2)";
-                    actionBtn.onclick = () => socket.emit("joinTrip");
-                }
-            }
-            updateTripPanel();
-        } else {
+        if(!trip) {
+            tripRoutesLayer.clearLayers();
             if($("trip-panel")) $("trip-panel").style.display = "none";
+            return;
         }
+
+        $("trip-panel").style.display = "flex";
+        $("trip-title").textContent = `Trip to ${trip.name}`;
+        tripMarker = L.marker([trip.lat, trip.lng], { icon: L.divIcon({className: 'geofence-marker', html: '🏁'}) }).addTo(map);
+
+        const isMember = trip.members.some(m => m.id === socket.id);
+        const isHost = trip.hostId === socket.id;
+        const actionBtn = $("trip-action-btn");
+        
+        if (actionBtn) {
+            if (isHost) {
+                actionBtn.textContent = "End Trip";
+                actionBtn.style.color = "#ef4444"; actionBtn.style.background = "rgba(239, 68, 68, 0.2)";
+                actionBtn.onclick = () => socket.emit("leaveTrip");
+            } else if (isMember) {
+                actionBtn.textContent = "Leave Trip";
+                actionBtn.style.color = "#f59e0b"; actionBtn.style.background = "rgba(245, 158, 11, 0.2)";
+                actionBtn.onclick = () => socket.emit("leaveTrip");
+            } else {
+                actionBtn.textContent = "Join Trip";
+                actionBtn.style.color = "#10b981"; actionBtn.style.background = "rgba(16, 185, 129, 0.2)";
+                actionBtn.onclick = () => socket.emit("joinTrip");
+            }
+        }
+        updateTripPanel();
+        updateGroupTripRoutes(); // Trigger multi-routes
     });
 }
 
+// ==========================================
+// GROUP TRIP MULTI-ROUTE ENGINE
+// ==========================================
 function updateTripPanel() {
     if(!currentTrip) return;
     const list = $("trip-members-list"); if(!list) return;
@@ -461,6 +420,47 @@ function updateTripPanel() {
     });
 }
 
+// Automatically draw road paths for ALL members in the trip to the destination
+async function updateGroupTripRoutes() {
+    if (!currentTrip) { tripRoutesLayer.clearLayers(); return; }
+
+    currentTrip.members.forEach(async (member, index) => {
+        const color = routeColors[index % routeColors.length];
+        let coords = null;
+        
+        if (member.id === socket.id && myCoords) coords = myCoords;
+        else if (friendData[member.id] && friendData[member.id].online !== false) coords = friendData[member.id];
+        
+        if (coords) {
+            // Check if member moved > 100 meters before spamming API
+            const last = tripLastFetchedCoords[member.id];
+            if (last && distanceKm(last.lat, last.lng, coords.lat, coords.lng) < 0.1) return; 
+
+            try {
+                const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${coords.lng},${coords.lat};${currentTrip.lng},${currentTrip.lat}?geometries=geojson`);
+                const data = await res.json();
+                
+                if (data.routes && data.routes.length > 0) {
+                    const pathCoords = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+                    
+                    // Remove old route for this member
+                    tripRoutesLayer.eachLayer(l => { if(l.memberId === member.id) tripRoutesLayer.removeLayer(l); });
+
+                    const poly = L.polyline(pathCoords, { color: color, weight: 4, opacity: 0.8, className: 'nav-path-animated' });
+                    poly.memberId = member.id;
+                    poly.bindTooltip(`${member.name}'s Path`, {sticky: true, className: "weather-badge"});
+                    poly.addTo(tripRoutesLayer);
+                    
+                    tripLastFetchedCoords[member.id] = { lat: coords.lat, lng: coords.lng };
+                }
+            } catch(e) { console.warn("Failed to route member", member.name); }
+        }
+    });
+}
+
+// ==========================================
+// BASIC MAP CONTROLS
+// ==========================================
 function setupBasicControls(){
     $("my-location-btn").onclick = () => { if(myCoords) map.flyTo([myCoords.lat,myCoords.lng], 16); };
     $("compass-btn").onclick = () => { map.setView(map.getCenter(), map.getZoom(), {animate:true}); $("compass-icon").style.transform="rotate(0deg)"; };
@@ -475,6 +475,9 @@ function setupBasicControls(){
     if (window.DeviceOrientationEvent) window.addEventListener("deviceorientation", e => { const icon = $("compass-icon"); if (icon) icon.style.transform = `rotate(${e.webkitCompassHeading ? -e.webkitCompassHeading : e.alpha}deg)`; }, true);
 }
 
+// ==========================================
+// CHAT FUNCTIONALITY
+// ==========================================
 function setupChat(){
     const cc=$("chat-container"), inp=$("chatInput"), send=$("chat-send"), vb=$("voiceButton");
     let unread=0, typingTimer=null, replyTo=null, reactingId=null;
@@ -552,6 +555,9 @@ function setupVoice(){
     };
 }
 
+// ==========================================
+// MEMORY GALLERY & PINNING
+// ==========================================
 function setupMemories(){
     $("phase3-gallery-btn").onclick = () => { $("phase3-memory-overlay").style.display="block"; renderMemGallery(); };
     $("phase3-memory-close").onclick = () => $("phase3-memory-overlay").style.display="none";
