@@ -60,11 +60,11 @@ function distanceKm(a,b,c,d){
 function escapeHTML(v) { return String(v ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;"); }
 
 function ownIcon() { 
-    return L.divIcon({ className: "custom-own-icon", html: `<div style="width:100%; height:100%; border-radius:50%; border:2.5px solid #18d6a3; overflow:hidden; background:#071018; box-sizing:border-box;"><img src="${escapeHTML(currentUser.avatar)}" style="width:100%; height:100%; object-fit:cover;"></div>`, iconSize: [38, 38], iconAnchor: [19, 19] }); 
+    return L.divIcon({ className: "custom-own-icon", html: `<div style="width:100%; height:100%; border-radius:50%; border:2.5px solid #18d6a3; overflow:hidden; background:#071018; box-sizing:border-box; box-shadow:0 0 10px rgba(24,214,163,0.5);"><img src="${escapeHTML(currentUser.avatar)}" style="width:100%; height:100%; object-fit:cover; display:block;"></div>`, iconSize: [38, 38], iconAnchor: [19, 19] }); 
 }
 
 function friendIcon(avatar) { 
-    return L.divIcon({ className: "custom-friend-icon", html: `<div style="width:100%; height:100%; border-radius:50%; border:2px solid #3b82f6; overflow:hidden; background:#071018; box-sizing:border-box;"><img src="${escapeHTML(avatar)}" style="width:100%; height:100%; object-fit:cover;"></div>`, iconSize: [36, 36], iconAnchor: [18, 18] }); 
+    return L.divIcon({ className: "custom-friend-icon", html: `<div style="width:100%; height:100%; border-radius:50%; border:2px solid #3b82f6; overflow:hidden; background:#071018; box-sizing:border-box;"><img src="${escapeHTML(avatar)}" style="width:100%; height:100%; object-fit:cover; display:block;"></div>`, iconSize: [36, 36], iconAnchor: [18, 18] }); 
 }
 
 function weatherEmoji(code){
@@ -110,9 +110,7 @@ async function getRoadRoute(from, to, alternatives = false) {
     return data.routes;
 }
 
-// ==========================================
 // TRUE LIVE NAVIGATION
-// ==========================================
 const Navigation = {
     active: false, targetCoords: null, targetName: '', lastRecalcTime: 0,
     
@@ -201,9 +199,7 @@ const Navigation = {
 $("nav-exit-btn").onclick = () => Navigation.stop();
 $("nav-recalc-btn").onclick = () => Navigation.calculate();
 
-// ==========================================
 // GROUP NAVIGATION
-// ==========================================
 const GroupNavigation = {
     active: false, destination: null, selectedMembers: [], layerGroup: L.layerGroup().addTo(map),
     lastFetchedCoords: {}, colors: ['#18d6a3', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6'], recalcTimer: null,
@@ -278,9 +274,7 @@ if($("group-nav-close-btn")) $("group-nav-close-btn").onclick = () => { $("group
 if($("group-nav-next-btn")) $("group-nav-next-btn").onclick = () => GroupNavigation.startSelection();
 if($("group-nav-stop-btn")) $("group-nav-stop-btn").onclick = () => GroupNavigation.stop();
 
-// ==========================================
 // GPS & SOCKET CONNECTION
-// ==========================================
 socket.on("connect", () => { if (currentUser.name) socket.emit("profileReady", currentUser); });
 
 socket.on("geofenceAlert", (data) => {
@@ -291,7 +285,7 @@ socket.on("geofenceAlert", (data) => {
 function startGPS() {
     if(!navigator.geolocation) return;
     navigator.geolocation.watchPosition(async p => {
-        const lat = Number(p.coords.latitude), lng = Number(p.coords.longitude);
+        const lat = Number(p.coords.latitude), lng = Number(p.coords.longitude), acc = Number(p.coords.accuracy);
         if(!validCoord(lat,lng)) return;
         
         myCoords = {lat, lng};
@@ -305,6 +299,11 @@ function startGPS() {
             map.setView([lat,lng], 16);
         } else {
             ownMarker.setLatLng([lat,lng]);
+        }
+
+        if(acc>0 && acc<100000){
+            if(!accuracyCircle) accuracyCircle=L.circle([lat,lng],{radius:acc, color:"#10b981", weight:2, fillOpacity:.15}).addTo(map);
+            else {accuracyCircle.setLatLng([lat,lng]); accuracyCircle.setRadius(acc);}
         }
 
         if (!cityName) {
@@ -324,7 +323,7 @@ function startGPS() {
             }
         }
 
-        // GPS Throttling: Only emit if moved > 10 meters
+        // GPS Throttling
         const movedEnough = !lastEmittedCoords || distanceKm(lastEmittedCoords.lat, lastEmittedCoords.lng, lat, lng) > 0.01;
         if (movedEnough) {
             socket.emit("updateLocation", {name: currentUser.name, avatar: currentUser.avatar, lat, lng, weather: myWeather});
@@ -390,9 +389,7 @@ function showProfilePopup(u) {
 }
 $("profile-popup-close")?.addEventListener("click",()=>$("profile-popup").style.display="none");
 
-// ==========================================
 // ADVANCED MAP TOOLS
-// ==========================================
 window.removeGeofence = (id) => { socket.emit("removeGeofence", id); };
 
 function renderGeofenceList() {
@@ -607,9 +604,6 @@ function updateTripPanel() {
     });
 }
 
-// ==========================================
-// SEARCH BAR & CHAT & MEMORY SETUP
-// ==========================================
 let searchTimeout = null;
 function setupLocationSearch() {
     $("search-input").addEventListener("input", (e) => {
@@ -691,7 +685,6 @@ function setupChat(){
 
     $("chat-toggle-btn").onclick = () => { cc.style.display = "flex"; $("chat-toggle-btn").style.display = "none"; unread=0; updateUnreadBadge(); inp.focus(); };
     $("chat-minimize-btn").onclick = () => { cc.style.display = "none"; $("chat-toggle-btn").style.display = "flex"; };
-    $("online-btn").onclick = (e) => { e.stopPropagation(); const l=$("friends-panel"); l.style.display = l.style.display === "flex" ? "none" : "flex"; updateOnlineUI(); };
 
     inp.oninput=()=>{ socket.emit("typing",true); clearTimeout(typingTimer); typingTimer=setTimeout(()=>socket.emit("typing",false), 1200); send.style.display=inp.value.trim()?"flex":"none"; vb.style.display=inp.value.trim()?"none":"flex"; };
     socket.on("typing", d=>{ const t=$("typing-indicator"); if(d.id!==socket.id && d.isTyping){t.textContent=`${escapeHTML(d.name)} is typing…`; t.style.display="block";}else t.style.display="none"; });
@@ -738,6 +731,7 @@ function setupChat(){
     socket.on("messageReaction", d=>{ const s=msgStore.get(d.messageId); if(s){ const c=s.el.querySelector(".reaction-row"); c.innerHTML=""; Object.keys(d.reactions).forEach(e=>{ if(d.reactions[e].length){ const b=document.createElement("button"); b.className="reaction-chip"; b.textContent=`${e} ${d.reactions[e].length}`; b.onclick=()=>socket.emit("messageReaction",{messageId:d.messageId,emoji:e}); c.appendChild(b);} }); }});
 }
 
+// SETUP VOICE
 function setupVoice(){
     const vb=$("voiceButton"); if(!vb)return; let rec=null, chunks=[], isRec=false;
     vb.onclick=async()=>{
@@ -843,7 +837,7 @@ function initApp(){
     setupAdvancedTools(); 
     setupLocationSearch(); 
     setupChat(); 
-    setupVoice();
+    setupVoice(); // <--- FIX IS HERE
     setupMemories(); 
     startGPS(); 
 }
