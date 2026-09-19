@@ -18,8 +18,8 @@ let activeTrip = null;
 
 const MAX_MESSAGES = 200;
 const MAX_MEMORY_PHOTOS = 100;
-const MAX_MESSAGE_DATA = 8 * 1024 * 1024; // 8MB for Chat
-const MAX_MEMORY_DATA = 7 * 1024 * 1024;  // 7MB for Memories
+const MAX_MESSAGE_DATA = 8 * 1024 * 1024;
+const MAX_MEMORY_DATA = 7 * 1024 * 1024; 
 
 const REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
 const CHAT_TYPES = ["text", "image", "video", "audio", "document"];
@@ -53,7 +53,7 @@ function validChatMessage(msg) {
 }
 
 function haversineDistance(lat1, lon1, lat2, lon2) {
-    const R = 6371e3; // meters
+    const R = 6371e3;
     const p = Math.PI / 180;
     const a = 0.5 - Math.cos((lat2 - lat1) * p)/2 + Math.cos(lat1 * p) * Math.cos(lat2 * p) * (1 - Math.cos((lon2 - lon1) * p))/2;
     return R * 2 * Math.asin(Math.sqrt(a));
@@ -149,20 +149,33 @@ io.on("connection", (socket) => {
         io.emit("newMemoryPin", pin);
     });
 
+    // SERVER FIX: Assign Owner ID to Geofence
     socket.on("addGeofence", (f = {}) => {
         if (!validCoord(f.lat, -90, 90) || !validCoord(f.lng, -180, 180) || !f.name) return;
         const radius = Number(f.radius);
         if (!Number.isFinite(radius) || radius < 10 || radius > 50000) return; 
 
+        const u = users.get(socket.id);
         const fence = { 
             id: `${Date.now()}-${crypto.randomBytes(4).toString("hex")}`, 
             name: cleanName(f.name), 
-            lat: Number(f.lat), 
-            lng: Number(f.lng), 
-            radius: radius 
+            lat: Number(f.lat), lng: Number(f.lng), radius: radius,
+            ownerId: socket.id, 
+            ownerName: u ? u.name : "User" 
         };
         geofences.set(fence.id, fence);
         io.emit("loadGeofences", [...geofences.values()]);
+    });
+
+    // SERVER FIX: Enforce Ownership before deletion
+    socket.on("removeGeofence", (id) => {
+        if(geofences.has(id)) {
+            const fence = geofences.get(id);
+            if (fence.ownerId === socket.id) {
+                geofences.delete(id);
+                io.emit("loadGeofences", [...geofences.values()]);
+            }
+        }
     });
 
     socket.on("startTrip", (t = {}) => {
@@ -172,10 +185,8 @@ io.on("connection", (socket) => {
         activeTrip = { 
             id: Date.now().toString(), 
             name: cleanName(t.name) || "Destination", 
-            lat: Number(t.lat), 
-            lng: Number(t.lng), 
-            hostId: socket.id, 
-            members: [{ id: socket.id, name: uName }]
+            lat: Number(t.lat), lng: Number(t.lng), 
+            hostId: socket.id, members: [{ id: socket.id, name: uName }]
         };
         io.emit("tripData", activeTrip);
     });
