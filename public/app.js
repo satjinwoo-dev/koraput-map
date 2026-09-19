@@ -9,11 +9,7 @@ const MAX_MEMORY_FILE = 8 * 1024 * 1024;
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
 const map = L.map("map", { 
-    zoomControl: false, 
-    preferCanvas: true,
-    minZoom: 3,
-    maxBounds: [[-90, -180], [90, 180]],
-    maxBoundsViscosity: 1.0
+    zoomControl: false, preferCanvas: true, minZoom: 3, maxBounds: [[-90, -180], [90, 180]], maxBoundsViscosity: 1.0
 }).setView(DEFAULT_CENTER, 13);
 
 const satelliteLayer = L.tileLayer("https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}", { maxZoom: 20, subdomains: ["mt0","mt1","mt2","mt3"] });
@@ -34,11 +30,17 @@ try {
     if (!Array.isArray(locationHistory)) locationHistory = [];
 } catch(e) { locationHistory = []; }
 
-const p4LayerGroup = L.layerGroup().addTo(map);
+// ALL LAYERS
+const p4LayerGroup = L.layerGroup().addTo(map); // For Geofences & History
+const measureLayer = L.layerGroup().addTo(map); // FIX 3: Isolated Layer for Measurements
 const historyPolyline = L.polyline(locationHistory, { color: '#3b82f6', weight: 4, opacity: 0.8, dashArray: '5, 10' }).addTo(p4LayerGroup);
-
-// NEVIGATION LAYERS
 const navigationLayer = L.layerGroup().addTo(map);
+const tripRoutesLayer = L.layerGroup().addTo(map);
+const memoryLayer = L.layerGroup().addTo(map);
+
+const tripLastFetchedCoords = {}; 
+let tripRoadStats = {}; 
+const routeColors = ['#18d6a3', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6']; 
 
 let mapActionMode = null; 
 let pendingMemoryImage = null; 
@@ -46,8 +48,8 @@ let measurePoints = [];
 let currentTrip = null;
 let tripMarker = null;
 
+let currentGeofences = []; 
 const memories = new Map();
-const memoryLayer = L.layerGroup().addTo(map);
 let currentGalleryFilter = "all", currentGallerySearch = "", selectedMemoryId = null;
 
 const $ = id => document.getElementById(id);
@@ -66,8 +68,7 @@ function ownIcon() {
     return L.divIcon({ 
         className: "custom-own-icon", 
         html: `<div style="width:100%; height:100%; border-radius:50%; border:2.5px solid #18d6a3; overflow:hidden; background:#071018; box-sizing:border-box; box-shadow:0 0 10px rgba(24,214,163,0.5);"><img src="${escapeHTML(currentUser.avatar)}" style="width:100%; height:100%; object-fit:cover; display:block;"></div>`,
-        iconSize: [38, 38], 
-        iconAnchor: [19, 19] 
+        iconSize: [38, 38], iconAnchor: [19, 19] 
     }); 
 }
 
@@ -75,8 +76,7 @@ function friendIcon(avatar) {
     return L.divIcon({ 
         className: "custom-friend-icon", 
         html: `<div style="width:100%; height:100%; border-radius:50%; border:2px solid #60a5fa; overflow:hidden; background:#071018; box-sizing:border-box;"><img src="${escapeHTML(avatar)}" style="width:100%; height:100%; object-fit:cover; display:block;"></div>`,
-        iconSize: [36, 36], 
-        iconAnchor: [18, 18] 
+        iconSize: [36, 36], iconAnchor: [18, 18] 
     }); 
 }
 
@@ -106,9 +106,6 @@ async function fetchCity(lat,lng){
     } catch { return "Rourkela"; }
 }
 
-// ==========================================
-// 1-on-1 NAVIGATION (Personal)
-// ==========================================
 const Navigation = {
     active: false, targetId: null, targetCoords: null,
     async start(friendId) {
@@ -124,7 +121,7 @@ const Navigation = {
     async calculate() {
         if(!this.active || !myCoords || !this.targetCoords) return;
         navigationLayer.clearLayers();
-        if($("nav-instructions")) $("nav-instructions").innerHTML = "<i>Analyzing roads & finding best route...</i>";
+        if($("nav-instructions")) $("nav-instructions").innerHTML = "<i>Analyzing roads & finding optimal route...</i>";
         try {
             const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${myCoords.lng},${myCoords.lat};${this.targetCoords.lng},${this.targetCoords.lat}?steps=true&geometries=geojson&overview=full`);
             if(!res.ok) throw new Error("Route failed");
@@ -138,7 +135,7 @@ const Navigation = {
 
                 const distKm = (r.distance / 1000).toFixed(1);
                 const timeMin = Math.round(r.duration / 60);
-                showToast(`🚗 Optimal Route: ${distKm} km • ⏱️ ${timeMin} mins`, 6000);
+                showToast(`🚗 Best Route: ${distKm} km • ⏱️ ${timeMin} mins`, 6000);
                 if($("nav-stats")) $("nav-stats").innerHTML = `🚗 ${distKm} km &nbsp; ⏱️ ${timeMin} min`;
                 
                 let instHTML = "";
@@ -172,158 +169,75 @@ const Navigation = {
 if($("nav-recalc-btn")) $("nav-recalc-btn").onclick = () => Navigation.calculate();
 if($("nav-exit-btn")) $("nav-exit-btn").onclick = () => Navigation.stop();
 
-// ==========================================
-// NEW: MULTI-PERSON GROUP NAVIGATION
-// ==========================================
 const GroupNavigation = {
-    active: false,
-    destination: null,
-    selectedMembers: [], 
-    layerGroup: L.layerGroup().addTo(map),
-    lastFetchedCoords: {},
-    colors: ['#18d6a3', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6'],
-    recalcTimer: null,
+    active: false, destination: null, selectedMembers: [], layerGroup: L.layerGroup().addTo(map),
+    lastFetchedCoords: {}, colors: ['#18d6a3', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6'], recalcTimer: null,
 
     openSetup() {
-        const list = $("group-nav-friend-list");
-        list.innerHTML = "";
+        const list = $("group-nav-friend-list"); list.innerHTML = "";
         const activeFriends = Object.values(friendData).filter(f => f.online !== false);
-        if(activeFriends.length === 0) {
-            list.innerHTML = `<div style="color:var(--muted); font-size:11px;">No friends online.</div>`;
-        } else {
-            activeFriends.forEach(f => {
-                list.innerHTML += `
-                <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:white; cursor:pointer;">
-                    <input type="checkbox" value="${f.id}" class="group-nav-cb">
-                    <img src="${escapeHTML(f.avatar)}" style="width:28px; height:28px; border-radius:50%; object-fit:cover;">
-                    ${escapeHTML(f.name)}
-                </label>`;
-            });
-        }
+        if(activeFriends.length === 0) list.innerHTML = `<div style="color:var(--muted); font-size:11px;">No friends online.</div>`;
+        else activeFriends.forEach(f => {
+            list.innerHTML += `<label style="display:flex; align-items:center; gap:8px; font-size:13px; color:white; cursor:pointer;"><input type="checkbox" value="${f.id}" class="group-nav-cb"><img src="${escapeHTML(f.avatar)}" style="width:28px; height:28px; border-radius:50%; object-fit:cover;">${escapeHTML(f.name)}</label>`;
+        });
         $("group-nav-setup").style.display = "flex";
     },
-
     startSelection() {
         const cbs = document.querySelectorAll(".group-nav-cb:checked");
         if(cbs.length === 0) return showToast("Select at least 1 friend.");
-        if(cbs.length > 3) return showToast("Select up to 3 friends only to avoid API limits.");
-
+        if(cbs.length > 3) return showToast("Select up to 3 friends only.");
         this.selectedMembers = ["me", ...Array.from(cbs).map(cb => cb.value)];
         $("group-nav-setup").style.display = "none";
         mapActionMode = 'group-nav';
         showToast("📍 Tap the map to set the common destination!", 5000);
     },
-
     async setDestination(latlng) {
-        this.active = true;
-        this.destination = latlng;
-        this.layerGroup.clearLayers();
-        this.lastFetchedCoords = {};
-
-        L.marker(latlng, { icon: L.divIcon({className: 'geofence-marker', html: '🎯'}) })
-            .bindTooltip("Group Destination", {permanent:true, direction:"top", className:"weather-badge"})
-            .addTo(this.layerGroup);
-
+        this.active = true; this.destination = latlng; this.layerGroup.clearLayers(); this.lastFetchedCoords = {};
+        L.marker(latlng, { icon: L.divIcon({className: 'geofence-marker', html: '🎯'}) }).bindTooltip("Group Destination", {permanent:true, direction:"top", className:"weather-badge"}).addTo(this.layerGroup);
         $("group-nav-active").style.display = "flex";
         await this.calculateAll();
     },
-
     async calculateAll() {
         if(!this.active || !this.destination) return;
-        $("group-nav-stats-list").innerHTML = "<div style='color:var(--muted); font-size:11px; text-align:center;'>Analyzing roads & calculating routes...</div>";
+        $("group-nav-stats-list").innerHTML = "<div style='color:var(--muted); font-size:11px; text-align:center;'>Calculating road paths...</div>";
 
-        let statsHTML = "";
-        let validPaths = [];
+        let statsHTML = "", validPaths = [];
 
         for(let i = 0; i < this.selectedMembers.length; i++) {
             const memberId = this.selectedMembers[i];
             const color = this.colors[i % this.colors.length];
-
             let name = "User", avatar = DEFAULT_AVATAR, coords = null;
 
-            if (memberId === "me") {
-                if (!myCoords) continue;
-                name = "You"; avatar = currentUser.avatar; coords = myCoords;
-            } else {
-                const f = friendData[memberId];
-                if (!f || f.online === false || !validCoord(f.lat, f.lng)) continue;
-                name = f.name; avatar = f.avatar; coords = { lat: f.lat, lng: f.lng };
-            }
+            if (memberId === "me") { if (!myCoords) continue; name = "You"; avatar = currentUser.avatar; coords = myCoords; } 
+            else { const f = friendData[memberId]; if (!f || f.online === false || !validCoord(f.lat, f.lng)) continue; name = f.name; avatar = f.avatar; coords = { lat: f.lat, lng: f.lng }; }
 
             try {
                 const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${coords.lng},${coords.lat};${this.destination.lng},${this.destination.lat}?overview=full&geometries=geojson`);
                 const data = await res.json();
-
                 if(data.routes && data.routes.length > 0) {
                     const r = data.routes[0];
                     const pathCoords = r.geometry.coordinates.map(c => [c[1], c[0]]);
-
                     this.layerGroup.eachLayer(l => { if(l.memberId === memberId) this.layerGroup.removeLayer(l); });
-
                     const poly = L.polyline(pathCoords, { color: color, weight: 5, opacity: 0.8, className: 'nav-path-animated' });
-                    poly.memberId = memberId;
-                    poly.addTo(this.layerGroup);
-                    validPaths.push(poly);
+                    poly.memberId = memberId; poly.addTo(this.layerGroup); validPaths.push(poly);
 
-                    const distKm = (r.distance / 1000).toFixed(1);
-                    const timeMin = Math.round(r.duration / 60);
-
-                    statsHTML += `
-                    <div style="display:flex; justify-content:space-between; align-items:center; padding:10px; background:rgba(255,255,255,0.05); border-radius:10px; border-left:4px solid ${color};">
-                        <div style="display:flex; align-items:center; gap:10px;">
-                            <img src="${escapeHTML(avatar)}" style="width:30px; height:30px; border-radius:50%; object-fit:cover;">
-                            <span style="color:white; font-size:13px; font-weight:bold;">${escapeHTML(name)}</span>
-                        </div>
-                        <div style="text-align:right;">
-                            <div style="color:white; font-size:13px; font-weight:bold;">${distKm} km</div>
-                            <div style="color:var(--muted); font-size:11px;">${timeMin} min</div>
-                        </div>
-                    </div>`;
-
+                    const distKm = (r.distance / 1000).toFixed(1); const timeMin = Math.round(r.duration / 60);
+                    statsHTML += `<div style="display:flex; justify-content:space-between; align-items:center; padding:10px; background:rgba(255,255,255,0.05); border-radius:10px; border-left:4px solid ${color};"><div style="display:flex; align-items:center; gap:10px;"><img src="${escapeHTML(avatar)}" style="width:30px; height:30px; border-radius:50%; object-fit:cover;"><span style="color:white; font-size:13px; font-weight:bold;">${escapeHTML(name)}</span></div><div style="text-align:right;"><div style="color:white; font-size:13px; font-weight:bold;">${distKm} km</div><div style="color:var(--muted); font-size:11px;">${timeMin} min</div></div></div>`;
                     this.lastFetchedCoords[memberId] = { lat: coords.lat, lng: coords.lng };
-                } else {
-                    statsHTML += `<div style="color:#ef4444; font-size:11px; padding:10px;">No road route for ${escapeHTML(name)}</div>`;
-                }
-            } catch(e) { console.error("Group Nav route error", e); }
+                } else statsHTML += `<div style="color:#ef4444; font-size:11px; padding:10px;">No road route for ${escapeHTML(name)}</div>`;
+            } catch(e) {}
         }
-
         $("group-nav-stats-list").innerHTML = statsHTML;
-        if(validPaths.length > 0) {
-             map.fitBounds(L.featureGroup(validPaths).getBounds(), { padding: [40, 40] });
-        }
+        if(validPaths.length > 0) map.fitBounds(L.featureGroup(validPaths).getBounds(), { padding: [40, 40] });
     },
-
     onLiveUpdate() {
         if(!this.active || !this.destination) return;
         let needsRecalc = false;
-        
-        if (this.selectedMembers.includes("me") && myCoords) {
-            const last = this.lastFetchedCoords["me"];
-            if(!last || distanceKm(last.lat, last.lng, myCoords.lat, myCoords.lng) > 0.1) needsRecalc = true;
-        }
-
-        this.selectedMembers.forEach(id => {
-            if(id !== "me" && friendData[id]) {
-                const f = friendData[id];
-                const last = this.lastFetchedCoords[id];
-                if(validCoord(f.lat, f.lng) && (!last || distanceKm(last.lat, last.lng, f.lat, f.lng) > 0.1)) needsRecalc = true;
-            }
-        });
-
-        if (needsRecalc) {
-            clearTimeout(this.recalcTimer);
-            this.recalcTimer = setTimeout(() => this.calculateAll(), 3000);
-        }
+        if (this.selectedMembers.includes("me") && myCoords) { const last = this.lastFetchedCoords["me"]; if(!last || distanceKm(last.lat, last.lng, myCoords.lat, myCoords.lng) > 0.1) needsRecalc = true; }
+        this.selectedMembers.forEach(id => { if(id !== "me" && friendData[id]) { const f = friendData[id]; const last = this.lastFetchedCoords[id]; if(validCoord(f.lat, f.lng) && (!last || distanceKm(last.lat, last.lng, f.lat, f.lng) > 0.1)) needsRecalc = true; }});
+        if (needsRecalc) { clearTimeout(this.recalcTimer); this.recalcTimer = setTimeout(() => this.calculateAll(), 3000); }
     },
-
-    stop() {
-        this.active = false;
-        this.destination = null;
-        this.selectedMembers = [];
-        this.layerGroup.clearLayers();
-        $("group-nav-active").style.display = "none";
-        if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
-    }
+    stop() { this.active = false; this.destination = null; this.selectedMembers = []; this.layerGroup.clearLayers(); $("group-nav-active").style.display = "none"; if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16); }
 };
 
 if($("group-nav-close-btn")) $("group-nav-close-btn").onclick = () => { $("group-nav-setup").style.display = "none"; mapActionMode = null; $("group-nav-btn").classList.remove("active-tool"); };
@@ -394,7 +308,7 @@ function startGPS() {
         
         socket.emit("updateLocation",{name:currentUser.name, avatar:currentUser.avatar, lat, lng, weather:myWeather});
         updateFriendBadges(); 
-        updateTripPanel();
+        triggerGroupRouteUpdate(); 
         Navigation.onLiveUpdate(); 
         GroupNavigation.onLiveUpdate(); 
     }, e=>console.warn("GPS error",e), {enableHighAccuracy:true,timeout:15000,maximumAge:3000});
@@ -412,7 +326,7 @@ function updateFriendBadges(){
 socket.on("onlineUsers", list=>{ if(Array.isArray(list)) list.forEach(u=>{ if(u.id!==socket.id){ friendData[u.id]={...(friendData[u.id]||{}),...u,online:true}; createOrUpdateFriendMarker(u);} }); updateOnlineUI(); });
 socket.on("userOnline", u=>{ if(u.id!==socket.id){ friendData[u.id]={...(friendData[u.id]||{}),...u,online:true}; createOrUpdateFriendMarker(u); } updateOnlineUI(); });
 socket.on("userOffline", d=>{ if(d?.id && friendData[d.id]){ friendData[d.id].online=false; if(friendMarkers[d.id]) friendMarkers[d.id].setOpacity(0.45); } updateOnlineUI(); });
-socket.on("friendMoved", u=>{ if(u?.id) { createOrUpdateFriendMarker({...u,online:true}); updateOnlineUI(); updateTripPanel(); Navigation.onLiveUpdate(); GroupNavigation.onLiveUpdate(); }});
+socket.on("friendMoved", u=>{ if(u?.id) { createOrUpdateFriendMarker({...u,online:true}); updateOnlineUI(); triggerGroupRouteUpdate(); Navigation.onLiveUpdate(); GroupNavigation.onLiveUpdate(); }});
 socket.on("friendDisconnected", id=>{ if(friendMarkers[id]){map.removeLayer(friendMarkers[id]); delete friendMarkers[id];} delete friendData[id]; updateOnlineUI(); });
 
 function createOrUpdateFriendMarker(u){
@@ -425,9 +339,7 @@ function createOrUpdateFriendMarker(u){
 }
 
 function updateOnlineUI(){
-    let c=0; Object.values(friendData).forEach(f=>{if(f.online!==false) c++;});
-    if($("header-online-status")) $("header-online-status").textContent = `${currentUser.name ? c+1 : c} online`;
-    if($("chat-subtitle")) $("chat-subtitle").textContent = `${currentUser.name ? c+1 : c} online`;
+    if($("chat-subtitle")) $("chat-subtitle").textContent = `${currentUser.name ? 1 : 0} online`;
     const box=$("online-list"); if(!box) return; box.innerHTML="";
     Object.values(friendData).filter(f=>f.online!==false).forEach(u=>{
         const btn=document.createElement("button"); btn.className="online-friend";
@@ -455,20 +367,67 @@ function showProfilePopup(u) {
 }
 $("profile-popup-close")?.addEventListener("click",()=>$("profile-popup").style.display="none");
 
+// ==========================================
+// ADVANCED MAP TOOLS & GEOFENCE MODAL
+// ==========================================
+let geoClickCount = 0;
+let geoClickTimer = null;
+
+window.removeGeofence = (id) => { socket.emit("removeGeofence", id); };
+
+// FIX 5: Render Geofence List with Ownership Check
+function renderGeofenceList() {
+    const list = $("geofence-items");
+    list.innerHTML = "";
+    if(currentGeofences.length === 0) {
+        list.innerHTML = "<div style='color:var(--muted); font-size:12px; text-align:center;'>No active geofences.</div>";
+    } else {
+        currentGeofences.forEach(f => {
+            const isOwner = f.ownerId === socket.id;
+            const actionBtn = isOwner 
+                ? `<button onclick="removeGeofence('${f.id}')" style="background:rgba(239, 68, 68, 0.2); color:#ef4444; border:none; padding:6px 12px; border-radius:8px; font-weight:bold; font-size:11px; cursor:pointer;">Remove</button>`
+                : `<span style="font-size:10px; color:var(--muted); font-weight:bold;">Owner: ${escapeHTML(f.ownerName)}</span>`;
+
+            list.innerHTML += `
+            <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.05); padding:10px; border-radius:10px;">
+                <div>
+                    <div style="color:white; font-size:13px; font-weight:bold;">${escapeHTML(f.name)}</div>
+                    <div style="color:var(--muted); font-size:11px;">Radius: ${f.radius}m</div>
+                </div>
+                ${actionBtn}
+            </div>`;
+        });
+    }
+    $("geofence-list-modal").style.display = "flex";
+}
+if($("geofence-list-close")) $("geofence-list-close").onclick = () => $("geofence-list-modal").style.display = "none";
+
+
 function setupAdvancedTools() {
     $("measure-btn").onclick = () => {
         mapActionMode = mapActionMode === 'measure' ? null : 'measure';
         $("measure-btn").classList.toggle("active-tool", mapActionMode === 'measure');
         $("geofence-btn").classList.remove("active-tool"); $("trip-btn").classList.remove("active-tool"); $("group-nav-btn").classList.remove("active-tool");
-        if(mapActionMode !== 'measure') { p4LayerGroup.eachLayer(l => { if(!l.options?.isGeofence) map.removeLayer(l); }); measurePoints = []; }
-        else showToast("📍 Tap two points on the map to measure distance");
+        if(mapActionMode !== 'measure') { measureLayer.clearLayers(); measurePoints = []; }
+        else showToast("📍 Tap two points on the map to measure road distance");
     };
 
     $("geofence-btn").onclick = () => {
-        mapActionMode = mapActionMode === 'geofence' ? null : 'geofence';
-        $("geofence-btn").classList.toggle("active-tool", mapActionMode === 'geofence');
-        $("measure-btn").classList.remove("active-tool"); $("trip-btn").classList.remove("active-tool"); $("group-nav-btn").classList.remove("active-tool");
-        if(mapActionMode === 'geofence') showToast("⭕ Tap the map to set a Geofence area");
+        geoClickCount++;
+        if (geoClickCount === 3) {
+            clearTimeout(geoClickTimer);
+            geoClickCount = 0;
+            renderGeofenceList(); 
+            return;
+        }
+        clearTimeout(geoClickTimer);
+        geoClickTimer = setTimeout(() => {
+            geoClickCount = 0;
+            mapActionMode = mapActionMode === 'geofence' ? null : 'geofence';
+            $("geofence-btn").classList.toggle("active-tool", mapActionMode === 'geofence');
+            $("measure-btn").classList.remove("active-tool"); $("trip-btn").classList.remove("active-tool"); $("group-nav-btn").classList.remove("active-tool");
+            if(mapActionMode === 'geofence') showToast("⭕ Tap map to set Geofence. (Tap button 3 times to view/delete)");
+        }, 300);
     };
 
     $("trip-btn").onclick = () => {
@@ -478,7 +437,6 @@ function setupAdvancedTools() {
         if(mapActionMode === 'trip') showToast("🚗 Tap the map to set Group Trip Destination");
     };
 
-    // NEW: GROUP NAVIGATION BUTTON
     $("group-nav-btn").onclick = () => {
         mapActionMode = mapActionMode === 'group-nav' ? null : 'group-nav';
         $("group-nav-btn").classList.toggle("active-tool", mapActionMode === 'group-nav');
@@ -490,12 +448,34 @@ function setupAdvancedTools() {
     map.on('click', (e) => {
         if (mapActionMode === 'measure') {
             measurePoints.push(e.latlng);
-            L.circleMarker(e.latlng, {color: '#f59e0b', radius: 5, fillOpacity: 1}).addTo(p4LayerGroup);
+            // FIX 3: Push measurement to its isolated measureLayer
+            L.circleMarker(e.latlng, {color: '#f59e0b', radius: 5, fillOpacity: 1}).addTo(measureLayer);
+            
             if (measurePoints.length === 2) {
-                L.polyline(measurePoints, {color: '#f59e0b', weight: 4, dashArray: '5, 5'}).addTo(p4LayerGroup);
-                const d = distanceKm(measurePoints[0].lat, measurePoints[0].lng, measurePoints[1].lat, measurePoints[1].lng);
-                showToast(`📏 Distance: ${d} km`, 5000);
-                setTimeout(() => { p4LayerGroup.eachLayer(l => { if(!l.options?.isGeofence) map.removeLayer(l); }); measurePoints = []; mapActionMode = null; $("measure-btn").classList.remove("active-tool"); }, 5000);
+                const p1 = measurePoints[0], p2 = measurePoints[1];
+                showToast("📏 Calculating road distance...", 2000);
+                
+                fetch(`https://router.project-osrm.org/route/v1/driving/${p1.lng},${p1.lat};${p2.lng},${p2.lat}?overview=full&geometries=geojson`)
+                .then(r => r.json())
+                .then(data => {
+                    measureLayer.clearLayers();
+                    if(data.routes && data.routes.length > 0) {
+                        const r = data.routes[0];
+                        const coords = r.geometry.coordinates.map(c => [c[1], c[0]]);
+                        L.polyline(coords, {color: '#f59e0b', weight: 4, dashArray: '5, 10', className: 'nav-path-animated'}).addTo(measureLayer);
+                        const distKm = (r.distance / 1000).toFixed(2);
+                        const timeMin = Math.round(r.duration / 60);
+                        showToast(`📏 Road Distance: ${distKm} km • ⏱️ ETA: ${timeMin} mins`, 6000);
+                    } else {
+                        // FIX 2: Removed straight line fallback
+                        showToast("❌ Road route unavailable. Try again.");
+                    }
+                    setTimeout(() => { measureLayer.clearLayers(); measurePoints = []; mapActionMode = null; $("measure-btn").classList.remove("active-tool"); }, 6000);
+                }).catch(() => {
+                    measureLayer.clearLayers();
+                    showToast("❌ Road route unavailable. Try again."); // FIX 2
+                    setTimeout(() => { measureLayer.clearLayers(); measurePoints = []; mapActionMode = null; $("measure-btn").classList.remove("active-tool"); }, 6000);
+                });
             }
         } 
         else if (mapActionMode === 'geofence') {
@@ -527,19 +507,16 @@ function setupAdvancedTools() {
             }
             mapActionMode = null; pendingMemoryImage = null;
         }
-        else if (mapActionMode === 'group-nav') {
-            // FIRE GROUP NAV ROUTING
-            GroupNavigation.setDestination(e.latlng);
-            mapActionMode = null; $("group-nav-btn").classList.remove("active-tool");
-        }
     });
 
     socket.on("loadGeofences", fences => {
-        map.eachLayer(l => { if(l.options?.isGeofence) map.removeLayer(l); });
+        currentGeofences = fences;
+        p4LayerGroup.eachLayer(l => { if(l.options?.isGeofence) map.removeLayer(l); });
         fences.forEach(f => {
-            L.circle([f.lat, f.lng], { radius: f.radius, color: "#8b5cf6", weight: 2, fillOpacity: 0.1, isGeofence: true }).addTo(map);
-            L.marker([f.lat, f.lng], { icon: L.divIcon({className: 'geofence-marker', html: '📍'}), isGeofence: true }).bindTooltip(f.name, {permanent: true, direction: "top", className: "weather-badge"}).addTo(map);
+            L.circle([f.lat, f.lng], { radius: f.radius, color: "#8b5cf6", weight: 2, fillOpacity: 0.1, isGeofence: true }).addTo(p4LayerGroup);
+            L.marker([f.lat, f.lng], { icon: L.divIcon({className: 'geofence-marker', html: '📍'}), isGeofence: true }).bindTooltip(f.name, {permanent: true, direction: "top", className: "weather-badge"}).addTo(p4LayerGroup);
         });
+        if($("geofence-list-modal").style.display === "flex") renderGeofenceList();
     });
 
     socket.on("tripData", trip => {
@@ -569,11 +546,62 @@ function setupAdvancedTools() {
                     actionBtn.onclick = () => socket.emit("joinTrip");
                 }
             }
-            updateTripPanel();
+            triggerGroupRouteUpdate(); 
         } else {
+            tripRoutesLayer.clearLayers(); tripRoadStats = {};
             if($("trip-panel")) $("trip-panel").style.display = "none";
         }
     });
+}
+
+// FIX 4: Debounce Timer for Group Trip Routes
+let groupRouteUpdateTimer = null;
+let isFetchingGroupRoutes = false;
+
+function triggerGroupRouteUpdate() {
+    clearTimeout(groupRouteUpdateTimer);
+    groupRouteUpdateTimer = setTimeout(() => updateGroupTripRoutes(), 1000);
+}
+
+async function updateGroupTripRoutes() {
+    if (!currentTrip || isFetchingGroupRoutes) return;
+    isFetchingGroupRoutes = true;
+
+    const promises = currentTrip.members.map(async (member, index) => {
+        const color = routeColors[index % routeColors.length];
+        let coords = null;
+        
+        if (member.id === socket.id && myCoords) coords = myCoords;
+        else if (friendData[member.id] && friendData[member.id].online !== false) coords = friendData[member.id];
+        
+        if (coords) {
+            const last = tripLastFetchedCoords[member.id];
+            if (last && distanceKm(last.lat, last.lng, coords.lat, coords.lng) < 0.1) return;
+
+            try {
+                const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${coords.lng},${coords.lat};${currentTrip.lng},${currentTrip.lat}?geometries=geojson`);
+                const data = await res.json();
+                
+                if (data.routes && data.routes.length > 0) {
+                    const r = data.routes[0];
+                    const pathCoords = r.geometry.coordinates.map(c => [c[1], c[0]]);
+                    
+                    tripRoutesLayer.eachLayer(l => { if(l.memberId === member.id) tripRoutesLayer.removeLayer(l); });
+
+                    const poly = L.polyline(pathCoords, { color: color, weight: 5, opacity: 0.8, className: 'nav-path-animated' });
+                    poly.memberId = member.id;
+                    poly.addTo(tripRoutesLayer);
+                    
+                    tripLastFetchedCoords[member.id] = { lat: coords.lat, lng: coords.lng };
+                    tripRoadStats[member.id] = { dist: (r.distance / 1000).toFixed(1), time: Math.round(r.duration / 60) };
+                }
+            } catch(e) { console.warn("Failed to route", member.name); }
+        }
+    });
+
+    await Promise.all(promises);
+    isFetchingGroupRoutes = false;
+    updateTripPanel();
 }
 
 function updateTripPanel() {
@@ -584,13 +612,13 @@ function updateTripPanel() {
     const isMember = currentTrip.members.some(m => m.id === socket.id);
 
     if(myCoords && currentUser.name && isMember) {
-        const d = distanceKm(myCoords.lat, myCoords.lng, currentTrip.lat, currentTrip.lng);
-        list.innerHTML += `<div class="trip-member"><div><img src="${escapeHTML(currentUser.avatar)}"> You</div> <span>${d} km</span></div>`;
+        const stats = tripRoadStats[socket.id] || { dist: distanceKm(myCoords.lat, myCoords.lng, currentTrip.lat, currentTrip.lng), time: '--' };
+        list.innerHTML += `<div class="trip-member"><div><img src="${escapeHTML(currentUser.avatar)}"> You</div> <span style="text-align:right;">${stats.dist} km<br><small style="color:var(--muted)">${stats.time} min</small></span></div>`;
     }
     
     Object.values(friendData).filter(f => f.online !== false && currentTrip.members.some(m => m.id === f.id)).forEach(f => {
-        const d = distanceKm(f.lat, f.lng, currentTrip.lat, currentTrip.lng);
-        list.innerHTML += `<div class="trip-member"><div><img src="${escapeHTML(f.avatar)}"> ${escapeHTML(f.name)}</div> <span>${d} km</span></div>`;
+        const stats = tripRoadStats[f.id] || { dist: distanceKm(f.lat, f.lng, currentTrip.lat, currentTrip.lng), time: '--' };
+        list.innerHTML += `<div class="trip-member"><div><img src="${escapeHTML(f.avatar)}"> ${escapeHTML(f.name)}</div> <span style="text-align:right;">${stats.dist} km<br><small style="color:var(--muted)">${stats.time} min</small></span></div>`;
     });
 }
 
@@ -753,7 +781,7 @@ function setupMemories(){
 }
 
 function setupJoin(){
-    // FIX: Removed emitLocation() from here as requested by tester screenshot
+    // FIX 1: emitLocation completely removed from join logic
     if(currentUser.name){ $("join-screen").style.display="none"; $("header-avatar").style.display="block"; $("header-avatar").src=currentUser.avatar; socket.emit("profileReady",currentUser); }
     $("join-form").onsubmit=e=>{ e.preventDefault(); currentUser.name=cleanName($("nameInput").value); localStorage.setItem("koraput_name",currentUser.name);
         const f=$("avatarInput").files?.[0];
