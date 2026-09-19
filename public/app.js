@@ -1,27 +1,22 @@
 "use strict";
 
+// ==========================================
+// 1. GLOBAL CONFIG & STATE
+// ==========================================
 const socket = io({ transports: ["websocket", "polling"] });
-const DEFAULT_CENTER = [18.8136, 82.7153];
+const DEFAULT_CENTER = [18.8136, 82.7153]; // Default: Koraput/Odisha region
 const DEFAULT_AVATAR = "satyam.png";
 const MAX_NAME = 40;
 const MAX_CHAT_FILE = 5 * 1024 * 1024;
 const MAX_MEMORY_FILE = 8 * 1024 * 1024;
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
-const map = L.map("map", { 
-    zoomControl: false, preferCanvas: true, minZoom: 3, maxBounds: [[-90, -180], [90, 180]], maxBoundsViscosity: 1.0
-}).setView(DEFAULT_CENTER, 13);
-
-const satelliteLayer = L.tileLayer("https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}", { maxZoom: 20, subdomains: ["mt0","mt1","mt2","mt3"] });
-const streetLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 });
-const darkLayer = L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", { maxZoom: 20 });
-satelliteLayer.addTo(map);
-
 let currentUser = { name: localStorage.getItem("koraput_name") || "", avatar: localStorage.getItem("koraput_avatar") || DEFAULT_AVATAR };
 let myCoords = null, myWeather = "", ownMarker = null, accuracyCircle = null, cityName = "";
 let lastEmittedCoords = null; 
 let lastWeatherFetch = 0;
-let lastHistorySave = 0; // FIX 5: Disk Throttling
+let lastHistorySave = 0; 
+
 const friendMarkers = Object.create(null);
 const friendData = Object.create(null);
 
@@ -32,29 +27,42 @@ try {
     if (!Array.isArray(locationHistory)) locationHistory = [];
 } catch(e) { locationHistory = []; }
 
-// ALL MAP LAYERS
-const p4LayerGroup = L.layerGroup().addTo(map); 
-const measureLayer = L.layerGroup().addTo(map); 
-const historyPolyline = L.polyline(locationHistory, { color: '#3b82f6', weight: 4, opacity: 0.8, dashArray: '5, 10' }).addTo(p4LayerGroup);
-const navigationLayer = L.layerGroup().addTo(map);
-const tripRoutesLayer = L.layerGroup().addTo(map);
-const memoryLayer = L.layerGroup().addTo(map);
-const searchLayer = L.layerGroup().addTo(map);
-
-const tripLastFetchedCoords = {}; 
-let tripRoadStats = {}; 
-const routeColors = ['#18d6a3', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6']; 
-
+// Map State
 let mapActionMode = null; 
-let pendingMemoryImage = null; 
 let measurePoints = [];
 let currentTrip = null;
 let tripMarker = null;
 let searchPlace = null;
+let pendingMemoryImage = null; 
 let currentGeofences = []; 
 const memories = new Map();
 let currentGalleryFilter = "all", currentGallerySearch = "", selectedMemoryId = null;
 
+// ==========================================
+// 2. MAP INITIALIZATION & LAYERS
+// ==========================================
+const map = L.map("map", { 
+    zoomControl: false, preferCanvas: true, minZoom: 3, maxBounds: [[-90, -180], [90, 180]], maxBoundsViscosity: 1.0
+}).setView(DEFAULT_CENTER, 13);
+
+const satelliteLayer = L.tileLayer("https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}", { maxZoom: 20, subdomains: ["mt0","mt1","mt2","mt3"] });
+const streetLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 });
+const darkLayer = L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", { maxZoom: 20 });
+satelliteLayer.addTo(map);
+
+// Isolated Layer Groups for better cleanup
+const p4LayerGroup = L.layerGroup().addTo(map); // Geofences & General
+const measureLayer = L.layerGroup().addTo(map); // Dedicated for Measurement
+const navigationLayer = L.layerGroup().addTo(map); // 1-on-1 Nav
+const tripRoutesLayer = L.layerGroup().addTo(map); // Group Nav/Trip
+const memoryLayer = L.layerGroup().addTo(map); // Memories
+const searchLayer = L.layerGroup().addTo(map); // Search Pins
+
+const historyPolyline = L.polyline(locationHistory, { color: '#3b82f6', weight: 4, opacity: 0.8, dashArray: '5, 10' }).addTo(p4LayerGroup);
+
+// ==========================================
+// 3. UTILITY FUNCTIONS
+// ==========================================
 const $ = id => document.getElementById(id);
 const cleanName = v => String(v || "User").trim().replace(/\s+/g," ").slice(0, MAX_NAME);
 const validCoord = (lat,lng) => Number.isFinite(lat) && Number.isFinite(lng) && lat>=-90 && lat<=90 && lng>=-180 && lng<=180;
@@ -65,6 +73,7 @@ function distanceKm(a,b,c,d){
     const p = Math.PI/180, a1 = 0.5 - Math.cos((c-a)*p)/2 + Math.cos(a*p)*Math.cos(c*p)*Math.sin((d-b)*p/2)**2;
     return (12742 * Math.asin(Math.sqrt(a1)));
 }
+
 function escapeHTML(v) { return String(v ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;"); }
 
 function ownIcon() { 
@@ -81,6 +90,16 @@ function weatherEmoji(code){
     if([80,81,82].includes(code)) return "🌦️"; if([95,96,99].includes(code)) return "⛈️"; return "🌤️";
 }
 
+function showToast(message, duration = 4000) {
+    const container = $("toast-container"); if(!container) return;
+    const toast = document.createElement("div"); toast.className = "toast"; toast.textContent = message;
+    container.appendChild(toast);
+    setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, duration);
+}
+
+// ==========================================
+// 4. EXTERNAL APIs (Weather, City, OSRM)
+// ==========================================
 async function fetchWeather(lat,lng){
     try {
         const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lng)}&current=temperature_2m,weather_code`);
@@ -90,7 +109,6 @@ async function fetchWeather(lat,lng){
     } catch { return ""; }
 }
 
-// FIX 4: Remove Fake Fallback
 async function fetchCity(lat,lng){
     try {
         const r = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=en`);
@@ -103,14 +121,6 @@ async function fetchCity(lat,lng){
     return "";
 }
 
-function showToast(message, duration = 4000) {
-    const container = $("toast-container"); if(!container) return;
-    const toast = document.createElement("div"); toast.className = "toast"; toast.textContent = message;
-    container.appendChild(toast);
-    setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, duration);
-}
-
-// CENTRALIZED OSRM ROUTING ENGINE
 async function getRoadRoute(from, to, alternatives = false) {
     const alt = alternatives ? "true" : "false";
     const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${from.lng},${from.lat};${to.lng},${to.lat}?steps=true&geometries=geojson&overview=full&alternatives=${alt}`);
@@ -121,7 +131,7 @@ async function getRoadRoute(from, to, alternatives = false) {
 }
 
 // ==========================================
-// 1-ON-1 TRUE LIVE NAVIGATION
+// 5. NAVIGATION ENGINES (1-on-1 & Group)
 // ==========================================
 const Navigation = {
     active: false, targetCoords: null, targetName: '', lastCalcCoords: null, lastRecalcTime: 0,
@@ -156,9 +166,7 @@ const Navigation = {
 
     async calculate() {
         if(!this.active || !myCoords || !this.targetCoords) return;
-        
-        // Anti-spam cooldown (2 seconds)
-        if(Date.now() - this.lastRecalcTime < 2000) return;
+        if(Date.now() - this.lastRecalcTime < 2000) return; // Anti-spam
 
         navigationLayer.clearLayers();
         if($("nav-inst-text")) $("nav-inst-text").textContent = "Analyzing best route...";
@@ -176,10 +184,7 @@ const Navigation = {
             const mins = Math.round(r.duration / 60);
             if($("nav-time")) $("nav-time").textContent = mins > 60 ? `${Math.floor(mins/60)}h ${mins%60}m` : `${mins} min`;
             
-            // FIX 3: Advancing Instructions
             if(r.legs[0] && r.legs[0].steps && r.legs[0].steps.length > 0) {
-                // steps[0] is usually departure, steps[1] is next turn. 
-                // Since we fetch fresh route based on current GPS, steps[1] is always accurately the NEXT turn!
                 const step = r.legs[0].steps.length > 1 ? r.legs[0].steps[1] : r.legs[0].steps[0]; 
                 let arrow = "↑";
                 if(step.maneuver.modifier) { 
@@ -198,7 +203,6 @@ const Navigation = {
             this.lastCalcCoords = { lat: myCoords.lat, lng: myCoords.lng };
             this.lastRecalcTime = Date.now();
             map.panTo([myCoords.lat, myCoords.lng], {animate: true});
-
         } catch (e) { 
             if($("nav-inst-text")) $("nav-inst-text").textContent = "Navigation error. Re-routing...";
         }
@@ -211,41 +215,29 @@ const Navigation = {
         if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
     },
 
-    // FIX 1: Recalculate based on Distance/Movement instead of pure time
     onLiveUpdate() {
         if(!this.active || !myCoords || !this.targetCoords) return;
-        
         let needsRecalc = false;
 
-        // Condition A: Target (Friend) moved significantly
         if(this.targetId !== "custom" && friendData[this.targetId]) {
             const f = friendData[this.targetId];
             if(distanceKm(this.targetCoords.lat, this.targetCoords.lng, f.lat, f.lng) > 0.05) {
-                this.targetCoords = { lat: f.lat, lng: f.lng };
-                needsRecalc = true;
+                this.targetCoords = { lat: f.lat, lng: f.lng }; needsRecalc = true;
             }
         }
-
-        // Condition B: User moved > 30 meters from last calculation point
         if(!this.lastCalcCoords || distanceKm(myCoords.lat, myCoords.lng, this.lastCalcCoords.lat, this.lastCalcCoords.lng) > 0.03) {
             needsRecalc = true;
         }
 
-        if(needsRecalc) {
-            this.calculate();
-        } else {
-            // Just keep map centered
-            map.panTo([myCoords.lat, myCoords.lng], {animate: true});
-        }
+        if(needsRecalc) this.calculate();
+        else map.panTo([myCoords.lat, myCoords.lng], {animate: true});
     }
 };
 
 if($("nav-exit-btn")) $("nav-exit-btn").onclick = () => Navigation.stop();
 if($("nav-recalc-btn")) $("nav-recalc-btn").onclick = () => Navigation.calculate();
 
-// ==========================================
-// GROUP NAVIGATION
-// ==========================================
+// --- Group Navigation Logic ---
 const GroupNavigation = {
     active: false, destination: null, selectedMembers: [], layerGroup: L.layerGroup().addTo(map),
     lastFetchedCoords: {}, colors: ['#18d6a3', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6'], recalcTimer: null,
@@ -332,7 +324,85 @@ if($("group-nav-stop-btn")) $("group-nav-stop-btn").onclick = () => GroupNavigat
 
 
 // ==========================================
-// GPS & SOCKET CONNECTION
+// 6. LOCATION SEARCH (With Spatial Bias)
+// ==========================================
+let searchTimeout = null;
+function setupLocationSearch() {
+    const input = $("location-search-input");
+    const clearBtn = $("location-search-clear");
+    const results = $("location-search-results");
+
+    if(!input) return;
+
+    input.addEventListener("input", (e) => {
+        const val = e.target.value;
+        if(clearBtn) clearBtn.style.display = val ? "block" : "none";
+        clearTimeout(searchTimeout);
+        if(!val.trim()) { if(results) results.style.display = "none"; return; }
+        
+        searchTimeout = setTimeout(async () => {
+            try {
+                // Bias search near user's GPS coords
+                let apiUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(val)}&limit=5`;
+                if (myCoords) apiUrl += `&lat=${myCoords.lat}&lon=${myCoords.lng}`;
+
+                const res = await fetch(apiUrl);
+                const data = await res.json();
+                
+                if(results) {
+                    results.innerHTML = "";
+                    if(data.features.length === 0) {
+                        results.innerHTML = `<div style="padding:12px; color:var(--muted); font-size:12px;">No results found</div>`;
+                    } else {
+                        data.features.forEach(f => {
+                            const item = f.properties;
+                            const name = item.name || item.street || item.city || "Location";
+                            const addr = [item.street, item.city, item.state, item.country].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).join(', ');
+                            
+                            const div = document.createElement("div");
+                            div.className = "search-item";
+                            div.innerHTML = `<strong>${escapeHTML(name)}</strong><span>${escapeHTML(addr)}</span>`;
+                            div.onclick = () => {
+                                results.style.display = "none";
+                                input.value = name;
+                                const lat = f.geometry.coordinates[1], lng = f.geometry.coordinates[0];
+                                showLocationSheet(lat, lng, name, addr);
+                            };
+                            results.appendChild(div);
+                        });
+                    }
+                    results.style.display = "block";
+                }
+            } catch(e) {}
+        }, 500);
+    });
+
+    if(clearBtn) clearBtn.onclick = () => {
+        input.value = ""; 
+        clearBtn.style.display = "none"; 
+        if(results) results.style.display = "none";
+        if(searchPlace) map.removeLayer(searchPlace);
+        if($("location-bottom-sheet")) $("location-bottom-sheet").style.transform = "translateY(120%)";
+        Navigation.stop();
+    };
+}
+
+function showLocationSheet(lat, lng, name, address) {
+    map.flyTo([lat, lng], 16);
+    if(searchPlace) map.removeLayer(searchPlace);
+    searchPlace = L.marker([lat, lng], {icon: L.divIcon({className:'geofence-marker', html:'📍'})}).addTo(map);
+    
+    if($("sheet-title")) $("sheet-title").textContent = name;
+    if($("sheet-address")) $("sheet-address").textContent = address;
+    if($("location-bottom-sheet")) $("location-bottom-sheet").style.transform = "translateY(0)";
+    
+    if($("search-direction-btn")) $("search-direction-btn").onclick = () => { if($("location-bottom-sheet")) $("location-bottom-sheet").style.transform = "translateY(120%)"; Navigation.previewCustom(lat, lng, name); };
+    if($("search-start-btn")) $("search-start-btn").onclick = () => { if($("location-bottom-sheet")) $("location-bottom-sheet").style.transform = "translateY(120%)"; Navigation.start(lat, lng, name); };
+}
+
+
+// ==========================================
+// 7. CORE GPS & SOCKET LOGIC
 // ==========================================
 socket.on("connect", () => { if (currentUser.name) socket.emit("profileReady", currentUser); });
 
@@ -352,7 +422,7 @@ function startGPS() {
         if(locationHistory.length > 1000) locationHistory.shift(); 
         historyPolyline.setLatLngs(locationHistory);
         
-        // FIX 5: Disk Throttling (Save every 30s max)
+        // Save History locally every 30s max
         if (Date.now() - lastHistorySave > 30000) {
             localStorage.setItem("koraput_history", JSON.stringify(locationHistory));
             lastHistorySave = Date.now();
@@ -387,6 +457,7 @@ function startGPS() {
             }
         }
 
+        // Emit Socket only if moved > 10m
         const movedEnough = !lastEmittedCoords || distanceKm(lastEmittedCoords.lat, lastEmittedCoords.lng, lat, lng) > 0.01;
         if (movedEnough) {
             socket.emit("updateLocation", {name: currentUser.name, avatar: currentUser.avatar, lat, lng, weather: myWeather});
@@ -400,6 +471,9 @@ function startGPS() {
     }, e => console.warn("GPS error",e), {enableHighAccuracy: true, timeout: 15000, maximumAge: 3000});
 }
 
+// ==========================================
+// 8. FRIENDS & SOCIAL SYSTEM
+// ==========================================
 function updateFriendBadges(){
     Object.keys(friendMarkers).forEach(id=>{
         const f=friendData[id], m=friendMarkers[id]; if(!f||!m) return;
@@ -452,8 +526,9 @@ function showProfilePopup(u) {
 }
 $("profile-popup-close")?.addEventListener("click",()=> { if($("profile-popup")) $("profile-popup").style.display="none"; });
 
+
 // ==========================================
-// ADVANCED MAP TOOLS & MEASURE FIXES
+// 9. MAP TOOLS & GEOFENCING
 // ==========================================
 window.removeGeofence = (id) => { socket.emit("removeGeofence", id); };
 
@@ -472,9 +547,7 @@ function renderGeofenceList() {
 }
 if($("geofence-list-close")) $("geofence-list-close").onclick = () => { if($("geofence-list-modal")) $("geofence-list-modal").style.display = "none"; };
 
-function clearActiveTools() {
-    document.querySelectorAll('.tool-option').forEach(b => b.classList.remove('active-tool'));
-}
+function clearActiveTools() { document.querySelectorAll('.tool-option').forEach(b => b.classList.remove('active-tool')); }
 
 function setupAdvancedTools() {
     if($("main-tools-btn")) $("main-tools-btn").onclick = () => {
@@ -485,7 +558,7 @@ function setupAdvancedTools() {
     if($("measure-btn")) $("measure-btn").onclick = () => {
         mapActionMode = mapActionMode === 'measure' ? null : 'measure';
         clearActiveTools();
-        if(mapActionMode) { $("measure-btn").classList.add("active-tool"); measureLayer.clearLayers(); measurePoints = []; showToast("📍 Tap 2 points to measure routes"); }
+        if(mapActionMode) { $("measure-btn").classList.add("active-tool"); measureLayer.clearLayers(); measurePoints = []; showToast("📍 Tap 2 points to measure road routes"); }
         if($("tools-menu")) $("tools-menu").style.display = "none";
     };
 
@@ -526,24 +599,20 @@ function setupAdvancedTools() {
                 const [p1, p2] = measurePoints;
                 showToast("📏 Calculating shortest & fastest routes...", 2000);
                 try {
-                    // FIX 2: Get Alternative Routes for Comparison
                     const routes = await getRoadRoute(p1, p2, true);
                     measureLayer.clearLayers();
                     
-                    let fastest = routes[0];
-                    let shortest = routes[0];
+                    let fastest = routes[0], shortest = routes[0];
                     routes.forEach(r => {
                         if(r.duration < fastest.duration) fastest = r;
                         if(r.distance < shortest.distance) shortest = r;
                     });
 
-                    // Draw alternative (shortest) if different from fastest
                     if(fastest !== shortest && routes.length > 1) {
                         const shortCoords = shortest.geometry.coordinates.map(c => [c[1], c[0]]);
                         L.polyline(shortCoords, {color: '#8d9ba2', weight: 4, opacity: 0.8}).addTo(measureLayer);
                     }
 
-                    // Draw main fastest route
                     const mainCoords = fastest.geometry.coordinates.map(c => [c[1], c[0]]);
                     L.polyline(mainCoords, {color: '#f59e0b', weight: 5, className: 'nav-path-animated'}).addTo(measureLayer);
                     
@@ -551,13 +620,10 @@ function setupAdvancedTools() {
                     if (fastest !== shortest) {
                         const d2 = (shortest.distance / 1000).toFixed(1); const t2 = Math.round(shortest.duration / 60);
                         showToast(`🏎️ Fastest: ${d1}km (${t1}m) | 📏 Shortest: ${d2}km (${t2}m)`, 6000);
-                    } else {
-                        showToast(`📏 Route: ${d1} km • ⏱️ ${t1} mins`, 5000);
-                    }
+                    } else { showToast(`📏 Route: ${d1} km • ⏱️ ${t1} mins`, 5000); }
                     map.fitBounds(L.polyline(mainCoords).getBounds(), { padding: [50, 50] });
 
                 } catch(error) {
-                    // FIX 2: No more straight line fallback
                     measureLayer.clearLayers(); showToast("❌ Road route unavailable. Try again.", 4000);
                 }
                 setTimeout(() => { measureLayer.clearLayers(); measurePoints = []; mapActionMode = null; clearActiveTools(); }, 6000);
@@ -570,7 +636,7 @@ function setupAdvancedTools() {
                 const radius = Number(radInput);
                 if (Number.isFinite(radius) && radius >= 10 && radius <= 50000) {
                     socket.emit("addGeofence", { name: name.trim(), lat: e.latlng.lat, lng: e.latlng.lng, radius: radius });
-                    showToast(`⭕ Geofence '${name}' created with ${radius}m radius!`);
+                    showToast(`⭕ Geofence '${name}' created!`);
                 } else showToast("❌ Invalid radius!");
             }
             mapActionMode = null; clearActiveTools();
@@ -629,6 +695,7 @@ function setupAdvancedTools() {
     });
 }
 
+// GROUP TRIP ROUTING
 let groupRouteUpdateTimer = null;
 let isFetchingGroupRoutes = false;
 
@@ -688,79 +755,7 @@ function updateTripPanel() {
 }
 
 // ==========================================
-// SEARCH BAR LOGIC
-// ==========================================
-let searchTimeout = null;
-function setupLocationSearch() {
-    const input = $("location-search-input");
-    const clearBtn = $("location-search-clear");
-    const results = $("location-search-results");
-
-    if(!input) return;
-
-    input.addEventListener("input", (e) => {
-        const val = e.target.value;
-        if(clearBtn) clearBtn.style.display = val ? "block" : "none";
-        clearTimeout(searchTimeout);
-        if(!val.trim()) { if(results) results.style.display = "none"; return; }
-        
-        searchTimeout = setTimeout(async () => {
-            try {
-                const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(val)}&limit=5`);
-                const data = await res.json();
-                if(results) {
-                    results.innerHTML = "";
-                    if(data.features.length === 0) {
-                        results.innerHTML = `<div style="padding:12px; color:var(--muted); font-size:12px;">No results found</div>`;
-                    } else {
-                        data.features.forEach(f => {
-                            const item = f.properties;
-                            const name = item.name || item.street || item.city || "Location";
-                            const addr = [item.street, item.city, item.state, item.country].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).join(', ');
-                            
-                            const div = document.createElement("div");
-                            div.className = "search-item";
-                            div.innerHTML = `<strong>${escapeHTML(name)}</strong><span>${escapeHTML(addr)}</span>`;
-                            div.onclick = () => {
-                                results.style.display = "none";
-                                input.value = name;
-                                const lat = f.geometry.coordinates[1], lng = f.geometry.coordinates[0];
-                                showLocationSheet(lat, lng, name, addr);
-                            };
-                            results.appendChild(div);
-                        });
-                    }
-                    results.style.display = "block";
-                }
-            } catch(e) {}
-        }, 500);
-    });
-
-    if(clearBtn) clearBtn.onclick = () => {
-        input.value = ""; 
-        clearBtn.style.display = "none"; 
-        if(results) results.style.display = "none";
-        if(searchPlace) map.removeLayer(searchPlace);
-        if($("location-bottom-sheet")) $("location-bottom-sheet").style.transform = "translateY(120%)";
-        Navigation.stop();
-    };
-}
-
-function showLocationSheet(lat, lng, name, address) {
-    map.flyTo([lat, lng], 16);
-    if(searchPlace) map.removeLayer(searchPlace);
-    searchPlace = L.marker([lat, lng], {icon: L.divIcon({className:'geofence-marker', html:'📍'})}).addTo(map);
-    
-    if($("sheet-title")) $("sheet-title").textContent = name;
-    if($("sheet-address")) $("sheet-address").textContent = address;
-    if($("location-bottom-sheet")) $("location-bottom-sheet").style.transform = "translateY(0)";
-    
-    if($("search-direction-btn")) $("search-direction-btn").onclick = () => { if($("location-bottom-sheet")) $("location-bottom-sheet").style.transform = "translateY(120%)"; Navigation.previewCustom(lat, lng, name); };
-    if($("search-start-btn")) $("search-start-btn").onclick = () => { if($("location-bottom-sheet")) $("location-bottom-sheet").style.transform = "translateY(120%)"; Navigation.start(lat, lng, name); };
-}
-
-// ==========================================
-// CHAT & VOICE & MEMORY
+// 10. CHAT, VOICE & MEMORIES
 // ==========================================
 function setupBasicControls(){
     if($("my-location-btn")) $("my-location-btn").onclick = () => { if(myCoords) map.flyTo([myCoords.lat,myCoords.lng], 16); };
@@ -922,6 +917,9 @@ function setupMemories(){
     };
 }
 
+// ==========================================
+// 11. INITIALIZATION & AUTH
+// ==========================================
 function setupJoin(){
     if(currentUser.name && $("join-screen")){ 
         $("join-screen").style.display="none"; 
