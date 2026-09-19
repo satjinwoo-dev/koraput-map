@@ -4,7 +4,7 @@
 // 1. GLOBAL CONFIG & STATE
 // ==========================================
 const socket = io({ transports: ["websocket", "polling"] });
-const DEFAULT_CENTER = [18.8136, 82.7153]; // Default: Koraput/Odisha region
+const DEFAULT_CENTER = [18.8136, 82.7153];
 const DEFAULT_AVATAR = "satyam.png";
 const MAX_NAME = 40;
 const MAX_CHAT_FILE = 5 * 1024 * 1024;
@@ -51,12 +51,12 @@ const darkLayer = L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x
 satelliteLayer.addTo(map);
 
 // Isolated Layer Groups for better cleanup
-const p4LayerGroup = L.layerGroup().addTo(map); // Geofences & General
-const measureLayer = L.layerGroup().addTo(map); // Dedicated for Measurement
-const navigationLayer = L.layerGroup().addTo(map); // 1-on-1 Nav
-const tripRoutesLayer = L.layerGroup().addTo(map); // Group Nav/Trip
-const memoryLayer = L.layerGroup().addTo(map); // Memories
-const searchLayer = L.layerGroup().addTo(map); // Search Pins
+const p4LayerGroup = L.layerGroup().addTo(map); 
+const measureLayer = L.layerGroup().addTo(map); 
+const navigationLayer = L.layerGroup().addTo(map); 
+const tripRoutesLayer = L.layerGroup().addTo(map); 
+const memoryLayer = L.layerGroup().addTo(map); 
+const searchLayer = L.layerGroup().addTo(map); 
 
 const historyPolyline = L.polyline(locationHistory, { color: '#3b82f6', weight: 4, opacity: 0.8, dashArray: '5, 10' }).addTo(p4LayerGroup);
 
@@ -324,7 +324,7 @@ if($("group-nav-stop-btn")) $("group-nav-stop-btn").onclick = () => GroupNavigat
 
 
 // ==========================================
-// 6. LOCATION SEARCH (With Spatial Bias)
+// 6. LOCATION SEARCH (Nominatim + Debounce)
 // ==========================================
 let searchTimeout = null;
 function setupLocationSearch() {
@@ -342,30 +342,28 @@ function setupLocationSearch() {
         
         searchTimeout = setTimeout(async () => {
             try {
-                // Bias search near user's GPS coords
-                let apiUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(val)}&limit=5`;
-                if (myCoords) apiUrl += `&lat=${myCoords.lat}&lon=${myCoords.lng}`;
-
-                const res = await fetch(apiUrl);
+                // Highly accurate Nominatim Search for India
+                const apiUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(val)}&limit=5&countrycodes=in`;
+                const res = await fetch(apiUrl, { headers: { "Accept-Language": "en-US,en;q=0.9" } });
                 const data = await res.json();
                 
                 if(results) {
                     results.innerHTML = "";
-                    if(data.features.length === 0) {
-                        results.innerHTML = `<div style="padding:12px; color:var(--muted); font-size:12px;">No results found</div>`;
+                    if(data.length === 0) {
+                        results.innerHTML = `<div style="padding:12px; color:var(--muted); font-size:12px;">No exact match found. Try a broader search.</div>`;
                     } else {
-                        data.features.forEach(f => {
-                            const item = f.properties;
-                            const name = item.name || item.street || item.city || "Location";
-                            const addr = [item.street, item.city, item.state, item.country].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).join(', ');
+                        data.forEach(item => {
+                            const parts = item.display_name.split(',');
+                            const name = parts[0];
+                            const addr = parts.slice(1).join(',').trim();
                             
                             const div = document.createElement("div");
                             div.className = "search-item";
-                            div.innerHTML = `<strong>${escapeHTML(name)}</strong><span>${escapeHTML(addr)}</span>`;
+                            div.innerHTML = `<strong>${escapeHTML(name)}</strong><span style="display:block; margin-top:3px; color:var(--muted); font-size:10px; line-height:1.35;">${escapeHTML(addr)}</span>`;
                             div.onclick = () => {
                                 results.style.display = "none";
                                 input.value = name;
-                                const lat = f.geometry.coordinates[1], lng = f.geometry.coordinates[0];
+                                const lat = item.lat, lng = item.lon;
                                 showLocationSheet(lat, lng, name, addr);
                             };
                             results.appendChild(div);
@@ -374,7 +372,7 @@ function setupLocationSearch() {
                     results.style.display = "block";
                 }
             } catch(e) {}
-        }, 500);
+        }, 800);
     });
 
     if(clearBtn) clearBtn.onclick = () => {
@@ -636,7 +634,7 @@ function setupAdvancedTools() {
                 const radius = Number(radInput);
                 if (Number.isFinite(radius) && radius >= 10 && radius <= 50000) {
                     socket.emit("addGeofence", { name: name.trim(), lat: e.latlng.lat, lng: e.latlng.lng, radius: radius });
-                    showToast(`⭕ Geofence '${name}' created!`);
+                    showToast(`⭕ Geofence '${name}' created with ${radius}m radius!`);
                 } else showToast("❌ Invalid radius!");
             }
             mapActionMode = null; clearActiveTools();
@@ -695,7 +693,6 @@ function setupAdvancedTools() {
     });
 }
 
-// GROUP TRIP ROUTING
 let groupRouteUpdateTimer = null;
 let isFetchingGroupRoutes = false;
 
