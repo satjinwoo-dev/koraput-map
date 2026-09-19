@@ -324,65 +324,221 @@ if($("group-nav-stop-btn")) $("group-nav-stop-btn").onclick = () => GroupNavigat
 
 
 // ==========================================
-// 6. LOCATION SEARCH (Nominatim + Debounce)
+// 6. LOCATION SEARCH (Smart Rourkela/Map-Area Search)
 // ==========================================
 let searchTimeout = null;
+let searchController = null;
+
 function setupLocationSearch() {
     const input = $("location-search-input");
     const clearBtn = $("location-search-clear");
     const results = $("location-search-results");
 
-    if(!input) return;
+    if (!input) return;
 
     input.addEventListener("input", (e) => {
-        const val = e.target.value;
-        if(clearBtn) clearBtn.style.display = val ? "block" : "none";
+        const val = e.target.value.trim();
+
+        if (clearBtn) {
+            clearBtn.style.display = val ? "block" : "none";
+        }
+
         clearTimeout(searchTimeout);
-        if(!val.trim()) { if(results) results.style.display = "none"; return; }
-        
-        searchTimeout = setTimeout(async () => {
-            try {
-                // Highly accurate Nominatim Search for India
-                const apiUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(val)}&limit=5&countrycodes=in`;
-                const res = await fetch(apiUrl, { headers: { "Accept-Language": "en-US,en;q=0.9" } });
-                const data = await res.json();
-                
-                if(results) {
-                    results.innerHTML = "";
-                    if(data.length === 0) {
-                        results.innerHTML = `<div style="padding:12px; color:var(--muted); font-size:12px;">No exact match found. Try a broader search.</div>`;
-                    } else {
-                        data.forEach(item => {
-                            const parts = item.display_name.split(',');
-                            const name = parts[0];
-                            const addr = parts.slice(1).join(',').trim();
-                            
-                            const div = document.createElement("div");
-                            div.className = "search-item";
-                            div.innerHTML = `<strong>${escapeHTML(name)}</strong><span style="display:block; margin-top:3px; color:var(--muted); font-size:10px; line-height:1.35;">${escapeHTML(addr)}</span>`;
-                            div.onclick = () => {
-                                results.style.display = "none";
-                                input.value = name;
-                                const lat = item.lat, lng = item.lon;
-                                showLocationSheet(lat, lng, name, addr);
-                            };
-                            results.appendChild(div);
-                        });
-                    }
-                    results.style.display = "block";
-                }
-            } catch(e) {}
-        }, 800);
+
+        if (!val) {
+            if (results) results.style.display = "none";
+            if (searchController) searchController.abort();
+            return;
+        }
+
+        searchTimeout = setTimeout(() => searchPlaces(val), 450);
     });
 
-    if(clearBtn) clearBtn.onclick = () => {
-        input.value = ""; 
-        clearBtn.style.display = "none"; 
-        if(results) results.style.display = "none";
-        if(searchPlace) map.removeLayer(searchPlace);
-        if($("location-bottom-sheet")) $("location-bottom-sheet").style.transform = "translateY(120%)";
-        Navigation.stop();
-    };
+    async function searchPlaces(query) {
+        if (!results) return;
+
+        if (searchController) searchController.abort();
+        searchController = new AbortController();
+
+        try {
+            const center = map.getCenter();
+            const bounds = map.getBounds();
+
+            const viewbox = [
+                bounds.getWest(),
+                bounds.getNorth(),
+                bounds.getEast(),
+                bounds.getSouth()
+            ].join(",");
+
+            let searchQuery = query;
+
+            if (cityName) {
+                searchQuery = `${query}, ${cityName}, Odisha, India`;
+            } else {
+                searchQuery = `${query}, Rourkela, Odisha, India`;
+            }
+
+            const apiUrl =
+                `https://nominatim.openstreetmap.org/search` +
+                `?format=jsonv2` +
+                `&q=${encodeURIComponent(searchQuery)}` +
+                `&limit=15` +
+                `&countrycodes=in` +
+                `&addressdetails=1` +
+                `&viewbox=${encodeURIComponent(viewbox)}` +
+                `&dedupe=1`;
+
+            const res = await fetch(apiUrl, {
+                signal: searchController.signal,
+                headers: {
+                    "Accept-Language": "en"
+                }
+            });
+
+            if (!res.ok) throw new Error("Search failed");
+
+            const data = await res.json();
+
+            const words = query
+                .toLowerCase()
+                .split(/\s+/)
+                .filter(Boolean);
+
+            data.forEach(item => {
+                const name = String(item.name || "").toLowerCase();
+                const display = String(item.display_name || "").toLowerCase();
+
+                const city =
+                    String(
+                        item.address?.city ||
+                        item.address?.town ||
+                        item.address?.municipality ||
+                        item.address?.county ||
+                        ""
+                    ).toLowerCase();
+
+                let score = 0;
+
+                if (name === query.toLowerCase()) score += 200;
+                if (words.every(w => name.includes(w))) score += 150;
+
+                words.forEach(word => {
+                    if (name.includes(word)) score += 50;
+                    else if (display.includes(word)) score += 15;
+                });
+
+                if (city.includes("rourkela")) score += 100;
+                if (display.includes("rourkela")) score += 60;
+                if (display.includes("odisha")) score += 20;
+
+                const lat = Number(item.lat);
+                const lon = Number(item.lon);
+
+                if (validCoord(lat, lon)) {
+                    const distance = distanceKm(center.lat, center.lng, lat, lon);
+                    score += Math.max(0, 50 - Math.min(distance, 50));
+                }
+
+                item._searchScore = score;
+            });
+
+            data.sort((a, b) => b._searchScore - a._searchScore);
+
+            const filtered = data.filter(item => {
+                const name = String(item.name || "").toLowerCase();
+                const display = String(item.display_name || "").toLowerCase();
+                return words.some(word => name.includes(word) || display.includes(word));
+            });
+
+            const unique = [];
+            const seen = new Set();
+
+            filtered.forEach(item => {
+                const key = `${String(item.name || "").toLowerCase()}|${Number(item.lat).toFixed(5)}|${Number(item.lon).toFixed(5)}`;
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    unique.push(item);
+                }
+            });
+
+            results.innerHTML = "";
+
+            if (!unique.length) {
+                results.innerHTML = `<div style="padding:14px; color:var(--muted); font-size:12px; text-align:center;">No matching place found in this area.</div>`;
+                results.style.display = "block";
+                return;
+            }
+
+            unique.slice(0, 6).forEach(item => {
+                const parts = String(item.display_name || "").split(",");
+                const name = item.name || parts[0] || "Unknown place";
+                const address = parts.slice(1, 4).join(",").trim();
+
+                const div = document.createElement("div");
+                div.className = "search-item";
+
+                div.innerHTML = `
+                    <div style="display:flex; align-items:flex-start; gap:10px;">
+                        <div style="width:32px; height:32px; min-width:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; background:rgba(59,130,246,.14); color:#60a5fa; font-size:16px;">📍</div>
+                        <div style="min-width:0; flex:1;">
+                            <strong style="display:block; color:#fff; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                                ${escapeHTML(name)}
+                            </strong>
+                            <span style="display:block; margin-top:3px; color:var(--muted); font-size:10px; line-height:1.35; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                                ${escapeHTML(address)}
+                            </span>
+                        </div>
+                    </div>
+                `;
+
+                div.onclick = () => {
+                    results.style.display = "none";
+                    input.value = name;
+                    const lat = Number(item.lat);
+                    const lng = Number(item.lon);
+                    showLocationSheet(lat, lng, name, item.display_name);
+                };
+
+                results.appendChild(div);
+            });
+
+            results.style.display = "block";
+
+        } catch (e) {
+            if (e.name === "AbortError") return;
+            console.warn("Location search error:", e);
+            results.innerHTML = `<div style="padding:12px; color:var(--muted); font-size:12px;">Search temporarily unavailable.</div>`;
+            results.style.display = "block";
+        }
+    }
+
+    if (clearBtn) {
+        clearBtn.onclick = () => {
+            input.value = "";
+            clearBtn.style.display = "none";
+
+            if (results) {
+                results.innerHTML = "";
+                results.style.display = "none";
+            }
+
+            if (searchController) {
+                searchController.abort();
+            }
+
+            if (searchPlace) {
+                map.removeLayer(searchPlace);
+                searchPlace = null;
+            }
+
+            if ($("location-bottom-sheet")) {
+                $("location-bottom-sheet").style.transform = "translateY(120%)";
+            }
+
+            Navigation.stop();
+        };
+    }
 }
 
 function showLocationSheet(lat, lng, name, address) {
@@ -420,7 +576,6 @@ function startGPS() {
         if(locationHistory.length > 1000) locationHistory.shift(); 
         historyPolyline.setLatLngs(locationHistory);
         
-        // Save History locally every 30s max
         if (Date.now() - lastHistorySave > 30000) {
             localStorage.setItem("koraput_history", JSON.stringify(locationHistory));
             lastHistorySave = Date.now();
@@ -455,7 +610,6 @@ function startGPS() {
             }
         }
 
-        // Emit Socket only if moved > 10m
         const movedEnough = !lastEmittedCoords || distanceKm(lastEmittedCoords.lat, lastEmittedCoords.lng, lat, lng) > 0.01;
         if (movedEnough) {
             socket.emit("updateLocation", {name: currentUser.name, avatar: currentUser.avatar, lat, lng, weather: myWeather});
@@ -523,7 +677,6 @@ function showProfilePopup(u) {
     if($("profile-focus-btn")) $("profile-focus-btn").onclick=()=>{ map.flyTo([u.lat,u.lng],16); $("profile-popup").style.display="none"; };
 }
 $("profile-popup-close")?.addEventListener("click",()=> { if($("profile-popup")) $("profile-popup").style.display="none"; });
-
 
 // ==========================================
 // 9. MAP TOOLS & GEOFENCING
