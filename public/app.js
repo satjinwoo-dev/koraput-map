@@ -21,6 +21,7 @@ let currentUser = { name: localStorage.getItem("koraput_name") || "", avatar: lo
 let myCoords = null, myWeather = "", ownMarker = null, accuracyCircle = null, cityName = "";
 let lastEmittedCoords = null; 
 let lastWeatherFetch = 0;
+let lastHistorySave = 0; // FIX 5: Disk Throttling
 const friendMarkers = Object.create(null);
 const friendData = Object.create(null);
 
@@ -89,6 +90,7 @@ async function fetchWeather(lat,lng){
     } catch { return ""; }
 }
 
+// FIX 4: Remove Fake Fallback
 async function fetchCity(lat,lng){
     try {
         const r = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=en`);
@@ -96,8 +98,9 @@ async function fetchCity(lat,lng){
     } catch (e) {}
     try {
         const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}&zoom=10`);
-        if (r.ok) { const d = await r.json(); return d.address?.city || d.address?.town || d.address?.county || "Rourkela"; }
-    } catch { return "Rourkela"; }
+        if (r.ok) { const d = await r.json(); return d.address?.city || d.address?.town || d.address?.county || ""; }
+    } catch { return ""; }
+    return "";
 }
 
 function showToast(message, duration = 4000) {
@@ -107,9 +110,7 @@ function showToast(message, duration = 4000) {
     setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, duration);
 }
 
-// ==========================================
 // CENTRALIZED OSRM ROUTING ENGINE
-// ==========================================
 async function getRoadRoute(from, to, alternatives = false) {
     const alt = alternatives ? "true" : "false";
     const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${from.lng},${from.lat};${to.lng},${to.lat}?steps=true&geometries=geojson&overview=full&alternatives=${alt}`);
@@ -123,11 +124,12 @@ async function getRoadRoute(from, to, alternatives = false) {
 // 1-ON-1 TRUE LIVE NAVIGATION
 // ==========================================
 const Navigation = {
-    active: false, targetCoords: null, targetName: '', lastRecalcTime: 0,
+    active: false, targetCoords: null, targetName: '', lastCalcCoords: null, lastRecalcTime: 0,
     
     async start(targetLat, targetLng, name) {
         if(!myCoords) return showToast("Waiting for GPS...");
         this.active = true; this.targetCoords = { lat: targetLat, lng: targetLng }; this.targetName = name;
+        this.lastCalcCoords = null;
         
         if($("location-bottom-sheet")) $("location-bottom-sheet").style.transform = "translateY(120%)";
         if($("profile-popup")) $("profile-popup").style.display = "none";
@@ -154,6 +156,10 @@ const Navigation = {
 
     async calculate() {
         if(!this.active || !myCoords || !this.targetCoords) return;
+        
+        // Anti-spam cooldown (2 seconds)
+        if(Date.now() - this.lastRecalcTime < 2000) return;
+
         navigationLayer.clearLayers();
         if($("nav-inst-text")) $("nav-inst-text").textContent = "Analyzing best route...";
         if($("nav-inst-arrow")) $("nav-inst-arrow").textContent = "↻";
@@ -170,40 +176,67 @@ const Navigation = {
             const mins = Math.round(r.duration / 60);
             if($("nav-time")) $("nav-time").textContent = mins > 60 ? `${Math.floor(mins/60)}h ${mins%60}m` : `${mins} min`;
             
-            if(r.legs[0] && r.legs[0].steps && r.legs[0].steps.length > 1) {
-                const step = r.legs[0].steps[1]; 
+            // FIX 3: Advancing Instructions
+            if(r.legs[0] && r.legs[0].steps && r.legs[0].steps.length > 0) {
+                // steps[0] is usually departure, steps[1] is next turn. 
+                // Since we fetch fresh route based on current GPS, steps[1] is always accurately the NEXT turn!
+                const step = r.legs[0].steps.length > 1 ? r.legs[0].steps[1] : r.legs[0].steps[0]; 
                 let arrow = "↑";
                 if(step.maneuver.modifier) { 
                     if(step.maneuver.modifier.includes('right')) arrow = "↱"; 
                     if(step.maneuver.modifier.includes('left')) arrow = "↰"; 
+                    if(step.maneuver.modifier.includes('uturn')) arrow = "↶"; 
                 }
                 if($("nav-inst-arrow")) $("nav-inst-arrow").textContent = arrow;
-                if($("nav-inst-text")) $("nav-inst-text").textContent = step.maneuver.instruction || "Continue straight";
+                if($("nav-inst-text")) $("nav-inst-text").textContent = step.maneuver.instruction || step.name || "Continue straight";
                 if($("nav-instruction-sub")) $("nav-instruction-sub").textContent = `In ${Math.round(step.distance)} meters`;
             } else {
                 if($("nav-inst-arrow")) $("nav-inst-arrow").textContent = "🏁";
-                if($("nav-inst-text")) $("nav-inst-text").textContent = "Head to destination";
+                if($("nav-inst-text")) $("nav-inst-text").textContent = "Arriving at destination";
             }
             
+            this.lastCalcCoords = { lat: myCoords.lat, lng: myCoords.lng };
             this.lastRecalcTime = Date.now();
-            map.panTo([myCoords.lat, myCoords.lng]);
+            map.panTo([myCoords.lat, myCoords.lng], {animate: true});
+
         } catch (e) { 
             if($("nav-inst-text")) $("nav-inst-text").textContent = "Navigation error. Re-routing...";
         }
     },
     
     stop() {
-        this.active = false; this.targetCoords = null;
+        this.active = false; this.targetCoords = null; this.lastCalcCoords = null;
         navigationLayer.clearLayers();
         if($("nav-panel")) $("nav-panel").style.display = "none";
         if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
     },
 
+    // FIX 1: Recalculate based on Distance/Movement instead of pure time
     onLiveUpdate() {
         if(!this.active || !myCoords || !this.targetCoords) return;
-        const timeSinceRecalc = Date.now() - this.lastRecalcTime;
-        if(timeSinceRecalc > 20000) this.calculate();
-        else map.panTo([myCoords.lat, myCoords.lng], {animate: true});
+        
+        let needsRecalc = false;
+
+        // Condition A: Target (Friend) moved significantly
+        if(this.targetId !== "custom" && friendData[this.targetId]) {
+            const f = friendData[this.targetId];
+            if(distanceKm(this.targetCoords.lat, this.targetCoords.lng, f.lat, f.lng) > 0.05) {
+                this.targetCoords = { lat: f.lat, lng: f.lng };
+                needsRecalc = true;
+            }
+        }
+
+        // Condition B: User moved > 30 meters from last calculation point
+        if(!this.lastCalcCoords || distanceKm(myCoords.lat, myCoords.lng, this.lastCalcCoords.lat, this.lastCalcCoords.lng) > 0.03) {
+            needsRecalc = true;
+        }
+
+        if(needsRecalc) {
+            this.calculate();
+        } else {
+            // Just keep map centered
+            map.panTo([myCoords.lat, myCoords.lng], {animate: true});
+        }
     }
 };
 
@@ -318,7 +351,12 @@ function startGPS() {
         locationHistory.push([lat, lng]);
         if(locationHistory.length > 1000) locationHistory.shift(); 
         historyPolyline.setLatLngs(locationHistory);
-        localStorage.setItem("koraput_history", JSON.stringify(locationHistory));
+        
+        // FIX 5: Disk Throttling (Save every 30s max)
+        if (Date.now() - lastHistorySave > 30000) {
+            localStorage.setItem("koraput_history", JSON.stringify(locationHistory));
+            lastHistorySave = Date.now();
+        }
 
         if(!ownMarker){
             ownMarker = L.marker([lat,lng],{icon:ownIcon(), zIndexOffset:1000}).addTo(map);
@@ -349,7 +387,6 @@ function startGPS() {
             }
         }
 
-        // GPS Throttling: Only emit to socket if moved > 10 meters
         const movedEnough = !lastEmittedCoords || distanceKm(lastEmittedCoords.lat, lastEmittedCoords.lng, lat, lng) > 0.01;
         if (movedEnough) {
             socket.emit("updateLocation", {name: currentUser.name, avatar: currentUser.avatar, lat, lng, weather: myWeather});
@@ -416,7 +453,7 @@ function showProfilePopup(u) {
 $("profile-popup-close")?.addEventListener("click",()=> { if($("profile-popup")) $("profile-popup").style.display="none"; });
 
 // ==========================================
-// ADVANCED MAP TOOLS
+// ADVANCED MAP TOOLS & MEASURE FIXES
 // ==========================================
 window.removeGeofence = (id) => { socket.emit("removeGeofence", id); };
 
@@ -448,7 +485,7 @@ function setupAdvancedTools() {
     if($("measure-btn")) $("measure-btn").onclick = () => {
         mapActionMode = mapActionMode === 'measure' ? null : 'measure';
         clearActiveTools();
-        if(mapActionMode) { $("measure-btn").classList.add("active-tool"); measureLayer.clearLayers(); measurePoints = []; showToast("📍 Tap 2 points to measure road routes"); }
+        if(mapActionMode) { $("measure-btn").classList.add("active-tool"); measureLayer.clearLayers(); measurePoints = []; showToast("📍 Tap 2 points to measure routes"); }
         if($("tools-menu")) $("tools-menu").style.display = "none";
     };
 
@@ -489,21 +526,38 @@ function setupAdvancedTools() {
                 const [p1, p2] = measurePoints;
                 showToast("📏 Calculating shortest & fastest routes...", 2000);
                 try {
+                    // FIX 2: Get Alternative Routes for Comparison
                     const routes = await getRoadRoute(p1, p2, true);
                     measureLayer.clearLayers();
-                    if(routes.length > 1) {
-                        const altCoords = routes[1].geometry.coordinates.map(c => [c[1], c[0]]);
-                        L.polyline(altCoords, {color: '#8d9ba2', weight: 4, opacity: 0.6}).addTo(measureLayer);
+                    
+                    let fastest = routes[0];
+                    let shortest = routes[0];
+                    routes.forEach(r => {
+                        if(r.duration < fastest.duration) fastest = r;
+                        if(r.distance < shortest.distance) shortest = r;
+                    });
+
+                    // Draw alternative (shortest) if different from fastest
+                    if(fastest !== shortest && routes.length > 1) {
+                        const shortCoords = shortest.geometry.coordinates.map(c => [c[1], c[0]]);
+                        L.polyline(shortCoords, {color: '#8d9ba2', weight: 4, opacity: 0.8}).addTo(measureLayer);
                     }
-                    const mainCoords = routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+
+                    // Draw main fastest route
+                    const mainCoords = fastest.geometry.coordinates.map(c => [c[1], c[0]]);
                     L.polyline(mainCoords, {color: '#f59e0b', weight: 5, className: 'nav-path-animated'}).addTo(measureLayer);
-                    const d1 = (routes[0].distance / 1000).toFixed(1); const t1 = Math.round(routes[0].duration / 60);
-                    if (routes.length > 1) {
-                        const d2 = (routes[1].distance / 1000).toFixed(1); const t2 = Math.round(routes[1].duration / 60);
-                        showToast(`🏎️ Fastest: ${d1}km (${t1}m) | 📏 Alt: ${d2}km (${t2}m)`, 6000);
-                    } else { showToast(`📏 Route: ${d1} km • ⏱️ ${t1} mins`, 5000); }
+                    
+                    const d1 = (fastest.distance / 1000).toFixed(1); const t1 = Math.round(fastest.duration / 60);
+                    if (fastest !== shortest) {
+                        const d2 = (shortest.distance / 1000).toFixed(1); const t2 = Math.round(shortest.duration / 60);
+                        showToast(`🏎️ Fastest: ${d1}km (${t1}m) | 📏 Shortest: ${d2}km (${t2}m)`, 6000);
+                    } else {
+                        showToast(`📏 Route: ${d1} km • ⏱️ ${t1} mins`, 5000);
+                    }
                     map.fitBounds(L.polyline(mainCoords).getBounds(), { padding: [50, 50] });
+
                 } catch(error) {
+                    // FIX 2: No more straight line fallback
                     measureLayer.clearLayers(); showToast("❌ Road route unavailable. Try again.", 4000);
                 }
                 setTimeout(() => { measureLayer.clearLayers(); measurePoints = []; mapActionMode = null; clearActiveTools(); }, 6000);
@@ -634,26 +688,30 @@ function updateTripPanel() {
 }
 
 // ==========================================
-// SEARCH BAR
+// SEARCH BAR LOGIC
 // ==========================================
 let searchTimeout = null;
 function setupLocationSearch() {
-    if(!$("search-input")) return;
+    const input = $("location-search-input");
+    const clearBtn = $("location-search-clear");
+    const results = $("location-search-results");
 
-    $("search-input").addEventListener("input", (e) => {
+    if(!input) return;
+
+    input.addEventListener("input", (e) => {
         const val = e.target.value;
-        if($("search-clear-btn")) $("search-clear-btn").style.display = val ? "block" : "none";
+        if(clearBtn) clearBtn.style.display = val ? "block" : "none";
         clearTimeout(searchTimeout);
-        if(!val.trim()) { if($("search-results")) $("search-results").style.display = "none"; return; }
+        if(!val.trim()) { if(results) results.style.display = "none"; return; }
         
         searchTimeout = setTimeout(async () => {
             try {
                 const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(val)}&limit=5`);
                 const data = await res.json();
-                if($("search-results")) {
-                    $("search-results").innerHTML = "";
+                if(results) {
+                    results.innerHTML = "";
                     if(data.features.length === 0) {
-                        $("search-results").innerHTML = `<div style="padding:12px; color:var(--muted); font-size:12px;">No results found</div>`;
+                        results.innerHTML = `<div style="padding:12px; color:var(--muted); font-size:12px;">No results found</div>`;
                     } else {
                         data.features.forEach(f => {
                             const item = f.properties;
@@ -664,24 +722,24 @@ function setupLocationSearch() {
                             div.className = "search-item";
                             div.innerHTML = `<strong>${escapeHTML(name)}</strong><span>${escapeHTML(addr)}</span>`;
                             div.onclick = () => {
-                                $("search-results").style.display = "none";
-                                $("search-input").value = name;
+                                results.style.display = "none";
+                                input.value = name;
                                 const lat = f.geometry.coordinates[1], lng = f.geometry.coordinates[0];
                                 showLocationSheet(lat, lng, name, addr);
                             };
-                            $("search-results").appendChild(div);
+                            results.appendChild(div);
                         });
                     }
-                    $("search-results").style.display = "block";
+                    results.style.display = "block";
                 }
             } catch(e) {}
         }, 500);
     });
 
-    if($("search-clear-btn")) $("search-clear-btn").onclick = () => {
-        if($("search-input")) $("search-input").value = ""; 
-        $("search-clear-btn").style.display = "none"; 
-        if($("search-results")) $("search-results").style.display = "none";
+    if(clearBtn) clearBtn.onclick = () => {
+        input.value = ""; 
+        clearBtn.style.display = "none"; 
+        if(results) results.style.display = "none";
         if(searchPlace) map.removeLayer(searchPlace);
         if($("location-bottom-sheet")) $("location-bottom-sheet").style.transform = "translateY(120%)";
         Navigation.stop();
@@ -865,7 +923,6 @@ function setupMemories(){
 }
 
 function setupJoin(){
-    // Form and join logic fully restored without bugs
     if(currentUser.name && $("join-screen")){ 
         $("join-screen").style.display="none"; 
         if($("header-avatar")) { $("header-avatar").style.display="block"; $("header-avatar").src=currentUser.avatar; }
@@ -898,7 +955,6 @@ function setupJoin(){
     }
 }
 
-// 100% Complete Initialization
 function initApp(){ 
     setupJoin(); 
     setupBasicControls(); 
