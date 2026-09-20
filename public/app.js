@@ -768,12 +768,12 @@ function setupJoin(){
 }
 
 // ==========================================
-// FIXED: GOOGLE SEARCH (ID Match + Interval)
+// FIXED: GOOGLE SEARCH (WITH LOCATION BIAS)
 // ==========================================
 function setupGoogleSearch() {
     const searchInput = $("location-search-input");
     if (!searchInput) return;
-    
+
     const clearBtn = $("location-search-clear");
     if (clearBtn) {
         clearBtn.onclick = () => {
@@ -785,7 +785,7 @@ function setupGoogleSearch() {
             if (myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
         };
     }
-    
+
     searchInput.addEventListener('input', () => {
         if (clearBtn) clearBtn.style.display = searchInput.value.length > 0 ? "block" : "none";
     });
@@ -794,7 +794,25 @@ function setupGoogleSearch() {
         if (window.google && window.google.maps && window.google.maps.places) {
             clearInterval(checkGoogle);
             
-            const autocomplete = new google.maps.places.Autocomplete(searchInput);
+            // NAYA CODE: Search ko sirf India aur Map ki current location tak limit karna
+            const autocomplete = new google.maps.places.Autocomplete(searchInput, {
+                componentRestrictions: { country: "in" } // Sirf India ke results
+            });
+
+            // Map jahan bhi hoga (Rourkela ya Koraput), search wahi ke 50km area ko priority dega
+            function updateSearchBounds() {
+                const center = map.getCenter();
+                const circle = new google.maps.Circle({
+                    center: new google.maps.LatLng(center.lat, center.lng),
+                    radius: 50000 // 50 km bias radius
+                });
+                autocomplete.setBounds(circle.getBounds());
+            }
+            
+            updateSearchBounds(); // Ek baar shuru mein set karega
+            map.on('moveend', updateSearchBounds); // Jab bhi map hilega, search area update ho jayega
+            // ---------------------------------------------------------
+
             autocomplete.addListener("place_changed", () => {
                 const place = autocomplete.getPlace();
                 if (!place.geometry || !place.geometry.location) {
@@ -841,61 +859,6 @@ function setupGoogleSearch() {
             });
         }
     }, 500); 
-}
-
-async function startSearchNavigation(destLat, destLng, destName) {
-    if(!myCoords) return showToast("❌ GPS location needed for routing.");
-    
-    navigationLayer.clearLayers();
-    if($("nav-panel")) $("nav-panel").style.display = "flex";
-    if($("nav-title-name")) $("nav-title-name").textContent = destName;
-    if($("nav-stats")) $("nav-stats").innerHTML = `🚗 -- km &nbsp; ⏱️ -- min`;
-    if($("nav-instructions")) $("nav-instructions").innerHTML = "<i>Finding best route...</i>";
-    
-    try {
-        const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${myCoords.lng},${myCoords.lat};${destLng},${destLat}?steps=true&geometries=geojson&overview=full`);
-        const data = await res.json();
-        
-        if(data.routes && data.routes.length > 0) {
-            const r = data.routes[0];
-            const coords = r.geometry.coordinates.map(c => [c[1], c[0]]);
-            
-            const path = L.polyline(coords, { color: '#18d6a3', weight: 6, opacity: 0.9, className: 'nav-path-animated' }).addTo(navigationLayer);
-            
-            L.marker([destLat, destLng], { icon: L.divIcon({className: 'geofence-marker', html: '🎯'}) }).addTo(navigationLayer);
-            
-            map.fitBounds(path.getBounds(), { padding: [50, 50] });
-
-            const distKm = (r.distance / 1000).toFixed(1);
-            const timeMin = Math.round(r.duration / 60);
-            if($("nav-stats")) $("nav-stats").innerHTML = `🚗 ${distKm} km &nbsp; ⏱️ ${timeMin} min`;
-            
-            let instHTML = "";
-            if(r.legs[0] && r.legs[0].steps) {
-                r.legs[0].steps.slice(0, 5).forEach(s => {
-                    let arrow = "↑";
-                    if(s.maneuver.modifier) { 
-                        if(s.maneuver.modifier.includes('right')) arrow = "↱"; 
-                        if(s.maneuver.modifier.includes('left')) arrow = "↰"; 
-                    }
-                    instHTML += `<div style="padding:5px 0; border-bottom:1px solid rgba(255,255,255,0.05);">${arrow} ${s.maneuver.instruction}</div>`;
-                });
-            }
-            if($("nav-instructions")) $("nav-instructions").innerHTML = instHTML || "Follow the highlighted route on the map.";
-            
-            $("nav-exit-btn").onclick = () => {
-                navigationLayer.clearLayers();
-                $("nav-panel").style.display = "none";
-                if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
-            };
-            $("nav-recalc-btn").onclick = () => startSearchNavigation(destLat, destLng, destName);
-            
-        } else {
-            if($("nav-instructions")) $("nav-instructions").innerHTML = "<i style='color:#ef4444;'>No road route found.</i>";
-        }
-    } catch (e) {
-        if($("nav-instructions")) $("nav-instructions").innerHTML = "<i style='color:#ef4444;'>Navigation error. Try again later.</i>";
-    }
 }
 
 // ==========================================
