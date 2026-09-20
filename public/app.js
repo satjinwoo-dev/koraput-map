@@ -4,7 +4,7 @@
 // 1. GLOBAL CONFIG & STATE
 // ==========================================
 const socket = io({ transports: ["websocket", "polling"] });
-const DEFAULT_CENTER = [18.8136, 82.7153];
+const DEFAULT_CENTER = [18.8136, 82.7153]; // Default: Koraput/Odisha region
 const DEFAULT_AVATAR = "satyam.png";
 const MAX_NAME = 40;
 const MAX_CHAT_FILE = 5 * 1024 * 1024;
@@ -23,8 +23,8 @@ const friendData = Object.create(null);
 let locationHistory = [];
 let recentSearches = []; 
 try {
-    const stored = localStorage.getItem("koraput_history");
-    if (stored) locationHistory = JSON.parse(stored);
+    const storedHistory = localStorage.getItem("koraput_history");
+    if (storedHistory) locationHistory = JSON.parse(storedHistory);
     if (!Array.isArray(locationHistory)) locationHistory = [];
 
     const storedSearches = localStorage.getItem("koraput_recent_searches");
@@ -55,6 +55,7 @@ const streetLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.
 const darkLayer = L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", { maxZoom: 20 });
 satelliteLayer.addTo(map);
 
+// Isolated Layer Groups for seamless updates and cleanup
 const p4LayerGroup = L.layerGroup().addTo(map); 
 const measureLayer = L.layerGroup().addTo(map); 
 const navigationLayer = L.layerGroup().addTo(map); 
@@ -64,8 +65,12 @@ const searchLayer = L.layerGroup().addTo(map);
 
 const historyPolyline = L.polyline(locationHistory, { color: '#3b82f6', weight: 4, opacity: 0.8, dashArray: '5, 10' }).addTo(p4LayerGroup);
 
+const tripLastFetchedCoords = {}; 
+let tripRoadStats = {}; 
+const routeColors = ['#18d6a3', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6']; 
+
 // ==========================================
-// 3. UTILITY FUNCTIONS
+// 3. CORE UTILITIES
 // ==========================================
 const $ = id => document.getElementById(id);
 const cleanName = v => String(v || "User").trim().replace(/\s+/g," ").slice(0, MAX_NAME);
@@ -107,7 +112,7 @@ function showToast(message, duration = 4000) {
 }
 
 // ==========================================
-// 4. EXTERNAL APIs (Weather, City, OSRM)
+// 4. EXTERNAL APIs (Weather, Reverse Geocode, OSRM)
 // ==========================================
 async function fetchWeather(lat,lng){
     try {
@@ -140,7 +145,207 @@ async function getRoadRoute(from, to, alternatives = false) {
 }
 
 // ==========================================
-// 5. NAVIGATION ENGINES
+// 5. GOOGLE MAPS STYLE LOCATION SEARCH (Dual Engine API)
+// ==========================================
+let searchTimeout = null;
+let searchController = null;
+
+function saveRecentSearch(place) {
+    recentSearches = recentSearches.filter(p => p.name !== place.name);
+    recentSearches.unshift(place);
+    if(recentSearches.length > 5) recentSearches.pop();
+    localStorage.setItem("koraput_recent_searches", JSON.stringify(recentSearches));
+}
+
+function renderSearchResults(dataArr, isRecent = false) {
+    const results = $("location-search-results");
+    if(!results) return;
+    results.innerHTML = "";
+
+    if(!dataArr || dataArr.length === 0) {
+        results.innerHTML = `<div style="padding:14px; color:var(--muted); font-size:12px; text-align:center;">No matching place found. Try a broader search.</div>`;
+        results.style.display = "block";
+        return;
+    }
+
+    dataArr.forEach(item => {
+        const icon = isRecent ? '🕒' : '📍';
+        const name = item.name;
+        const addr = item.address;
+        const lat = Number(item.lat);
+        const lng = Number(item.lng); 
+
+        let distStr = "";
+        // Calculate Distance dynamically for UI
+        if (item.dist !== undefined && item.dist < 999999) {
+            distStr = formatDistance(item.dist);
+        } else if (myCoords && validCoord(lat, lng)) {
+            distStr = formatDistance(distanceKm(myCoords.lat, myCoords.lng, lat, lng));
+        }
+
+        const div = document.createElement("div");
+        div.className = "search-item";
+        div.style.cssText = "display:flex; align-items:center; gap:16px; padding:12px 16px; cursor:pointer; border-bottom:1px solid rgba(255,255,255,0.05);";
+        
+        div.innerHTML = `
+            <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; min-width:45px;">
+                <div style="width:30px; height:30px; border-radius:50%; background:rgba(255,255,255,0.1); display:flex; align-items:center; justify-content:center; font-size:14px; color:#dce5e8;">
+                    ${icon}
+                </div>
+                ${distStr && !isRecent ? `<div style="font-size:10px; color:var(--green-bright); margin-top:4px; font-weight:600;">${distStr}</div>` : ''}
+            </div>
+            <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:2px;">
+                <strong style="color:#fff; font-size:14px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHTML(name)}</strong>
+                <span style="color:var(--muted); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHTML(addr)}</span>
+            </div>
+        `;
+
+        div.onclick = () => {
+            results.style.display = "none";
+            $("location-search-input").value = name;
+            if(!isRecent) saveRecentSearch({name, address: addr, lat, lng});
+            showLocationSheet(lat, lng, name, addr);
+        };
+        results.appendChild(div);
+    });
+
+    results.style.display = "block";
+}
+
+function setupLocationSearch() {
+    const input = $("location-search-input");
+    const clearBtn = $("location-search-clear");
+    const results = $("location-search-results");
+
+    if (!input) return;
+
+    input.addEventListener("focus", () => {
+        if(!input.value.trim() && recentSearches.length > 0) {
+            if (clearBtn) clearBtn.style.display = "block";
+            renderSearchResults(recentSearches, true);
+        }
+    });
+
+    input.addEventListener("input", (e) => {
+        const val = e.target.value.trim();
+
+        if (clearBtn) clearBtn.style.display = val ? "block" : "none";
+        clearTimeout(searchTimeout);
+
+        if (!val) {
+            if(recentSearches.length > 0) renderSearchResults(recentSearches, true);
+            else if (results) results.style.display = "none";
+            if (searchController) searchController.abort();
+            return;
+        }
+
+        // Fast Debounce to prevent rate-limiting while typing
+        searchTimeout = setTimeout(() => searchPlaces(val), 500); 
+    });
+
+    async function searchPlaces(query) {
+        if (!results) return;
+        if (searchController) searchController.abort();
+        searchController = new AbortController();
+
+        try {
+            const center = myCoords || map.getCenter();
+            const bounds = map.getBounds();
+            const viewbox = `${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()},${bounds.getSouth()}`;
+
+            let fetchedResults = [];
+
+            // ENGINE 1: Nominatim (High Accuracy & Full Name Matching)
+            try {
+                const nomUrl = `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(query)}&limit=10&countrycodes=in&viewbox=${viewbox}`;
+                const nomRes = await fetch(nomUrl, { signal: searchController.signal, headers: { "Accept-Language": "en" } });
+                const nomData = await nomRes.json();
+                
+                if (nomData && nomData.length > 0) {
+                    fetchedResults = nomData.map(item => {
+                        const parts = (item.display_name || "").split(',');
+                        const name = item.name || parts[0] || "Location";
+                        const addr = parts.length > 1 ? parts.slice(1, 4).join(',').trim() : "Odisha, India";
+                        return { name, address: addr, lat: Number(item.lat), lng: Number(item.lon) };
+                    });
+                }
+            } catch(e) { if(e.name === "AbortError") throw e; }
+
+            // ENGINE 2: Photon Fallback (Partial Autocomplete & Typo Forgiveness)
+            if (fetchedResults.length === 0) {
+                try {
+                    let phoQuery = query;
+                    if(cityName && !query.toLowerCase().includes(cityName.toLowerCase())) phoQuery = `${query} ${cityName}`;
+                    
+                    const phoUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(phoQuery)}&limit=10&lat=${center.lat}&lon=${center.lng}`;
+                    const phoRes = await fetch(phoUrl, { signal: searchController.signal });
+                    const phoData = await phoRes.json();
+                    
+                    if (phoData.features && phoData.features.length > 0) {
+                        fetchedResults = phoData.features.map(f => {
+                            const p = f.properties;
+                            const name = p.name || p.street || p.city || "Location";
+                            const addr = [p.street, p.district, p.city, p.state].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).join(', ');
+                            return { name, address: addr || "India", lat: Number(f.geometry.coordinates[1]), lng: Number(f.geometry.coordinates[0]) };
+                        });
+                    }
+                } catch(e) { if(e.name === "AbortError") throw e; }
+            }
+
+            // Remove pure duplicates but DO NOT alter API relevance sorting
+            const unique = [];
+            const seen = new Set();
+            
+            fetchedResults.forEach(item => {
+                const key = `${item.name.toLowerCase()}|${item.lat.toFixed(3)}|${item.lng.toFixed(3)}`;
+                if(!seen.has(key)) {
+                    seen.add(key);
+                    if (center && validCoord(center.lat, center.lng)) {
+                        item.dist = distanceKm(center.lat, center.lng, item.lat, item.lng);
+                    } else {
+                        item.dist = 999999;
+                    }
+                    unique.push(item);
+                }
+            });
+
+            renderSearchResults(unique.slice(0, 7), false);
+
+        } catch (e) {
+            if (e.name === "AbortError") return;
+            results.innerHTML = `<div style="padding:14px; color:var(--muted); font-size:12px; text-align:center;">Search temporarily unavailable.</div>`;
+            results.style.display = "block";
+        }
+    }
+
+    if (clearBtn) {
+        clearBtn.onclick = () => {
+            input.value = "";
+            clearBtn.style.display = "none";
+            if (results) { results.innerHTML = ""; results.style.display = "none"; }
+            if (searchController) searchController.abort();
+            if (searchPlace) { map.removeLayer(searchPlace); searchPlace = null; }
+            if ($("location-bottom-sheet")) $("location-bottom-sheet").style.transform = "translateY(120%)";
+            Navigation.stop();
+        };
+    }
+}
+
+function showLocationSheet(lat, lng, name, address) {
+    map.flyTo([lat, lng], 16);
+    if(searchPlace) map.removeLayer(searchPlace);
+    searchPlace = L.marker([lat, lng], {icon: L.divIcon({className:'geofence-marker', html:'📍'})}).addTo(map);
+    
+    if($("sheet-title")) $("sheet-title").textContent = name;
+    if($("sheet-address")) $("sheet-address").textContent = address;
+    if($("location-bottom-sheet")) $("location-bottom-sheet").style.transform = "translateY(0)";
+    
+    if($("search-direction-btn")) $("search-direction-btn").onclick = () => { if($("location-bottom-sheet")) $("location-bottom-sheet").style.transform = "translateY(120%)"; Navigation.previewCustom(lat, lng, name); };
+    if($("search-start-btn")) $("search-start-btn").onclick = () => { if($("location-bottom-sheet")) $("location-bottom-sheet").style.transform = "translateY(120%)"; Navigation.start(lat, lng, name); };
+}
+
+// ==========================================
+// 6. TRUE LIVE NAVIGATION (1-on-1)
 // ==========================================
 const Navigation = {
     active: false, targetCoords: null, targetName: '', lastCalcCoords: null, lastRecalcTime: 0,
@@ -175,7 +380,7 @@ const Navigation = {
 
     async calculate() {
         if(!this.active || !myCoords || !this.targetCoords) return;
-        if(Date.now() - this.lastRecalcTime < 2000) return; 
+        if(Date.now() - this.lastRecalcTime < 2000) return; // Anti-spam
 
         navigationLayer.clearLayers();
         if($("nav-inst-text")) $("nav-inst-text").textContent = "Analyzing best route...";
@@ -246,7 +451,9 @@ const Navigation = {
 if($("nav-exit-btn")) $("nav-exit-btn").onclick = () => Navigation.stop();
 if($("nav-recalc-btn")) $("nav-recalc-btn").onclick = () => Navigation.calculate();
 
-// --- Group Navigation Logic ---
+// ==========================================
+// 7. GROUP NAVIGATION & TRIPS
+// ==========================================
 const GroupNavigation = {
     active: false, destination: null, selectedMembers: [], layerGroup: L.layerGroup().addTo(map),
     lastFetchedCoords: {}, colors: ['#18d6a3', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6'], recalcTimer: null,
@@ -331,195 +538,66 @@ if($("group-nav-close-btn")) $("group-nav-close-btn").onclick = () => { if($("gr
 if($("group-nav-next-btn")) $("group-nav-next-btn").onclick = () => GroupNavigation.startSelection();
 if($("group-nav-stop-btn")) $("group-nav-stop-btn").onclick = () => GroupNavigation.stop();
 
+let groupRouteUpdateTimer = null;
+let isFetchingGroupRoutes = false;
 
-// ==========================================
-// 6. GOOGLE MAPS STYLE SEARCH (Autocomplete + Distance Sorter)
-// ==========================================
-let searchTimeout = null;
-let searchController = null;
-
-function saveRecentSearch(place) {
-    recentSearches = recentSearches.filter(p => p.name !== place.name);
-    recentSearches.unshift(place);
-    if(recentSearches.length > 5) recentSearches.pop();
-    localStorage.setItem("koraput_recent_searches", JSON.stringify(recentSearches));
+function triggerGroupRouteUpdate() {
+    clearTimeout(groupRouteUpdateTimer);
+    groupRouteUpdateTimer = setTimeout(() => updateGroupTripRoutes(), 1000);
 }
 
-function renderSearchResults(dataArr, isRecent = false) {
-    const results = $("location-search-results");
-    if(!results) return;
-    results.innerHTML = "";
+async function updateGroupTripRoutes() {
+    if (!currentTrip || isFetchingGroupRoutes) return;
+    isFetchingGroupRoutes = true;
 
-    if(!dataArr || dataArr.length === 0) {
-        results.innerHTML = `<div style="padding:14px; color:var(--muted); font-size:12px; text-align:center;">No matching place found.</div>`;
-        results.style.display = "block";
-        return;
-    }
-
-    dataArr.forEach(item => {
-        const icon = isRecent ? '🕒' : '📍';
-        const name = item.name;
-        const addr = item.address;
-        const lat = Number(item.lat);
-        const lng = Number(item.lng); 
-
-        let distStr = "";
-        // Google Maps UI: 900 m / 3.4 km rendering
-        if (item.dist !== undefined && item.dist < 999999) {
-            distStr = formatDistance(item.dist);
-        } else if (myCoords && validCoord(lat, lng)) {
-            distStr = formatDistance(distanceKm(myCoords.lat, myCoords.lng, lat, lng));
-        }
-
-        const div = document.createElement("div");
-        div.className = "search-item";
-        div.style.cssText = "display:flex; align-items:center; gap:16px; padding:12px 16px; cursor:pointer; border-bottom:1px solid rgba(255,255,255,0.05);";
+    const promises = currentTrip.members.map(async (member, index) => {
+        const color = routeColors[index % routeColors.length];
+        let coords = null;
+        if (member.id === socket.id && myCoords) coords = myCoords;
+        else if (friendData[member.id] && friendData[member.id].online !== false) coords = friendData[member.id];
         
-        div.innerHTML = `
-            <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; min-width:45px;">
-                <div style="width:30px; height:30px; border-radius:50%; background:rgba(255,255,255,0.1); display:flex; align-items:center; justify-content:center; font-size:14px; color:#dce5e8;">
-                    ${icon}
-                </div>
-                ${distStr && !isRecent ? `<div style="font-size:10px; color:var(--green-bright); margin-top:4px; font-weight:600;">${distStr}</div>` : ''}
-            </div>
-            <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:2px;">
-                <strong style="color:#fff; font-size:14px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHTML(name)}</strong>
-                <span style="color:var(--muted); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHTML(addr)}</span>
-            </div>
-        `;
+        if (coords) {
+            const last = tripLastFetchedCoords[member.id];
+            if (last && distanceKm(last.lat, last.lng, coords.lat, coords.lng) < 0.1) return;
 
-        div.onclick = () => {
-            results.style.display = "none";
-            $("location-search-input").value = name;
-            if(!isRecent) saveRecentSearch({name, address: addr, lat, lng});
-            showLocationSheet(lat, lng, name, addr);
-        };
-        results.appendChild(div);
-    });
-
-    results.style.display = "block";
-}
-
-function setupLocationSearch() {
-    const input = $("location-search-input");
-    const clearBtn = $("location-search-clear");
-    const results = $("location-search-results");
-
-    if (!input) return;
-
-    input.addEventListener("focus", () => {
-        if(!input.value.trim() && recentSearches.length > 0) {
-            if (clearBtn) clearBtn.style.display = "block";
-            renderSearchResults(recentSearches, true);
-        }
-    });
-
-    input.addEventListener("input", (e) => {
-        const val = e.target.value; 
-        const trimmedVal = val.trim();
-
-        if (clearBtn) clearBtn.style.display = val ? "block" : "none";
-        clearTimeout(searchTimeout);
-
-        if (!trimmedVal) {
-            if(recentSearches.length > 0) renderSearchResults(recentSearches, true);
-            else if (results) results.style.display = "none";
-            if (searchController) searchController.abort();
-            return;
-        }
-
-        // Fast 300ms timeout for Instant Autocomplete
-        searchTimeout = setTimeout(() => searchPlaces(trimmedVal), 300);
-    });
-
-    async function searchPlaces(query) {
-        if (!results) return;
-        if (searchController) searchController.abort();
-        searchController = new AbortController();
-
-        try {
-            const center = myCoords || map.getCenter();
-            
-            // PHOTON API: Returns partial matches based on GPS bias
-            let apiUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=15`;
-            if (center && validCoord(center.lat, center.lng)) {
-                apiUrl += `&lat=${center.lat}&lon=${center.lng}`;
-            }
-
-            const res = await fetch(apiUrl, { signal: searchController.signal });
-            if (!res.ok) throw new Error("Search failed");
-            const data = await res.json();
-            const places = data.features || [];
-
-            const unique = [];
-            const seen = new Set();
-
-            places.forEach(f => {
-                const item = f.properties;
-                const name = item.name || item.street || item.city;
-                if (!name) return; 
-                
-                const addr = [item.street, item.district, item.city, item.state].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).join(', ');
-                
-                const lat = f.geometry.coordinates[1];
-                const lng = f.geometry.coordinates[0];
-                
-                let dist = 999999;
-                if (center && validCoord(center.lat, center.lng)) {
-                    dist = distanceKm(center.lat, center.lng, lat, lng);
+            try {
+                const routes = await getRoadRoute(coords, currentTrip, false);
+                if (routes && routes.length > 0) {
+                    const r = routes[0];
+                    const pathCoords = r.geometry.coordinates.map(c => [c[1], c[0]]);
+                    tripRoutesLayer.eachLayer(l => { if(l.memberId === member.id) tripRoutesLayer.removeLayer(l); });
+                    const poly = L.polyline(pathCoords, { color: color, weight: 5, opacity: 0.8, className: 'nav-path-animated' });
+                    poly.memberId = member.id; poly.addTo(tripRoutesLayer);
+                    tripLastFetchedCoords[member.id] = { lat: coords.lat, lng: coords.lng };
+                    tripRoadStats[member.id] = { dist: formatDistance(r.distance / 1000), time: Math.round(r.duration / 60) };
                 }
-
-                // Distance Constraint: If search query is small ("dee"), ignore global results > 500km away
-                if (dist > 500 && query.length <= 5) return; 
-
-                const key = `${name.toLowerCase()}|${lat.toFixed(3)}|${lng.toFixed(3)}`;
-                if(!seen.has(key)) {
-                    seen.add(key);
-                    unique.push({ name, address: addr || item.country || "India", lat, lng, dist });
-                }
-            });
-
-            // LIVE DISTANCE SORTER (Closest results show at the top)
-            unique.sort((a, b) => a.dist - b.dist);
-
-            renderSearchResults(unique.slice(0, 7), false);
-
-        } catch (e) {
-            if (e.name === "AbortError") return;
-            results.innerHTML = `<div style="padding:14px; color:var(--muted); font-size:12px; text-align:center;">Search temporarily unavailable.</div>`;
-            results.style.display = "block";
+            } catch(e) {}
         }
-    }
+    });
 
-    if (clearBtn) {
-        clearBtn.onclick = () => {
-            input.value = "";
-            clearBtn.style.display = "none";
-            if (results) { results.innerHTML = ""; results.style.display = "none"; }
-            if (searchController) searchController.abort();
-            if (searchPlace) { map.removeLayer(searchPlace); searchPlace = null; }
-            if ($("location-bottom-sheet")) $("location-bottom-sheet").style.transform = "translateY(120%)";
-            Navigation.stop();
-        };
-    }
+    await Promise.all(promises);
+    isFetchingGroupRoutes = false; updateTripPanel();
 }
 
-function showLocationSheet(lat, lng, name, address) {
-    map.flyTo([lat, lng], 16);
-    if(searchPlace) map.removeLayer(searchPlace);
-    searchPlace = L.marker([lat, lng], {icon: L.divIcon({className:'geofence-marker', html:'📍'})}).addTo(map);
+function updateTripPanel() {
+    if(!currentTrip) return;
+    const list = $("trip-members-list"); if(!list) return;
+    list.innerHTML = "";
     
-    if($("sheet-title")) $("sheet-title").textContent = name;
-    if($("sheet-address")) $("sheet-address").textContent = address;
-    if($("location-bottom-sheet")) $("location-bottom-sheet").style.transform = "translateY(0)";
-    
-    if($("search-direction-btn")) $("search-direction-btn").onclick = () => { if($("location-bottom-sheet")) $("location-bottom-sheet").style.transform = "translateY(120%)"; Navigation.previewCustom(lat, lng, name); };
-    if($("search-start-btn")) $("search-start-btn").onclick = () => { if($("location-bottom-sheet")) $("location-bottom-sheet").style.transform = "translateY(120%)"; Navigation.start(lat, lng, name); };
-}
+    const isMember = currentTrip.members.some(m => m.id === socket.id);
 
+    if(myCoords && currentUser.name && isMember) {
+        const stats = tripRoadStats[socket.id] || { dist: formatDistance(distanceKm(myCoords.lat, myCoords.lng, currentTrip.lat, currentTrip.lng)), time: '--' };
+        list.innerHTML += `<div class="trip-member"><div><img src="${escapeHTML(currentUser.avatar)}"> You</div> <span style="text-align:right;">${stats.dist}<br><small style="color:var(--muted)">${stats.time} min</small></span></div>`;
+    }
+    Object.values(friendData).filter(f => f.online !== false && currentTrip.members.some(m => m.id === f.id)).forEach(f => {
+        const stats = tripRoadStats[f.id] || { dist: formatDistance(distanceKm(f.lat, f.lng, currentTrip.lat, currentTrip.lng)), time: '--' };
+        list.innerHTML += `<div class="trip-member"><div><img src="${escapeHTML(f.avatar)}"> ${escapeHTML(f.name)}</div> <span style="text-align:right;">${stats.dist}<br><small style="color:var(--muted)">${stats.time} min</small></span></div>`;
+    });
+}
 
 // ==========================================
-// 7. CORE GPS & SOCKET LOGIC
+// 8. CORE GPS & SOCKET LOGIC
 // ==========================================
 socket.on("connect", () => { if (currentUser.name) socket.emit("profileReady", currentUser); });
 
@@ -586,9 +664,6 @@ function startGPS() {
     }, e => console.warn("GPS error",e), {enableHighAccuracy: true, timeout: 15000, maximumAge: 3000});
 }
 
-// ==========================================
-// 8. FRIENDS & SOCIAL SYSTEM
-// ==========================================
 function updateFriendBadges(){
     Object.keys(friendMarkers).forEach(id=>{
         const f=friendData[id], m=friendMarkers[id]; if(!f||!m) return;
@@ -808,64 +883,6 @@ function setupAdvancedTools() {
             tripRoutesLayer.clearLayers(); tripRoadStats = {};
             if($("trip-panel")) $("trip-panel").style.display = "none";
         }
-    });
-}
-
-let groupRouteUpdateTimer = null;
-let isFetchingGroupRoutes = false;
-
-function triggerGroupRouteUpdate() {
-    clearTimeout(groupRouteUpdateTimer);
-    groupRouteUpdateTimer = setTimeout(() => updateGroupTripRoutes(), 1000);
-}
-
-async function updateGroupTripRoutes() {
-    if (!currentTrip || isFetchingGroupRoutes) return;
-    isFetchingGroupRoutes = true;
-
-    const promises = currentTrip.members.map(async (member, index) => {
-        const color = routeColors[index % routeColors.length];
-        let coords = null;
-        if (member.id === socket.id && myCoords) coords = myCoords;
-        else if (friendData[member.id] && friendData[member.id].online !== false) coords = friendData[member.id];
-        
-        if (coords) {
-            const last = tripLastFetchedCoords[member.id];
-            if (last && distanceKm(last.lat, last.lng, coords.lat, coords.lng) < 0.1) return;
-
-            try {
-                const routes = await getRoadRoute(coords, currentTrip, false);
-                if (routes && routes.length > 0) {
-                    const r = routes[0];
-                    const pathCoords = r.geometry.coordinates.map(c => [c[1], c[0]]);
-                    tripRoutesLayer.eachLayer(l => { if(l.memberId === member.id) tripRoutesLayer.removeLayer(l); });
-                    const poly = L.polyline(pathCoords, { color: color, weight: 5, opacity: 0.8, className: 'nav-path-animated' });
-                    poly.memberId = member.id; poly.addTo(tripRoutesLayer);
-                    tripLastFetchedCoords[member.id] = { lat: coords.lat, lng: coords.lng };
-                    tripRoadStats[member.id] = { dist: formatDistance(r.distance / 1000), time: Math.round(r.duration / 60) };
-                }
-            } catch(e) {}
-        }
-    });
-
-    await Promise.all(promises);
-    isFetchingGroupRoutes = false; updateTripPanel();
-}
-
-function updateTripPanel() {
-    if(!currentTrip) return;
-    const list = $("trip-members-list"); if(!list) return;
-    list.innerHTML = "";
-    
-    const isMember = currentTrip.members.some(m => m.id === socket.id);
-
-    if(myCoords && currentUser.name && isMember) {
-        const stats = tripRoadStats[socket.id] || { dist: formatDistance(distanceKm(myCoords.lat, myCoords.lng, currentTrip.lat, currentTrip.lng)), time: '--' };
-        list.innerHTML += `<div class="trip-member"><div><img src="${escapeHTML(currentUser.avatar)}"> You</div> <span style="text-align:right;">${stats.dist}<br><small style="color:var(--muted)">${stats.time} min</small></span></div>`;
-    }
-    Object.values(friendData).filter(f => f.online !== false && currentTrip.members.some(m => m.id === f.id)).forEach(f => {
-        const stats = tripRoadStats[f.id] || { dist: formatDistance(distanceKm(f.lat, f.lng, currentTrip.lat, currentTrip.lng)), time: '--' };
-        list.innerHTML += `<div class="trip-member"><div><img src="${escapeHTML(f.avatar)}"> ${escapeHTML(f.name)}</div> <span style="text-align:right;">${stats.dist}<br><small style="color:var(--muted)">${stats.time} min</small></span></div>`;
     });
 }
 
