@@ -768,7 +768,7 @@ function setupJoin(){
 }
 
 // ==========================================
-// FIXED: GOOGLE SEARCH (WITH LOCATION BIAS)
+// FIXED: GOOGLE SEARCH (WITH LOCATION BIAS & POPUP STATS)
 // ==========================================
 function setupGoogleSearch() {
     const searchInput = $("location-search-input");
@@ -794,72 +794,155 @@ function setupGoogleSearch() {
         if (window.google && window.google.maps && window.google.maps.places) {
             clearInterval(checkGoogle);
             
-            // NAYA CODE: Search ko sirf India aur Map ki current location tak limit karna
             const autocomplete = new google.maps.places.Autocomplete(searchInput, {
-                componentRestrictions: { country: "in" } // Sirf India ke results
+                componentRestrictions: { country: "in" }
             });
 
-            // Map jahan bhi hoga (Rourkela ya Koraput), search wahi ke 50km area ko priority dega
             function updateSearchBounds() {
+                if(!map) return;
                 const center = map.getCenter();
-                const circle = new google.maps.Circle({
-                    center: new google.maps.LatLng(center.lat, center.lng),
-                    radius: 50000 // 50 km bias radius
-                });
+                const circle = new google.maps.Circle({ center: new google.maps.LatLng(center.lat, center.lng), radius: 50000 });
                 autocomplete.setBounds(circle.getBounds());
             }
-            
-            updateSearchBounds(); // Ek baar shuru mein set karega
-            map.on('moveend', updateSearchBounds); // Jab bhi map hilega, search area update ho jayega
-            // ---------------------------------------------------------
+            updateSearchBounds();
+            map.on('moveend', updateSearchBounds);
 
-            autocomplete.addListener("place_changed", () => {
+            autocomplete.addListener("place_changed", async () => {
                 const place = autocomplete.getPlace();
-                if (!place.geometry || !place.geometry.location) {
-                    showToast("❌ Location not found.");
-                    return;
-                }
+                if (!place.geometry || !place.geometry.location) return showToast("❌ Location not found.");
                 
-                const lat = place.geometry.location.lat();
-                const lng = place.geometry.location.lng();
+                const destLat = place.geometry.location.lat();
+                const destLng = place.geometry.location.lng();
                 const placeName = place.name;
                 
                 if (searchMarker) map.removeLayer(searchMarker);
                 navigationLayer.clearLayers();
                 if($("nav-panel")) $("nav-panel").style.display = "none";
                 
-                map.flyTo([lat, lng], 16);
+                map.flyTo([destLat, destLng], 15);
                 
+                // NAYA POPUP DESIGN: Start Navigation + Time/Distance
                 const popupContent = `
-                    <div style="text-align:center; padding:5px; min-width:140px;">
-                        <strong style="color:var(--green-bright); font-size:14px; display:block; margin-bottom:8px;">📍 ${escapeHTML(placeName)}</strong>
-                        <button id="search-nav-btn" style="width:100%; padding:8px; border:none; border-radius:8px; background:var(--green); color:white; font-weight:bold; cursor:pointer;">
-                            🚗 Directions
+                    <div style="text-align:center; padding:6px; min-width:180px;">
+                        <strong style="color:var(--green-bright); font-size:15px; display:block; margin-bottom:8px;">📍 ${escapeHTML(placeName)}</strong>
+                        <div id="search-route-info" style="font-size:12px; color:var(--muted); margin-bottom:12px; background:rgba(255,255,255,0.05); padding:8px; border-radius:10px; border: 1px solid rgba(255,255,255,0.1);">
+                            <i>Calculating route... ⏳</i>
+                        </div>
+                        <button id="search-nav-btn" style="width:100%; padding:10px; border:none; border-radius:10px; background:var(--green); color:white; font-weight:800; font-size:13px; cursor:pointer; opacity:0.5; transition:0.3s;" disabled>
+                            ▶ Start Navigation
                         </button>
                     </div>
                 `;
                 
-                searchMarker = L.marker([lat, lng], {
+                searchMarker = L.marker([destLat, destLng], {
                     icon: L.divIcon({ className: 'geofence-marker', html: '📍', iconSize: [30, 30], iconAnchor: [15, 30] })
                 }).addTo(map);
                 
                 searchMarker.bindPopup(popupContent).openPopup();
-                
-                searchMarker.on("popupopen", () => {
-                    const btn = document.getElementById("search-nav-btn");
-                    if (btn) {
-                        btn.onclick = () => {
-                            searchMarker.closePopup();
-                            startSearchNavigation(lat, lng, placeName);
-                        };
-                    }
-                });
-                
                 if (clearBtn) clearBtn.style.display = "block";
+
+                // Turant Time aur Distance calculate karna
+                if(myCoords) {
+                    try {
+                        const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${myCoords.lng},${myCoords.lat};${destLng},${destLat}?steps=true&geometries=geojson&overview=full`);
+                        const data = await res.json();
+                        
+                        const infoDiv = document.getElementById("search-route-info");
+                        const navBtn = document.getElementById("search-nav-btn");
+                        
+                        if(data.routes && data.routes.length > 0 && infoDiv && navBtn) {
+                            const r = data.routes[0];
+                            const distKm = (r.distance / 1000).toFixed(1);
+                            const timeMin = Math.round(r.duration / 60);
+                            
+                            // Preview Line map par draw karna
+                            const coords = r.geometry.coordinates.map(c => [c[1], c[0]]);
+                            L.polyline(coords, { color: '#60a5fa', weight: 4, opacity: 0.5, dashArray: '6, 8' }).addTo(navigationLayer);
+
+                            // Popup ke andar exact time aur distance dikhana
+                            infoDiv.innerHTML = `<span style="color:white; font-size:14px; font-weight:800;">🚗 ${distKm} km</span> <br> <span style="color:white; font-size:14px; font-weight:800;">⏱️ ${timeMin} min</span>`;
+                            navBtn.style.opacity = "1";
+                            navBtn.disabled = false;
+                            
+                            // Start Navigation Button Click Event
+                            navBtn.onclick = () => {
+                                searchMarker.closePopup();
+                                startSearchNavigation(destLat, destLng, placeName, r);
+                            };
+                        } else if (infoDiv) {
+                            infoDiv.innerHTML = "<span style='color:#ef4444;'>No road route found.</span>";
+                        }
+                    } catch (e) {
+                        if(document.getElementById("search-route-info")) document.getElementById("search-route-info").innerHTML = "<span style='color:#ef4444;'>Route error.</span>";
+                    }
+                } else {
+                    if(document.getElementById("search-route-info")) document.getElementById("search-route-info").innerHTML = "<span style='color:#f59e0b;'>GPS required for route.</span>";
+                }
             });
         }
     }, 500); 
 }
+
+// ==========================================
+// START TURN-BY-TURN NAVIGATION
+// ==========================================
+function startSearchNavigation(destLat, destLng, destName, routeData) {
+    navigationLayer.clearLayers();
+    if($("nav-panel")) $("nav-panel").style.display = "flex";
+    if($("nav-title-name")) $("nav-title-name").textContent = destName;
+    
+    const coords = routeData.geometry.coordinates.map(c => [c[1], c[0]]);
+    const path = L.polyline(coords, { color: '#18d6a3', weight: 6, opacity: 0.9, className: 'nav-path-animated' }).addTo(navigationLayer);
+    L.marker([destLat, destLng], { icon: L.divIcon({className: 'geofence-marker', html: '🎯'}) }).addTo(navigationLayer);
+    
+    map.fitBounds(path.getBounds(), { padding: [50, 50] });
+
+    const distKm = (routeData.distance / 1000).toFixed(1);
+    const timeMin = Math.round(routeData.duration / 60);
+    if($("nav-stats")) $("nav-stats").innerHTML = `🚗 ${distKm} km &nbsp; ⏱️ ${timeMin} min`;
+    
+    let instHTML = "";
+    if(routeData.legs[0] && routeData.legs[0].steps) {
+        routeData.legs[0].steps.slice(0, 5).forEach(s => {
+            let arrow = "↑";
+            if(s.maneuver.modifier) { 
+                if(s.maneuver.modifier.includes('right')) arrow = "↱"; 
+                if(s.maneuver.modifier.includes('left')) arrow = "↰"; 
+            }
+            instHTML += `<div style="padding:6px 0; border-bottom:1px solid rgba(255,255,255,0.05); font-size:12px;">${arrow} ${s.maneuver.instruction}</div>`;
+        });
+    }
+    if($("nav-instructions")) $("nav-instructions").innerHTML = instHTML || "Follow the highlighted route on the map.";
+    
+    $("nav-exit-btn").onclick = () => {
+        navigationLayer.clearLayers();
+        $("nav-panel").style.display = "none";
+        if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
+    };
+    
+    $("nav-recalc-btn").onclick = async () => {
+        if(!myCoords) return;
+        try {
+            const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${myCoords.lng},${myCoords.lat};${destLng},${destLat}?steps=true&geometries=geojson&overview=full`);
+            const data = await res.json();
+            if(data.routes && data.routes.length > 0) startSearchNavigation(destLat, destLng, destName, data.routes[0]);
+        } catch(e) { showToast("Recalculation failed"); }
+    };
+}
+
+// ==========================================
+// INITIALIZATION
+// ==========================================
+function initApp(){ 
+    setupJoin(); 
+    setupBasicControls(); 
+    setupAdvancedTools(); 
+    setupChat(); 
+    setupMemories(); 
+    startGPS(); 
+    setupGoogleSearch(); 
+}
+if(document.readyState==="loading") document.addEventListener("DOMContentLoaded", initApp); else initApp();
 
 // ==========================================
 // INITIALIZATION
