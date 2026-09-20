@@ -4,7 +4,7 @@
 // 1. GLOBAL CONFIG & STATE
 // ==========================================
 const socket = io({ transports: ["websocket", "polling"] });
-const DEFAULT_CENTER = [18.8136, 82.7153]; // Default: Koraput/Odisha region
+const DEFAULT_CENTER = [18.8136, 82.7153];
 const DEFAULT_AVATAR = "satyam.png";
 const MAX_NAME = 40;
 const MAX_CHAT_FILE = 5 * 1024 * 1024;
@@ -21,16 +21,11 @@ const friendMarkers = Object.create(null);
 const friendData = Object.create(null);
 
 let locationHistory = [];
-let recentSearches = []; 
 try {
     const storedHistory = localStorage.getItem("koraput_history");
     if (storedHistory) locationHistory = JSON.parse(storedHistory);
     if (!Array.isArray(locationHistory)) locationHistory = [];
-
-    const storedSearches = localStorage.getItem("koraput_recent_searches");
-    if (storedSearches) recentSearches = JSON.parse(storedSearches);
-    if (!Array.isArray(recentSearches)) recentSearches = [];
-} catch(e) { locationHistory = []; recentSearches = []; }
+} catch(e) { locationHistory = []; }
 
 // Map State
 let mapActionMode = null; 
@@ -55,7 +50,6 @@ const streetLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.
 const darkLayer = L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", { maxZoom: 20 });
 satelliteLayer.addTo(map);
 
-// Isolated Layer Groups for seamless updates and cleanup
 const p4LayerGroup = L.layerGroup().addTo(map); 
 const measureLayer = L.layerGroup().addTo(map); 
 const navigationLayer = L.layerGroup().addTo(map); 
@@ -64,7 +58,6 @@ const memoryLayer = L.layerGroup().addTo(map);
 const searchLayer = L.layerGroup().addTo(map); 
 
 const historyPolyline = L.polyline(locationHistory, { color: '#3b82f6', weight: 4, opacity: 0.8, dashArray: '5, 10' }).addTo(p4LayerGroup);
-
 const tripLastFetchedCoords = {}; 
 let tripRoadStats = {}; 
 const routeColors = ['#18d6a3', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6']; 
@@ -141,185 +134,63 @@ async function getRoadRoute(from, to, alternatives = false) {
 }
 
 // ==========================================
-// 5. SMART SEARCH (100% FREE - No API Key)
+// 5. NATIVE GOOGLE MAPS SEARCH
 // ==========================================
-let searchTimeout = null;
-let searchController = null;
-
-function saveRecentSearch(place) {
-    recentSearches = recentSearches.filter(p => p.name !== place.name);
-    recentSearches.unshift(place);
-    if(recentSearches.length > 5) recentSearches.pop();
-    localStorage.setItem("koraput_recent_searches", JSON.stringify(recentSearches));
-}
-
-function renderSearchResults(dataArr, isRecent = false) {
-    const results = $("location-search-results");
-    if(!results) return;
-    results.innerHTML = "";
-
-    if(!dataArr || dataArr.length === 0) {
-        results.innerHTML = `<div style="padding:14px; color:var(--muted); font-size:12px; text-align:center;">No matching place found. Try a broader search.</div>`;
-        results.style.display = "block";
-        return;
-    }
-
-    dataArr.forEach(item => {
-        const icon = isRecent ? '🕒' : '📍';
-        const name = item.name;
-        const addr = item.address;
-        const lat = Number(item.lat);
-        const lng = Number(item.lng); 
-
-        let distStr = "";
-        if (item.dist !== undefined && item.dist < 999999) {
-            distStr = formatDistance(item.dist);
-        } else if (myCoords && validCoord(lat, lng)) {
-            distStr = formatDistance(distanceKm(myCoords.lat, myCoords.lng, lat, lng));
-        }
-
-        const div = document.createElement("div");
-        div.className = "search-item";
-        div.style.cssText = "display:flex; align-items:center; gap:16px; padding:12px 16px; cursor:pointer; border-bottom:1px solid rgba(255,255,255,0.05);";
-        
-        div.innerHTML = `
-            <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; min-width:45px;">
-                <div style="width:30px; height:30px; border-radius:50%; background:rgba(255,255,255,0.1); display:flex; align-items:center; justify-content:center; font-size:14px; color:#dce5e8;">
-                    ${icon}
-                </div>
-                ${distStr && !isRecent ? `<div style="font-size:10px; color:var(--green-bright); margin-top:4px; font-weight:600;">${distStr}</div>` : ''}
-            </div>
-            <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:2px;">
-                <strong style="color:#fff; font-size:14px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHTML(name)}</strong>
-                <span style="color:var(--muted); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHTML(addr)}</span>
-            </div>
-        `;
-
-        div.onclick = () => {
-            results.style.display = "none";
-            $("location-search-input").value = name;
-            if(!isRecent) saveRecentSearch({name, address: addr, lat, lng});
-            showLocationSheet(lat, lng, name, addr);
-        };
-        results.appendChild(div);
-    });
-
-    results.style.display = "block";
-}
-
 function setupLocationSearch() {
     const input = $("location-search-input");
     const clearBtn = $("location-search-clear");
-    const results = $("location-search-results");
 
     if (!input) return;
 
-    input.addEventListener("focus", () => {
-        if(!input.value.trim() && recentSearches.length > 0) {
-            if (clearBtn) clearBtn.style.display = "block";
-            renderSearchResults(recentSearches, true);
-        }
+    if (typeof google === "undefined" || !google.maps || !google.maps.places) {
+        console.warn("Waiting for Google Maps API to load...");
+        setTimeout(setupLocationSearch, 500);
+        return;
+    }
+
+    const autocomplete = new google.maps.places.Autocomplete(input, {
+        componentRestrictions: { country: "in" },
+        fields: ["geometry", "name", "formatted_address"],
     });
 
-    input.addEventListener("input", (e) => {
-        const val = e.target.value.trim();
+    map.on('moveend', () => {
+        const bounds = map.getBounds();
+        autocomplete.setBounds(new google.maps.LatLngBounds(
+            new google.maps.LatLng(bounds.getSouth(), bounds.getWest()),
+            new google.maps.LatLng(bounds.getNorth(), bounds.getEast())
+        ));
+    });
 
-        if (clearBtn) clearBtn.style.display = val ? "block" : "none";
-        clearTimeout(searchTimeout);
-
-        if (!val) {
-            if(recentSearches.length > 0) renderSearchResults(recentSearches, true);
-            else if (results) results.style.display = "none";
-            if (searchController) searchController.abort();
+    autocomplete.addListener("place_changed", () => {
+        const place = autocomplete.getPlace();
+        
+        if (!place.geometry || !place.geometry.location) {
+            showToast("Detailed location data unavailable.");
             return;
         }
 
-        searchTimeout = setTimeout(() => searchPlaces(val), 300); // Super fast autocomplete
+        const lat = place.geometry.location.lat();
+        const lng = place.geometry.location.lng();
+        const name = place.name;
+        const address = place.formatted_address || "India";
+
+        if (clearBtn) clearBtn.style.display = "block";
+        showLocationSheet(lat, lng, name, address);
     });
-
-    async function searchPlaces(query) {
-        if (!results) return;
-        if (searchController) searchController.abort();
-        searchController = new AbortController();
-
-        try {
-            const center = myCoords || map.getCenter();
-            
-            // PHOTON API is best for free partial/autocomplete text
-            let apiUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=15`;
-            if (center && validCoord(center.lat, center.lng)) {
-                apiUrl += `&lat=${center.lat}&lon=${center.lng}`;
-            }
-
-            const res = await fetch(apiUrl, { signal: searchController.signal });
-            if (!res.ok) throw new Error("Search failed");
-            const data = await res.json();
-            const places = data.features || [];
-
-            const unique = [];
-            const seen = new Set();
-            const queryLower = query.toLowerCase();
-
-            places.forEach(f => {
-                const item = f.properties;
-                const name = item.name || item.street || item.city;
-                if (!name) return; 
-                
-                const addr = [item.street, item.district, item.city, item.state].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).join(', ');
-                const lat = f.geometry.coordinates[1];
-                const lng = f.geometry.coordinates[0];
-                
-                let dist = 999999;
-                if (center && validCoord(center.lat, center.lng)) dist = distanceKm(center.lat, center.lng, lat, lng);
-
-                // --- SMART SCORING ALGORITHM (Fixes the "Childrens Park" issue) ---
-                let score = 0;
-                const nameLower = name.toLowerCase();
-                const addrLower = addr.toLowerCase();
-
-                // 1. Name Matches (Huge points to beat distance filtering)
-                if (nameLower === queryLower) score += 10000; 
-                else if (nameLower.startsWith(queryLower)) score += 5000;
-                else if (nameLower.includes(queryLower)) score += 1000;
-
-                // 2. City Bias
-                if (cityName && addrLower.includes(cityName.toLowerCase())) score += 500;
-                else if (addrLower.includes("rourkela")) score += 500;
-
-                // 3. Distance Penalty (Closer is still better, but Name Match wins)
-                // -50 points per km away
-                score -= (dist * 50);
-
-                const key = `${nameLower}|${lat.toFixed(3)}|${lng.toFixed(3)}`;
-                if(!seen.has(key)) {
-                    seen.add(key);
-                    unique.push({ name, address: addr || item.country || "India", lat, lng, dist, score });
-                }
-            });
-
-            // Sort by our custom Smart Score!
-            unique.sort((a, b) => b.score - a.score);
-
-            renderSearchResults(unique.slice(0, 7), false);
-
-        } catch (e) {
-            if (e.name === "AbortError") return;
-            results.innerHTML = `<div style="padding:14px; color:var(--muted); font-size:12px; text-align:center;">Search temporarily unavailable.</div>`;
-            results.style.display = "block";
-        }
-    }
 
     if (clearBtn) {
         clearBtn.onclick = () => {
             input.value = "";
             clearBtn.style.display = "none";
-            if (results) { results.innerHTML = ""; results.style.display = "none"; }
-            if (searchController) searchController.abort();
             if (searchPlace) { map.removeLayer(searchPlace); searchPlace = null; }
             if ($("location-bottom-sheet")) $("location-bottom-sheet").style.transform = "translateY(120%)";
             Navigation.stop();
         };
     }
+
+    input.addEventListener("input", (e) => {
+        if (clearBtn) clearBtn.style.display = e.target.value ? "block" : "none";
+    });
 }
 
 function showLocationSheet(lat, lng, name, address) {
@@ -336,15 +207,19 @@ function showLocationSheet(lat, lng, name, address) {
 }
 
 // ==========================================
-// 6. LIVE NAVIGATION (1-ON-1)
+// 6. LIVE NAVIGATION 
 // ==========================================
 const Navigation = {
-    active: false, targetCoords: null, targetName: '', lastCalcCoords: null, lastRecalcTime: 0,
+    active: false, targetId: null, targetCoords: null, targetName: '', lastCalcCoords: null, lastRecalcTime: 0,
     
-    async start(targetLat, targetLng, name) {
+    async start(targetLat, targetLng, name, targetId = null) {
         if(!myCoords) return showToast("Waiting for GPS...");
-        this.active = true; this.targetCoords = { lat: targetLat, lng: targetLng }; this.targetName = name;
+        this.active = true; 
+        this.targetId = targetId;
+        this.targetCoords = { lat: targetLat, lng: targetLng }; 
+        this.targetName = name;
         this.lastCalcCoords = null;
+        this.lastRecalcTime = 0; 
         
         if($("location-bottom-sheet")) $("location-bottom-sheet").style.transform = "translateY(120%)";
         if($("profile-popup")) $("profile-popup").style.display = "none";
@@ -393,8 +268,13 @@ const Navigation = {
             const mins = Math.round(r.duration / 60);
             if($("nav-time")) $("nav-time").textContent = mins > 60 ? `${Math.floor(mins/60)}h ${mins%60}m` : `${mins} min`;
             
-            if(r.legs[0] && r.legs[0].steps && r.legs[0].steps.length > 0) {
-                const step = r.legs[0].steps.length > 1 ? r.legs[0].steps[1] : r.legs[0].steps[0]; 
+            let step = r.legs[0]?.steps?.[0];
+            if (r.legs[0] && r.legs[0].steps) {
+                const validStep = r.legs[0].steps.find(s => s.maneuver && s.maneuver.instruction);
+                if (validStep) step = validStep;
+            }
+
+            if(step) {
                 let arrow = "↑";
                 if(step.maneuver.modifier) { 
                     if(step.maneuver.modifier.includes('right')) arrow = "↱"; 
@@ -409,16 +289,27 @@ const Navigation = {
                 if($("nav-inst-text")) $("nav-inst-text").textContent = "Arriving at destination";
             }
             
+            const isInitial = !this.lastCalcCoords;
             this.lastCalcCoords = { lat: myCoords.lat, lng: myCoords.lng };
             this.lastRecalcTime = Date.now();
-            map.panTo([myCoords.lat, myCoords.lng], {animate: true});
+
+            if (isInitial) {
+                map.fitBounds(L.latLngBounds(coords), { padding: [80, 80], maxZoom: 17 });
+            } else {
+                map.panTo([myCoords.lat, myCoords.lng], {animate: true});
+            }
+
         } catch (e) { 
             if($("nav-inst-text")) $("nav-inst-text").textContent = "Navigation error. Re-routing...";
         }
     },
     
     stop() {
-        this.active = false; this.targetCoords = null; this.lastCalcCoords = null;
+        this.active = false; 
+        this.targetId = null; 
+        this.targetCoords = null; 
+        this.lastCalcCoords = null;
+        this.lastRecalcTime = 0;
         navigationLayer.clearLayers();
         if($("nav-panel")) $("nav-panel").style.display = "none";
         if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
@@ -428,7 +319,7 @@ const Navigation = {
         if(!this.active || !myCoords || !this.targetCoords) return;
         let needsRecalc = false;
 
-        if(this.targetId !== "custom" && friendData[this.targetId]) {
+        if(this.targetId && friendData[this.targetId]) {
             const f = friendData[this.targetId];
             if(distanceKm(this.targetCoords.lat, this.targetCoords.lng, f.lat, f.lng) > 0.05) {
                 this.targetCoords = { lat: f.lat, lng: f.lng }; needsRecalc = true;
@@ -487,13 +378,12 @@ const GroupNavigation = {
 
         let statsHTML = "", validPaths = [];
 
-        for(let i = 0; i < this.selectedMembers.length; i++) {
-            const memberId = this.selectedMembers[i];
+        const promises = this.selectedMembers.map(async (memberId, i) => {
             const color = this.colors[i % this.colors.length];
             let name = "User", avatar = DEFAULT_AVATAR, coords = null;
 
-            if (memberId === "me") { if (!myCoords) continue; name = "You"; avatar = currentUser.avatar; coords = myCoords; } 
-            else { const f = friendData[memberId]; if (!f || f.online === false || !validCoord(f.lat, f.lng)) continue; name = f.name; avatar = f.avatar; coords = { lat: f.lat, lng: f.lng }; }
+            if (memberId === "me") { if (!myCoords) return; name = "You"; avatar = currentUser.avatar; coords = myCoords; } 
+            else { const f = friendData[memberId]; if (!f || f.online === false || !validCoord(f.lat, f.lng)) return; name = f.name; avatar = f.avatar; coords = { lat: f.lat, lng: f.lng }; }
 
             try {
                 const routes = await getRoadRoute(coords, this.destination, false);
@@ -511,7 +401,10 @@ const GroupNavigation = {
                     statsHTML += `<div style="color:#ef4444; font-size:11px; padding:10px;">No road route for ${escapeHTML(name)}</div>`;
                 }
             } catch(e) {}
-        }
+        });
+
+        await Promise.all(promises);
+
         if($("group-nav-stats-list")) $("group-nav-stats-list").innerHTML = statsHTML;
         if(validPaths.length > 0) map.fitBounds(L.featureGroup(validPaths).getBounds(), { padding: [40, 40] });
     },
@@ -606,8 +499,17 @@ function startGPS() {
     navigator.geolocation.watchPosition(async p => {
         const lat = Number(p.coords.latitude), lng = Number(p.coords.longitude), acc = Number(p.coords.accuracy);
         if(!validCoord(lat,lng)) return;
+
+        myCoords = {lat, lng}; // Update local immediately
         
-        myCoords = {lat, lng};
+        const movedEnough = !lastEmittedCoords || distanceKm(lastEmittedCoords.lat, lastEmittedCoords.lng, lat, lng) >= 0.01;
+
+        if (!movedEnough) {
+            Navigation.onLiveUpdate();
+            GroupNavigation.onLiveUpdate();
+            return; // Skip heavy processing if barely moved
+        }
+
         locationHistory.push([lat, lng]);
         if(locationHistory.length > 1000) locationHistory.shift(); 
         historyPolyline.setLatLngs(locationHistory);
@@ -646,18 +548,67 @@ function startGPS() {
             }
         }
 
-        const movedEnough = !lastEmittedCoords || distanceKm(lastEmittedCoords.lat, lastEmittedCoords.lng, lat, lng) > 0.01;
-        if (movedEnough) {
-            socket.emit("updateLocation", {name: currentUser.name, avatar: currentUser.avatar, lat, lng, weather: myWeather});
-            lastEmittedCoords = {lat, lng};
-            updateFriendBadges(); 
-        }
+        socket.emit("updateLocation", {name: currentUser.name, avatar: currentUser.avatar, lat, lng, weather: myWeather});
+        lastEmittedCoords = {lat, lng};
+        updateFriendBadges(); 
 
         triggerGroupRouteUpdate(); 
         Navigation.onLiveUpdate(); 
         GroupNavigation.onLiveUpdate(); 
     }, e => console.warn("GPS error",e), {enableHighAccuracy: true, timeout: 15000, maximumAge: 3000});
 }
+
+function updateFriendBadges(){
+    Object.keys(friendMarkers).forEach(id=>{
+        const f=friendData[id], m=friendMarkers[id]; if(!f||!m) return;
+        let text = f.online===false ? "Offline" : f.weather;
+        if(myCoords && validCoord(f.lat,f.lng)) text += ` | 📍 ${formatDistance(distanceKm(myCoords.lat,myCoords.lng,f.lat,f.lng))}`;
+        m.unbindTooltip(); if(text) m.bindTooltip(text,{permanent:true,direction:"right",className:"weather-badge",offset:[15,0]});
+    });
+}
+
+socket.on("onlineUsers", list=>{ if(Array.isArray(list)) list.forEach(u=>{ if(u.id!==socket.id){ friendData[u.id]={...(friendData[u.id]||{}),...u,online:true}; createOrUpdateFriendMarker(u);} }); updateOnlineUI(); });
+socket.on("userOnline", u=>{ if(u.id!==socket.id){ friendData[u.id]={...(friendData[u.id]||{}),...u,online:true}; createOrUpdateFriendMarker(u); } updateOnlineUI(); });
+socket.on("userOffline", d=>{ if(d?.id && friendData[d.id]){ friendData[d.id].online=false; if(friendMarkers[d.id]) friendMarkers[d.id].setOpacity(0.45); } updateOnlineUI(); });
+socket.on("friendMoved", u=>{ if(u?.id) { createOrUpdateFriendMarker({...u,online:true}); updateOnlineUI(); triggerGroupRouteUpdate(); Navigation.onLiveUpdate(); GroupNavigation.onLiveUpdate(); }});
+socket.on("friendDisconnected", id=>{ if(friendMarkers[id]){map.removeLayer(friendMarkers[id]); delete friendMarkers[id];} delete friendData[id]; updateOnlineUI(); });
+
+function createOrUpdateFriendMarker(u){
+    if(!u?.id || !validCoord(u.lat,u.lng)) return;
+    friendData[u.id] = { id:u.id, name:u.name||"Friend", avatar:u.avatar||DEFAULT_AVATAR, lat:u.lat, lng:u.lng, weather:u.weather||"", online:u.online!==false };
+    let m = friendMarkers[u.id];
+    if(!m){ m=L.marker([u.lat,u.lng],{icon:friendIcon(u.avatar)}).addTo(map); m.on("click",()=>showProfilePopup(u)); friendMarkers[u.id]=m; }
+    else { m.setLatLng([u.lat,u.lng]); m.setOpacity(u.online===false?0.45:1); }
+    updateFriendBadges();
+}
+
+function updateOnlineUI(){
+    const list = $("friends-list"); if(!list) return;
+    list.innerHTML = "";
+    Object.values(friendData).filter(f => f.online !== false).forEach(u => {
+        const dist = myCoords && validCoord(u.lat, u.lng) ? formatDistance(distanceKm(myCoords.lat, myCoords.lng, u.lat, u.lng)) : 'Location unknown';
+        const item = document.createElement("div");
+        item.className = "friend-list-item";
+        item.innerHTML = `<img src="${escapeHTML(u.avatar)}"><div class="friend-info-col"><span class="friend-list-name">${escapeHTML(u.name)}</span><span class="friend-list-dist">${dist}</span></div><div class="status-dot-small"></div>`;
+        item.onclick = () => { map.flyTo([u.lat,u.lng], 16); showProfilePopup(u); }; 
+        list.appendChild(item);
+    });
+}
+
+function showProfilePopup(u) {
+    if($("profile-popup-avatar")) $("profile-popup-avatar").src=u.avatar; 
+    if($("profile-popup-name")) $("profile-popup-name").textContent=u.name;
+    const st = $("profile-popup-status");
+    if(st) { st.textContent = u.online!==false ? "● Online" : "● Offline"; st.style.color = u.online!==false ? "#18d6a3" : "#8fa1aa"; }
+    const dist = myCoords && validCoord(u.lat, u.lng) ? formatDistance(distanceKm(myCoords.lat, myCoords.lng, u.lat, u.lng)) : '--';
+    if($("profile-popup-distance")) $("profile-popup-distance").textContent = dist;
+    
+    if($("profile-nav-btn")) $("profile-nav-btn").onclick = () => { if(validCoord(u.lat, u.lng)) Navigation.start(u.lat, u.lng, u.name, u.id); };
+    
+    if($("profile-popup")) $("profile-popup").style.display="flex";
+    if($("profile-focus-btn")) $("profile-focus-btn").onclick=()=>{ map.flyTo([u.lat,u.lng],16); $("profile-popup").style.display="none"; };
+}
+$("profile-popup-close")?.addEventListener("click",()=> { if($("profile-popup")) $("profile-popup").style.display="none"; });
 
 // ==========================================
 // 9. MAP TOOLS & GEOFENCING
@@ -788,7 +739,7 @@ function setupAdvancedTools() {
             mapActionMode = null; clearActiveTools();
         }
         else if (mapActionMode === 'memory') {
-            if (pendingMemoryImage) socket.emit("uploadMemoryPhoto", { name: currentUser.name, lat: e.latlng.lat, lng: e.latlng.lng, image: pendingMemoryImage });
+            if (pendingMemoryImage) socket.emit("uploadMemoryPhoto", { name: currentUser.name, lat: e.latlng.lat, lng: e.latlng.lng, image: pendingMemoryImage, time: new Date().toISOString() });
             showToast("✅ Memory pinned successfully!");
             mapActionMode = null; pendingMemoryImage = null; clearActiveTools();
         }
@@ -796,7 +747,9 @@ function setupAdvancedTools() {
 
     socket.on("loadGeofences", fences => {
         currentGeofences = fences;
-        p4LayerGroup.eachLayer(l => { if(l.options?.isGeofence) map.removeLayer(l); });
+        p4LayerGroup.eachLayer(l => { 
+            if(l.options?.isGeofence) p4LayerGroup.removeLayer(l); 
+        });
         fences.forEach(f => {
             L.circle([f.lat, f.lng], { radius: f.radius, color: "#8b5cf6", weight: 2, fillOpacity: 0.1, isGeofence: true }).addTo(p4LayerGroup);
             L.marker([f.lat, f.lng], { icon: L.divIcon({className: 'geofence-marker', html: '📍'}), isGeofence: true }).bindTooltip(f.name, {permanent: true, direction: "top", className: "weather-badge"}).addTo(p4LayerGroup);
@@ -830,62 +783,7 @@ function setupAdvancedTools() {
 }
 
 // ==========================================
-// 10. SOCIAL & FRIENDS SYSTEM
-// ==========================================
-function updateFriendBadges(){
-    Object.keys(friendMarkers).forEach(id=>{
-        const f=friendData[id], m=friendMarkers[id]; if(!f||!m) return;
-        let text = f.online===false ? "Offline" : f.weather;
-        if(myCoords && validCoord(f.lat,f.lng)) text += ` | 📍 ${formatDistance(distanceKm(myCoords.lat,myCoords.lng,f.lat,f.lng))}`;
-        m.unbindTooltip(); if(text) m.bindTooltip(text,{permanent:true,direction:"right",className:"weather-badge",offset:[15,0]});
-    });
-}
-
-socket.on("onlineUsers", list=>{ if(Array.isArray(list)) list.forEach(u=>{ if(u.id!==socket.id){ friendData[u.id]={...(friendData[u.id]||{}),...u,online:true}; createOrUpdateFriendMarker(u);} }); updateOnlineUI(); });
-socket.on("userOnline", u=>{ if(u.id!==socket.id){ friendData[u.id]={...(friendData[u.id]||{}),...u,online:true}; createOrUpdateFriendMarker(u); } updateOnlineUI(); });
-socket.on("userOffline", d=>{ if(d?.id && friendData[d.id]){ friendData[d.id].online=false; if(friendMarkers[d.id]) friendMarkers[d.id].setOpacity(0.45); } updateOnlineUI(); });
-socket.on("friendMoved", u=>{ if(u?.id) { createOrUpdateFriendMarker({...u,online:true}); updateOnlineUI(); triggerGroupRouteUpdate(); Navigation.onLiveUpdate(); GroupNavigation.onLiveUpdate(); }});
-socket.on("friendDisconnected", id=>{ if(friendMarkers[id]){map.removeLayer(friendMarkers[id]); delete friendMarkers[id];} delete friendData[id]; updateOnlineUI(); });
-
-function createOrUpdateFriendMarker(u){
-    if(!u?.id || !validCoord(u.lat,u.lng)) return;
-    friendData[u.id] = { id:u.id, name:u.name||"Friend", avatar:u.avatar||DEFAULT_AVATAR, lat:u.lat, lng:u.lng, weather:u.weather||"", online:u.online!==false };
-    let m = friendMarkers[u.id];
-    if(!m){ m=L.marker([u.lat,u.lng],{icon:friendIcon(u.avatar)}).addTo(map); m.on("click",()=>showProfilePopup(u)); friendMarkers[u.id]=m; }
-    else { m.setLatLng([u.lat,u.lng]); m.setOpacity(u.online===false?0.45:1); }
-    updateFriendBadges();
-}
-
-function updateOnlineUI(){
-    const list = $("friends-list"); if(!list) return;
-    list.innerHTML = "";
-    Object.values(friendData).filter(f => f.online !== false).forEach(u => {
-        const dist = myCoords && validCoord(u.lat, u.lng) ? formatDistance(distanceKm(myCoords.lat, myCoords.lng, u.lat, u.lng)) : 'Location unknown';
-        const item = document.createElement("div");
-        item.className = "friend-list-item";
-        item.innerHTML = `<img src="${escapeHTML(u.avatar)}"><div class="friend-info-col"><span class="friend-list-name">${escapeHTML(u.name)}</span><span class="friend-list-dist">${dist}</span></div><div class="status-dot-small"></div>`;
-        item.onclick = () => { map.flyTo([u.lat,u.lng], 16); showProfilePopup(u); }; 
-        list.appendChild(item);
-    });
-}
-
-function showProfilePopup(u) {
-    if($("profile-popup-avatar")) $("profile-popup-avatar").src=u.avatar; 
-    if($("profile-popup-name")) $("profile-popup-name").textContent=u.name;
-    const st = $("profile-popup-status");
-    if(st) { st.textContent = u.online!==false ? "● Online" : "● Offline"; st.style.color = u.online!==false ? "#18d6a3" : "#8fa1aa"; }
-    const dist = myCoords && validCoord(u.lat, u.lng) ? formatDistance(distanceKm(myCoords.lat, myCoords.lng, u.lat, u.lng)) : '--';
-    if($("profile-popup-distance")) $("profile-popup-distance").textContent = dist;
-    
-    if($("profile-nav-btn")) $("profile-nav-btn").onclick = () => { if(validCoord(u.lat, u.lng)) Navigation.start(u.lat, u.lng, u.name); };
-    
-    if($("profile-popup")) $("profile-popup").style.display="flex";
-    if($("profile-focus-btn")) $("profile-focus-btn").onclick=()=>{ map.flyTo([u.lat,u.lng],16); $("profile-popup").style.display="none"; };
-}
-$("profile-popup-close")?.addEventListener("click",()=> { if($("profile-popup")) $("profile-popup").style.display="none"; });
-
-// ==========================================
-// 11. CHAT, VOICE & MEMORIES
+// 10. CHAT, VOICE & MEMORIES
 // ==========================================
 function setupBasicControls(){
     if($("my-location-btn")) $("my-location-btn").onclick = () => { if(myCoords) map.flyTo([myCoords.lat,myCoords.lng], 16); };
@@ -953,7 +851,8 @@ function setupChat(){
         if($("chat-messages")) $("chat-messages").scrollTop=$("chat-messages").scrollHeight;
     }
 
-    socket.on("chatHistory", l=>l.forEach(renderMsg)); socket.on("chatMessage", renderMsg);
+    socket.on("chatHistory", l=>l.forEach(renderMsg)); 
+    socket.on("chatMessage", renderMsg);
     socket.on("messageReaction", d=>{ const s=msgStore.get(d.messageId); if(s){ const c=s.el.querySelector(".reaction-row"); c.innerHTML=""; Object.keys(d.reactions).forEach(e=>{ if(d.reactions[e].length){ const b=document.createElement("button"); b.className="reaction-chip"; b.textContent=`${e} ${d.reactions[e].length}`; b.onclick=()=>socket.emit("messageReaction",{messageId:d.messageId,emoji:e}); c.appendChild(b);} }); }});
 }
 
@@ -1048,7 +947,7 @@ function setupMemories(){
 }
 
 // ==========================================
-// 12. INITIALIZATION & AUTH
+// 11. INITIALIZATION & AUTH
 // ==========================================
 function setupJoin(){
     if(currentUser.name && $("join-screen")){ 
