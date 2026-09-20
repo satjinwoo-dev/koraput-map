@@ -30,6 +30,7 @@ try {
     if (!Array.isArray(locationHistory)) locationHistory = [];
 } catch(e) { locationHistory = []; }
 
+// ALL LAYERS
 const p4LayerGroup = L.layerGroup().addTo(map);
 const measureLayer = L.layerGroup().addTo(map);
 const historyPolyline = L.polyline(locationHistory, { color: '#3b82f6', weight: 4, opacity: 0.8, dashArray: '5, 10' }).addTo(p4LayerGroup);
@@ -51,6 +52,7 @@ let currentGeofences = [];
 const memories = new Map();
 let currentGalleryFilter = "all", currentGallerySearch = "", selectedMemoryId = null;
 
+// SEARCH MARKER
 let searchMarker = null;
 
 const $ = id => document.getElementById(id);
@@ -111,7 +113,7 @@ const Navigation = {
     active: false, targetId: null, targetCoords: null,
     async start(friendId) {
         const f = friendData[friendId];
-        if(!f || !validCoord(f.lat, f.lng) || !myCoords) return showToast("❌ GPS location needed for routing.");
+        if(!f || !validCoord(f.lat, f.lng) || !myCoords) return showToast("❌ Location not available for routing.");
         this.active = true; this.targetId = friendId; this.targetCoords = { lat: f.lat, lng: f.lng };
         
         if($("profile-popup")) $("profile-popup").style.display = "none";
@@ -245,6 +247,7 @@ if($("group-nav-close-btn")) $("group-nav-close-btn").onclick = () => { $("group
 if($("group-nav-next-btn")) $("group-nav-next-btn").onclick = () => GroupNavigation.startSelection();
 if($("group-nav-stop-btn")) $("group-nav-stop-btn").onclick = () => GroupNavigation.stop();
 
+
 // ==========================================
 // CORE SYSTEM
 // ==========================================
@@ -262,7 +265,7 @@ socket.on("geofenceAlert", (data) => {
     showToast(`🔔 ${data.user} has ${action} ${data.fence}!`);
 });
 
-// FIXED GPS WITH ERROR HANDLING
+// FIXED GPS WITH ERROR HANDLING (Will not crash app if denied)
 function startGPS() {
     if(!navigator.geolocation) {
         showToast("❌ Browser does not support GPS");
@@ -317,7 +320,7 @@ function startGPS() {
         GroupNavigation.onLiveUpdate(); 
     }, e => {
         console.warn("GPS error", e);
-        if(e.code === 1) showToast("⚠️ GPS Permission Denied! Please allow Location access.", 6000);
+        if(e.code === 1) showToast("⚠️ GPS Permission Denied! Location tools disabled.", 6000);
         else showToast("⚠️ GPS Signal Lost or Weak", 6000);
     }, {enableHighAccuracy:true,timeout:15000,maximumAge:3000});
 }
@@ -765,14 +768,13 @@ function setupJoin(){
 }
 
 // ==========================================
-// FIXED: GOOGLE SEARCH (WITH INTERVAL)
+// FIXED: GOOGLE SEARCH (ID Match + Interval)
 // ==========================================
 function setupGoogleSearch() {
     const searchInput = $("location-search-input");
     if (!searchInput) return;
     
-    // Clear search and reset map
-    const clearBtn = $("clear-search-btn");
+    const clearBtn = $("location-search-clear");
     if (clearBtn) {
         clearBtn.onclick = () => {
             searchInput.value = "";
@@ -788,7 +790,6 @@ function setupGoogleSearch() {
         if (clearBtn) clearBtn.style.display = searchInput.value.length > 0 ? "block" : "none";
     });
 
-    // Wait for Google Maps API to load properly
     const checkGoogle = setInterval(() => {
         if (window.google && window.google.maps && window.google.maps.places) {
             clearInterval(checkGoogle);
@@ -839,7 +840,7 @@ function setupGoogleSearch() {
                 if (clearBtn) clearBtn.style.display = "block";
             });
         }
-    }, 500); // Checks every half second
+    }, 500); 
 }
 
 async function startSearchNavigation(destLat, destLng, destName) {
