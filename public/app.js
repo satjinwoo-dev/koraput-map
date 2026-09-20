@@ -1,8 +1,5 @@
 "use strict";
 
-// ==========================================
-// 1. GLOBAL CONFIG & STATE
-// ==========================================
 const socket = io({ transports: ["websocket", "polling"] });
 const DEFAULT_CENTER = [18.8136, 82.7153];
 const DEFAULT_AVATAR = "satyam.png";
@@ -11,36 +8,6 @@ const MAX_CHAT_FILE = 5 * 1024 * 1024;
 const MAX_MEMORY_FILE = 8 * 1024 * 1024;
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
-let currentUser = { name: localStorage.getItem("koraput_name") || "", avatar: localStorage.getItem("koraput_avatar") || DEFAULT_AVATAR };
-let myCoords = null, myWeather = "", ownMarker = null, accuracyCircle = null, cityName = "";
-let lastEmittedCoords = null; 
-let lastWeatherFetch = 0;
-let lastHistorySave = 0; 
-
-const friendMarkers = Object.create(null);
-const friendData = Object.create(null);
-
-let locationHistory = [];
-try {
-    const storedHistory = localStorage.getItem("koraput_history");
-    if (storedHistory) locationHistory = JSON.parse(storedHistory);
-    if (!Array.isArray(locationHistory)) locationHistory = [];
-} catch(e) { locationHistory = []; }
-
-// Map State
-let mapActionMode = null; 
-let measurePoints = [];
-let currentTrip = null;
-let tripMarker = null;
-let searchPlace = null;
-let pendingMemoryImage = null; 
-let currentGeofences = []; 
-const memories = new Map();
-let currentGalleryFilter = "all", currentGallerySearch = "", selectedMemoryId = null;
-
-// ==========================================
-// 2. MAP INITIALIZATION & LAYERS
-// ==========================================
 const map = L.map("map", { 
     zoomControl: false, preferCanvas: true, minZoom: 3, maxBounds: [[-90, -180], [90, 180]], maxBoundsViscosity: 1.0
 }).setView(DEFAULT_CENTER, 13);
@@ -50,45 +17,70 @@ const streetLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.
 const darkLayer = L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", { maxZoom: 20 });
 satelliteLayer.addTo(map);
 
-const p4LayerGroup = L.layerGroup().addTo(map); 
-const measureLayer = L.layerGroup().addTo(map); 
-const navigationLayer = L.layerGroup().addTo(map); 
-const tripRoutesLayer = L.layerGroup().addTo(map); 
-const memoryLayer = L.layerGroup().addTo(map); 
-const searchLayer = L.layerGroup().addTo(map); 
+let currentUser = { name: localStorage.getItem("koraput_name") || "", avatar: localStorage.getItem("koraput_avatar") || DEFAULT_AVATAR };
+let myCoords = null, myWeather = "", ownMarker = null, accuracyCircle = null, cityName = "";
+let lastWeatherFetch = 0;
+const friendMarkers = Object.create(null);
+const friendData = Object.create(null);
 
+let locationHistory = [];
+try {
+    const stored = localStorage.getItem("koraput_history");
+    if (stored) locationHistory = JSON.parse(stored);
+    if (!Array.isArray(locationHistory)) locationHistory = [];
+} catch(e) { locationHistory = []; }
+
+// ALL LAYERS
+const p4LayerGroup = L.layerGroup().addTo(map); // For Geofences & History
+const measureLayer = L.layerGroup().addTo(map); // Isolated Layer for Measurements
 const historyPolyline = L.polyline(locationHistory, { color: '#3b82f6', weight: 4, opacity: 0.8, dashArray: '5, 10' }).addTo(p4LayerGroup);
+const navigationLayer = L.layerGroup().addTo(map);
+const tripRoutesLayer = L.layerGroup().addTo(map);
+const memoryLayer = L.layerGroup().addTo(map);
+
 const tripLastFetchedCoords = {}; 
 let tripRoadStats = {}; 
 const routeColors = ['#18d6a3', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6']; 
 
-// ==========================================
-// 3. CORE UTILITIES
-// ==========================================
+let mapActionMode = null; 
+let pendingMemoryImage = null; 
+let measurePoints = [];
+let currentTrip = null;
+let tripMarker = null;
+
+let currentGeofences = []; 
+const memories = new Map();
+let currentGalleryFilter = "all", currentGallerySearch = "", selectedMemoryId = null;
+
+// SEARCH MARKER
+let searchMarker = null;
+
 const $ = id => document.getElementById(id);
 const cleanName = v => String(v || "User").trim().replace(/\s+/g," ").slice(0, MAX_NAME);
 const validCoord = (lat,lng) => Number.isFinite(lat) && Number.isFinite(lng) && lat>=-90 && lat<=90 && lng>=-180 && lng<=180;
 const validImageData = v => typeof v === "string" && v.startsWith("data:image/");
 
 function distanceKm(a,b,c,d){
-    if(!validCoord(a,b) || !validCoord(c,d)) return 0;
+    if(!validCoord(a,b) || !validCoord(c,d)) return "";
     const p = Math.PI/180, a1 = 0.5 - Math.cos((c-a)*p)/2 + Math.cos(a*p)*Math.cos(c*p)*Math.sin((d-b)*p/2)**2;
-    return (12742 * Math.asin(Math.sqrt(a1)));
+    return (12742 * Math.asin(Math.sqrt(a1))).toFixed(2);
 }
-
-function formatDistance(distKm) {
-    if(distKm < 1) return `${Math.round(distKm * 1000)} m`;
-    return `${distKm.toFixed(1)} km`;
-}
-
 function escapeHTML(v) { return String(v ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;"); }
 
 function ownIcon() { 
-    return L.divIcon({ className: "custom-own-icon", html: `<div style="width:100%; height:100%; border-radius:50%; border:2.5px solid #18d6a3; overflow:hidden; background:#071018; box-sizing:border-box; box-shadow:0 0 10px rgba(24,214,163,0.5);"><img src="${escapeHTML(currentUser.avatar)}" style="width:100%; height:100%; object-fit:cover; display:block;"></div>`, iconSize: [38, 38], iconAnchor: [19, 19] }); 
+    return L.divIcon({ 
+        className: "custom-own-icon", 
+        html: `<div style="width:100%; height:100%; border-radius:50%; border:2.5px solid #18d6a3; overflow:hidden; background:#071018; box-sizing:border-box; box-shadow:0 0 10px rgba(24,214,163,0.5);"><img src="${escapeHTML(currentUser.avatar)}" style="width:100%; height:100%; object-fit:cover; display:block;"></div>`,
+        iconSize: [38, 38], iconAnchor: [19, 19] 
+    }); 
 }
 
 function friendIcon(avatar) { 
-    return L.divIcon({ className: "custom-friend-icon", html: `<div style="width:100%; height:100%; border-radius:50%; border:2px solid #3b82f6; overflow:hidden; background:#071018; box-sizing:border-box;"><img src="${escapeHTML(avatar)}" style="width:100%; height:100%; object-fit:cover; display:block;"></div>`, iconSize: [36, 36], iconAnchor: [18, 18] }); 
+    return L.divIcon({ 
+        className: "custom-friend-icon", 
+        html: `<div style="width:100%; height:100%; border-radius:50%; border:2px solid #60a5fa; overflow:hidden; background:#071018; box-sizing:border-box;"><img src="${escapeHTML(avatar)}" style="width:100%; height:100%; object-fit:cover; display:block;"></div>`,
+        iconSize: [36, 36], iconAnchor: [18, 18] 
+    }); 
 }
 
 function weatherEmoji(code){
@@ -97,16 +89,6 @@ function weatherEmoji(code){
     if([80,81,82].includes(code)) return "🌦️"; if([95,96,99].includes(code)) return "⛈️"; return "🌤️";
 }
 
-function showToast(message, duration = 4000) {
-    const container = $("toast-container"); if(!container) return;
-    const toast = document.createElement("div"); toast.className = "toast"; toast.textContent = message;
-    container.appendChild(toast);
-    setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, duration);
-}
-
-// ==========================================
-// 4. EXTERNAL APIs
-// ==========================================
 async function fetchWeather(lat,lng){
     try {
         const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lng)}&current=temperature_2m,weather_code`);
@@ -118,277 +100,125 @@ async function fetchWeather(lat,lng){
 
 async function fetchCity(lat,lng){
     try {
+        const r = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=en`);
+        if (r.ok) { const d = await r.json(); const c = d.city || d.locality || d.principalSubdivision; if (c) return c; }
+    } catch (e) {}
+    try {
         const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}&zoom=10`);
-        if (r.ok) { const d = await r.json(); return d.address?.city || d.address?.town || d.address?.county || ""; }
-    } catch { return ""; }
-    return "";
+        if (r.ok) { const d = await r.json(); return d.address?.city || d.address?.town || d.address?.county || "Rourkela"; }
+    } catch { return "Rourkela"; }
 }
 
-async function getRoadRoute(from, to, alternatives = false) {
-    const alt = alternatives ? "true" : "false";
-    const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${from.lng},${from.lat};${to.lng},${to.lat}?steps=true&geometries=geojson&overview=full&alternatives=${alt}`);
-    if (!res.ok) throw new Error("Routing server error");
-    const data = await res.json();
-    if (data.code !== "Ok" || !data.routes.length) throw new Error("No viable road route found");
-    return data.routes;
-}
-
-// ==========================================
-// 5. NATIVE GOOGLE MAPS SEARCH
-// ==========================================
-function setupLocationSearch() {
-    const input = $("location-search-input");
-    const clearBtn = $("location-search-clear");
-
-    if (!input) return;
-
-    if (typeof google === "undefined" || !google.maps || !google.maps.places) {
-        console.warn("Waiting for Google Maps API to load...");
-        setTimeout(setupLocationSearch, 500);
-        return;
-    }
-
-    const autocomplete = new google.maps.places.Autocomplete(input, {
-        componentRestrictions: { country: "in" },
-        fields: ["geometry", "name", "formatted_address"],
-    });
-
-    map.on('moveend', () => {
-        const bounds = map.getBounds();
-        autocomplete.setBounds(new google.maps.LatLngBounds(
-            new google.maps.LatLng(bounds.getSouth(), bounds.getWest()),
-            new google.maps.LatLng(bounds.getNorth(), bounds.getEast())
-        ));
-    });
-
-    autocomplete.addListener("place_changed", () => {
-        const place = autocomplete.getPlace();
-        
-        if (!place.geometry || !place.geometry.location) {
-            showToast("Detailed location data unavailable.");
-            return;
-        }
-
-        const lat = place.geometry.location.lat();
-        const lng = place.geometry.location.lng();
-        const name = place.name;
-        const address = place.formatted_address || "India";
-
-        if (clearBtn) clearBtn.style.display = "block";
-        showLocationSheet(lat, lng, name, address);
-    });
-
-    if (clearBtn) {
-        clearBtn.onclick = () => {
-            input.value = "";
-            clearBtn.style.display = "none";
-            if (searchPlace) { map.removeLayer(searchPlace); searchPlace = null; }
-            if ($("location-bottom-sheet")) $("location-bottom-sheet").style.transform = "translateY(120%)";
-            Navigation.stop();
-        };
-    }
-
-    input.addEventListener("input", (e) => {
-        if (clearBtn) clearBtn.style.display = e.target.value ? "block" : "none";
-    });
-}
-
-function showLocationSheet(lat, lng, name, address) {
-    map.flyTo([lat, lng], 16);
-    if(searchPlace) map.removeLayer(searchPlace);
-    searchPlace = L.marker([lat, lng], {icon: L.divIcon({className:'geofence-marker', html:'📍'})}).addTo(map);
-    
-    if($("sheet-title")) $("sheet-title").textContent = name;
-    if($("sheet-address")) $("sheet-address").textContent = address;
-    if($("location-bottom-sheet")) $("location-bottom-sheet").style.transform = "translateY(0)";
-    
-    if($("search-direction-btn")) $("search-direction-btn").onclick = () => { if($("location-bottom-sheet")) $("location-bottom-sheet").style.transform = "translateY(120%)"; Navigation.previewCustom(lat, lng, name); };
-    if($("search-start-btn")) $("search-start-btn").onclick = () => { if($("location-bottom-sheet")) $("location-bottom-sheet").style.transform = "translateY(120%)"; Navigation.start(lat, lng, name); };
-}
-
-// ==========================================
-// 6. LIVE NAVIGATION 
-// ==========================================
 const Navigation = {
-    active: false, targetId: null, targetCoords: null, targetName: '', lastCalcCoords: null, lastRecalcTime: 0,
-    
-    async start(targetLat, targetLng, name, targetId = null) {
-        if(!myCoords) return showToast("Waiting for GPS...");
-        this.active = true; 
-        this.targetId = targetId;
-        this.targetCoords = { lat: targetLat, lng: targetLng }; 
-        this.targetName = name;
-        this.lastCalcCoords = null;
-        this.lastRecalcTime = 0; 
+    active: false, targetId: null, targetCoords: null,
+    async start(friendId) {
+        const f = friendData[friendId];
+        if(!f || !validCoord(f.lat, f.lng) || !myCoords) return showToast("Location not available for routing.");
+        this.active = true; this.targetId = friendId; this.targetCoords = { lat: f.lat, lng: f.lng };
         
-        if($("location-bottom-sheet")) $("location-bottom-sheet").style.transform = "translateY(120%)";
         if($("profile-popup")) $("profile-popup").style.display = "none";
-        
-        if($("nav-target-name")) $("nav-target-name").textContent = name;
+        if($("nav-title-name")) $("nav-title-name").textContent = f.name;
         if($("nav-panel")) $("nav-panel").style.display = "flex";
         await this.calculate();
     },
-
-    async previewCustom(lat, lng, name) {
-        if(!myCoords) return showToast("Waiting for GPS...");
-        navigationLayer.clearLayers();
-        try {
-            const routes = await getRoadRoute(myCoords, {lat, lng}, true); 
-            for(let i = routes.length - 1; i >= 1; i--) {
-                const altCoords = routes[i].geometry.coordinates.map(c => [c[1], c[0]]);
-                L.polyline(altCoords, { color: '#8d9ba2', weight: 5, opacity: 0.7 }).addTo(navigationLayer);
-            }
-            const r = routes[0];
-            const coords = r.geometry.coordinates.map(c => [c[1], c[0]]); 
-            L.polyline(coords, { color: '#3b82f6', weight: 6, opacity: 1.0 }).addTo(navigationLayer);
-            map.fitBounds(L.polyline(coords).getBounds(), { padding: [50, 50] });
-            const distKm = (r.distance / 1000);
-            const timeMin = Math.round(r.duration / 60);
-            showToast(`🚗 Path to ${name}: ${formatDistance(distKm)} • ⏱️ ${timeMin} mins`, 5000);
-        } catch (e) { showToast("Failed to preview route."); }
-    },
-
     async calculate() {
         if(!this.active || !myCoords || !this.targetCoords) return;
-        if(Date.now() - this.lastRecalcTime < 2000) return; 
-
         navigationLayer.clearLayers();
-        if($("nav-inst-text")) $("nav-inst-text").textContent = "Analyzing best route...";
-        if($("nav-inst-arrow")) $("nav-inst-arrow").textContent = "↻";
-        if($("nav-instruction-sub")) $("nav-instruction-sub").textContent = "";
-
+        if($("nav-instructions")) $("nav-instructions").innerHTML = "<i>Analyzing roads & finding optimal route...</i>";
         try {
-            const routes = await getRoadRoute(myCoords, this.targetCoords, false);
-            const r = routes[0];
-            const coords = r.geometry.coordinates.map(c => [c[1], c[0]]); 
+            const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${myCoords.lng},${myCoords.lat};${this.targetCoords.lng},${this.targetCoords.lat}?steps=true&geometries=geojson&overview=full`);
+            if(!res.ok) throw new Error("Route failed");
+            const data = await res.json();
             
-            L.polyline(coords, { color: '#3b82f6', weight: 6, opacity: 0.9, className: 'nav-path-animated' }).addTo(navigationLayer);
-            
-            if($("nav-dist")) $("nav-dist").textContent = formatDistance(r.distance / 1000);
-            const mins = Math.round(r.duration / 60);
-            if($("nav-time")) $("nav-time").textContent = mins > 60 ? `${Math.floor(mins/60)}h ${mins%60}m` : `${mins} min`;
-            
-            let step = r.legs[0]?.steps?.[0];
-            if (r.legs[0] && r.legs[0].steps) {
-                const validStep = r.legs[0].steps.find(s => s.maneuver && s.maneuver.instruction);
-                if (validStep) step = validStep;
-            }
+            if(data.routes && data.routes.length > 0) {
+                const r = data.routes[0];
+                const coords = r.geometry.coordinates.map(c => [c[1], c[0]]); 
+                const path = L.polyline(coords, { color: '#18d6a3', weight: 5, opacity: 0.8, className: 'nav-path-animated' }).addTo(navigationLayer);
+                map.fitBounds(path.getBounds(), { padding: [50, 50] });
 
-            if(step) {
-                let arrow = "↑";
-                if(step.maneuver.modifier) { 
-                    if(step.maneuver.modifier.includes('right')) arrow = "↱"; 
-                    if(step.maneuver.modifier.includes('left')) arrow = "↰"; 
-                    if(step.maneuver.modifier.includes('uturn')) arrow = "↶"; 
+                const distKm = (r.distance / 1000).toFixed(1);
+                const timeMin = Math.round(r.duration / 60);
+                showToast(`🚗 Best Route: ${distKm} km • ⏱️ ${timeMin} mins`, 6000);
+                if($("nav-stats")) $("nav-stats").innerHTML = `🚗 ${distKm} km &nbsp; ⏱️ ${timeMin} min`;
+                
+                let instHTML = "";
+                if(r.legs[0] && r.legs[0].steps) {
+                    r.legs[0].steps.slice(0, 4).forEach(s => {
+                        let arrow = "↑";
+                        if(s.maneuver.modifier) { if(s.maneuver.modifier.includes('right')) arrow = "↱"; if(s.maneuver.modifier.includes('left')) arrow = "↰"; }
+                        instHTML += `<div style="padding:4px 0;">${arrow} ${s.maneuver.instruction}</div>`;
+                    });
                 }
-                if($("nav-inst-arrow")) $("nav-inst-arrow").textContent = arrow;
-                if($("nav-inst-text")) $("nav-inst-text").textContent = step.maneuver.instruction || step.name || "Continue straight";
-                if($("nav-instruction-sub")) $("nav-instruction-sub").textContent = `In ${Math.round(step.distance)} meters`;
-            } else {
-                if($("nav-inst-arrow")) $("nav-inst-arrow").textContent = "🏁";
-                if($("nav-inst-text")) $("nav-inst-text").textContent = "Arriving at destination";
-            }
-            
-            const isInitial = !this.lastCalcCoords;
-            this.lastCalcCoords = { lat: myCoords.lat, lng: myCoords.lng };
-            this.lastRecalcTime = Date.now();
-
-            if (isInitial) {
-                map.fitBounds(L.latLngBounds(coords), { padding: [80, 80], maxZoom: 17 });
-            } else {
-                map.panTo([myCoords.lat, myCoords.lng], {animate: true});
-            }
-
-        } catch (e) { 
-            if($("nav-inst-text")) $("nav-inst-text").textContent = "Navigation error. Re-routing...";
-        }
+                if($("nav-instructions")) $("nav-instructions").innerHTML = instHTML || "Follow the highlighted route on the map.";
+            } else { if($("nav-instructions")) $("nav-instructions").innerHTML = "<i>No viable road route found.</i>"; }
+        } catch (e) { if($("nav-instructions")) $("nav-instructions").innerHTML = "<i>Navigation error. Try again later.</i>"; }
     },
-    
     stop() {
-        this.active = false; 
-        this.targetId = null; 
-        this.targetCoords = null; 
-        this.lastCalcCoords = null;
-        this.lastRecalcTime = 0;
+        this.active = false; this.targetId = null; this.targetCoords = null;
         navigationLayer.clearLayers();
         if($("nav-panel")) $("nav-panel").style.display = "none";
         if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
     },
-
     onLiveUpdate() {
-        if(!this.active || !myCoords || !this.targetCoords) return;
-        let needsRecalc = false;
-
+        if(!this.active) return;
         if(this.targetId && friendData[this.targetId]) {
             const f = friendData[this.targetId];
-            if(distanceKm(this.targetCoords.lat, this.targetCoords.lng, f.lat, f.lng) > 0.05) {
-                this.targetCoords = { lat: f.lat, lng: f.lng }; needsRecalc = true;
-            }
+            if(!this.targetCoords) return;
+            const dist = distanceKm(this.targetCoords.lat, this.targetCoords.lng, f.lat, f.lng);
+            if(Number(dist) > 0.1) { this.targetCoords = { lat: f.lat, lng: f.lng }; this.calculate(); }
         }
-        if(!this.lastCalcCoords || distanceKm(myCoords.lat, myCoords.lng, this.lastCalcCoords.lat, this.lastCalcCoords.lng) > 0.03) {
-            needsRecalc = true;
-        }
-
-        if(needsRecalc) this.calculate();
-        else map.panTo([myCoords.lat, myCoords.lng], {animate: true});
     }
 };
-
-if($("nav-exit-btn")) $("nav-exit-btn").onclick = () => Navigation.stop();
 if($("nav-recalc-btn")) $("nav-recalc-btn").onclick = () => Navigation.calculate();
+if($("nav-exit-btn")) $("nav-exit-btn").onclick = () => Navigation.stop();
 
-// ==========================================
-// 7. GROUP NAVIGATION & TRIPS
-// ==========================================
 const GroupNavigation = {
     active: false, destination: null, selectedMembers: [], layerGroup: L.layerGroup().addTo(map),
     lastFetchedCoords: {}, colors: ['#18d6a3', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6'], recalcTimer: null,
 
     openSetup() {
-        const list = $("group-nav-friend-list"); if(!list) return;
-        list.innerHTML = "";
+        const list = $("group-nav-friend-list"); list.innerHTML = "";
         const activeFriends = Object.values(friendData).filter(f => f.online !== false);
-        if(activeFriends.length === 0) {
-            list.innerHTML = `<div style="color:var(--muted); font-size:11px;">No friends online.</div>`;
-        } else {
-            activeFriends.forEach(f => {
-                list.innerHTML += `<label style="display:flex; align-items:center; gap:8px; font-size:13px; color:white; cursor:pointer;"><input type="checkbox" value="${f.id}" class="group-nav-cb"><img src="${escapeHTML(f.avatar)}" style="width:28px; height:28px; border-radius:50%; object-fit:cover;">${escapeHTML(f.name)}</label>`;
-            });
-        }
-        if($("group-nav-setup")) $("group-nav-setup").style.display = "flex";
+        if(activeFriends.length === 0) list.innerHTML = `<div style="color:var(--muted); font-size:11px;">No friends online.</div>`;
+        else activeFriends.forEach(f => {
+            list.innerHTML += `<label style="display:flex; align-items:center; gap:8px; font-size:13px; color:white; cursor:pointer;"><input type="checkbox" value="${f.id}" class="group-nav-cb"><img src="${escapeHTML(f.avatar)}" style="width:28px; height:28px; border-radius:50%; object-fit:cover;">${escapeHTML(f.name)}</label>`;
+        });
+        $("group-nav-setup").style.display = "flex";
     },
     startSelection() {
         const cbs = document.querySelectorAll(".group-nav-cb:checked");
         if(cbs.length === 0) return showToast("Select at least 1 friend.");
         if(cbs.length > 3) return showToast("Select up to 3 friends only.");
         this.selectedMembers = ["me", ...Array.from(cbs).map(cb => cb.value)];
-        if($("group-nav-setup")) $("group-nav-setup").style.display = "none";
+        $("group-nav-setup").style.display = "none";
         mapActionMode = 'group-nav';
         showToast("📍 Tap the map to set the common destination!", 5000);
     },
     async setDestination(latlng) {
         this.active = true; this.destination = latlng; this.layerGroup.clearLayers(); this.lastFetchedCoords = {};
         L.marker(latlng, { icon: L.divIcon({className: 'geofence-marker', html: '🎯'}) }).bindTooltip("Group Destination", {permanent:true, direction:"top", className:"weather-badge"}).addTo(this.layerGroup);
-        if($("group-nav-active")) $("group-nav-active").style.display = "flex";
+        $("group-nav-active").style.display = "flex";
         await this.calculateAll();
     },
     async calculateAll() {
         if(!this.active || !this.destination) return;
-        if($("group-nav-stats-list")) $("group-nav-stats-list").innerHTML = "<div style='color:var(--muted); font-size:11px; text-align:center;'>Calculating road paths...</div>";
+        $("group-nav-stats-list").innerHTML = "<div style='color:var(--muted); font-size:11px; text-align:center;'>Calculating road paths...</div>";
 
         let statsHTML = "", validPaths = [];
 
-        const promises = this.selectedMembers.map(async (memberId, i) => {
+        for(let i = 0; i < this.selectedMembers.length; i++) {
+            const memberId = this.selectedMembers[i];
             const color = this.colors[i % this.colors.length];
             let name = "User", avatar = DEFAULT_AVATAR, coords = null;
 
-            if (memberId === "me") { if (!myCoords) return; name = "You"; avatar = currentUser.avatar; coords = myCoords; } 
-            else { const f = friendData[memberId]; if (!f || f.online === false || !validCoord(f.lat, f.lng)) return; name = f.name; avatar = f.avatar; coords = { lat: f.lat, lng: f.lng }; }
+            if (memberId === "me") { if (!myCoords) continue; name = "You"; avatar = currentUser.avatar; coords = myCoords; } 
+            else { const f = friendData[memberId]; if (!f || f.online === false || !validCoord(f.lat, f.lng)) continue; name = f.name; avatar = f.avatar; coords = { lat: f.lat, lng: f.lng }; }
 
             try {
-                const routes = await getRoadRoute(coords, this.destination, false);
-                if(routes && routes.length > 0) {
-                    const r = routes[0];
+                const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${coords.lng},${coords.lat};${this.destination.lng},${this.destination.lat}?overview=full&geometries=geojson`);
+                const data = await res.json();
+                if(data.routes && data.routes.length > 0) {
+                    const r = data.routes[0];
                     const pathCoords = r.geometry.coordinates.map(c => [c[1], c[0]]);
                     this.layerGroup.eachLayer(l => { if(l.memberId === memberId) this.layerGroup.removeLayer(l); });
                     const poly = L.polyline(pathCoords, { color: color, weight: 5, opacity: 0.8, className: 'nav-path-animated' });
@@ -397,15 +227,10 @@ const GroupNavigation = {
                     const distKm = (r.distance / 1000).toFixed(1); const timeMin = Math.round(r.duration / 60);
                     statsHTML += `<div style="display:flex; justify-content:space-between; align-items:center; padding:10px; background:rgba(255,255,255,0.05); border-radius:10px; border-left:4px solid ${color};"><div style="display:flex; align-items:center; gap:10px;"><img src="${escapeHTML(avatar)}" style="width:30px; height:30px; border-radius:50%; object-fit:cover;"><span style="color:white; font-size:13px; font-weight:bold;">${escapeHTML(name)}</span></div><div style="text-align:right;"><div style="color:white; font-size:13px; font-weight:bold;">${distKm} km</div><div style="color:var(--muted); font-size:11px;">${timeMin} min</div></div></div>`;
                     this.lastFetchedCoords[memberId] = { lat: coords.lat, lng: coords.lng };
-                } else {
-                    statsHTML += `<div style="color:#ef4444; font-size:11px; padding:10px;">No road route for ${escapeHTML(name)}</div>`;
-                }
+                } else statsHTML += `<div style="color:#ef4444; font-size:11px; padding:10px;">No road route for ${escapeHTML(name)}</div>`;
             } catch(e) {}
-        });
-
-        await Promise.all(promises);
-
-        if($("group-nav-stats-list")) $("group-nav-stats-list").innerHTML = statsHTML;
+        }
+        $("group-nav-stats-list").innerHTML = statsHTML;
         if(validPaths.length > 0) map.fitBounds(L.featureGroup(validPaths).getBounds(), { padding: [40, 40] });
     },
     onLiveUpdate() {
@@ -415,79 +240,25 @@ const GroupNavigation = {
         this.selectedMembers.forEach(id => { if(id !== "me" && friendData[id]) { const f = friendData[id]; const last = this.lastFetchedCoords[id]; if(validCoord(f.lat, f.lng) && (!last || distanceKm(last.lat, last.lng, f.lat, f.lng) > 0.1)) needsRecalc = true; }});
         if (needsRecalc) { clearTimeout(this.recalcTimer); this.recalcTimer = setTimeout(() => this.calculateAll(), 3000); }
     },
-    stop() { 
-        this.active = false; this.destination = null; this.selectedMembers = []; this.layerGroup.clearLayers(); 
-        if($("group-nav-active")) $("group-nav-active").style.display = "none"; 
-        if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16); 
-    }
+    stop() { this.active = false; this.destination = null; this.selectedMembers = []; this.layerGroup.clearLayers(); $("group-nav-active").style.display = "none"; if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16); }
 };
 
-if($("group-nav-close-btn")) $("group-nav-close-btn").onclick = () => { if($("group-nav-setup")) $("group-nav-setup").style.display = "none"; mapActionMode = null; clearActiveTools(); };
+if($("group-nav-close-btn")) $("group-nav-close-btn").onclick = () => { $("group-nav-setup").style.display = "none"; mapActionMode = null; $("group-nav-btn").classList.remove("active-tool"); };
 if($("group-nav-next-btn")) $("group-nav-next-btn").onclick = () => GroupNavigation.startSelection();
 if($("group-nav-stop-btn")) $("group-nav-stop-btn").onclick = () => GroupNavigation.stop();
 
-let groupRouteUpdateTimer = null;
-let isFetchingGroupRoutes = false;
-
-function triggerGroupRouteUpdate() {
-    clearTimeout(groupRouteUpdateTimer);
-    groupRouteUpdateTimer = setTimeout(() => updateGroupTripRoutes(), 1000);
-}
-
-async function updateGroupTripRoutes() {
-    if (!currentTrip || isFetchingGroupRoutes) return;
-    isFetchingGroupRoutes = true;
-
-    const promises = currentTrip.members.map(async (member, index) => {
-        const color = routeColors[index % routeColors.length];
-        let coords = null;
-        if (member.id === socket.id && myCoords) coords = myCoords;
-        else if (friendData[member.id] && friendData[member.id].online !== false) coords = friendData[member.id];
-        
-        if (coords) {
-            const last = tripLastFetchedCoords[member.id];
-            if (last && distanceKm(last.lat, last.lng, coords.lat, coords.lng) < 0.1) return;
-
-            try {
-                const routes = await getRoadRoute(coords, currentTrip, false);
-                if (routes && routes.length > 0) {
-                    const r = routes[0];
-                    const pathCoords = r.geometry.coordinates.map(c => [c[1], c[0]]);
-                    tripRoutesLayer.eachLayer(l => { if(l.memberId === member.id) tripRoutesLayer.removeLayer(l); });
-                    const poly = L.polyline(pathCoords, { color: color, weight: 5, opacity: 0.8, className: 'nav-path-animated' });
-                    poly.memberId = member.id; poly.addTo(tripRoutesLayer);
-                    tripLastFetchedCoords[member.id] = { lat: coords.lat, lng: coords.lng };
-                    tripRoadStats[member.id] = { dist: formatDistance(r.distance / 1000), time: Math.round(r.duration / 60) };
-                }
-            } catch(e) {}
-        }
-    });
-
-    await Promise.all(promises);
-    isFetchingGroupRoutes = false; updateTripPanel();
-}
-
-function updateTripPanel() {
-    if(!currentTrip) return;
-    const list = $("trip-members-list"); if(!list) return;
-    list.innerHTML = "";
-    
-    const isMember = currentTrip.members.some(m => m.id === socket.id);
-
-    if(myCoords && currentUser.name && isMember) {
-        const stats = tripRoadStats[socket.id] || { dist: formatDistance(distanceKm(myCoords.lat, myCoords.lng, currentTrip.lat, currentTrip.lng)), time: '--' };
-        list.innerHTML += `<div class="trip-member"><div><img src="${escapeHTML(currentUser.avatar)}"> You</div> <span style="text-align:right;">${stats.dist}<br><small style="color:var(--muted)">${stats.time} min</small></span></div>`;
-    }
-    Object.values(friendData).filter(f => f.online !== false && currentTrip.members.some(m => m.id === f.id)).forEach(f => {
-        const stats = tripRoadStats[f.id] || { dist: formatDistance(distanceKm(f.lat, f.lng, currentTrip.lat, currentTrip.lng)), time: '--' };
-        list.innerHTML += `<div class="trip-member"><div><img src="${escapeHTML(f.avatar)}"> ${escapeHTML(f.name)}</div> <span style="text-align:right;">${stats.dist}<br><small style="color:var(--muted)">${stats.time} min</small></span></div>`;
-    });
-}
 
 // ==========================================
-// 8. CORE GPS & SOCKET LOGIC
+// CORE SYSTEM
 // ==========================================
 socket.on("connect", () => { if (currentUser.name) socket.emit("profileReady", currentUser); });
+
+function showToast(message, duration = 4000) {
+    const container = $("toast-container"); if(!container) return;
+    const toast = document.createElement("div"); toast.className = "toast"; toast.textContent = message;
+    container.appendChild(toast);
+    setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, duration);
+}
 
 socket.on("geofenceAlert", (data) => {
     const action = data.type === "enter" ? "entered" : "left";
@@ -496,28 +267,15 @@ socket.on("geofenceAlert", (data) => {
 
 function startGPS() {
     if(!navigator.geolocation) return;
-    navigator.geolocation.watchPosition(async p => {
-        const lat = Number(p.coords.latitude), lng = Number(p.coords.longitude), acc = Number(p.coords.accuracy);
+    navigator.geolocation.watchPosition(async p=>{
+        const lat=Number(p.coords.latitude), lng=Number(p.coords.longitude), acc=Number(p.coords.accuracy);
         if(!validCoord(lat,lng)) return;
-
-        myCoords = {lat, lng}; // Update local immediately
-        
-        const movedEnough = !lastEmittedCoords || distanceKm(lastEmittedCoords.lat, lastEmittedCoords.lng, lat, lng) >= 0.01;
-
-        if (!movedEnough) {
-            Navigation.onLiveUpdate();
-            GroupNavigation.onLiveUpdate();
-            return; // Skip heavy processing if barely moved
-        }
+        myCoords={lat,lng};
 
         locationHistory.push([lat, lng]);
         if(locationHistory.length > 1000) locationHistory.shift(); 
         historyPolyline.setLatLngs(locationHistory);
-        
-        if (Date.now() - lastHistorySave > 30000) {
-            localStorage.setItem("koraput_history", JSON.stringify(locationHistory));
-            lastHistorySave = Date.now();
-        }
+        localStorage.setItem("koraput_history", JSON.stringify(locationHistory));
 
         if(!ownMarker){
             ownMarker = L.marker([lat,lng],{icon:ownIcon(), zIndexOffset:1000}).addTo(map);
@@ -542,27 +300,28 @@ function startGPS() {
         if (!myWeather || Date.now() - lastWeatherFetch > 180000) {
             const w = await fetchWeather(lat, lng);
             if (w) {
-                myWeather = w; lastWeatherFetch = Date.now();
+                myWeather = w;
+                lastWeatherFetch = Date.now();
                 if ($("map-temp-display")) $("map-temp-display").textContent = w;
-                if (ownMarker) ownMarker.unbindTooltip().bindTooltip(w, { permanent: true, direction: "right", className: "weather-badge", offset: [15, 0] });
+                if (ownMarker) {
+                    ownMarker.unbindTooltip().bindTooltip(w, { permanent: true, direction: "right", className: "weather-badge", offset: [15, 0] });
+                }
             }
         }
-
-        socket.emit("updateLocation", {name: currentUser.name, avatar: currentUser.avatar, lat, lng, weather: myWeather});
-        lastEmittedCoords = {lat, lng};
+        
+        socket.emit("updateLocation",{name:currentUser.name, avatar:currentUser.avatar, lat, lng, weather:myWeather});
         updateFriendBadges(); 
-
         triggerGroupRouteUpdate(); 
         Navigation.onLiveUpdate(); 
         GroupNavigation.onLiveUpdate(); 
-    }, e => console.warn("GPS error",e), {enableHighAccuracy: true, timeout: 15000, maximumAge: 3000});
+    }, e=>console.warn("GPS error",e), {enableHighAccuracy:true,timeout:15000,maximumAge:3000});
 }
 
 function updateFriendBadges(){
     Object.keys(friendMarkers).forEach(id=>{
         const f=friendData[id], m=friendMarkers[id]; if(!f||!m) return;
         let text = f.online===false ? "Offline" : f.weather;
-        if(myCoords && validCoord(f.lat,f.lng)) text += ` | 📍 ${formatDistance(distanceKm(myCoords.lat,myCoords.lng,f.lat,f.lng))}`;
+        if(myCoords && validCoord(f.lat,f.lng)) text += ` | 📍 ${distanceKm(myCoords.lat,myCoords.lng,f.lat,f.lng)} km`;
         m.unbindTooltip(); if(text) m.bindTooltip(text,{permanent:true,direction:"right",className:"weather-badge",offset:[15,0]});
     });
 }
@@ -583,15 +342,12 @@ function createOrUpdateFriendMarker(u){
 }
 
 function updateOnlineUI(){
-    const list = $("friends-list"); if(!list) return;
-    list.innerHTML = "";
-    Object.values(friendData).filter(f => f.online !== false).forEach(u => {
-        const dist = myCoords && validCoord(u.lat, u.lng) ? formatDistance(distanceKm(myCoords.lat, myCoords.lng, u.lat, u.lng)) : 'Location unknown';
-        const item = document.createElement("div");
-        item.className = "friend-list-item";
-        item.innerHTML = `<img src="${escapeHTML(u.avatar)}"><div class="friend-info-col"><span class="friend-list-name">${escapeHTML(u.name)}</span><span class="friend-list-dist">${dist}</span></div><div class="status-dot-small"></div>`;
-        item.onclick = () => { map.flyTo([u.lat,u.lng], 16); showProfilePopup(u); }; 
-        list.appendChild(item);
+    if($("chat-subtitle")) $("chat-subtitle").textContent = `${currentUser.name ? 1 : 0} online`;
+    const box=$("online-list"); if(!box) return; box.innerHTML="";
+    Object.values(friendData).filter(f=>f.online!==false).forEach(u=>{
+        const btn=document.createElement("button"); btn.className="online-friend";
+        btn.innerHTML=`<img src="${escapeHTML(u.avatar)}"><span><b>${escapeHTML(u.name)}</b></span><div class="status-dot"></div>`;
+        btn.onclick=()=>{ map.flyTo([u.lat,u.lng],16); showProfilePopup(u); }; box.appendChild(btn);
     });
 }
 
@@ -600,118 +356,126 @@ function showProfilePopup(u) {
     if($("profile-popup-name")) $("profile-popup-name").textContent=u.name;
     const st = $("profile-popup-status");
     if(st) { st.textContent = u.online!==false ? "● Online" : "● Offline"; st.style.color = u.online!==false ? "#18d6a3" : "#8fa1aa"; }
-    const dist = myCoords && validCoord(u.lat, u.lng) ? formatDistance(distanceKm(myCoords.lat, myCoords.lng, u.lat, u.lng)) : '--';
-    if($("profile-popup-distance")) $("profile-popup-distance").textContent = dist;
+    if($("profile-popup-distance")) $("profile-popup-distance").textContent = myCoords ? `${distanceKm(myCoords.lat,myCoords.lng,u.lat,u.lng)} km away` : "--";
+    if($("profile-popup-weather")) $("profile-popup-weather").textContent = u.weather || "--";
     
-    if($("profile-nav-btn")) $("profile-nav-btn").onclick = () => { if(validCoord(u.lat, u.lng)) Navigation.start(u.lat, u.lng, u.name, u.id); };
+    if($("profile-nav-btn")) {
+        $("profile-nav-btn").onclick = () => {
+            if(validCoord(u.lat, u.lng)) Navigation.start(u.id);
+        };
+    }
     
     if($("profile-popup")) $("profile-popup").style.display="flex";
     if($("profile-focus-btn")) $("profile-focus-btn").onclick=()=>{ map.flyTo([u.lat,u.lng],16); $("profile-popup").style.display="none"; };
 }
-$("profile-popup-close")?.addEventListener("click",()=> { if($("profile-popup")) $("profile-popup").style.display="none"; });
+$("profile-popup-close")?.addEventListener("click",()=>$("profile-popup").style.display="none");
 
 // ==========================================
-// 9. MAP TOOLS & GEOFENCING
+// ADVANCED MAP TOOLS & GEOFENCE MODAL
 // ==========================================
+let geoClickCount = 0;
+let geoClickTimer = null;
+
 window.removeGeofence = (id) => { socket.emit("removeGeofence", id); };
 
 function renderGeofenceList() {
-    const list = $("geofence-items"); if(!list) return;
+    const list = $("geofence-items");
     list.innerHTML = "";
-    if(currentGeofences.length === 0) { list.innerHTML = "<div style='color:var(--muted); font-size:12px; text-align:center;'>No active geofences.</div>"; } 
-    else {
+    if(currentGeofences.length === 0) {
+        list.innerHTML = "<div style='color:var(--muted); font-size:12px; text-align:center;'>No active geofences.</div>";
+    } else {
         currentGeofences.forEach(f => {
             const isOwner = f.ownerId === socket.id;
-            const actionBtn = isOwner ? `<button onclick="removeGeofence('${f.id}')" style="background:rgba(239, 68, 68, 0.2); color:#ef4444; border:none; padding:6px 12px; border-radius:8px; font-weight:bold; font-size:11px; cursor:pointer;">Remove</button>` : `<span style="font-size:10px; color:var(--muted); font-weight:bold;">Owner: ${escapeHTML(f.ownerName)}</span>`;
-            list.innerHTML += `<div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.05); padding:10px; border-radius:10px;"><div><div style="color:white; font-size:13px; font-weight:bold;">${escapeHTML(f.name)}</div><div style="color:var(--muted); font-size:11px;">Radius: ${f.radius}m</div></div>${actionBtn}</div>`;
+            const actionBtn = isOwner 
+                ? `<button onclick="removeGeofence('${f.id}')" style="background:rgba(239, 68, 68, 0.2); color:#ef4444; border:none; padding:6px 12px; border-radius:8px; font-weight:bold; font-size:11px; cursor:pointer;">Remove</button>`
+                : `<span style="font-size:10px; color:var(--muted); font-weight:bold;">Owner: ${escapeHTML(f.ownerName)}</span>`;
+
+            list.innerHTML += `
+            <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.05); padding:10px; border-radius:10px;">
+                <div>
+                    <div style="color:white; font-size:13px; font-weight:bold;">${escapeHTML(f.name)}</div>
+                    <div style="color:var(--muted); font-size:11px;">Radius: ${f.radius}m</div>
+                </div>
+                ${actionBtn}
+            </div>`;
         });
     }
-    if($("geofence-list-modal")) $("geofence-list-modal").style.display = "flex";
+    $("geofence-list-modal").style.display = "flex";
 }
-if($("geofence-list-close")) $("geofence-list-close").onclick = () => { if($("geofence-list-modal")) $("geofence-list-modal").style.display = "none"; };
+if($("geofence-list-close")) $("geofence-list-close").onclick = () => $("geofence-list-modal").style.display = "none";
 
-function clearActiveTools() { document.querySelectorAll('.tool-option').forEach(b => b.classList.remove('active-tool')); }
 
 function setupAdvancedTools() {
-    if($("main-tools-btn")) $("main-tools-btn").onclick = () => {
-        const menu = $("tools-menu");
-        if(menu) menu.style.display = menu.style.display === "flex" ? "none" : "flex";
-    };
-
-    if($("measure-btn")) $("measure-btn").onclick = () => {
+    $("measure-btn").onclick = () => {
         mapActionMode = mapActionMode === 'measure' ? null : 'measure';
-        clearActiveTools();
-        if(mapActionMode) { $("measure-btn").classList.add("active-tool"); measureLayer.clearLayers(); measurePoints = []; showToast("📍 Tap 2 points to measure road routes"); }
-        if($("tools-menu")) $("tools-menu").style.display = "none";
+        $("measure-btn").classList.toggle("active-tool", mapActionMode === 'measure');
+        $("geofence-btn").classList.remove("active-tool"); $("trip-btn").classList.remove("active-tool"); $("group-nav-btn").classList.remove("active-tool");
+        if(mapActionMode !== 'measure') { measureLayer.clearLayers(); measurePoints = []; }
+        else showToast("📍 Tap two points on the map to measure road distance");
     };
 
-    let geoClickCount = 0, geoClickTimer = null;
-    if($("geofence-btn")) $("geofence-btn").onclick = () => {
+    $("geofence-btn").onclick = () => {
         geoClickCount++;
-        if (geoClickCount === 3) { clearTimeout(geoClickTimer); geoClickCount = 0; renderGeofenceList(); if($("tools-menu")) $("tools-menu").style.display = "none"; return; }
+        if (geoClickCount === 3) {
+            clearTimeout(geoClickTimer);
+            geoClickCount = 0;
+            renderGeofenceList(); 
+            return;
+        }
         clearTimeout(geoClickTimer);
         geoClickTimer = setTimeout(() => {
-            geoClickCount = 0; mapActionMode = mapActionMode === 'geofence' ? null : 'geofence';
-            clearActiveTools();
-            if(mapActionMode) { $("geofence-btn").classList.add("active-tool"); showToast("⭕ Tap map to set Geofence. (Tap button 3 times to delete)"); }
-            if($("tools-menu")) $("tools-menu").style.display = "none";
+            geoClickCount = 0;
+            mapActionMode = mapActionMode === 'geofence' ? null : 'geofence';
+            $("geofence-btn").classList.toggle("active-tool", mapActionMode === 'geofence');
+            $("measure-btn").classList.remove("active-tool"); $("trip-btn").classList.remove("active-tool"); $("group-nav-btn").classList.remove("active-tool");
+            if(mapActionMode === 'geofence') showToast("⭕ Tap map to set Geofence. (Tap button 3 times to view/delete)");
         }, 300);
     };
 
-    if($("trip-btn")) $("trip-btn").onclick = () => {
+    $("trip-btn").onclick = () => {
         mapActionMode = mapActionMode === 'trip' ? null : 'trip';
-        clearActiveTools();
-        if(mapActionMode) { $("trip-btn").classList.add("active-tool"); showToast("🚗 Tap the map to set Group Trip Destination"); }
-        if($("tools-menu")) $("tools-menu").style.display = "none";
+        $("trip-btn").classList.toggle("active-tool", mapActionMode === 'trip');
+        $("measure-btn").classList.remove("active-tool"); $("geofence-btn").classList.remove("active-tool"); $("group-nav-btn").classList.remove("active-tool");
+        if(mapActionMode === 'trip') showToast("🚗 Tap the map to set Group Trip Destination");
     };
 
-    if($("group-nav-btn")) $("group-nav-btn").onclick = () => {
+    $("group-nav-btn").onclick = () => {
         mapActionMode = mapActionMode === 'group-nav' ? null : 'group-nav';
-        clearActiveTools();
-        if(mapActionMode) { $("group-nav-btn").classList.add("active-tool"); GroupNavigation.openSetup(); }
-        else { if($("group-nav-setup")) $("group-nav-setup").style.display = "none"; }
-        if($("tools-menu")) $("tools-menu").style.display = "none";
+        $("group-nav-btn").classList.toggle("active-tool", mapActionMode === 'group-nav');
+        $("measure-btn").classList.remove("active-tool"); $("geofence-btn").classList.remove("active-tool"); $("trip-btn").classList.remove("active-tool");
+        if(mapActionMode === 'group-nav') GroupNavigation.openSetup();
+        else $("group-nav-setup").style.display = "none";
     };
 
-    map.on('click', async (e) => {
+    map.on('click', (e) => {
         if (mapActionMode === 'measure') {
             measurePoints.push(e.latlng);
             L.circleMarker(e.latlng, {color: '#f59e0b', radius: 5, fillOpacity: 1}).addTo(measureLayer);
             
             if (measurePoints.length === 2) {
-                const [p1, p2] = measurePoints;
-                showToast("📏 Calculating shortest & fastest routes...", 2000);
-                try {
-                    const routes = await getRoadRoute(p1, p2, true);
+                const p1 = measurePoints[0], p2 = measurePoints[1];
+                showToast("📏 Calculating road distance...", 2000);
+                
+                fetch(`https://router.project-osrm.org/route/v1/driving/${p1.lng},${p1.lat};${p2.lng},${p2.lat}?overview=full&geometries=geojson`)
+                .then(r => r.json())
+                .then(data => {
                     measureLayer.clearLayers();
-                    
-                    let fastest = routes[0], shortest = routes[0];
-                    routes.forEach(r => {
-                        if(r.duration < fastest.duration) fastest = r;
-                        if(r.distance < shortest.distance) shortest = r;
-                    });
-
-                    if(fastest !== shortest && routes.length > 1) {
-                        const shortCoords = shortest.geometry.coordinates.map(c => [c[1], c[0]]);
-                        L.polyline(shortCoords, {color: '#8d9ba2', weight: 4, opacity: 0.8}).addTo(measureLayer);
+                    if(data.routes && data.routes.length > 0) {
+                        const r = data.routes[0];
+                        const coords = r.geometry.coordinates.map(c => [c[1], c[0]]);
+                        L.polyline(coords, {color: '#f59e0b', weight: 4, dashArray: '5, 10', className: 'nav-path-animated'}).addTo(measureLayer);
+                        const distKm = (r.distance / 1000).toFixed(2);
+                        const timeMin = Math.round(r.duration / 60);
+                        showToast(`📏 Road Distance: ${distKm} km • ⏱️ ETA: ${timeMin} mins`, 6000);
+                    } else {
+                        showToast("❌ Road route unavailable. Try again.");
                     }
-
-                    const mainCoords = fastest.geometry.coordinates.map(c => [c[1], c[0]]);
-                    L.polyline(mainCoords, {color: '#f59e0b', weight: 5, className: 'nav-path-animated'}).addTo(measureLayer);
-                    
-                    const d1 = formatDistance(fastest.distance / 1000); 
-                    const t1 = Math.round(fastest.duration / 60);
-                    if (fastest !== shortest) {
-                        const d2 = formatDistance(shortest.distance / 1000); 
-                        const t2 = Math.round(shortest.duration / 60);
-                        showToast(`🏎️ Fastest: ${d1} (${t1}m) | 📏 Shortest: ${d2} (${t2}m)`, 6000);
-                    } else { showToast(`📏 Route: ${d1} • ⏱️ ${t1} mins`, 5000); }
-                    map.fitBounds(L.polyline(mainCoords).getBounds(), { padding: [50, 50] });
-
-                } catch(error) {
-                    measureLayer.clearLayers(); showToast("❌ Road route unavailable. Try again.", 4000);
-                }
-                setTimeout(() => { measureLayer.clearLayers(); measurePoints = []; mapActionMode = null; clearActiveTools(); }, 6000);
+                    setTimeout(() => { measureLayer.clearLayers(); measurePoints = []; mapActionMode = null; $("measure-btn").classList.remove("active-tool"); }, 6000);
+                }).catch(() => {
+                    measureLayer.clearLayers();
+                    showToast("❌ Road route unavailable. Try again.");
+                    setTimeout(() => { measureLayer.clearLayers(); measurePoints = []; mapActionMode = null; $("measure-btn").classList.remove("active-tool"); }, 6000);
+                });
             }
         } 
         else if (mapActionMode === 'geofence') {
@@ -722,9 +486,11 @@ function setupAdvancedTools() {
                 if (Number.isFinite(radius) && radius >= 10 && radius <= 50000) {
                     socket.emit("addGeofence", { name: name.trim(), lat: e.latlng.lat, lng: e.latlng.lng, radius: radius });
                     showToast(`⭕ Geofence '${name}' created with ${radius}m radius!`);
-                } else showToast("❌ Invalid radius!");
+                } else {
+                    showToast("❌ Invalid radius! Must be between 10 and 50000 meters.");
+                }
             }
-            mapActionMode = null; clearActiveTools();
+            mapActionMode = null; $("geofence-btn").classList.remove("active-tool");
         }
         else if (mapActionMode === 'trip') {
             const name = prompt("Enter Trip Destination Name:");
@@ -732,37 +498,33 @@ function setupAdvancedTools() {
                 socket.emit("startTrip", { name: name.trim(), lat: e.latlng.lat, lng: e.latlng.lng });
                 showToast(`🚗 Trip started to ${name}!`);
             }
-            mapActionMode = null; clearActiveTools();
-        }
-        else if (mapActionMode === 'group-nav') {
-            GroupNavigation.setDestination(e.latlng);
-            mapActionMode = null; clearActiveTools();
+            mapActionMode = null; $("trip-btn").classList.remove("active-tool");
         }
         else if (mapActionMode === 'memory') {
-            if (pendingMemoryImage) socket.emit("uploadMemoryPhoto", { name: currentUser.name, lat: e.latlng.lat, lng: e.latlng.lng, image: pendingMemoryImage, time: new Date().toISOString() });
-            showToast("✅ Memory pinned successfully!");
-            mapActionMode = null; pendingMemoryImage = null; clearActiveTools();
+            if (pendingMemoryImage) {
+                socket.emit("uploadMemoryPhoto", { name: currentUser.name, lat: e.latlng.lat, lng: e.latlng.lng, image: pendingMemoryImage });
+                showToast("✅ Memory pinned successfully!");
+            }
+            mapActionMode = null; pendingMemoryImage = null;
         }
     });
 
     socket.on("loadGeofences", fences => {
         currentGeofences = fences;
-        p4LayerGroup.eachLayer(l => { 
-            if(l.options?.isGeofence) p4LayerGroup.removeLayer(l); 
-        });
+        p4LayerGroup.eachLayer(l => { if(l.options?.isGeofence) map.removeLayer(l); });
         fences.forEach(f => {
             L.circle([f.lat, f.lng], { radius: f.radius, color: "#8b5cf6", weight: 2, fillOpacity: 0.1, isGeofence: true }).addTo(p4LayerGroup);
             L.marker([f.lat, f.lng], { icon: L.divIcon({className: 'geofence-marker', html: '📍'}), isGeofence: true }).bindTooltip(f.name, {permanent: true, direction: "top", className: "weather-badge"}).addTo(p4LayerGroup);
         });
-        if($("geofence-list-modal") && $("geofence-list-modal").style.display === "flex") renderGeofenceList();
+        if($("geofence-list-modal").style.display === "flex") renderGeofenceList();
     });
 
     socket.on("tripData", trip => {
         currentTrip = trip;
         if(tripMarker) { map.removeLayer(tripMarker); tripMarker = null; }
         if(trip) {
-            if($("trip-panel")) $("trip-panel").style.display = "flex";
-            if($("trip-title")) $("trip-title").textContent = `Trip to ${trip.name}`;
+            $("trip-panel").style.display = "flex";
+            $("trip-title").textContent = `Trip to ${trip.name}`;
             tripMarker = L.marker([trip.lat, trip.lng], { icon: L.divIcon({className: 'geofence-marker', html: '🏁'}) }).addTo(map);
 
             const isMember = trip.members.some(m => m.id === socket.id);
@@ -770,9 +532,19 @@ function setupAdvancedTools() {
             const actionBtn = $("trip-action-btn");
             
             if (actionBtn) {
-                if (isHost) { actionBtn.textContent = "End Trip"; actionBtn.style.color = "#ef4444"; actionBtn.style.background = "rgba(239, 68, 68, 0.2)"; actionBtn.onclick = () => socket.emit("leaveTrip"); }
-                else if (isMember) { actionBtn.textContent = "Leave Trip"; actionBtn.style.color = "#f59e0b"; actionBtn.style.background = "rgba(245, 158, 11, 0.2)"; actionBtn.onclick = () => socket.emit("leaveTrip"); }
-                else { actionBtn.textContent = "Join Trip"; actionBtn.style.color = "#10b981"; actionBtn.style.background = "rgba(16, 185, 129, 0.2)"; actionBtn.onclick = () => socket.emit("joinTrip"); }
+                if (isHost) {
+                    actionBtn.textContent = "End Trip";
+                    actionBtn.style.color = "#ef4444"; actionBtn.style.background = "rgba(239, 68, 68, 0.2)";
+                    actionBtn.onclick = () => socket.emit("leaveTrip");
+                } else if (isMember) {
+                    actionBtn.textContent = "Leave Trip";
+                    actionBtn.style.color = "#f59e0b"; actionBtn.style.background = "rgba(245, 158, 11, 0.2)";
+                    actionBtn.onclick = () => socket.emit("leaveTrip");
+                } else {
+                    actionBtn.textContent = "Join Trip";
+                    actionBtn.style.color = "#10b981"; actionBtn.style.background = "rgba(16, 185, 129, 0.2)";
+                    actionBtn.onclick = () => socket.emit("joinTrip");
+                }
             }
             triggerGroupRouteUpdate(); 
         } else {
@@ -782,49 +554,114 @@ function setupAdvancedTools() {
     });
 }
 
-// ==========================================
-// 10. CHAT, VOICE & MEMORIES
-// ==========================================
+let groupRouteUpdateTimer = null;
+let isFetchingGroupRoutes = false;
+
+function triggerGroupRouteUpdate() {
+    clearTimeout(groupRouteUpdateTimer);
+    groupRouteUpdateTimer = setTimeout(() => updateGroupTripRoutes(), 1000);
+}
+
+async function updateGroupTripRoutes() {
+    if (!currentTrip || isFetchingGroupRoutes) return;
+    isFetchingGroupRoutes = true;
+
+    const promises = currentTrip.members.map(async (member, index) => {
+        const color = routeColors[index % routeColors.length];
+        let coords = null;
+        
+        if (member.id === socket.id && myCoords) coords = myCoords;
+        else if (friendData[member.id] && friendData[member.id].online !== false) coords = friendData[member.id];
+        
+        if (coords) {
+            const last = tripLastFetchedCoords[member.id];
+            if (last && distanceKm(last.lat, last.lng, coords.lat, coords.lng) < 0.1) return;
+
+            try {
+                const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${coords.lng},${coords.lat};${currentTrip.lng},${currentTrip.lat}?geometries=geojson`);
+                const data = await res.json();
+                
+                if (data.routes && data.routes.length > 0) {
+                    const r = data.routes[0];
+                    const pathCoords = r.geometry.coordinates.map(c => [c[1], c[0]]);
+                    
+                    tripRoutesLayer.eachLayer(l => { if(l.memberId === member.id) tripRoutesLayer.removeLayer(l); });
+
+                    const poly = L.polyline(pathCoords, { color: color, weight: 5, opacity: 0.8, className: 'nav-path-animated' });
+                    poly.memberId = member.id;
+                    poly.addTo(tripRoutesLayer);
+                    
+                    tripLastFetchedCoords[member.id] = { lat: coords.lat, lng: coords.lng };
+                    tripRoadStats[member.id] = { dist: (r.distance / 1000).toFixed(1), time: Math.round(r.duration / 60) };
+                }
+            } catch(e) { console.warn("Failed to route", member.name); }
+        }
+    });
+
+    await Promise.all(promises);
+    isFetchingGroupRoutes = false;
+    updateTripPanel();
+}
+
+function updateTripPanel() {
+    if(!currentTrip) return;
+    const list = $("trip-members-list"); if(!list) return;
+    list.innerHTML = "";
+    
+    const isMember = currentTrip.members.some(m => m.id === socket.id);
+
+    if(myCoords && currentUser.name && isMember) {
+        const stats = tripRoadStats[socket.id] || { dist: distanceKm(myCoords.lat, myCoords.lng, currentTrip.lat, currentTrip.lng), time: '--' };
+        list.innerHTML += `<div class="trip-member"><div><img src="${escapeHTML(currentUser.avatar)}"> You</div> <span style="text-align:right;">${stats.dist} km<br><small style="color:var(--muted)">${stats.time} min</small></span></div>`;
+    }
+    
+    Object.values(friendData).filter(f => f.online !== false && currentTrip.members.some(m => m.id === f.id)).forEach(f => {
+        const stats = tripRoadStats[f.id] || { dist: distanceKm(f.lat, f.lng, currentTrip.lat, currentTrip.lng), time: '--' };
+        list.innerHTML += `<div class="trip-member"><div><img src="${escapeHTML(f.avatar)}"> ${escapeHTML(f.name)}</div> <span style="text-align:right;">${stats.dist} km<br><small style="color:var(--muted)">${stats.time} min</small></span></div>`;
+    });
+}
+
 function setupBasicControls(){
-    if($("my-location-btn")) $("my-location-btn").onclick = () => { if(myCoords) map.flyTo([myCoords.lat,myCoords.lng], 16); };
-    if($("compass-btn")) $("compass-btn").onclick = () => { map.setView(map.getCenter(), map.getZoom(), {animate:true}); };
-    if($("map-style-btn")) $("map-style-btn").onclick = (e) => { e.stopPropagation(); if($("map-style-menu")) $("map-style-menu").style.display = $("map-style-menu").style.display==="flex"?"none":"flex"; };
-    if($("map-style-menu")) $("map-style-menu").onclick = (e) => {
+    $("my-location-btn").onclick = () => { if(myCoords) map.flyTo([myCoords.lat,myCoords.lng], 16); };
+    $("compass-btn").onclick = () => { map.setView(map.getCenter(), map.getZoom(), {animate:true}); $("compass-icon").style.transform="rotate(0deg)"; };
+    $("map-style-btn").onclick = (e) => { e.stopPropagation(); $("map-style-menu").style.display = $("map-style-menu").style.display==="flex"?"none":"flex"; };
+    $("map-style-menu").onclick = (e) => {
         const b=e.target.closest("[data-style]"); if(!b) return; const s=b.dataset.style;
         [satelliteLayer,streetLayer,darkLayer].forEach(l=>map.removeLayer(l));
         ({satellite:satelliteLayer,street:streetLayer,dark:darkLayer})[s].addTo(map);
         document.querySelectorAll("#map-style-menu button").forEach(x=>x.classList.toggle("active",x.dataset.style===s));
         $("map-style-menu").style.display="none";
     };
+    if (window.DeviceOrientationEvent) window.addEventListener("deviceorientation", e => { const icon = $("compass-icon"); if (icon) icon.style.transform = `rotate(${e.webkitCompassHeading ? -e.webkitCompassHeading : e.alpha}deg)`; }, true);
 }
 
 function setupChat(){
     const cc=$("chat-container"), inp=$("chatInput"), send=$("chat-send"), vb=$("voiceButton");
-    if(!cc || !inp || !send) return;
-
     let unread=0, typingTimer=null, replyTo=null, reactingId=null;
     const msgStore=new Map(), emojis=["👍","❤️","😂","😮","😢","🔥"];
 
     function updateUnreadBadge(){ const b=$("chat-unread-badge"); if(!b) return; b.textContent=unread>99?"99+":unread; b.style.display=unread>0?"flex":"none"; }
 
-    if($("chat-toggle-btn")) $("chat-toggle-btn").onclick = () => { cc.style.display = "flex"; $("chat-toggle-btn").style.display = "none"; unread=0; updateUnreadBadge(); inp.focus(); };
-    if($("chat-minimize-btn")) $("chat-minimize-btn").onclick = () => { cc.style.display = "none"; if($("chat-toggle-btn")) $("chat-toggle-btn").style.display = "flex"; };
+    $("chat-toggle-btn").onclick = () => { cc.style.display = "flex"; $("chat-toggle-btn").style.display = "none"; unread=0; updateUnreadBadge(); inp.focus(); };
+    $("chat-minimize-btn").onclick = () => { cc.style.display = "none"; $("chat-toggle-btn").style.display = "flex"; };
+    $("online-btn").onclick = (e) => { e.stopPropagation(); const l=$("online-list"); l.style.display = l.style.display === "block" ? "none" : "block"; updateOnlineUI(); };
+    document.addEventListener("click", e => { if ($("online-list") && !$("online-list").contains(e.target) && e.target !== $("online-btn")) $("online-list").style.display = "none"; });
 
-    inp.oninput=()=>{ socket.emit("typing",true); clearTimeout(typingTimer); typingTimer=setTimeout(()=>socket.emit("typing",false), 1200); send.style.display=inp.value.trim()?"flex":"none"; if(vb) vb.style.display=inp.value.trim()?"none":"flex"; };
-    socket.on("typing", d=>{ const t=$("typing-indicator"); if(t) { if(d.id!==socket.id && d.isTyping){t.textContent=`${escapeHTML(d.name)} is typing…`; t.style.display="block";}else t.style.display="none"; } });
+    inp.oninput=()=>{ socket.emit("typing",true); clearTimeout(typingTimer); typingTimer=setTimeout(()=>socket.emit("typing",false), 1200); send.style.display=inp.value.trim()?"flex":"none"; vb.style.display=inp.value.trim()?"none":"flex"; };
+    socket.on("typing", d=>{ const t=$("typing-indicator"); if(d.id!==socket.id && d.isTyping){t.textContent=`${escapeHTML(d.name)} is typing…`; t.style.display="block";}else t.style.display="none"; });
 
-    if($("reply-cancel")) $("reply-cancel").onclick=()=>{replyTo=null; if($("reply-bar")) $("reply-bar").style.display="none";};
-    if($("emojiButton")) $("emojiButton").onclick=(e)=>{e.stopPropagation(); if($("attachment-menu")) $("attachment-menu").style.display="none"; if($("emoji-picker-container")) $("emoji-picker-container").style.display=$("emoji-picker-container").style.display==="block"?"none":"block";};
-    if($("emojiPicker")) $("emojiPicker").addEventListener("emoji-click",e=>{ const em=e.detail.unicode; if(reactingId){socket.emit("messageReaction",{messageId:reactingId,emoji:em});if($("emoji-picker-container")) $("emoji-picker-container").style.display="none";reactingId=null;}else{inp.value+=em;inp.focus();send.style.display="flex";if(vb) vb.style.display="none";} });
+    $("reply-cancel").onclick=()=>{replyTo=null; $("reply-bar").style.display="none";};
+    $("emojiButton").onclick=(e)=>{e.stopPropagation(); $("attachment-menu").style.display="none"; $("emoji-picker-container").style.display=$("emoji-picker-container").style.display==="block"?"none":"block";};
+    $("emojiPicker").addEventListener("emoji-click",e=>{ const em=e.detail.unicode; if(reactingId){socket.emit("messageReaction",{messageId:reactingId,emoji:em});$("emoji-picker-container").style.display="none";reactingId=null;}else{inp.value+=em;inp.focus();send.style.display="flex";vb.style.display="none";} });
     
-    if($("chat-attach-btn")) $("chat-attach-btn").onclick=(e)=>{e.stopPropagation(); if($("emoji-picker-container")) $("emoji-picker-container").style.display="none"; if($("attachment-menu")) $("attachment-menu").style.display=$("attachment-menu").style.display==="flex"?"none":"flex";};
+    $("chat-attach-btn").onclick=(e)=>{e.stopPropagation(); $("emoji-picker-container").style.display="none"; $("attachment-menu").style.display=$("attachment-menu").style.display==="flex"?"none":"flex";};
     const fInp=$("chatFileInput");
-    if($("att-media")) $("att-media").onclick=()=>{fInp.accept="image/*,video/*";fInp.click();$("attachment-menu").style.display="none";};
-    if($("att-doc")) $("att-doc").onclick=()=>{fInp.accept=".pdf,.doc,.txt,.zip";fInp.click();$("attachment-menu").style.display="none";};
-    if($("att-audio")) $("att-audio").onclick=()=>{fInp.accept="audio/*";fInp.click();$("attachment-menu").style.display="none";};
-    if(fInp) fInp.onchange=()=>{ const f=fInp.files?.[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ socket.emit("chatMessage",{name:currentUser.name, type:f.type.split('/')[0]==="image"?"image":f.type.split('/')[0]==="video"?"video":f.type.split('/')[0]==="audio"?"audio":"document", data:r.result, replyTo}); if($("reply-cancel")) $("reply-cancel").click();}; r.readAsDataURL(f); fInp.value="";};
+    $("att-media").onclick=()=>{fInp.accept="image/*,video/*";fInp.click();$("attachment-menu").style.display="none";};
+    $("att-doc").onclick=()=>{fInp.accept=".pdf,.doc,.txt,.zip";fInp.click();$("attachment-menu").style.display="none";};
+    $("att-audio").onclick=()=>{fInp.accept="audio/*";fInp.click();$("attachment-menu").style.display="none";};
+    fInp.onchange=()=>{ const f=fInp.files?.[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ socket.emit("chatMessage",{name:currentUser.name, type:f.type.split('/')[0]==="image"?"image":f.type.split('/')[0]==="video"?"video":f.type.split('/')[0]==="audio"?"audio":"document", data:r.result, replyTo}); $("reply-cancel").click();}; r.readAsDataURL(f); fInp.value="";};
 
-    if($("chatForm")) $("chatForm").onsubmit=e=>{ e.preventDefault(); const t=inp.value.trim(); if(t){socket.emit("chatMessage",{name:currentUser.name,type:"text",data:t,replyTo}); inp.value=""; if($("reply-cancel")) $("reply-cancel").click(); send.style.display="none"; if(vb) vb.style.display="flex"; inp.focus();} };
+    $("chatForm").onsubmit=e=>{ e.preventDefault(); const t=inp.value.trim(); if(t){socket.emit("chatMessage",{name:currentUser.name,type:"text",data:t,replyTo}); inp.value=""; $("reply-cancel").click(); send.style.display="none"; vb.style.display="flex"; inp.focus();} };
 
     function renderMsg(m){
         if(msgStore.has(m.id)) return;
@@ -843,16 +680,15 @@ function setupChat(){
         
         const a=document.createElement("div"); a.className="message-actions";
         emojis.forEach(e=>{const btn=document.createElement("button"); btn.className="action-btn"; btn.textContent=e; btn.onclick=()=>socket.emit("messageReaction",{messageId:m.id,emoji:e}); a.appendChild(btn);});
-        const rep=document.createElement("button"); rep.className="action-btn"; rep.textContent="↩ Reply"; rep.onclick=()=>{replyTo={id:m.id,name:m.name,type:m.type,preview:m.type==="text"?m.data.slice(0,50):"Attachment"}; if($("reply-preview")) $("reply-preview").textContent=`↩ ${m.name}`; if($("reply-bar")) $("reply-bar").style.display="flex"; inp.focus();}; a.appendChild(rep);
-        b.appendChild(a); const rr=document.createElement("div"); rr.className="reaction-row"; b.appendChild(rr); w.appendChild(b); if($("chat-messages")) $("chat-messages").appendChild(w);
+        const rep=document.createElement("button"); rep.className="action-btn"; rep.textContent="↩ Reply"; rep.onclick=()=>{replyTo={id:m.id,name:m.name,type:m.type,preview:m.type==="text"?m.data.slice(0,50):"Attachment"}; $("reply-preview").textContent=`↩ ${m.name}`; $("reply-bar").style.display="flex"; inp.focus();}; a.appendChild(rep);
+        b.appendChild(a); const rr=document.createElement("div"); rr.className="reaction-row"; b.appendChild(rr); w.appendChild(b); $("chat-messages").appendChild(w);
         
         msgStore.set(m.id,{msg:m,el:w});
         if(m.senderId!==socket.id && cc.style.display!=="flex"){unread++; updateUnreadBadge();}
-        if($("chat-messages")) $("chat-messages").scrollTop=$("chat-messages").scrollHeight;
+        $("chat-messages").scrollTop=$("chat-messages").scrollHeight;
     }
 
-    socket.on("chatHistory", l=>l.forEach(renderMsg)); 
-    socket.on("chatMessage", renderMsg);
+    socket.on("chatHistory", l=>l.forEach(renderMsg)); socket.on("chatMessage", renderMsg);
     socket.on("messageReaction", d=>{ const s=msgStore.get(d.messageId); if(s){ const c=s.el.querySelector(".reaction-row"); c.innerHTML=""; Object.keys(d.reactions).forEach(e=>{ if(d.reactions[e].length){ const b=document.createElement("button"); b.className="reaction-chip"; b.textContent=`${e} ${d.reactions[e].length}`; b.onclick=()=>socket.emit("messageReaction",{messageId:d.messageId,emoji:e}); c.appendChild(b);} }); }});
 }
 
@@ -877,19 +713,15 @@ function setupVoice(){
 }
 
 function setupMemories(){
-    if($("phase3-gallery-btn")) $("phase3-gallery-btn").onclick = () => { 
-        if($("phase3-memory-overlay")) $("phase3-memory-overlay").style.display="block"; 
-        if($("tools-menu")) $("tools-menu").style.display="none";
-        renderMemGallery(); 
-    };
-    if($("phase3-memory-close")) $("phase3-memory-close").onclick = () => { if($("phase3-memory-overlay")) $("phase3-memory-overlay").style.display="none"; };
-    if($("p3-view-close")) $("p3-view-close").onclick = () => { if($("phase3-photo-viewer")) $("phase3-photo-viewer").style.display="none"; };
+    $("phase3-gallery-btn").onclick = () => { $("phase3-memory-overlay").style.display="block"; renderMemGallery(); };
+    $("phase3-memory-close").onclick = () => $("phase3-memory-overlay").style.display="none";
+    $("p3-view-close").onclick = () => $("phase3-photo-viewer").style.display="none";
     
     document.querySelectorAll(".phase3-filter").forEach(b => {
         b.onclick = () => { document.querySelectorAll(".phase3-filter").forEach(x=>x.classList.remove("active")); b.classList.add("active"); currentGalleryFilter=b.dataset.filter; renderMemGallery(); };
     });
-    if($("phase3-memory-search")) $("phase3-memory-search").oninput = e => { currentGallerySearch=e.target.value.toLowerCase(); renderMemGallery(); };
-    if($("p3-view-focus")) $("p3-view-focus").onclick = () => { const m=memories.get(selectedMemoryId); if(m) map.flyTo([m.lat,m.lng],17); if($("phase3-photo-viewer")) $("phase3-photo-viewer").style.display="none"; if($("phase3-memory-overlay")) $("phase3-memory-overlay").style.display="none"; };
+    $("phase3-memory-search").oninput = e => { currentGallerySearch=e.target.value.toLowerCase(); renderMemGallery(); };
+    $("p3-view-focus").onclick = () => { const m=memories.get(selectedMemoryId); if(m) map.flyTo([m.lat,m.lng],17); $("phase3-photo-viewer").style.display="none"; $("phase3-memory-overlay").style.display="none"; };
 
     function renderMemGallery(){
         let arr = Array.from(memories.values());
@@ -898,18 +730,18 @@ function setupMemories(){
         if(currentGallerySearch) arr=arr.filter(m=>cleanName(m.name).toLowerCase().includes(currentGallerySearch));
         arr.sort((a,b) => new Date(b.time) - new Date(a.time));
 
-        if($("phase3-memory-count")) $("phase3-memory-count").textContent = `${arr.length} memories`;
+        $("phase3-memory-count").textContent = `${arr.length} memories`;
         const grid=$("phase3-memory-grid"), time=$("phase3-timeline-list"), emp=$("phase3-memory-empty");
-        if(grid) grid.innerHTML=""; if(time) time.innerHTML=""; if(emp) emp.style.display=arr.length?"none":"block";
+        grid.innerHTML=""; time.innerHTML=""; emp.style.display=arr.length?"none":"block";
 
         arr.forEach(m=>{
             const c=document.createElement("div"); c.className="p3-card";
             c.innerHTML=`<img src="${escapeHTML(m.image)}" loading="lazy"><div class="p3-card-info"><b>${escapeHTML(m.name)}</b><span>${new Date(m.time).toLocaleDateString()}</span></div>`;
-            c.onclick=()=>{selectedMemoryId=m.id; if($("p3-view-image")) $("p3-view-image").src=m.image; if($("p3-view-name")) $("p3-view-name").textContent=m.name; if($("p3-view-date")) $("p3-view-date").textContent=new Date(m.time).toLocaleString(); if($("phase3-photo-viewer")) $("phase3-photo-viewer").style.display="flex";}; if(grid) grid.appendChild(c);
+            c.onclick=()=>{selectedMemoryId=m.id; $("p3-view-image").src=m.image; $("p3-view-name").textContent=m.name; $("p3-view-date").textContent=new Date(m.time).toLocaleString(); $("phase3-photo-viewer").style.display="flex";}; grid.appendChild(c);
             
             const t=document.createElement("div"); t.className="p3-time-item";
             t.innerHTML=`<div class="p3-time-thumb"><img src="${escapeHTML(m.image)}" loading="lazy"></div><div class="p3-time-info"><b>${escapeHTML(m.name)}</b><span>${new Date(m.time).toLocaleString()}</span></div>`;
-            t.onclick=c.onclick; if(time) time.appendChild(t);
+            t.onclick=c.onclick; time.appendChild(t);
         });
     }
 
@@ -919,19 +751,20 @@ function setupMemories(){
             const icon = L.divIcon({ className:"p3-memory-marker", html:`<div style="width:46px;height:46px;border-radius:50%;overflow:hidden;border:2px solid #fff;background:#071018;box-shadow:0 4px 15px rgba(0,0,0,.65)"><img src="${escapeHTML(m.image)}" style="width:100%;height:100%;object-fit:cover;"></div>`, iconSize:[46,46], iconAnchor:[23,23]});
             const marker = L.marker([m.lat,m.lng],{icon}).addTo(memoryLayer);
             marker.bindPopup(`<div class="p3-map-popup"><img src="${escapeHTML(m.image)}"><b>📸 ${escapeHTML(m.name)}</b><button class="p3-open-map-memory">View</button></div>`);
-            marker.on("popupopen",e=>{ const b=e.popup.getElement()?.querySelector(".p3-open-map-memory"); if(b) b.onclick=()=>{selectedMemoryId=m.id; if($("p3-view-image")) $("p3-view-image").src=m.image; if($("p3-view-name")) $("p3-view-name").textContent=m.name; if($("p3-view-date")) $("p3-view-date").textContent=new Date(m.time).toLocaleString(); if($("phase3-photo-viewer")) $("phase3-photo-viewer").style.display="flex";}; });
+            marker.on("popupopen",e=>{ const b=e.popup.getElement()?.querySelector(".p3-open-map-memory"); if(b) b.onclick=()=>{selectedMemoryId=m.id; $("p3-view-image").src=m.image; $("p3-view-name").textContent=m.name; $("p3-view-date").textContent=new Date(m.time).toLocaleString(); $("phase3-photo-viewer").style.display="flex";}; });
         });
     }
 
     socket.on("loadMemoryPhotos", l=>{ memories.clear(); l.forEach(m=>memories.set(m.id,m)); renderPins(); });
-    socket.on("newMemoryPin", m=>{ memories.set(m.id,m); renderPins(); if($("phase3-memory-overlay") && $("phase3-memory-overlay").style.display==="block") renderMemGallery(); });
+    socket.on("newMemoryPin", m=>{ memories.set(m.id,m); renderPins(); if($("phase3-memory-overlay").style.display==="block") renderMemGallery(); });
 
     const mInp=$("memoryPhotoInput");
-    if($("memoryButton")) $("memoryButton").onclick=()=>{ if(!currentUser.name) return alert("Join map first."); if(mInp) mInp.click(); };
-    const addMemBtn = $("p3-add-memory-btn");
-    if(addMemBtn) addMemBtn.onclick = () => { if($("phase3-memory-overlay")) $("phase3-memory-overlay").style.display="none"; if($("memoryButton")) $("memoryButton").click(); };
+    $("memoryButton").onclick=()=>{ if(!currentUser.name) return alert("Join map first."); mInp.click(); };
     
-    if(mInp) mInp.onchange=()=>{
+    const addMemBtn = $("p3-add-memory-btn");
+    if(addMemBtn) addMemBtn.onclick = () => { $("phase3-memory-overlay").style.display="none"; $("memoryButton").click(); };
+    
+    mInp.onchange=()=>{
         const f=mInp.files?.[0]; if(!f) return;
         if(!IMAGE_TYPES.includes(f.type)||f.size>MAX_MEMORY_FILE){alert("Invalid image or >8MB."); mInp.value=""; return;}
         const r=new FileReader(); 
@@ -946,51 +779,148 @@ function setupMemories(){
     };
 }
 
-// ==========================================
-// 11. INITIALIZATION & AUTH
-// ==========================================
 function setupJoin(){
-    if(currentUser.name && $("join-screen")){ 
-        $("join-screen").style.display="none"; 
-        if($("header-avatar")) { $("header-avatar").style.display="block"; $("header-avatar").src=currentUser.avatar; }
-        socket.emit("profileReady",currentUser); 
-    }
+    if(currentUser.name){ $("join-screen").style.display="none"; $("header-avatar").style.display="block"; $("header-avatar").src=currentUser.avatar; socket.emit("profileReady",currentUser); }
+    $("join-form").onsubmit=e=>{ e.preventDefault(); currentUser.name=cleanName($("nameInput").value); localStorage.setItem("koraput_name",currentUser.name);
+        const f=$("avatarInput").files?.[0];
+        if(f){const r=new FileReader(); r.onload=()=>{currentUser.avatar=r.result; localStorage.setItem("koraput_avatar",r.result); done();}; r.readAsDataURL(f);} else done();
+        function done(){$("join-screen").style.display="none"; $("header-avatar").style.display="block"; $("header-avatar").src=currentUser.avatar; socket.emit("profileReady",currentUser); updateOnlineUI();}
+    };
+}
+
+// ==========================================
+// NEW: GOOGLE SEARCH & OSRM DIRECTIONS
+// ==========================================
+function setupGoogleSearch() {
+    const searchInput = $("location-search-input");
+    if (!searchInput || !window.google) return;
     
-    if($("join-form")) {
-        $("join-form").onsubmit=e=>{ 
-            e.preventDefault(); 
-            currentUser.name=cleanName($("nameInput").value); 
-            localStorage.setItem("koraput_name",currentUser.name);
-            const f=$("avatarInput").files?.[0];
-            if(f){
-                const r=new FileReader(); 
-                r.onload=()=>{
-                    currentUser.avatar=r.result; 
-                    localStorage.setItem("koraput_avatar",r.result); 
-                    done();
-                }; 
-                r.readAsDataURL(f);
-            } else done();
-            
-            function done(){
-                if($("join-screen")) $("join-screen").style.display="none"; 
-                if($("header-avatar")) { $("header-avatar").style.display="block"; $("header-avatar").src=currentUser.avatar; }
-                socket.emit("profileReady",currentUser); 
-                updateOnlineUI();
+    const autocomplete = new google.maps.places.Autocomplete(searchInput);
+    
+    autocomplete.addListener("place_changed", () => {
+        const place = autocomplete.getPlace();
+        if (!place.geometry || !place.geometry.location) {
+            showToast("❌ Location not found.");
+            return;
+        }
+        
+        const lat = place.geometry.location.lat();
+        const lng = place.geometry.location.lng();
+        const placeName = place.name;
+        
+        if (searchMarker) map.removeLayer(searchMarker);
+        navigationLayer.clearLayers();
+        if($("nav-panel")) $("nav-panel").style.display = "none";
+        
+        map.flyTo([lat, lng], 16);
+        
+        const popupContent = `
+            <div style="text-align:center; padding:5px; min-width:140px;">
+                <strong style="color:var(--green-bright); font-size:14px; display:block; margin-bottom:8px;">📍 ${escapeHTML(placeName)}</strong>
+                <button id="search-nav-btn" style="width:100%; padding:8px; border:none; border-radius:8px; background:var(--green); color:white; font-weight:bold; cursor:pointer;">
+                    🚗 Directions
+                </button>
+            </div>
+        `;
+        
+        searchMarker = L.marker([lat, lng], {
+            icon: L.divIcon({ className: 'geofence-marker', html: '📍', iconSize: [30, 30], iconAnchor: [15, 30] })
+        }).addTo(map);
+        
+        searchMarker.bindPopup(popupContent).openPopup();
+        
+        searchMarker.on("popupopen", () => {
+            const btn = document.getElementById("search-nav-btn");
+            if (btn) {
+                btn.onclick = () => {
+                    searchMarker.closePopup();
+                    startSearchNavigation(lat, lng, placeName);
+                };
             }
-        };
+        });
+        
+        $("clear-search-btn").style.display = "block";
+    });
+
+    $("clear-search-btn").onclick = () => {
+        searchInput.value = "";
+        $("clear-search-btn").style.display = "none";
+        if (searchMarker) { map.removeLayer(searchMarker); searchMarker = null; }
+        navigationLayer.clearLayers();
+        if($("nav-panel")) $("nav-panel").style.display = "none";
+        if (myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
+    };
+    
+    searchInput.addEventListener('input', () => {
+        $("clear-search-btn").style.display = searchInput.value.length > 0 ? "block" : "none";
+    });
+}
+
+async function startSearchNavigation(destLat, destLng, destName) {
+    if(!myCoords) return showToast("❌ GPS location needed for routing.");
+    
+    navigationLayer.clearLayers();
+    if($("nav-panel")) $("nav-panel").style.display = "flex";
+    if($("nav-title-name")) $("nav-title-name").textContent = destName;
+    if($("nav-stats")) $("nav-stats").innerHTML = `🚗 -- km &nbsp; ⏱️ -- min`;
+    if($("nav-instructions")) $("nav-instructions").innerHTML = "<i>Finding best route...</i>";
+    
+    try {
+        const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${myCoords.lng},${myCoords.lat};${destLng},${destLat}?steps=true&geometries=geojson&overview=full`);
+        const data = await res.json();
+        
+        if(data.routes && data.routes.length > 0) {
+            const r = data.routes[0];
+            const coords = r.geometry.coordinates.map(c => [c[1], c[0]]);
+            
+            const path = L.polyline(coords, { color: '#18d6a3', weight: 6, opacity: 0.9, className: 'nav-path-animated' }).addTo(navigationLayer);
+            
+            L.marker([destLat, destLng], { icon: L.divIcon({className: 'geofence-marker', html: '🎯'}) }).addTo(navigationLayer);
+            
+            map.fitBounds(path.getBounds(), { padding: [50, 50] });
+
+            const distKm = (r.distance / 1000).toFixed(1);
+            const timeMin = Math.round(r.duration / 60);
+            if($("nav-stats")) $("nav-stats").innerHTML = `🚗 ${distKm} km &nbsp; ⏱️ ${timeMin} min`;
+            
+            let instHTML = "";
+            if(r.legs[0] && r.legs[0].steps) {
+                r.legs[0].steps.slice(0, 5).forEach(s => {
+                    let arrow = "↑";
+                    if(s.maneuver.modifier) { 
+                        if(s.maneuver.modifier.includes('right')) arrow = "↱"; 
+                        if(s.maneuver.modifier.includes('left')) arrow = "↰"; 
+                    }
+                    instHTML += `<div style="padding:5px 0; border-bottom:1px solid rgba(255,255,255,0.05);">${arrow} ${s.maneuver.instruction}</div>`;
+                });
+            }
+            if($("nav-instructions")) $("nav-instructions").innerHTML = instHTML || "Follow the highlighted route on the map.";
+            
+            $("nav-exit-btn").onclick = () => {
+                navigationLayer.clearLayers();
+                $("nav-panel").style.display = "none";
+                if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
+            };
+            $("nav-recalc-btn").onclick = () => startSearchNavigation(destLat, destLng, destName);
+            
+        } else {
+            if($("nav-instructions")) $("nav-instructions").innerHTML = "<i style='color:#ef4444;'>No road route found.</i>";
+        }
+    } catch (e) {
+        if($("nav-instructions")) $("nav-instructions").innerHTML = "<i style='color:#ef4444;'>Navigation error. Try again later.</i>";
     }
 }
 
+// ==========================================
+// INITIALIZATION
+// ==========================================
 function initApp(){ 
     setupJoin(); 
     setupBasicControls(); 
     setupAdvancedTools(); 
-    setupLocationSearch(); 
     setupChat(); 
-    setupVoice();
     setupMemories(); 
     startGPS(); 
+    setupGoogleSearch(); 
 }
-
 if(document.readyState==="loading") document.addEventListener("DOMContentLoaded", initApp); else initApp();
