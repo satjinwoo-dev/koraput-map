@@ -1,226 +1,235 @@
-const express = require("express");
-const http = require("http");
-const path = require("path");
-const crypto = require("crypto");
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
-const io = require("socket.io")(server, { maxHttpBufferSize: 10 * 1024 * 1024 });
+const io = new Server(server, {
+    cors: { origin: "*", methods: ["GET", "POST"] }
+});
 
-app.disable("x-powered-by");
-app.use(express.static(path.join(__dirname, "public")));
+// Serve static files from 'public' directory
+app.use(express.static(path.join(__dirname, 'public')));
 
-const users = new Map();
-const messages = new Map();
-const memoryPhotos = [];
-const geofences = new Map(); 
-let activeTrip = null; 
+// ==========================================
+// 1. IN-MEMORY DATABASE (State Management)
+// ==========================================
+const users = new Map(); 
+const chatMessages = []; 
+const memories = []; 
+let geofences = []; 
+let currentTrip = null; 
 
-const MAX_MESSAGES = 200;
-const MAX_MEMORY_PHOTOS = 100;
-const MAX_MESSAGE_DATA = 8 * 1024 * 1024;
-const MAX_MEMORY_DATA = 7 * 1024 * 1024; 
+// Helper to generate unique IDs
+const generateId = () => Math.random().toString(36).substr(2, 9);
 
-const REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
-const CHAT_TYPES = ["text", "image", "video", "audio", "document"];
-
-function validCoord(v, min, max) {
-    const n = Number(v); return Number.isFinite(n) && n >= min && n <= max;
-}
-
-function cleanName(v) {
-    if (typeof v !== "string") return "User";
-    return v.trim().replace(/\s+/g, " ").slice(0, 40) || "User";
-}
-
-function safeAvatar(v) {
-    if (typeof v !== "string") return "satyam.png";
-    if (/^data:image\/(jpeg|jpg|png|webp|gif);base64,/i.test(v)) return v.slice(0, 3_000_000);
-    if (/^https?:\/\//i.test(v)) return v.slice(0, 2000);
-    return "satyam.png";
-}
-
-function validDataUrl(v, type, maxSize) {
-    if (typeof v !== "string" || v.length > maxSize) return false;
-    return new RegExp(`^data:${type}\\/`, "i").test(v);
-}
-
-function validChatMessage(msg) {
-    if (!msg || typeof msg !== "object" || !CHAT_TYPES.includes(msg.type)) return false;
-    if (typeof msg.data !== "string" || msg.data.length === 0 || msg.data.length > MAX_MESSAGE_DATA) return false;
-    if (msg.type === "text") return msg.data.length <= 1000;
-    return /^(data:(image|video|audio|application|text)\/|https?:\/\/)/i.test(msg.data);
-}
-
-function haversineDistance(lat1, lon1, lat2, lon2) {
-    const R = 6371e3;
+// Distance Calculator for Geofence Alerts
+function distanceKm(lat1, lon1, lat2, lon2) {
     const p = Math.PI / 180;
-    const a = 0.5 - Math.cos((lat2 - lat1) * p)/2 + Math.cos(lat1 * p) * Math.cos(lat2 * p) * (1 - Math.cos((lon2 - lon1) * p))/2;
-    return R * 2 * Math.asin(Math.sqrt(a));
+    const a = 0.5 - Math.cos((lat2 - lat1) * p) / 2 + Math.cos(lat1 * p) * Math.cos(lat2 * p) * Math.sin((lon2 - lon1) * p / 2) ** 2;
+    return 12742 * Math.asin(Math.sqrt(a));
 }
 
-function publicUser(id) {
-    const u = users.get(id); if (!u) return null;
-    return { id, name: u.name, avatar: u.avatar, online: u.online !== false, lat: u.lat, lng: u.lng, weather: u.weather || "" };
-}
+// ==========================================
+// 2. SOCKET.IO EVENT HANDLERS
+// ==========================================
+io.on('connection', (socket) => {
+    console.log(`🟢 New Connection: ${socket.id}`);
 
-io.on("connection", (socket) => {
-    socket.emit("loadMemoryPhotos", memoryPhotos);
-    socket.emit("onlineUsers", [...users.keys()].map(publicUser).filter(Boolean));
-    socket.emit("chatHistory", [...messages.values()]);
-    socket.emit("loadGeofences", [...geofences.values()]); 
-    socket.emit("tripData", activeTrip); 
+    // --- A. PROFILE & INITIALIZATION ---
+    socket.on('profileReady', (userData) => {
+        const user = { ...userData, id: socket.id, online: true };
+        users.set(socket.id, user);
 
-    socket.on("profileReady", (data = {}) => {
-        const old = users.get(socket.id) || {};
-        users.set(socket.id, {
-            name: cleanName(data.name), avatar: safeAvatar(data.avatar),
-            lat: validCoord(old.lat, -90, 90) ? old.lat : null, lng: validCoord(old.lng, -180, 180) ? old.lng : null,
-            weather: old.weather || "", online: true, fences: old.fences || {}
-        });
-        socket.emit("profileConfirmed", publicUser(socket.id));
-        socket.broadcast.emit("userOnline", publicUser(socket.id));
-        io.emit("onlineUsers", [...users.keys()].map(publicUser).filter(Boolean));
+        // Send all current states to the newly joined user
+        socket.emit('chatHistory', chatMessages);
+        socket.emit('loadMemoryPhotos', memories);
+        socket.emit('loadGeofences', geofences);
+        socket.emit('onlineUsers', Array.from(users.values()));
+        if (currentTrip) socket.emit('tripData', currentTrip);
+
+        // Tell everyone else this user is online
+        socket.broadcast.emit('userOnline', user);
     });
 
-    socket.on("updateLocation", (data = {}) => {
-        const lat = Number(data.lat), lng = Number(data.lng);
-        if (!validCoord(lat, -90, 90) || !validCoord(lng, -180, 180)) return;
-
-        const old = users.get(socket.id) || {};
-        const newFences = {};
+    // --- B. LIVE LOCATION UPDATES & GEOFENCE CHECK ---
+    socket.on('updateLocation', (data) => {
+        if (!users.has(socket.id)) return;
         
-        geofences.forEach(f => {
-            const dist = haversineDistance(lat, lng, f.lat, f.lng);
-            const inside = dist <= f.radius;
-            newFences[f.id] = inside;
+        const user = users.get(socket.id);
+        const oldLat = user.lat;
+        const oldLng = user.lng;
+        
+        user.lat = data.lat;
+        user.lng = data.lng;
+        user.weather = data.weather;
+        users.set(socket.id, user);
+
+        socket.broadcast.emit('friendMoved', user);
+
+        // Geofence Intersection check
+        if (oldLat && oldLng) {
+            geofences.forEach(fence => {
+                const distOld = distanceKm(oldLat, oldLng, fence.lat, fence.lng) * 1000; 
+                const distNew = distanceKm(user.lat, user.lng, fence.lat, fence.lng) * 1000; 
+
+                const wasOutside = distOld > fence.radius;
+                const isInside = distNew <= fence.radius;
+
+                if (wasOutside && isInside) {
+                    io.emit('geofenceAlert', { user: user.name, fence: fence.name, type: 'enter' });
+                } else if (!wasOutside && !isInside) {
+                    io.emit('geofenceAlert', { user: user.name, fence: fence.name, type: 'leave' });
+                }
+            });
+        }
+    });
+
+    // --- C. CHAT SYSTEM ---
+    socket.on('chatMessage', (msgData) => {
+        const msg = {
+            ...msgData,
+            id: generateId(),
+            senderId: socket.id,
+            time: new Date().toISOString(), 
+            reactions: { "👍": [], "❤️": [], "😂": [], "😮": [], "😢": [], "🔥": [] }
+        };
+        
+        chatMessages.push(msg);
+        if (chatMessages.length > 200) chatMessages.shift(); 
+        io.emit('chatMessage', msg);
+    });
+
+    socket.on('typing', (isTyping) => {
+        if (users.has(socket.id)) {
+            socket.broadcast.emit('typing', { id: socket.id, name: users.get(socket.id).name, isTyping });
+        }
+    });
+
+    socket.on('messageReaction', (data) => {
+        const msg = chatMessages.find(m => m.id === data.messageId);
+        if (msg) {
+            const userIndex = msg.reactions[data.emoji].indexOf(socket.id);
+            if (userIndex > -1) {
+                msg.reactions[data.emoji].splice(userIndex, 1);
+            } else {
+                Object.keys(msg.reactions).forEach(e => {
+                    const idx = msg.reactions[e].indexOf(socket.id);
+                    if(idx > -1) msg.reactions[e].splice(idx, 1);
+                });
+                msg.reactions[data.emoji].push(socket.id);
+            }
+            io.emit('messageReaction', { messageId: msg.id, reactions: msg.reactions });
+        }
+    });
+
+    // --- D. GEOFENCING SYSTEM ---
+    socket.on('addGeofence', (data) => {
+        const user = users.get(socket.id);
+        if(!user) return;
+
+        const newFence = {
+            id: generateId(),
+            name: data.name,
+            lat: data.lat,
+            lng: data.lng,
+            radius: data.radius,
+            ownerId: socket.id,
+            ownerName: user.name
+        };
+        geofences.push(newFence);
+        io.emit('loadGeofences', geofences);
+    });
+
+    socket.on('removeGeofence', (id) => {
+        const fence = geofences.find(f => f.id === id);
+        if (fence && fence.ownerId === socket.id) {
+            geofences = geofences.filter(f => f.id !== id);
+            io.emit('loadGeofences', geofences);
+        }
+    });
+
+    // --- E. GROUP TRIP SYSTEM ---
+    socket.on('startTrip', (data) => {
+        const user = users.get(socket.id);
+        if(!user) return;
+
+        currentTrip = {
+            name: data.name,
+            lat: data.lat,
+            lng: data.lng,
+            hostId: socket.id,
+            members: [{ id: socket.id, name: user.name }]
+        };
+        io.emit('tripData', currentTrip);
+    });
+
+    socket.on('joinTrip', () => {
+        const user = users.get(socket.id);
+        if (currentTrip && user && !currentTrip.members.some(m => m.id === socket.id)) {
+            currentTrip.members.push({ id: socket.id, name: user.name });
+            io.emit('tripData', currentTrip);
+        }
+    });
+
+    socket.on('leaveTrip', () => {
+        if (!currentTrip) return;
+
+        if (currentTrip.hostId === socket.id) {
+            currentTrip = null;
+            io.emit('tripData', null);
+        } else {
+            currentTrip.members = currentTrip.members.filter(m => m.id !== socket.id);
+            io.emit('tripData', currentTrip);
+        }
+    });
+
+    // --- F. MEMORIES ---
+    socket.on('uploadMemoryPhoto', (data) => {
+        const memory = {
+            id: generateId(),
+            name: data.name,
+            lat: data.lat,
+            lng: data.lng,
+            image: data.image,
+            time: data.time || new Date().toISOString() 
+        };
+        memories.push(memory);
+        io.emit('newMemoryPin', memory);
+    });
+
+    // --- G. DISCONNECT LOGIC ---
+    socket.on('disconnect', () => {
+        console.log(`🔴 Disconnected: ${socket.id}`);
+        if (users.has(socket.id)) {
+            const user = users.get(socket.id);
+            user.online = false;
             
-            if (old.fences) {
-                if (inside && !old.fences[f.id]) io.emit("geofenceAlert", { type: "enter", user: old.name || data.name, fence: f.name });
-                else if (!inside && old.fences[f.id]) io.emit("geofenceAlert", { type: "leave", user: old.name || data.name, fence: f.name });
+            io.emit('userOffline', { id: socket.id });
+            io.emit('friendDisconnected', socket.id);
+            
+            if (currentTrip) {
+                if (currentTrip.hostId === socket.id) {
+                    currentTrip = null; 
+                    io.emit('tripData', null);
+                } else {
+                    currentTrip.members = currentTrip.members.filter(m => m.id !== socket.id);
+                    io.emit('tripData', currentTrip);
+                }
             }
-        });
 
-        users.set(socket.id, {
-            name: cleanName(data.name ?? old.name), avatar: data.avatar !== undefined ? safeAvatar(data.avatar) : safeAvatar(old.avatar),
-            lat, lng, weather: typeof data.weather === "string" ? data.weather.slice(0, 50) : old.weather || "",
-            online: true, fences: newFences
-        });
-        
-        socket.broadcast.emit("friendMoved", publicUser(socket.id));
-    });
-
-    socket.on("typing", (isTyping) => {
-        const user = users.get(socket.id); if (!user) return;
-        socket.broadcast.emit("typing", { id: socket.id, name: user.name, isTyping: Boolean(isTyping) });
-    });
-
-    socket.on("chatMessage", (msg) => {
-        if (!validChatMessage(msg)) return;
-        const user = users.get(socket.id);
-        const message = {
-            id: crypto.randomUUID(), senderId: socket.id, name: user?.name || cleanName(msg.name),
-            type: msg.type, data: msg.data, time: new Date().toISOString(), reactions: {},
-            replyTo: msg.replyTo && typeof msg.replyTo === "object" ? { id: String(msg.replyTo.id || "").slice(0, 100), name: cleanName(msg.replyTo.name), type: String(msg.replyTo.type || "text").slice(0, 20), preview: String(msg.replyTo.preview || "").slice(0, 200) } : null
-        };
-        messages.set(message.id, message);
-        while (messages.size > MAX_MESSAGES) messages.delete(messages.keys().next().value);
-        io.emit("chatMessage", message);
-    });
-
-    socket.on("messageReaction", (data = {}) => {
-        const id = String(data.messageId || ""), emoji = typeof data.emoji === "string" ? data.emoji : "";
-        if (!REACTIONS.includes(emoji)) return;
-        const message = messages.get(id); if (!message) return;
-        message.reactions ||= {}; message.reactions[emoji] ||= [];
-        const list = message.reactions[emoji], i = list.indexOf(socket.id);
-        if (i >= 0) list.splice(i, 1); else list.push(socket.id);
-        io.emit("messageReaction", { messageId: id, reactions: message.reactions });
-    });
-
-    socket.on("uploadMemoryPhoto", (data = {}) => {
-        const lat = Number(data.lat), lng = Number(data.lng);
-        if (!validCoord(lat, -90, 90) || !validCoord(lng, -180, 180)) return;
-        if (!validDataUrl(data.image, "image", MAX_MEMORY_DATA)) return; 
-        
-        const user = users.get(socket.id);
-        const pin = { id: `${socket.id}-${Date.now()}-${crypto.randomBytes(3).toString("hex")}`, name: user?.name || cleanName(data.name), lat, lng, image: data.image, time: new Date().toISOString() };
-        memoryPhotos.push(pin); while (memoryPhotos.length > MAX_MEMORY_PHOTOS) memoryPhotos.shift();
-        io.emit("newMemoryPin", pin);
-    });
-
-    // SERVER FIX: Assign Owner ID to Geofence
-    socket.on("addGeofence", (f = {}) => {
-        if (!validCoord(f.lat, -90, 90) || !validCoord(f.lng, -180, 180) || !f.name) return;
-        const radius = Number(f.radius);
-        if (!Number.isFinite(radius) || radius < 10 || radius > 50000) return; 
-
-        const u = users.get(socket.id);
-        const fence = { 
-            id: `${Date.now()}-${crypto.randomBytes(4).toString("hex")}`, 
-            name: cleanName(f.name), 
-            lat: Number(f.lat), lng: Number(f.lng), radius: radius,
-            ownerId: socket.id, 
-            ownerName: u ? u.name : "User" 
-        };
-        geofences.set(fence.id, fence);
-        io.emit("loadGeofences", [...geofences.values()]);
-    });
-
-    // SERVER FIX: Enforce Ownership before deletion
-    socket.on("removeGeofence", (id) => {
-        if(geofences.has(id)) {
-            const fence = geofences.get(id);
-            if (fence.ownerId === socket.id) {
-                geofences.delete(id);
-                io.emit("loadGeofences", [...geofences.values()]);
-            }
+            setTimeout(() => {
+                users.delete(socket.id);
+            }, 5000);
         }
-    });
-
-    socket.on("startTrip", (t = {}) => {
-        if (!validCoord(t.lat, -90, 90) || !validCoord(t.lng, -180, 180)) return;
-        const u = users.get(socket.id);
-        const uName = u ? u.name : "User";
-        activeTrip = { 
-            id: Date.now().toString(), 
-            name: cleanName(t.name) || "Destination", 
-            lat: Number(t.lat), lng: Number(t.lng), 
-            hostId: socket.id, members: [{ id: socket.id, name: uName }]
-        };
-        io.emit("tripData", activeTrip);
-    });
-
-    socket.on("joinTrip", () => {
-        if (activeTrip && !activeTrip.members.some(m => m.id === socket.id)) {
-            const u = users.get(socket.id);
-            activeTrip.members.push({ id: socket.id, name: u ? u.name : "User" });
-            io.emit("tripData", activeTrip);
-        }
-    });
-
-    socket.on("leaveTrip", () => {
-        if (activeTrip) {
-            activeTrip.members = activeTrip.members.filter(m => m.id !== socket.id);
-            if (activeTrip.hostId === socket.id || activeTrip.members.length === 0) activeTrip = null; 
-            io.emit("tripData", activeTrip);
-        }
-    });
-
-    socket.on("disconnect", () => {
-        if (activeTrip) {
-            activeTrip.members = activeTrip.members.filter(m => m.id !== socket.id);
-            if (activeTrip.hostId === socket.id || activeTrip.members.length === 0) activeTrip = null;
-            io.emit("tripData", activeTrip);
-        }
-
-        users.delete(socket.id);
-        socket.broadcast.emit("typing", { id: socket.id, name: "", isTyping: false });
-        socket.broadcast.emit("friendDisconnected", socket.id);
-        io.emit("userOffline", { id: socket.id });
-        io.emit("onlineUsers", [...users.keys()].map(publicUser).filter(Boolean));
     });
 });
 
+// ==========================================
+// 3. START SERVER
+// ==========================================
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Koraput Map running at http://localhost:${PORT}`));
+server.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 Map Server is running on http://localhost:${PORT}`);
+});
