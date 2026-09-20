@@ -112,7 +112,7 @@ function showToast(message, duration = 4000) {
 }
 
 // ==========================================
-// 4. EXTERNAL APIs (Weather, Reverse Geocode, OSRM)
+// 4. EXTERNAL APIs
 // ==========================================
 async function fetchWeather(lat,lng){
     try {
@@ -124,10 +124,6 @@ async function fetchWeather(lat,lng){
 }
 
 async function fetchCity(lat,lng){
-    try {
-        const r = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=en`);
-        if (r.ok) { const d = await r.json(); const c = d.city || d.locality || d.principalSubdivision; if (c) return c; }
-    } catch (e) {}
     try {
         const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}&zoom=10`);
         if (r.ok) { const d = await r.json(); return d.address?.city || d.address?.town || d.address?.county || ""; }
@@ -145,7 +141,7 @@ async function getRoadRoute(from, to, alternatives = false) {
 }
 
 // ==========================================
-// 5. GOOGLE MAPS STYLE LOCATION SEARCH (Dual Engine API)
+// 5. SMART SEARCH (100% FREE - No API Key)
 // ==========================================
 let searchTimeout = null;
 let searchController = null;
@@ -176,7 +172,6 @@ function renderSearchResults(dataArr, isRecent = false) {
         const lng = Number(item.lng); 
 
         let distStr = "";
-        // Calculate Distance dynamically for UI
         if (item.dist !== undefined && item.dist < 999999) {
             distStr = formatDistance(item.dist);
         } else if (myCoords && validCoord(lat, lng)) {
@@ -239,8 +234,7 @@ function setupLocationSearch() {
             return;
         }
 
-        // Fast Debounce to prevent rate-limiting while typing
-        searchTimeout = setTimeout(() => searchPlaces(val), 500); 
+        searchTimeout = setTimeout(() => searchPlaces(val), 300); // Super fast autocomplete
     });
 
     async function searchPlaces(query) {
@@ -250,64 +244,61 @@ function setupLocationSearch() {
 
         try {
             const center = myCoords || map.getCenter();
-            const bounds = map.getBounds();
-            const viewbox = `${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()},${bounds.getSouth()}`;
-
-            let fetchedResults = [];
-
-            // ENGINE 1: Nominatim (High Accuracy & Full Name Matching)
-            try {
-                const nomUrl = `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(query)}&limit=10&countrycodes=in&viewbox=${viewbox}`;
-                const nomRes = await fetch(nomUrl, { signal: searchController.signal, headers: { "Accept-Language": "en" } });
-                const nomData = await nomRes.json();
-                
-                if (nomData && nomData.length > 0) {
-                    fetchedResults = nomData.map(item => {
-                        const parts = (item.display_name || "").split(',');
-                        const name = item.name || parts[0] || "Location";
-                        const addr = parts.length > 1 ? parts.slice(1, 4).join(',').trim() : "Odisha, India";
-                        return { name, address: addr, lat: Number(item.lat), lng: Number(item.lon) };
-                    });
-                }
-            } catch(e) { if(e.name === "AbortError") throw e; }
-
-            // ENGINE 2: Photon Fallback (Partial Autocomplete & Typo Forgiveness)
-            if (fetchedResults.length === 0) {
-                try {
-                    let phoQuery = query;
-                    if(cityName && !query.toLowerCase().includes(cityName.toLowerCase())) phoQuery = `${query} ${cityName}`;
-                    
-                    const phoUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(phoQuery)}&limit=10&lat=${center.lat}&lon=${center.lng}`;
-                    const phoRes = await fetch(phoUrl, { signal: searchController.signal });
-                    const phoData = await phoRes.json();
-                    
-                    if (phoData.features && phoData.features.length > 0) {
-                        fetchedResults = phoData.features.map(f => {
-                            const p = f.properties;
-                            const name = p.name || p.street || p.city || "Location";
-                            const addr = [p.street, p.district, p.city, p.state].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).join(', ');
-                            return { name, address: addr || "India", lat: Number(f.geometry.coordinates[1]), lng: Number(f.geometry.coordinates[0]) };
-                        });
-                    }
-                } catch(e) { if(e.name === "AbortError") throw e; }
+            
+            // PHOTON API is best for free partial/autocomplete text
+            let apiUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=15`;
+            if (center && validCoord(center.lat, center.lng)) {
+                apiUrl += `&lat=${center.lat}&lon=${center.lng}`;
             }
 
-            // Remove pure duplicates but DO NOT alter API relevance sorting
+            const res = await fetch(apiUrl, { signal: searchController.signal });
+            if (!res.ok) throw new Error("Search failed");
+            const data = await res.json();
+            const places = data.features || [];
+
             const unique = [];
             const seen = new Set();
-            
-            fetchedResults.forEach(item => {
-                const key = `${item.name.toLowerCase()}|${item.lat.toFixed(3)}|${item.lng.toFixed(3)}`;
+            const queryLower = query.toLowerCase();
+
+            places.forEach(f => {
+                const item = f.properties;
+                const name = item.name || item.street || item.city;
+                if (!name) return; 
+                
+                const addr = [item.street, item.district, item.city, item.state].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).join(', ');
+                const lat = f.geometry.coordinates[1];
+                const lng = f.geometry.coordinates[0];
+                
+                let dist = 999999;
+                if (center && validCoord(center.lat, center.lng)) dist = distanceKm(center.lat, center.lng, lat, lng);
+
+                // --- SMART SCORING ALGORITHM (Fixes the "Childrens Park" issue) ---
+                let score = 0;
+                const nameLower = name.toLowerCase();
+                const addrLower = addr.toLowerCase();
+
+                // 1. Name Matches (Huge points to beat distance filtering)
+                if (nameLower === queryLower) score += 10000; 
+                else if (nameLower.startsWith(queryLower)) score += 5000;
+                else if (nameLower.includes(queryLower)) score += 1000;
+
+                // 2. City Bias
+                if (cityName && addrLower.includes(cityName.toLowerCase())) score += 500;
+                else if (addrLower.includes("rourkela")) score += 500;
+
+                // 3. Distance Penalty (Closer is still better, but Name Match wins)
+                // -50 points per km away
+                score -= (dist * 50);
+
+                const key = `${nameLower}|${lat.toFixed(3)}|${lng.toFixed(3)}`;
                 if(!seen.has(key)) {
                     seen.add(key);
-                    if (center && validCoord(center.lat, center.lng)) {
-                        item.dist = distanceKm(center.lat, center.lng, item.lat, item.lng);
-                    } else {
-                        item.dist = 999999;
-                    }
-                    unique.push(item);
+                    unique.push({ name, address: addr || item.country || "India", lat, lng, dist, score });
                 }
             });
+
+            // Sort by our custom Smart Score!
+            unique.sort((a, b) => b.score - a.score);
 
             renderSearchResults(unique.slice(0, 7), false);
 
@@ -345,7 +336,7 @@ function showLocationSheet(lat, lng, name, address) {
 }
 
 // ==========================================
-// 6. TRUE LIVE NAVIGATION (1-on-1)
+// 6. LIVE NAVIGATION (1-ON-1)
 // ==========================================
 const Navigation = {
     active: false, targetCoords: null, targetName: '', lastCalcCoords: null, lastRecalcTime: 0,
@@ -367,10 +358,14 @@ const Navigation = {
         if(!myCoords) return showToast("Waiting for GPS...");
         navigationLayer.clearLayers();
         try {
-            const routes = await getRoadRoute(myCoords, {lat, lng}, false);
+            const routes = await getRoadRoute(myCoords, {lat, lng}, true); 
+            for(let i = routes.length - 1; i >= 1; i--) {
+                const altCoords = routes[i].geometry.coordinates.map(c => [c[1], c[0]]);
+                L.polyline(altCoords, { color: '#8d9ba2', weight: 5, opacity: 0.7 }).addTo(navigationLayer);
+            }
             const r = routes[0];
             const coords = r.geometry.coordinates.map(c => [c[1], c[0]]); 
-            L.polyline(coords, { color: '#3b82f6', weight: 6, opacity: 0.9 }).addTo(navigationLayer);
+            L.polyline(coords, { color: '#3b82f6', weight: 6, opacity: 1.0 }).addTo(navigationLayer);
             map.fitBounds(L.polyline(coords).getBounds(), { padding: [50, 50] });
             const distKm = (r.distance / 1000);
             const timeMin = Math.round(r.duration / 60);
@@ -380,7 +375,7 @@ const Navigation = {
 
     async calculate() {
         if(!this.active || !myCoords || !this.targetCoords) return;
-        if(Date.now() - this.lastRecalcTime < 2000) return; // Anti-spam
+        if(Date.now() - this.lastRecalcTime < 2000) return; 
 
         navigationLayer.clearLayers();
         if($("nav-inst-text")) $("nav-inst-text").textContent = "Analyzing best route...";
@@ -664,58 +659,6 @@ function startGPS() {
     }, e => console.warn("GPS error",e), {enableHighAccuracy: true, timeout: 15000, maximumAge: 3000});
 }
 
-function updateFriendBadges(){
-    Object.keys(friendMarkers).forEach(id=>{
-        const f=friendData[id], m=friendMarkers[id]; if(!f||!m) return;
-        let text = f.online===false ? "Offline" : f.weather;
-        if(myCoords && validCoord(f.lat,f.lng)) text += ` | 📍 ${formatDistance(distanceKm(myCoords.lat,myCoords.lng,f.lat,f.lng))}`;
-        m.unbindTooltip(); if(text) m.bindTooltip(text,{permanent:true,direction:"right",className:"weather-badge",offset:[15,0]});
-    });
-}
-
-socket.on("onlineUsers", list=>{ if(Array.isArray(list)) list.forEach(u=>{ if(u.id!==socket.id){ friendData[u.id]={...(friendData[u.id]||{}),...u,online:true}; createOrUpdateFriendMarker(u);} }); updateOnlineUI(); });
-socket.on("userOnline", u=>{ if(u.id!==socket.id){ friendData[u.id]={...(friendData[u.id]||{}),...u,online:true}; createOrUpdateFriendMarker(u); } updateOnlineUI(); });
-socket.on("userOffline", d=>{ if(d?.id && friendData[d.id]){ friendData[d.id].online=false; if(friendMarkers[d.id]) friendMarkers[d.id].setOpacity(0.45); } updateOnlineUI(); });
-socket.on("friendMoved", u=>{ if(u?.id) { createOrUpdateFriendMarker({...u,online:true}); updateOnlineUI(); triggerGroupRouteUpdate(); Navigation.onLiveUpdate(); GroupNavigation.onLiveUpdate(); }});
-socket.on("friendDisconnected", id=>{ if(friendMarkers[id]){map.removeLayer(friendMarkers[id]); delete friendMarkers[id];} delete friendData[id]; updateOnlineUI(); });
-
-function createOrUpdateFriendMarker(u){
-    if(!u?.id || !validCoord(u.lat,u.lng)) return;
-    friendData[u.id] = { id:u.id, name:u.name||"Friend", avatar:u.avatar||DEFAULT_AVATAR, lat:u.lat, lng:u.lng, weather:u.weather||"", online:u.online!==false };
-    let m = friendMarkers[u.id];
-    if(!m){ m=L.marker([u.lat,u.lng],{icon:friendIcon(u.avatar)}).addTo(map); m.on("click",()=>showProfilePopup(u)); friendMarkers[u.id]=m; }
-    else { m.setLatLng([u.lat,u.lng]); m.setOpacity(u.online===false?0.45:1); }
-    updateFriendBadges();
-}
-
-function updateOnlineUI(){
-    const list = $("friends-list"); if(!list) return;
-    list.innerHTML = "";
-    Object.values(friendData).filter(f => f.online !== false).forEach(u => {
-        const dist = myCoords && validCoord(u.lat, u.lng) ? formatDistance(distanceKm(myCoords.lat, myCoords.lng, u.lat, u.lng)) : 'Location unknown';
-        const item = document.createElement("div");
-        item.className = "friend-list-item";
-        item.innerHTML = `<img src="${escapeHTML(u.avatar)}"><div class="friend-info-col"><span class="friend-list-name">${escapeHTML(u.name)}</span><span class="friend-list-dist">${dist}</span></div><div class="status-dot-small"></div>`;
-        item.onclick = () => { map.flyTo([u.lat,u.lng], 16); showProfilePopup(u); }; 
-        list.appendChild(item);
-    });
-}
-
-function showProfilePopup(u) {
-    if($("profile-popup-avatar")) $("profile-popup-avatar").src=u.avatar; 
-    if($("profile-popup-name")) $("profile-popup-name").textContent=u.name;
-    const st = $("profile-popup-status");
-    if(st) { st.textContent = u.online!==false ? "● Online" : "● Offline"; st.style.color = u.online!==false ? "#18d6a3" : "#8fa1aa"; }
-    const dist = myCoords && validCoord(u.lat, u.lng) ? formatDistance(distanceKm(myCoords.lat, myCoords.lng, u.lat, u.lng)) : '--';
-    if($("profile-popup-distance")) $("profile-popup-distance").textContent = dist;
-    
-    if($("profile-nav-btn")) $("profile-nav-btn").onclick = () => { if(validCoord(u.lat, u.lng)) Navigation.start(u.lat, u.lng, u.name); };
-    
-    if($("profile-popup")) $("profile-popup").style.display="flex";
-    if($("profile-focus-btn")) $("profile-focus-btn").onclick=()=>{ map.flyTo([u.lat,u.lng],16); $("profile-popup").style.display="none"; };
-}
-$("profile-popup-close")?.addEventListener("click",()=> { if($("profile-popup")) $("profile-popup").style.display="none"; });
-
 // ==========================================
 // 9. MAP TOOLS & GEOFENCING
 // ==========================================
@@ -887,7 +830,62 @@ function setupAdvancedTools() {
 }
 
 // ==========================================
-// 10. CHAT, VOICE & MEMORIES
+// 10. SOCIAL & FRIENDS SYSTEM
+// ==========================================
+function updateFriendBadges(){
+    Object.keys(friendMarkers).forEach(id=>{
+        const f=friendData[id], m=friendMarkers[id]; if(!f||!m) return;
+        let text = f.online===false ? "Offline" : f.weather;
+        if(myCoords && validCoord(f.lat,f.lng)) text += ` | 📍 ${formatDistance(distanceKm(myCoords.lat,myCoords.lng,f.lat,f.lng))}`;
+        m.unbindTooltip(); if(text) m.bindTooltip(text,{permanent:true,direction:"right",className:"weather-badge",offset:[15,0]});
+    });
+}
+
+socket.on("onlineUsers", list=>{ if(Array.isArray(list)) list.forEach(u=>{ if(u.id!==socket.id){ friendData[u.id]={...(friendData[u.id]||{}),...u,online:true}; createOrUpdateFriendMarker(u);} }); updateOnlineUI(); });
+socket.on("userOnline", u=>{ if(u.id!==socket.id){ friendData[u.id]={...(friendData[u.id]||{}),...u,online:true}; createOrUpdateFriendMarker(u); } updateOnlineUI(); });
+socket.on("userOffline", d=>{ if(d?.id && friendData[d.id]){ friendData[d.id].online=false; if(friendMarkers[d.id]) friendMarkers[d.id].setOpacity(0.45); } updateOnlineUI(); });
+socket.on("friendMoved", u=>{ if(u?.id) { createOrUpdateFriendMarker({...u,online:true}); updateOnlineUI(); triggerGroupRouteUpdate(); Navigation.onLiveUpdate(); GroupNavigation.onLiveUpdate(); }});
+socket.on("friendDisconnected", id=>{ if(friendMarkers[id]){map.removeLayer(friendMarkers[id]); delete friendMarkers[id];} delete friendData[id]; updateOnlineUI(); });
+
+function createOrUpdateFriendMarker(u){
+    if(!u?.id || !validCoord(u.lat,u.lng)) return;
+    friendData[u.id] = { id:u.id, name:u.name||"Friend", avatar:u.avatar||DEFAULT_AVATAR, lat:u.lat, lng:u.lng, weather:u.weather||"", online:u.online!==false };
+    let m = friendMarkers[u.id];
+    if(!m){ m=L.marker([u.lat,u.lng],{icon:friendIcon(u.avatar)}).addTo(map); m.on("click",()=>showProfilePopup(u)); friendMarkers[u.id]=m; }
+    else { m.setLatLng([u.lat,u.lng]); m.setOpacity(u.online===false?0.45:1); }
+    updateFriendBadges();
+}
+
+function updateOnlineUI(){
+    const list = $("friends-list"); if(!list) return;
+    list.innerHTML = "";
+    Object.values(friendData).filter(f => f.online !== false).forEach(u => {
+        const dist = myCoords && validCoord(u.lat, u.lng) ? formatDistance(distanceKm(myCoords.lat, myCoords.lng, u.lat, u.lng)) : 'Location unknown';
+        const item = document.createElement("div");
+        item.className = "friend-list-item";
+        item.innerHTML = `<img src="${escapeHTML(u.avatar)}"><div class="friend-info-col"><span class="friend-list-name">${escapeHTML(u.name)}</span><span class="friend-list-dist">${dist}</span></div><div class="status-dot-small"></div>`;
+        item.onclick = () => { map.flyTo([u.lat,u.lng], 16); showProfilePopup(u); }; 
+        list.appendChild(item);
+    });
+}
+
+function showProfilePopup(u) {
+    if($("profile-popup-avatar")) $("profile-popup-avatar").src=u.avatar; 
+    if($("profile-popup-name")) $("profile-popup-name").textContent=u.name;
+    const st = $("profile-popup-status");
+    if(st) { st.textContent = u.online!==false ? "● Online" : "● Offline"; st.style.color = u.online!==false ? "#18d6a3" : "#8fa1aa"; }
+    const dist = myCoords && validCoord(u.lat, u.lng) ? formatDistance(distanceKm(myCoords.lat, myCoords.lng, u.lat, u.lng)) : '--';
+    if($("profile-popup-distance")) $("profile-popup-distance").textContent = dist;
+    
+    if($("profile-nav-btn")) $("profile-nav-btn").onclick = () => { if(validCoord(u.lat, u.lng)) Navigation.start(u.lat, u.lng, u.name); };
+    
+    if($("profile-popup")) $("profile-popup").style.display="flex";
+    if($("profile-focus-btn")) $("profile-focus-btn").onclick=()=>{ map.flyTo([u.lat,u.lng],16); $("profile-popup").style.display="none"; };
+}
+$("profile-popup-close")?.addEventListener("click",()=> { if($("profile-popup")) $("profile-popup").style.display="none"; });
+
+// ==========================================
+// 11. CHAT, VOICE & MEMORIES
 // ==========================================
 function setupBasicControls(){
     if($("my-location-btn")) $("my-location-btn").onclick = () => { if(myCoords) map.flyTo([myCoords.lat,myCoords.lng], 16); };
@@ -1050,7 +1048,7 @@ function setupMemories(){
 }
 
 // ==========================================
-// 11. INITIALIZATION & AUTH
+// 12. INITIALIZATION & AUTH
 // ==========================================
 function setupJoin(){
     if(currentUser.name && $("join-screen")){ 
