@@ -21,7 +21,7 @@ const friendMarkers = Object.create(null);
 const friendData = Object.create(null);
 
 let locationHistory = [];
-let recentSearches = []; // NEW: For Google Maps style recent searches
+let recentSearches = []; 
 try {
     const stored = localStorage.getItem("koraput_history");
     if (stored) locationHistory = JSON.parse(stored);
@@ -55,7 +55,6 @@ const streetLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.
 const darkLayer = L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", { maxZoom: 20 });
 satelliteLayer.addTo(map);
 
-// Isolated Layer Groups for better cleanup
 const p4LayerGroup = L.layerGroup().addTo(map); 
 const measureLayer = L.layerGroup().addTo(map); 
 const navigationLayer = L.layerGroup().addTo(map); 
@@ -141,7 +140,7 @@ async function getRoadRoute(from, to, alternatives = false) {
 }
 
 // ==========================================
-// 5. NAVIGATION ENGINES (1-on-1 & Group)
+// 5. NAVIGATION ENGINES
 // ==========================================
 const Navigation = {
     active: false, targetCoords: null, targetName: '', lastCalcCoords: null, lastRecalcTime: 0,
@@ -176,7 +175,7 @@ const Navigation = {
 
     async calculate() {
         if(!this.active || !myCoords || !this.targetCoords) return;
-        if(Date.now() - this.lastRecalcTime < 2000) return; // Anti-spam
+        if(Date.now() - this.lastRecalcTime < 2000) return; 
 
         navigationLayer.clearLayers();
         if($("nav-inst-text")) $("nav-inst-text").textContent = "Analyzing best route...";
@@ -334,7 +333,7 @@ if($("group-nav-stop-btn")) $("group-nav-stop-btn").onclick = () => GroupNavigat
 
 
 // ==========================================
-// 6. GOOGLE MAPS STYLE LOCATION SEARCH
+// 6. GOOGLE MAPS STYLE SEARCH (Autocomplete + Distance Sorter)
 // ==========================================
 let searchTimeout = null;
 let searchController = null;
@@ -358,30 +357,34 @@ function renderSearchResults(dataArr, isRecent = false) {
     }
 
     dataArr.forEach(item => {
-        // Google maps UI: Icon on left, info middle, distance bottom of icon
         const icon = isRecent ? '🕒' : '📍';
         const name = item.name;
         const addr = item.address;
         const lat = Number(item.lat);
-        const lng = Number(item.lng); // Handle both .lon and .lng depending on source
+        const lng = Number(item.lng); 
 
         let distStr = "";
-        if(myCoords && validCoord(lat, lng)) {
+        // Google Maps UI: 900 m / 3.4 km rendering
+        if (item.dist !== undefined && item.dist < 999999) {
+            distStr = formatDistance(item.dist);
+        } else if (myCoords && validCoord(lat, lng)) {
             distStr = formatDistance(distanceKm(myCoords.lat, myCoords.lng, lat, lng));
         }
 
         const div = document.createElement("div");
         div.className = "search-item";
-        div.style.cssText = "display:flex; align-items:center; gap:14px; padding:12px 14px; cursor:pointer;";
+        div.style.cssText = "display:flex; align-items:center; gap:16px; padding:12px 16px; cursor:pointer; border-bottom:1px solid rgba(255,255,255,0.05);";
         
         div.innerHTML = `
-            <div style="display:flex; flex-direction:column; align-items:center; min-width:40px;">
-                <div style="font-size:18px; color:#8d9ba2;">${icon}</div>
-                ${distStr ? `<div style="font-size:9px; color:var(--green-bright); margin-top:4px; font-weight:bold;">${distStr}</div>` : ''}
+            <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; min-width:45px;">
+                <div style="width:30px; height:30px; border-radius:50%; background:rgba(255,255,255,0.1); display:flex; align-items:center; justify-content:center; font-size:14px; color:#dce5e8;">
+                    ${icon}
+                </div>
+                ${distStr && !isRecent ? `<div style="font-size:10px; color:var(--green-bright); margin-top:4px; font-weight:600;">${distStr}</div>` : ''}
             </div>
-            <div style="flex:1; min-width:0; border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:8px;">
-                <strong style="display:block; color:#fff; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHTML(name)}</strong>
-                <span style="display:block; color:var(--muted); font-size:11px; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHTML(addr)}</span>
+            <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:2px;">
+                <strong style="color:#fff; font-size:14px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHTML(name)}</strong>
+                <span style="color:var(--muted); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHTML(addr)}</span>
             </div>
         `;
 
@@ -404,7 +407,6 @@ function setupLocationSearch() {
 
     if (!input) return;
 
-    // Show recent searches on focus if empty
     input.addEventListener("focus", () => {
         if(!input.value.trim() && recentSearches.length > 0) {
             if (clearBtn) clearBtn.style.display = "block";
@@ -413,19 +415,21 @@ function setupLocationSearch() {
     });
 
     input.addEventListener("input", (e) => {
-        const val = e.target.value.trim();
+        const val = e.target.value; 
+        const trimmedVal = val.trim();
 
         if (clearBtn) clearBtn.style.display = val ? "block" : "none";
         clearTimeout(searchTimeout);
 
-        if (!val) {
+        if (!trimmedVal) {
             if(recentSearches.length > 0) renderSearchResults(recentSearches, true);
             else if (results) results.style.display = "none";
             if (searchController) searchController.abort();
             return;
         }
 
-        searchTimeout = setTimeout(() => searchPlaces(val), 450);
+        // Fast 300ms timeout for Instant Autocomplete
+        searchTimeout = setTimeout(() => searchPlaces(trimmedVal), 300);
     });
 
     async function searchPlaces(query) {
@@ -434,74 +438,55 @@ function setupLocationSearch() {
         searchController = new AbortController();
 
         try {
-            const center = map.getCenter();
-            const bounds = map.getBounds();
-            const viewbox = [bounds.getWest(), bounds.getNorth(), bounds.getEast(), bounds.getSouth()].join(",");
+            const center = myCoords || map.getCenter();
+            
+            // PHOTON API: Returns partial matches based on GPS bias
+            let apiUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=15`;
+            if (center && validCoord(center.lat, center.lng)) {
+                apiUrl += `&lat=${center.lat}&lon=${center.lng}`;
+            }
 
-            let searchQuery = query;
-            if (cityName) searchQuery = `${query}, ${cityName}, Odisha, India`;
-            else searchQuery = `${query}, Rourkela, Odisha, India`;
-
-            const apiUrl = `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(searchQuery)}&limit=10&countrycodes=in&addressdetails=1&viewbox=${encodeURIComponent(viewbox)}&dedupe=1`;
-
-            const res = await fetch(apiUrl, { signal: searchController.signal, headers: { "Accept-Language": "en" } });
+            const res = await fetch(apiUrl, { signal: searchController.signal });
             if (!res.ok) throw new Error("Search failed");
             const data = await res.json();
-
-            const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-
-            data.forEach(item => {
-                const name = String(item.name || "").toLowerCase();
-                const display = String(item.display_name || "").toLowerCase();
-                const city = String(item.address?.city || item.address?.town || item.address?.municipality || item.address?.county || "").toLowerCase();
-
-                let score = 0;
-                if (name === query.toLowerCase()) score += 200;
-                if (words.every(w => name.includes(w))) score += 150;
-                words.forEach(word => { if (name.includes(word)) score += 50; else if (display.includes(word)) score += 15; });
-                if (city.includes("rourkela")) score += 100;
-                if (display.includes("rourkela")) score += 60;
-                if (display.includes("odisha")) score += 20;
-
-                const lat = Number(item.lat), lon = Number(item.lon);
-                if (validCoord(lat, lon)) {
-                    const distance = distanceKm(center.lat, center.lng, lat, lon);
-                    score += Math.max(0, 50 - Math.min(distance, 50));
-                }
-                item._searchScore = score;
-            });
-
-            data.sort((a, b) => b._searchScore - a._searchScore);
-
-            const filtered = data.filter(item => {
-                const name = String(item.name || "").toLowerCase();
-                const display = String(item.display_name || "").toLowerCase();
-                return words.some(word => name.includes(word) || display.includes(word));
-            });
+            const places = data.features || [];
 
             const unique = [];
             const seen = new Set();
-            filtered.forEach(item => {
-                const key = `${String(item.name || "").toLowerCase()}|${Number(item.lat).toFixed(5)}|${Number(item.lon).toFixed(5)}`;
-                if (!seen.has(key)) { seen.add(key); unique.push(item); }
+
+            places.forEach(f => {
+                const item = f.properties;
+                const name = item.name || item.street || item.city;
+                if (!name) return; 
+                
+                const addr = [item.street, item.district, item.city, item.state].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).join(', ');
+                
+                const lat = f.geometry.coordinates[1];
+                const lng = f.geometry.coordinates[0];
+                
+                let dist = 999999;
+                if (center && validCoord(center.lat, center.lng)) {
+                    dist = distanceKm(center.lat, center.lng, lat, lng);
+                }
+
+                // Distance Constraint: If search query is small ("dee"), ignore global results > 500km away
+                if (dist > 500 && query.length <= 5) return; 
+
+                const key = `${name.toLowerCase()}|${lat.toFixed(3)}|${lng.toFixed(3)}`;
+                if(!seen.has(key)) {
+                    seen.add(key);
+                    unique.push({ name, address: addr || item.country || "India", lat, lng, dist });
+                }
             });
 
-            // Format for render
-            const formattedResults = unique.slice(0, 6).map(item => {
-                const parts = String(item.display_name || "").split(",");
-                return {
-                    name: item.name || parts[0] || "Unknown place",
-                    address: parts.slice(1, 4).join(",").trim(),
-                    lat: item.lat,
-                    lng: item.lon
-                };
-            });
+            // LIVE DISTANCE SORTER (Closest results show at the top)
+            unique.sort((a, b) => a.dist - b.dist);
 
-            renderSearchResults(formattedResults, false);
+            renderSearchResults(unique.slice(0, 7), false);
 
         } catch (e) {
             if (e.name === "AbortError") return;
-            results.innerHTML = `<div style="padding:12px; color:var(--muted); font-size:12px; text-align:center;">Search temporarily unavailable.</div>`;
+            results.innerHTML = `<div style="padding:14px; color:var(--muted); font-size:12px; text-align:center;">Search temporarily unavailable.</div>`;
             results.style.display = "block";
         }
     }
@@ -528,17 +513,8 @@ function showLocationSheet(lat, lng, name, address) {
     if($("sheet-address")) $("sheet-address").textContent = address;
     if($("location-bottom-sheet")) $("location-bottom-sheet").style.transform = "translateY(0)";
     
-    // PREVIEW DIRECTIONS (Static Path)
-    if($("search-direction-btn")) $("search-direction-btn").onclick = () => { 
-        if($("location-bottom-sheet")) $("location-bottom-sheet").style.transform = "translateY(120%)"; 
-        Navigation.previewCustom(lat, lng, name); 
-    };
-    
-    // START NAVIGATION (Live Turn-by-turn)
-    if($("search-start-btn")) $("search-start-btn").onclick = () => { 
-        if($("location-bottom-sheet")) $("location-bottom-sheet").style.transform = "translateY(120%)"; 
-        Navigation.start(lat, lng, name); 
-    };
+    if($("search-direction-btn")) $("search-direction-btn").onclick = () => { if($("location-bottom-sheet")) $("location-bottom-sheet").style.transform = "translateY(120%)"; Navigation.previewCustom(lat, lng, name); };
+    if($("search-start-btn")) $("search-start-btn").onclick = () => { if($("location-bottom-sheet")) $("location-bottom-sheet").style.transform = "translateY(120%)"; Navigation.start(lat, lng, name); };
 }
 
 
@@ -664,7 +640,6 @@ function showProfilePopup(u) {
     if($("profile-focus-btn")) $("profile-focus-btn").onclick=()=>{ map.flyTo([u.lat,u.lng],16); $("profile-popup").style.display="none"; };
 }
 $("profile-popup-close")?.addEventListener("click",()=> { if($("profile-popup")) $("profile-popup").style.display="none"; });
-
 
 // ==========================================
 // 9. MAP TOOLS & GEOFENCING
@@ -867,7 +842,7 @@ async function updateGroupTripRoutes() {
                     const poly = L.polyline(pathCoords, { color: color, weight: 5, opacity: 0.8, className: 'nav-path-animated' });
                     poly.memberId = member.id; poly.addTo(tripRoutesLayer);
                     tripLastFetchedCoords[member.id] = { lat: coords.lat, lng: coords.lng };
-                    tripRoadStats[member.id] = { dist: (r.distance / 1000).toFixed(1), time: Math.round(r.duration / 60) };
+                    tripRoadStats[member.id] = { dist: formatDistance(r.distance / 1000), time: Math.round(r.duration / 60) };
                 }
             } catch(e) {}
         }
