@@ -30,9 +30,8 @@ try {
     if (!Array.isArray(locationHistory)) locationHistory = [];
 } catch(e) { locationHistory = []; }
 
-// ALL LAYERS
-const p4LayerGroup = L.layerGroup().addTo(map); // For Geofences & History
-const measureLayer = L.layerGroup().addTo(map); // Isolated Layer for Measurements
+const p4LayerGroup = L.layerGroup().addTo(map);
+const measureLayer = L.layerGroup().addTo(map);
 const historyPolyline = L.polyline(locationHistory, { color: '#3b82f6', weight: 4, opacity: 0.8, dashArray: '5, 10' }).addTo(p4LayerGroup);
 const navigationLayer = L.layerGroup().addTo(map);
 const tripRoutesLayer = L.layerGroup().addTo(map);
@@ -52,7 +51,6 @@ let currentGeofences = [];
 const memories = new Map();
 let currentGalleryFilter = "all", currentGallerySearch = "", selectedMemoryId = null;
 
-// SEARCH MARKER
 let searchMarker = null;
 
 const $ = id => document.getElementById(id);
@@ -113,7 +111,7 @@ const Navigation = {
     active: false, targetId: null, targetCoords: null,
     async start(friendId) {
         const f = friendData[friendId];
-        if(!f || !validCoord(f.lat, f.lng) || !myCoords) return showToast("Location not available for routing.");
+        if(!f || !validCoord(f.lat, f.lng) || !myCoords) return showToast("❌ GPS location needed for routing.");
         this.active = true; this.targetId = friendId; this.targetCoords = { lat: f.lat, lng: f.lng };
         
         if($("profile-popup")) $("profile-popup").style.display = "none";
@@ -247,7 +245,6 @@ if($("group-nav-close-btn")) $("group-nav-close-btn").onclick = () => { $("group
 if($("group-nav-next-btn")) $("group-nav-next-btn").onclick = () => GroupNavigation.startSelection();
 if($("group-nav-stop-btn")) $("group-nav-stop-btn").onclick = () => GroupNavigation.stop();
 
-
 // ==========================================
 // CORE SYSTEM
 // ==========================================
@@ -265,8 +262,12 @@ socket.on("geofenceAlert", (data) => {
     showToast(`🔔 ${data.user} has ${action} ${data.fence}!`);
 });
 
+// FIXED GPS WITH ERROR HANDLING
 function startGPS() {
-    if(!navigator.geolocation) return;
+    if(!navigator.geolocation) {
+        showToast("❌ Browser does not support GPS");
+        return;
+    }
     navigator.geolocation.watchPosition(async p=>{
         const lat=Number(p.coords.latitude), lng=Number(p.coords.longitude), acc=Number(p.coords.accuracy);
         if(!validCoord(lat,lng)) return;
@@ -314,7 +315,11 @@ function startGPS() {
         triggerGroupRouteUpdate(); 
         Navigation.onLiveUpdate(); 
         GroupNavigation.onLiveUpdate(); 
-    }, e=>console.warn("GPS error",e), {enableHighAccuracy:true,timeout:15000,maximumAge:3000});
+    }, e => {
+        console.warn("GPS error", e);
+        if(e.code === 1) showToast("⚠️ GPS Permission Denied! Please allow Location access.", 6000);
+        else showToast("⚠️ GPS Signal Lost or Weak", 6000);
+    }, {enableHighAccuracy:true,timeout:15000,maximumAge:3000});
 }
 
 function updateFriendBadges(){
@@ -370,14 +375,6 @@ function showProfilePopup(u) {
 }
 $("profile-popup-close")?.addEventListener("click",()=>$("profile-popup").style.display="none");
 
-// ==========================================
-// ADVANCED MAP TOOLS & GEOFENCE MODAL
-// ==========================================
-let geoClickCount = 0;
-let geoClickTimer = null;
-
-window.removeGeofence = (id) => { socket.emit("removeGeofence", id); };
-
 function renderGeofenceList() {
     const list = $("geofence-items");
     list.innerHTML = "";
@@ -403,7 +400,6 @@ function renderGeofenceList() {
     $("geofence-list-modal").style.display = "flex";
 }
 if($("geofence-list-close")) $("geofence-list-close").onclick = () => $("geofence-list-modal").style.display = "none";
-
 
 function setupAdvancedTools() {
     $("measure-btn").onclick = () => {
@@ -594,7 +590,7 @@ async function updateGroupTripRoutes() {
                     tripLastFetchedCoords[member.id] = { lat: coords.lat, lng: coords.lng };
                     tripRoadStats[member.id] = { dist: (r.distance / 1000).toFixed(1), time: Math.round(r.duration / 60) };
                 }
-            } catch(e) { console.warn("Failed to route", member.name); }
+            } catch(e) {}
         }
     });
 
@@ -692,26 +688,6 @@ function setupChat(){
     socket.on("messageReaction", d=>{ const s=msgStore.get(d.messageId); if(s){ const c=s.el.querySelector(".reaction-row"); c.innerHTML=""; Object.keys(d.reactions).forEach(e=>{ if(d.reactions[e].length){ const b=document.createElement("button"); b.className="reaction-chip"; b.textContent=`${e} ${d.reactions[e].length}`; b.onclick=()=>socket.emit("messageReaction",{messageId:d.messageId,emoji:e}); c.appendChild(b);} }); }});
 }
 
-function setupVoice(){
-    const vb=$("voiceButton"); if(!vb)return; let rec=null, chunks=[], isRec=false;
-    vb.onclick=async()=>{
-        if(isRec){rec?.stop();return;} if(!navigator.mediaDevices?.getUserMedia){alert("Mic not supported.");return;}
-        try{
-            const str=await navigator.mediaDevices.getUserMedia({audio:true}); chunks=[];
-            let mt=MediaRecorder.isTypeSupported("audio/webm")?"audio/webm":(MediaRecorder.isTypeSupported("audio/mp4")?"audio/mp4":"");
-            rec=mt?new MediaRecorder(str,{mimeType:mt}):new MediaRecorder(str); isRec=true;
-            vb.textContent="⏹"; vb.style.background="var(--green)"; vb.style.color="#fff";
-            rec.ondataavailable=e=>{if(e.data.size>0)chunks.push(e.data);};
-            rec.onstop=()=>{
-                isRec=false; vb.style.background="transparent"; vb.style.color="var(--muted)"; vb.textContent="🎙️"; str.getTracks().forEach(t=>t.stop());
-                const blob=new Blob(chunks,{type:rec.mimeType||"audio/webm"}); if(blob.size===0)return; if(blob.size>MAX_CHAT_FILE)return alert("Voice too large.");
-                const r=new FileReader(); r.onload=()=>socket.emit("chatMessage",{name:currentUser.name,type:"audio",data:String(r.result),replyTo:null}); r.readAsDataURL(blob);
-            };
-            rec.start();
-        }catch{alert("Mic access denied.");}
-    };
-}
-
 function setupMemories(){
     $("phase3-gallery-btn").onclick = () => { $("phase3-memory-overlay").style.display="block"; renderMemGallery(); };
     $("phase3-memory-close").onclick = () => $("phase3-memory-overlay").style.display="none";
@@ -789,71 +765,81 @@ function setupJoin(){
 }
 
 // ==========================================
-// NEW: GOOGLE SEARCH & OSRM DIRECTIONS
+// FIXED: GOOGLE SEARCH (WITH INTERVAL)
 // ==========================================
 function setupGoogleSearch() {
     const searchInput = $("location-search-input");
-    if (!searchInput || !window.google) return;
+    if (!searchInput) return;
     
-    const autocomplete = new google.maps.places.Autocomplete(searchInput);
-    
-    autocomplete.addListener("place_changed", () => {
-        const place = autocomplete.getPlace();
-        if (!place.geometry || !place.geometry.location) {
-            showToast("❌ Location not found.");
-            return;
-        }
-        
-        const lat = place.geometry.location.lat();
-        const lng = place.geometry.location.lng();
-        const placeName = place.name;
-        
-        if (searchMarker) map.removeLayer(searchMarker);
-        navigationLayer.clearLayers();
-        if($("nav-panel")) $("nav-panel").style.display = "none";
-        
-        map.flyTo([lat, lng], 16);
-        
-        const popupContent = `
-            <div style="text-align:center; padding:5px; min-width:140px;">
-                <strong style="color:var(--green-bright); font-size:14px; display:block; margin-bottom:8px;">📍 ${escapeHTML(placeName)}</strong>
-                <button id="search-nav-btn" style="width:100%; padding:8px; border:none; border-radius:8px; background:var(--green); color:white; font-weight:bold; cursor:pointer;">
-                    🚗 Directions
-                </button>
-            </div>
-        `;
-        
-        searchMarker = L.marker([lat, lng], {
-            icon: L.divIcon({ className: 'geofence-marker', html: '📍', iconSize: [30, 30], iconAnchor: [15, 30] })
-        }).addTo(map);
-        
-        searchMarker.bindPopup(popupContent).openPopup();
-        
-        searchMarker.on("popupopen", () => {
-            const btn = document.getElementById("search-nav-btn");
-            if (btn) {
-                btn.onclick = () => {
-                    searchMarker.closePopup();
-                    startSearchNavigation(lat, lng, placeName);
-                };
-            }
-        });
-        
-        $("clear-search-btn").style.display = "block";
-    });
-
-    $("clear-search-btn").onclick = () => {
-        searchInput.value = "";
-        $("clear-search-btn").style.display = "none";
-        if (searchMarker) { map.removeLayer(searchMarker); searchMarker = null; }
-        navigationLayer.clearLayers();
-        if($("nav-panel")) $("nav-panel").style.display = "none";
-        if (myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
-    };
+    // Clear search and reset map
+    const clearBtn = $("clear-search-btn");
+    if (clearBtn) {
+        clearBtn.onclick = () => {
+            searchInput.value = "";
+            clearBtn.style.display = "none";
+            if (searchMarker) { map.removeLayer(searchMarker); searchMarker = null; }
+            navigationLayer.clearLayers();
+            if($("nav-panel")) $("nav-panel").style.display = "none";
+            if (myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
+        };
+    }
     
     searchInput.addEventListener('input', () => {
-        $("clear-search-btn").style.display = searchInput.value.length > 0 ? "block" : "none";
+        if (clearBtn) clearBtn.style.display = searchInput.value.length > 0 ? "block" : "none";
     });
+
+    // Wait for Google Maps API to load properly
+    const checkGoogle = setInterval(() => {
+        if (window.google && window.google.maps && window.google.maps.places) {
+            clearInterval(checkGoogle);
+            
+            const autocomplete = new google.maps.places.Autocomplete(searchInput);
+            autocomplete.addListener("place_changed", () => {
+                const place = autocomplete.getPlace();
+                if (!place.geometry || !place.geometry.location) {
+                    showToast("❌ Location not found.");
+                    return;
+                }
+                
+                const lat = place.geometry.location.lat();
+                const lng = place.geometry.location.lng();
+                const placeName = place.name;
+                
+                if (searchMarker) map.removeLayer(searchMarker);
+                navigationLayer.clearLayers();
+                if($("nav-panel")) $("nav-panel").style.display = "none";
+                
+                map.flyTo([lat, lng], 16);
+                
+                const popupContent = `
+                    <div style="text-align:center; padding:5px; min-width:140px;">
+                        <strong style="color:var(--green-bright); font-size:14px; display:block; margin-bottom:8px;">📍 ${escapeHTML(placeName)}</strong>
+                        <button id="search-nav-btn" style="width:100%; padding:8px; border:none; border-radius:8px; background:var(--green); color:white; font-weight:bold; cursor:pointer;">
+                            🚗 Directions
+                        </button>
+                    </div>
+                `;
+                
+                searchMarker = L.marker([lat, lng], {
+                    icon: L.divIcon({ className: 'geofence-marker', html: '📍', iconSize: [30, 30], iconAnchor: [15, 30] })
+                }).addTo(map);
+                
+                searchMarker.bindPopup(popupContent).openPopup();
+                
+                searchMarker.on("popupopen", () => {
+                    const btn = document.getElementById("search-nav-btn");
+                    if (btn) {
+                        btn.onclick = () => {
+                            searchMarker.closePopup();
+                            startSearchNavigation(lat, lng, placeName);
+                        };
+                    }
+                });
+                
+                if (clearBtn) clearBtn.style.display = "block";
+            });
+        }
+    }, 500); // Checks every half second
 }
 
 async function startSearchNavigation(destLat, destLng, destName) {
