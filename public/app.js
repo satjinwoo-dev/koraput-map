@@ -21,11 +21,16 @@ const friendMarkers = Object.create(null);
 const friendData = Object.create(null);
 
 let locationHistory = [];
+let recentSearches = []; // NEW: For Google Maps style recent searches
 try {
     const stored = localStorage.getItem("koraput_history");
     if (stored) locationHistory = JSON.parse(stored);
     if (!Array.isArray(locationHistory)) locationHistory = [];
-} catch(e) { locationHistory = []; }
+
+    const storedSearches = localStorage.getItem("koraput_recent_searches");
+    if (storedSearches) recentSearches = JSON.parse(storedSearches);
+    if (!Array.isArray(recentSearches)) recentSearches = [];
+} catch(e) { locationHistory = []; recentSearches = []; }
 
 // Map State
 let mapActionMode = null; 
@@ -72,6 +77,11 @@ function distanceKm(a,b,c,d){
     if(!validCoord(a,b) || !validCoord(c,d)) return 0;
     const p = Math.PI/180, a1 = 0.5 - Math.cos((c-a)*p)/2 + Math.cos(a*p)*Math.cos(c*p)*Math.sin((d-b)*p/2)**2;
     return (12742 * Math.asin(Math.sqrt(a1)));
+}
+
+function formatDistance(distKm) {
+    if(distKm < 1) return `${Math.round(distKm * 1000)} m`;
+    return `${distKm.toFixed(1)} km`;
 }
 
 function escapeHTML(v) { return String(v ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;"); }
@@ -158,9 +168,9 @@ const Navigation = {
             const coords = r.geometry.coordinates.map(c => [c[1], c[0]]); 
             L.polyline(coords, { color: '#3b82f6', weight: 6, opacity: 0.9 }).addTo(navigationLayer);
             map.fitBounds(L.polyline(coords).getBounds(), { padding: [50, 50] });
-            const distKm = (r.distance / 1000).toFixed(1);
+            const distKm = (r.distance / 1000);
             const timeMin = Math.round(r.duration / 60);
-            showToast(`🚗 Path to ${name}: ${distKm} km • ⏱️ ${timeMin} mins`, 5000);
+            showToast(`🚗 Path to ${name}: ${formatDistance(distKm)} • ⏱️ ${timeMin} mins`, 5000);
         } catch (e) { showToast("Failed to preview route."); }
     },
 
@@ -180,7 +190,7 @@ const Navigation = {
             
             L.polyline(coords, { color: '#3b82f6', weight: 6, opacity: 0.9, className: 'nav-path-animated' }).addTo(navigationLayer);
             
-            if($("nav-dist")) $("nav-dist").textContent = `${(r.distance / 1000).toFixed(1)} km`;
+            if($("nav-dist")) $("nav-dist").textContent = formatDistance(r.distance / 1000);
             const mins = Math.round(r.duration / 60);
             if($("nav-time")) $("nav-time").textContent = mins > 60 ? `${Math.floor(mins/60)}h ${mins%60}m` : `${mins} min`;
             
@@ -324,10 +334,68 @@ if($("group-nav-stop-btn")) $("group-nav-stop-btn").onclick = () => GroupNavigat
 
 
 // ==========================================
-// 6. LOCATION SEARCH (Smart Rourkela/Map-Area Search)
+// 6. GOOGLE MAPS STYLE LOCATION SEARCH
 // ==========================================
 let searchTimeout = null;
 let searchController = null;
+
+function saveRecentSearch(place) {
+    recentSearches = recentSearches.filter(p => p.name !== place.name);
+    recentSearches.unshift(place);
+    if(recentSearches.length > 5) recentSearches.pop();
+    localStorage.setItem("koraput_recent_searches", JSON.stringify(recentSearches));
+}
+
+function renderSearchResults(dataArr, isRecent = false) {
+    const results = $("location-search-results");
+    if(!results) return;
+    results.innerHTML = "";
+
+    if(!dataArr || dataArr.length === 0) {
+        results.innerHTML = `<div style="padding:14px; color:var(--muted); font-size:12px; text-align:center;">No matching place found.</div>`;
+        results.style.display = "block";
+        return;
+    }
+
+    dataArr.forEach(item => {
+        // Google maps UI: Icon on left, info middle, distance bottom of icon
+        const icon = isRecent ? '🕒' : '📍';
+        const name = item.name;
+        const addr = item.address;
+        const lat = Number(item.lat);
+        const lng = Number(item.lng); // Handle both .lon and .lng depending on source
+
+        let distStr = "";
+        if(myCoords && validCoord(lat, lng)) {
+            distStr = formatDistance(distanceKm(myCoords.lat, myCoords.lng, lat, lng));
+        }
+
+        const div = document.createElement("div");
+        div.className = "search-item";
+        div.style.cssText = "display:flex; align-items:center; gap:14px; padding:12px 14px; cursor:pointer;";
+        
+        div.innerHTML = `
+            <div style="display:flex; flex-direction:column; align-items:center; min-width:40px;">
+                <div style="font-size:18px; color:#8d9ba2;">${icon}</div>
+                ${distStr ? `<div style="font-size:9px; color:var(--green-bright); margin-top:4px; font-weight:bold;">${distStr}</div>` : ''}
+            </div>
+            <div style="flex:1; min-width:0; border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:8px;">
+                <strong style="display:block; color:#fff; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHTML(name)}</strong>
+                <span style="display:block; color:var(--muted); font-size:11px; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHTML(addr)}</span>
+            </div>
+        `;
+
+        div.onclick = () => {
+            results.style.display = "none";
+            $("location-search-input").value = name;
+            if(!isRecent) saveRecentSearch({name, address: addr, lat, lng});
+            showLocationSheet(lat, lng, name, addr);
+        };
+        results.appendChild(div);
+    });
+
+    results.style.display = "block";
+}
 
 function setupLocationSearch() {
     const input = $("location-search-input");
@@ -336,17 +404,23 @@ function setupLocationSearch() {
 
     if (!input) return;
 
+    // Show recent searches on focus if empty
+    input.addEventListener("focus", () => {
+        if(!input.value.trim() && recentSearches.length > 0) {
+            if (clearBtn) clearBtn.style.display = "block";
+            renderSearchResults(recentSearches, true);
+        }
+    });
+
     input.addEventListener("input", (e) => {
         const val = e.target.value.trim();
 
-        if (clearBtn) {
-            clearBtn.style.display = val ? "block" : "none";
-        }
-
+        if (clearBtn) clearBtn.style.display = val ? "block" : "none";
         clearTimeout(searchTimeout);
 
         if (!val) {
-            if (results) results.style.display = "none";
+            if(recentSearches.length > 0) renderSearchResults(recentSearches, true);
+            else if (results) results.style.display = "none";
             if (searchController) searchController.abort();
             return;
         }
@@ -356,90 +430,44 @@ function setupLocationSearch() {
 
     async function searchPlaces(query) {
         if (!results) return;
-
         if (searchController) searchController.abort();
         searchController = new AbortController();
 
         try {
             const center = map.getCenter();
             const bounds = map.getBounds();
-
-            const viewbox = [
-                bounds.getWest(),
-                bounds.getNorth(),
-                bounds.getEast(),
-                bounds.getSouth()
-            ].join(",");
+            const viewbox = [bounds.getWest(), bounds.getNorth(), bounds.getEast(), bounds.getSouth()].join(",");
 
             let searchQuery = query;
+            if (cityName) searchQuery = `${query}, ${cityName}, Odisha, India`;
+            else searchQuery = `${query}, Rourkela, Odisha, India`;
 
-            if (cityName) {
-                searchQuery = `${query}, ${cityName}, Odisha, India`;
-            } else {
-                searchQuery = `${query}, Rourkela, Odisha, India`;
-            }
+            const apiUrl = `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(searchQuery)}&limit=10&countrycodes=in&addressdetails=1&viewbox=${encodeURIComponent(viewbox)}&dedupe=1`;
 
-            const apiUrl =
-                `https://nominatim.openstreetmap.org/search` +
-                `?format=jsonv2` +
-                `&q=${encodeURIComponent(searchQuery)}` +
-                `&limit=15` +
-                `&countrycodes=in` +
-                `&addressdetails=1` +
-                `&viewbox=${encodeURIComponent(viewbox)}` +
-                `&dedupe=1`;
-
-            const res = await fetch(apiUrl, {
-                signal: searchController.signal,
-                headers: {
-                    "Accept-Language": "en"
-                }
-            });
-
+            const res = await fetch(apiUrl, { signal: searchController.signal, headers: { "Accept-Language": "en" } });
             if (!res.ok) throw new Error("Search failed");
-
             const data = await res.json();
 
-            const words = query
-                .toLowerCase()
-                .split(/\s+/)
-                .filter(Boolean);
+            const words = query.toLowerCase().split(/\s+/).filter(Boolean);
 
             data.forEach(item => {
                 const name = String(item.name || "").toLowerCase();
                 const display = String(item.display_name || "").toLowerCase();
-
-                const city =
-                    String(
-                        item.address?.city ||
-                        item.address?.town ||
-                        item.address?.municipality ||
-                        item.address?.county ||
-                        ""
-                    ).toLowerCase();
+                const city = String(item.address?.city || item.address?.town || item.address?.municipality || item.address?.county || "").toLowerCase();
 
                 let score = 0;
-
                 if (name === query.toLowerCase()) score += 200;
                 if (words.every(w => name.includes(w))) score += 150;
-
-                words.forEach(word => {
-                    if (name.includes(word)) score += 50;
-                    else if (display.includes(word)) score += 15;
-                });
-
+                words.forEach(word => { if (name.includes(word)) score += 50; else if (display.includes(word)) score += 15; });
                 if (city.includes("rourkela")) score += 100;
                 if (display.includes("rourkela")) score += 60;
                 if (display.includes("odisha")) score += 20;
 
-                const lat = Number(item.lat);
-                const lon = Number(item.lon);
-
+                const lat = Number(item.lat), lon = Number(item.lon);
                 if (validCoord(lat, lon)) {
                     const distance = distanceKm(center.lat, center.lng, lat, lon);
                     score += Math.max(0, 50 - Math.min(distance, 50));
                 }
-
                 item._searchScore = score;
             });
 
@@ -453,62 +481,27 @@ function setupLocationSearch() {
 
             const unique = [];
             const seen = new Set();
-
             filtered.forEach(item => {
                 const key = `${String(item.name || "").toLowerCase()}|${Number(item.lat).toFixed(5)}|${Number(item.lon).toFixed(5)}`;
-                if (!seen.has(key)) {
-                    seen.add(key);
-                    unique.push(item);
-                }
+                if (!seen.has(key)) { seen.add(key); unique.push(item); }
             });
 
-            results.innerHTML = "";
-
-            if (!unique.length) {
-                results.innerHTML = `<div style="padding:14px; color:var(--muted); font-size:12px; text-align:center;">No matching place found in this area.</div>`;
-                results.style.display = "block";
-                return;
-            }
-
-            unique.slice(0, 6).forEach(item => {
+            // Format for render
+            const formattedResults = unique.slice(0, 6).map(item => {
                 const parts = String(item.display_name || "").split(",");
-                const name = item.name || parts[0] || "Unknown place";
-                const address = parts.slice(1, 4).join(",").trim();
-
-                const div = document.createElement("div");
-                div.className = "search-item";
-
-                div.innerHTML = `
-                    <div style="display:flex; align-items:flex-start; gap:10px;">
-                        <div style="width:32px; height:32px; min-width:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; background:rgba(59,130,246,.14); color:#60a5fa; font-size:16px;">📍</div>
-                        <div style="min-width:0; flex:1;">
-                            <strong style="display:block; color:#fff; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-                                ${escapeHTML(name)}
-                            </strong>
-                            <span style="display:block; margin-top:3px; color:var(--muted); font-size:10px; line-height:1.35; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-                                ${escapeHTML(address)}
-                            </span>
-                        </div>
-                    </div>
-                `;
-
-                div.onclick = () => {
-                    results.style.display = "none";
-                    input.value = name;
-                    const lat = Number(item.lat);
-                    const lng = Number(item.lon);
-                    showLocationSheet(lat, lng, name, item.display_name);
+                return {
+                    name: item.name || parts[0] || "Unknown place",
+                    address: parts.slice(1, 4).join(",").trim(),
+                    lat: item.lat,
+                    lng: item.lon
                 };
-
-                results.appendChild(div);
             });
 
-            results.style.display = "block";
+            renderSearchResults(formattedResults, false);
 
         } catch (e) {
             if (e.name === "AbortError") return;
-            console.warn("Location search error:", e);
-            results.innerHTML = `<div style="padding:12px; color:var(--muted); font-size:12px;">Search temporarily unavailable.</div>`;
+            results.innerHTML = `<div style="padding:12px; color:var(--muted); font-size:12px; text-align:center;">Search temporarily unavailable.</div>`;
             results.style.display = "block";
         }
     }
@@ -517,25 +510,10 @@ function setupLocationSearch() {
         clearBtn.onclick = () => {
             input.value = "";
             clearBtn.style.display = "none";
-
-            if (results) {
-                results.innerHTML = "";
-                results.style.display = "none";
-            }
-
-            if (searchController) {
-                searchController.abort();
-            }
-
-            if (searchPlace) {
-                map.removeLayer(searchPlace);
-                searchPlace = null;
-            }
-
-            if ($("location-bottom-sheet")) {
-                $("location-bottom-sheet").style.transform = "translateY(120%)";
-            }
-
+            if (results) { results.innerHTML = ""; results.style.display = "none"; }
+            if (searchController) searchController.abort();
+            if (searchPlace) { map.removeLayer(searchPlace); searchPlace = null; }
+            if ($("location-bottom-sheet")) $("location-bottom-sheet").style.transform = "translateY(120%)";
             Navigation.stop();
         };
     }
@@ -550,8 +528,17 @@ function showLocationSheet(lat, lng, name, address) {
     if($("sheet-address")) $("sheet-address").textContent = address;
     if($("location-bottom-sheet")) $("location-bottom-sheet").style.transform = "translateY(0)";
     
-    if($("search-direction-btn")) $("search-direction-btn").onclick = () => { if($("location-bottom-sheet")) $("location-bottom-sheet").style.transform = "translateY(120%)"; Navigation.previewCustom(lat, lng, name); };
-    if($("search-start-btn")) $("search-start-btn").onclick = () => { if($("location-bottom-sheet")) $("location-bottom-sheet").style.transform = "translateY(120%)"; Navigation.start(lat, lng, name); };
+    // PREVIEW DIRECTIONS (Static Path)
+    if($("search-direction-btn")) $("search-direction-btn").onclick = () => { 
+        if($("location-bottom-sheet")) $("location-bottom-sheet").style.transform = "translateY(120%)"; 
+        Navigation.previewCustom(lat, lng, name); 
+    };
+    
+    // START NAVIGATION (Live Turn-by-turn)
+    if($("search-start-btn")) $("search-start-btn").onclick = () => { 
+        if($("location-bottom-sheet")) $("location-bottom-sheet").style.transform = "translateY(120%)"; 
+        Navigation.start(lat, lng, name); 
+    };
 }
 
 
@@ -630,7 +617,7 @@ function updateFriendBadges(){
     Object.keys(friendMarkers).forEach(id=>{
         const f=friendData[id], m=friendMarkers[id]; if(!f||!m) return;
         let text = f.online===false ? "Offline" : f.weather;
-        if(myCoords && validCoord(f.lat,f.lng)) text += ` | 📍 ${distanceKm(myCoords.lat,myCoords.lng,f.lat,f.lng).toFixed(1)} km`;
+        if(myCoords && validCoord(f.lat,f.lng)) text += ` | 📍 ${formatDistance(distanceKm(myCoords.lat,myCoords.lng,f.lat,f.lng))}`;
         m.unbindTooltip(); if(text) m.bindTooltip(text,{permanent:true,direction:"right",className:"weather-badge",offset:[15,0]});
     });
 }
@@ -654,7 +641,7 @@ function updateOnlineUI(){
     const list = $("friends-list"); if(!list) return;
     list.innerHTML = "";
     Object.values(friendData).filter(f => f.online !== false).forEach(u => {
-        const dist = myCoords && validCoord(u.lat, u.lng) ? `${distanceKm(myCoords.lat, myCoords.lng, u.lat, u.lng).toFixed(1)} km away` : 'Location unknown';
+        const dist = myCoords && validCoord(u.lat, u.lng) ? formatDistance(distanceKm(myCoords.lat, myCoords.lng, u.lat, u.lng)) : 'Location unknown';
         const item = document.createElement("div");
         item.className = "friend-list-item";
         item.innerHTML = `<img src="${escapeHTML(u.avatar)}"><div class="friend-info-col"><span class="friend-list-name">${escapeHTML(u.name)}</span><span class="friend-list-dist">${dist}</span></div><div class="status-dot-small"></div>`;
@@ -668,7 +655,7 @@ function showProfilePopup(u) {
     if($("profile-popup-name")) $("profile-popup-name").textContent=u.name;
     const st = $("profile-popup-status");
     if(st) { st.textContent = u.online!==false ? "● Online" : "● Offline"; st.style.color = u.online!==false ? "#18d6a3" : "#8fa1aa"; }
-    const dist = myCoords && validCoord(u.lat, u.lng) ? `${distanceKm(myCoords.lat, myCoords.lng, u.lat, u.lng).toFixed(1)} km` : '--';
+    const dist = myCoords && validCoord(u.lat, u.lng) ? formatDistance(distanceKm(myCoords.lat, myCoords.lng, u.lat, u.lng)) : '--';
     if($("profile-popup-distance")) $("profile-popup-distance").textContent = dist;
     
     if($("profile-nav-btn")) $("profile-nav-btn").onclick = () => { if(validCoord(u.lat, u.lng)) Navigation.start(u.lat, u.lng, u.name); };
@@ -677,6 +664,7 @@ function showProfilePopup(u) {
     if($("profile-focus-btn")) $("profile-focus-btn").onclick=()=>{ map.flyTo([u.lat,u.lng],16); $("profile-popup").style.display="none"; };
 }
 $("profile-popup-close")?.addEventListener("click",()=> { if($("profile-popup")) $("profile-popup").style.display="none"; });
+
 
 // ==========================================
 // 9. MAP TOOLS & GEOFENCING
@@ -767,11 +755,13 @@ function setupAdvancedTools() {
                     const mainCoords = fastest.geometry.coordinates.map(c => [c[1], c[0]]);
                     L.polyline(mainCoords, {color: '#f59e0b', weight: 5, className: 'nav-path-animated'}).addTo(measureLayer);
                     
-                    const d1 = (fastest.distance / 1000).toFixed(1); const t1 = Math.round(fastest.duration / 60);
+                    const d1 = formatDistance(fastest.distance / 1000); 
+                    const t1 = Math.round(fastest.duration / 60);
                     if (fastest !== shortest) {
-                        const d2 = (shortest.distance / 1000).toFixed(1); const t2 = Math.round(shortest.duration / 60);
-                        showToast(`🏎️ Fastest: ${d1}km (${t1}m) | 📏 Shortest: ${d2}km (${t2}m)`, 6000);
-                    } else { showToast(`📏 Route: ${d1} km • ⏱️ ${t1} mins`, 5000); }
+                        const d2 = formatDistance(shortest.distance / 1000); 
+                        const t2 = Math.round(shortest.duration / 60);
+                        showToast(`🏎️ Fastest: ${d1} (${t1}m) | 📏 Shortest: ${d2} (${t2}m)`, 6000);
+                    } else { showToast(`📏 Route: ${d1} • ⏱️ ${t1} mins`, 5000); }
                     map.fitBounds(L.polyline(mainCoords).getBounds(), { padding: [50, 50] });
 
                 } catch(error) {
@@ -895,12 +885,12 @@ function updateTripPanel() {
     const isMember = currentTrip.members.some(m => m.id === socket.id);
 
     if(myCoords && currentUser.name && isMember) {
-        const stats = tripRoadStats[socket.id] || { dist: distanceKm(myCoords.lat, myCoords.lng, currentTrip.lat, currentTrip.lng).toFixed(1), time: '--' };
-        list.innerHTML += `<div class="trip-member"><div><img src="${escapeHTML(currentUser.avatar)}"> You</div> <span style="text-align:right;">${stats.dist} km<br><small style="color:var(--muted)">${stats.time} min</small></span></div>`;
+        const stats = tripRoadStats[socket.id] || { dist: formatDistance(distanceKm(myCoords.lat, myCoords.lng, currentTrip.lat, currentTrip.lng)), time: '--' };
+        list.innerHTML += `<div class="trip-member"><div><img src="${escapeHTML(currentUser.avatar)}"> You</div> <span style="text-align:right;">${stats.dist}<br><small style="color:var(--muted)">${stats.time} min</small></span></div>`;
     }
     Object.values(friendData).filter(f => f.online !== false && currentTrip.members.some(m => m.id === f.id)).forEach(f => {
-        const stats = tripRoadStats[f.id] || { dist: distanceKm(f.lat, f.lng, currentTrip.lat, currentTrip.lng).toFixed(1), time: '--' };
-        list.innerHTML += `<div class="trip-member"><div><img src="${escapeHTML(f.avatar)}"> ${escapeHTML(f.name)}</div> <span style="text-align:right;">${stats.dist} km<br><small style="color:var(--muted)">${stats.time} min</small></span></div>`;
+        const stats = tripRoadStats[f.id] || { dist: formatDistance(distanceKm(f.lat, f.lng, currentTrip.lat, currentTrip.lng)), time: '--' };
+        list.innerHTML += `<div class="trip-member"><div><img src="${escapeHTML(f.avatar)}"> ${escapeHTML(f.name)}</div> <span style="text-align:right;">${stats.dist}<br><small style="color:var(--muted)">${stats.time} min</small></span></div>`;
     });
 }
 
