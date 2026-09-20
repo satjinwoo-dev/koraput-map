@@ -18,20 +18,63 @@
         #map { position: fixed; inset: 0; z-index: 1; }
         .leaflet-control-attribution { display: none; }
 
-        /* GOOGLE AUTOCOMPLETE DROPDOWN DARK THEME */
-        .pac-container { 
-            z-index: 99999 !important; 
-            background: #071018 !important; 
-            border: 1px solid rgba(255,255,255,0.1) !important; 
-            border-radius: 14px !important; 
-            box-shadow: 0 12px 40px rgba(0,0,0,0.6) !important; 
-            margin-top: 8px; 
-            font-family: inherit !important; 
+        /* ================================
+           GOOGLE PLACES SEARCH FIX & DARK THEME
+           ================================ */
+        .pac-container {
+            z-index: 10000 !important;
+            background: #071018 !important;
+            border: 1px solid rgba(255,255,255,0.1) !important;
+            width: auto !important;
+            min-width: 320px !important;
+            max-width: 520px !important;
+            border-radius: 14px !important;
+            overflow: hidden !important;
+            padding: 4px 0 !important;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.6) !important;
+            margin-top: 8px;
+            font-family: inherit !important;
         }
-        .pac-item { border-top: 1px solid rgba(255, 255, 255, 0.05) !important; color: #8d9ba2 !important; padding: 12px 16px !important; cursor: pointer !important; }
-        .pac-item:hover, .pac-item.pac-item-selected { background: rgba(59, 130, 246, 0.15) !important; }
-        .pac-item-query { color: #fff !important; font-size: 14px !important; font-weight: 600 !important; margin-right: 5px; }
-        .pac-icon { display: none !important; } /* Hides broken default icons */
+        .pac-item {
+            display: block !important;
+            width: 100% !important;
+            height: auto !important;
+            min-height: 44px !important;
+            margin: 0 !important;
+            padding: 12px 16px !important;
+            border-radius: 0 !important;
+            border: 0 !important;
+            border-top: 1px solid rgba(255, 255, 255, 0.05) !important;
+            box-sizing: border-box !important;
+            text-align: left !important;
+            white-space: nowrap !important;
+            overflow: hidden !important;
+            color: #8d9ba2 !important;
+            cursor: pointer !important;
+        }
+        .pac-item:hover, .pac-item.pac-item-selected {
+            background: rgba(59, 130, 246, 0.15) !important;
+            border-radius: 0 !important;
+        }
+        .pac-item-query {
+            display: inline !important;
+            font-size: 14px !important;
+            font-weight: 600 !important;
+            color: #fff !important;
+        }
+        .pac-icon {
+            display: none !important; /* Hides broken default icons */
+        }
+        .pac-matched {
+            font-weight: 700 !important;
+            color: var(--green-bright) !important;
+        }
+        /* Prevent global button styles from affecting Places */
+        .pac-container button,
+        .pac-container .pac-item {
+            transform: none !important;
+            box-shadow: none !important;
+        }
 
         #top-header { position: fixed; top: 14px; left: 14px; right: 14px; z-index: 1000; display: flex; justify-content: space-between; pointer-events: none; }
         .brand-card { pointer-events: auto; display: flex; align-items: center; gap: 10px; padding: 9px 13px; background: rgba(7, 16, 24, 0.88); border: 1px solid var(--border); border-radius: 15px; backdrop-filter: blur(14px); box-shadow: var(--shadow); }
@@ -296,7 +339,6 @@
     <button id="map-style-btn" class="map-tool-button" title="Map style">◈</button>
     <button id="phase3-gallery-btn" class="map-tool-button" title="Memory Gallery">🖼️</button>
     
-    <!-- NEW: Group Navigation Button -->
     <button id="group-nav-btn" class="map-tool-button" title="Group Navigation">🗺️</button>
     
     <button id="measure-btn" class="map-tool-button" title="Measure Distance">📏</button>
