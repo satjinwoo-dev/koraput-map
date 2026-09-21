@@ -8,8 +8,9 @@ const MAX_CHAT_FILE = 5 * 1024 * 1024;
 const MAX_MEMORY_FILE = 8 * 1024 * 1024;
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
+// FIX 3: preferCanvas ko false kar diya taaki dotted line animate ho sake
 const map = L.map("map", { 
-    zoomControl: false, preferCanvas: true, minZoom: 3, maxBounds: [[-90, -180], [90, 180]], maxBoundsViscosity: 1.0
+    zoomControl: false, preferCanvas: false, minZoom: 3, maxBounds: [[-90, -180], [90, 180]], maxBoundsViscosity: 1.0
 }).setView(DEFAULT_CENTER, 13);
 
 const satelliteLayer = L.tileLayer("https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}", { maxZoom: 20, subdomains: ["mt0","mt1","mt2","mt3"] });
@@ -47,6 +48,9 @@ let pendingMemoryImage = null;
 let measurePoints = [];
 let currentTrip = null;
 let tripMarker = null;
+
+// FIX 1: Geofence crash theek karne ke liye variables yahan add kar diye
+let geoClickCount = 0, geoClickTimer = null;
 
 let currentGeofences = []; 
 const memories = new Map();
@@ -169,8 +173,10 @@ const Navigation = {
         }
     }
 };
+
 if($("nav-recalc-btn")) $("nav-recalc-btn").onclick = () => Navigation.calculate();
-if($("nav-exit-btn")) $("nav-exit-btn").onclick = () => Navigation.stop();
+// FIX 2: nav-exit-btn ki jagah nav-panel-exit kar diya
+if($("nav-panel-exit")) $("nav-panel-exit").onclick = () => Navigation.stop();
 
 const GroupNavigation = {
     active: false, destination: null, selectedMembers: [], layerGroup: L.layerGroup().addTo(map),
