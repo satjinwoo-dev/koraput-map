@@ -880,13 +880,13 @@ function setupGoogleSearch() {
 }
 
 // ==========================================
-// PREMIUM ANIMATED NAVIGATION (VIDEO MATCH)
+// REAL GPS PREMIUM NAVIGATION (NO SIMULATION)
 // ==========================================
-let navAnimationTimer = null;
+let navWatchId = null;
 
 function startSearchNavigation(destLat, destLng, destName, routeData) {
     navigationLayer.clearLayers();
-    if(navAnimationTimer) clearInterval(navAnimationTimer);
+    if(navWatchId) navigator.geolocation.clearWatch(navWatchId);
     
     // Hide regular UI elements
     if($("map-tools")) $("map-tools").style.display = "none";
@@ -901,12 +901,12 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
     const leg = routeData.legs[0];
     const fullPath = routeData.overview_path.map(p => [p.lat(), p.lng()]);
     
-    // 1. Dotted Blue Path (Aage ka rasta)
+    // 1. Dotted Blue Path (Full Route)
     const dottedPath = L.polyline(fullPath, {
         color: '#4f46e5', weight: 8, opacity: 0.7, className: 'anim-dash'
     }).addTo(navigationLayer);
 
-    // 2. Solid Green Path (Peeche chhoota hua rasta)
+    // 2. Solid Green Path (Traveled Route behind user)
     const solidPath = L.polyline([], {
         color: '#10b981', weight: 8, opacity: 1, className: 'solid-trail'
     }).addTo(navigationLayer);
@@ -918,7 +918,10 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
         iconSize: [40, 40],
         iconAnchor: [20, 20]
     });
-    const userMarker = L.marker(fullPath[0], {icon: userIcon, zIndexOffset: 1000}).addTo(navigationLayer);
+    
+    // Place initial marker at user's real GPS position
+    const startPos = myCoords ? [myCoords.lat, myCoords.lng] : fullPath[0];
+    const userMarker = L.marker(startPos, {icon: userIcon, zIndexOffset: 1000}).addTo(navigationLayer);
     
     // Destination Pin
     L.marker([destLat, destLng], { icon: L.divIcon({className: 'geofence-marker', html: '📍'}) }).addTo(navigationLayer);
@@ -945,56 +948,46 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
     if($("nav-status-text")) $("nav-status-text").textContent = "Ready";
     if($("nav-speed-val")) $("nav-speed-val").textContent = "0";
 
-    // 5. THE ANIMATION LOOP (Clicking Start)
+    // 5. ASLI GPS TRACKING LOOP (Real-time movement)
     startBtn.onclick = () => {
         if(startBtn.textContent === "Start Navigation") {
             startBtn.textContent = "Navigating...";
-            startBtn.style.background = "#064e3b"; 
+            startBtn.style.background = "#064e3b"; // Dark green Active state
             startBtn.style.color = "#10b981";
             if($("nav-status-text")) $("nav-status-text").textContent = "En route";
             
-            let currentIndex = 0;
-            map.flyTo(fullPath[0], 18, {animate: true, duration: 1.5});
+            if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 18, {animate: true, duration: 1.5});
             
-            setTimeout(() => {
-                navAnimationTimer = setInterval(() => {
-                    if(currentIndex < fullPath.length - 1) {
-                        currentIndex++;
-                        const pos = fullPath[currentIndex];
-                        
-                        // Move Marker
-                        userMarker.setLatLng(pos);
-                        
-                        // Update Solid Green Trail
-                        const completedCoords = fullPath.slice(0, currentIndex + 1);
-                        solidPath.setLatLngs(completedCoords);
-                        
-                        // Pan Map
-                        map.panTo(pos, {animate: true, duration: 0.8});
-                        
-                        // Update Fake Speedometer (20-45 km/h)
-                        const speed = Math.floor(Math.random() * (45 - 20 + 1) + 20);
-                        if($("nav-speed-val")) $("nav-speed-val").textContent = speed;
-                        
-                        // Update Distance
-                        const progress = currentIndex / fullPath.length;
-                        const remainingKm = (leg.distance.value / 1000) * (1 - progress);
-                        if($("nav-total-dist")) $("nav-total-dist").innerHTML = remainingKm.toFixed(1) + "<small style='font-size:12px;color:#9ca3af;'> km</small>";
+            // Start reading real phone GPS
+            if (navigator.geolocation) {
+                let traveledCoords = [];
+                
+                navWatchId = navigator.geolocation.watchPosition((pos) => {
+                    const currentLat = pos.coords.latitude;
+                    const currentLng = pos.coords.longitude;
+                    const currentPos = [currentLat, currentLng];
+                    
+                    // Calculate Real Speed (meters/second to KM/H)
+                    const speedMps = pos.coords.speed || 0; 
+                    const speedKmh = Math.round(speedMps * 3.6);
+                    if($("nav-speed-val")) $("nav-speed-val").textContent = speedKmh;
 
-                        // Update Instruction Step dynamically
-                        const stepIndex = Math.floor(progress * leg.steps.length);
-                        if(leg.steps[stepIndex]) {
-                            const instructionText = leg.steps[stepIndex].instructions.replace(/<[^>]*>?/gm, '');
-                            if($("nav-step-text")) $("nav-step-text").textContent = instructionText;
-                            
-                            let icon = "↑";
-                            if(instructionText.toLowerCase().includes("right")) icon = "↗";
-                            else if(instructionText.toLowerCase().includes("left")) icon = "↖";
-                            if($("nav-turn-icon")) $("nav-turn-icon").textContent = icon;
-                        }
+                    // Move Marker & Pan Map with user
+                    userMarker.setLatLng(currentPos);
+                    map.panTo(currentPos);
 
-                    } else {
-                        clearInterval(navAnimationTimer);
+                    // Draw Solid Green Line exactly where user walked/drove
+                    traveledCoords.push(L.latLng(currentLat, currentLng));
+                    solidPath.setLatLngs(traveledCoords);
+
+                    // Update Real Remaining Distance dynamically
+                    const remainingMeters = map.distance(currentPos, [destLat, destLng]);
+                    const remainingKm = (remainingMeters / 1000).toFixed(1);
+                    if($("nav-total-dist")) $("nav-total-dist").innerHTML = remainingKm + "<small style='font-size:12px;color:#9ca3af;'> km</small>";
+
+                    // Stop if Arrived (within 30 meters)
+                    if(remainingMeters < 30) {
+                        navigator.geolocation.clearWatch(navWatchId);
                         startBtn.textContent = "Arrived";
                         startBtn.style.background = "#3b82f6";
                         startBtn.style.color = "white";
@@ -1003,14 +996,16 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
                         if($("nav-step-text")) $("nav-step-text").textContent = "Destination reached!";
                         if($("nav-turn-icon")) $("nav-turn-icon").textContent = "🏁";
                     }
-                }, 800); // Animation speed
-            }, 1500);
+                }, (err) => {
+                    console.error("GPS Error during nav:", err);
+                }, { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 });
+            }
         }
     };
     
     // Reset/Exit Route
     resetBtn.onclick = () => {
-        if(navAnimationTimer) clearInterval(navAnimationTimer);
+        if(navWatchId) navigator.geolocation.clearWatch(navWatchId);
         navigationLayer.clearLayers();
         if(ui) ui.style.display = "none";
         
