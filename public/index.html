@@ -269,6 +269,18 @@
             .p3-view-card { border-radius: 16px; width: 100%; }
             #search-container { width: calc(100vw - 28px); }
         }
+
+        /* ================================
+           VIDEO MATCH PREMIUM NAVIGATION UI
+           ================================ */
+        .nav-badge { background: #111928; border: 1px solid rgba(255,255,255,0.08); padding: 8px 16px; border-radius: 999px; color: white; font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
+        .live-dot { width: 8px; height: 8px; background: #10b981; border-radius: 50%; box-shadow: 0 0 10px #10b981; }
+        
+        .anim-dash { stroke-dasharray: 0.1, 20 !important; stroke-linecap: round !important; stroke-linejoin: round !important; animation: flow 1s linear infinite; }
+        @keyframes flow { from { stroke-dashoffset: 20; } to { stroke-dashoffset: 0; } }
+        .solid-trail { stroke-linecap: round !important; stroke-linejoin: round !important; }
+        
+        .nav-avatar-marker { background: #111928; border: 2px solid #6366f1; border-radius: 50%; color: white; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 15px rgba(0,0,0,0.6); overflow: hidden; }
     </style>
 </head>
 <body>
@@ -276,14 +288,55 @@
 <div id="toast-container"></div>
 <div id="map"></div>
 
-<!-- 1-ON-1 NAVIGATION PANEL -->
-<div id="nav-panel">
-    <div class="nav-header">🧭 Navigating to <span id="nav-title-name" style="margin-left:4px;">Friend</span></div>
-    <div class="nav-stats" id="nav-stats">🚗 -- km &nbsp; ⏱️ -- min</div>
-    <div class="nav-instructions" id="nav-instructions">Calculating best route...</div>
-    <div class="nav-actions">
-        <button id="nav-recalc-btn" type="button">🔄 Recalculate</button>
-        <button id="nav-exit-btn" type="button">❌ Exit Route</button>
+<!-- PREMIUM NAVIGATION UI (VIDEO MATCH) -->
+<div id="premium-nav-ui" style="display:none; position:fixed; inset:0; z-index:2500; pointer-events:none;">
+    
+    <!-- Top Badges -->
+    <div style="position:absolute; top:16px; left:16px; right:16px; display:flex; justify-content:space-between; pointer-events:auto;">
+        <div class="nav-badge"><span class="live-dot"></span> Live</div>
+        <div class="nav-badge" id="nav-eta-badge">ETA -- min</div>
+    </div>
+
+    <!-- Top Instruction Card -->
+    <div id="nav-instruction-card" style="position:absolute; top:65px; left:16px; right:16px; background:#111928; border-radius:18px; padding:18px; display:flex; align-items:center; gap:16px; box-shadow:0 15px 35px rgba(0,0,0,0.6); pointer-events:auto; border:1px solid rgba(255,255,255,0.08);">
+        <div id="nav-turn-icon" style="width:52px; height:52px; background:#1f2937; border-radius:14px; display:flex; align-items:center; justify-content:center; font-size:24px; color:#818cf8; font-weight:bold;">↑</div>
+        <div style="flex:1;">
+            <div id="nav-step-dist" style="color:#9ca3af; font-size:12px; font-weight:600; margin-bottom:4px;">-- m</div>
+            <div id="nav-step-text" style="color:white; font-size:17px; font-weight:700; line-height:1.2;">Calculating route...</div>
+        </div>
+    </div>
+
+    <!-- Speedometer -->
+    <div id="nav-speedometer" style="position:absolute; bottom:180px; left:16px; width:68px; height:68px; background:#111928; border-radius:50%; display:flex; flex-direction:column; align-items:center; justify-content:center; border:1px solid rgba(255,255,255,0.08); box-shadow:0 10px 25px rgba(0,0,0,0.5); pointer-events:auto;">
+        <strong id="nav-speed-val" style="color:white; font-size:24px; font-weight:800; line-height:1;">0</strong>
+        <span style="color:#9ca3af; font-size:9px; font-weight:700; margin-top:2px;">KM/H</span>
+    </div>
+
+    <!-- Compass -->
+    <div style="position:absolute; bottom:180px; right:16px; width:48px; height:48px; background:#111928; border-radius:50%; display:flex; align-items:center; justify-content:center; border:1px solid rgba(255,255,255,0.08); box-shadow:0 10px 25px rgba(0,0,0,0.5); pointer-events:auto;">
+        <span style="color:#ef4444; font-size:18px;">🧭</span>
+    </div>
+
+    <!-- Bottom Sheet -->
+    <div id="nav-bottom-sheet" style="position:absolute; bottom:0; left:0; right:0; background:#0f172a; padding:24px; border-top-left-radius:24px; border-top-right-radius:24px; border-top:1px solid rgba(255,255,255,0.08); pointer-events:auto; box-shadow:0 -10px 40px rgba(0,0,0,0.6);">
+        <div style="display:flex; justify-content:space-between; margin-bottom:24px;">
+            <div>
+                <div style="color:#9ca3af; font-size:10px; font-weight:700; letter-spacing:1px; margin-bottom:6px;">DISTANCE</div>
+                <div style="color:white; font-size:22px; font-weight:800;" id="nav-total-dist">--</div>
+            </div>
+            <div>
+                <div style="color:#9ca3af; font-size:10px; font-weight:700; letter-spacing:1px; margin-bottom:6px;">ARRIVING</div>
+                <div style="color:white; font-size:22px; font-weight:800;" id="nav-arrival-time">--:--</div>
+            </div>
+            <div>
+                <div style="color:#9ca3af; font-size:10px; font-weight:700; letter-spacing:1px; margin-bottom:6px;">STATUS</div>
+                <div style="color:white; font-size:17px; font-weight:700; padding-top:4px;" id="nav-status-text">Ready</div>
+            </div>
+        </div>
+        <div style="display:flex; gap:12px;">
+            <button id="nav-start-btn" style="flex:2; background:#10b981; color:#064e3b; border:none; padding:16px; border-radius:16px; font-size:16px; font-weight:800; cursor:pointer; transition:0.2s;">Start Navigation</button>
+            <button id="nav-exit-btn" style="flex:1; background:#1e293b; color:white; border:none; padding:16px; border-radius:16px; font-size:16px; font-weight:700; cursor:pointer;">Reset</button>
+        </div>
     </div>
 </div>
 
