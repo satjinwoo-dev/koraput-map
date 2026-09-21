@@ -880,47 +880,148 @@ function setupGoogleSearch() {
 }
 
 // ==========================================
-// START TURN-BY-TURN NAVIGATION (GOOGLE)
+// PREMIUM ANIMATED NAVIGATION (VIDEO MATCH)
 // ==========================================
+let navAnimationTimer = null;
+
 function startSearchNavigation(destLat, destLng, destName, routeData) {
     navigationLayer.clearLayers();
-    if($("nav-panel")) $("nav-panel").style.display = "flex";
-    if($("nav-title-name")) $("nav-title-name").textContent = destName;
+    if(navAnimationTimer) clearInterval(navAnimationTimer);
     
-    const coords = routeData.overview_path.map(p => [p.lat(), p.lng()]);
-    const path = L.polyline(coords, { color: '#18d6a3', weight: 6, opacity: 0.9, className: 'nav-path-animated' }).addTo(navigationLayer);
-    L.marker([destLat, destLng], { icon: L.divIcon({className: 'geofence-marker', html: '🎯'}) }).addTo(navigationLayer);
+    // Hide regular UI elements
+    if($("map-tools")) $("map-tools").style.display = "none";
+    if($("search-container")) $("search-container").style.display = "none";
+    if($("top-header")) $("top-header").style.display = "none";
+    if($("bottom-info")) $("bottom-info").style.display = "none";
+    if($("chat-toggle-btn")) $("chat-toggle-btn").style.display = "none";
     
-    map.fitBounds(path.getBounds(), { padding: [50, 50] });
+    const ui = $("premium-nav-ui");
+    if(ui) ui.style.display = "block";
 
     const leg = routeData.legs[0];
-    if($("nav-stats")) $("nav-stats").innerHTML = `🚗 ${leg.distance.text} &nbsp; ⏱️ ${leg.duration.text}`;
+    const fullPath = routeData.overview_path.map(p => [p.lat(), p.lng()]);
     
-    // Yahan undefined ki jagah asli instructions aayenge
-    let instHTML = "";
-    if(leg.steps) {
-        leg.steps.slice(0, 6).forEach(s => {
-            instHTML += `<div style="padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.05); font-size:12px; line-height:1.4;">🔸 ${s.instructions}</div>`;
-        });
-    }
-    if($("nav-instructions")) $("nav-instructions").innerHTML = instHTML || "Follow the highlighted route on the map.";
+    // 1. Dotted Blue Path (Aage ka rasta)
+    const dottedPath = L.polyline(fullPath, {
+        color: '#4f46e5', weight: 8, opacity: 0.7, className: 'anim-dash'
+    }).addTo(navigationLayer);
+
+    // 2. Solid Green Path (Peeche chhoota hua rasta)
+    const solidPath = L.polyline([], {
+        color: '#10b981', weight: 8, opacity: 1, className: 'solid-trail'
+    }).addTo(navigationLayer);
+
+    // 3. User Avatar Marker
+    const userIcon = L.divIcon({
+        className: 'nav-avatar-marker',
+        html: '<img src="satyam.png" style="width:100%;height:100%;object-fit:cover;">',
+        iconSize: [40, 40],
+        iconAnchor: [20, 20]
+    });
+    const userMarker = L.marker(fullPath[0], {icon: userIcon, zIndexOffset: 1000}).addTo(navigationLayer);
     
-    $("nav-exit-btn").onclick = () => {
-        navigationLayer.clearLayers();
-        $("nav-panel").style.display = "none";
-        if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
+    // Destination Pin
+    L.marker([destLat, destLng], { icon: L.divIcon({className: 'geofence-marker', html: '📍'}) }).addTo(navigationLayer);
+
+    // 4. Set Initial UI Data
+    if($("nav-total-dist")) $("nav-total-dist").innerHTML = leg.distance.text.replace(" km", "<small style='font-size:12px;color:#9ca3af;'> km</small>");
+    if($("nav-eta-badge")) $("nav-eta-badge").textContent = "ETA " + leg.duration.text;
+    
+    const arrivalTime = new Date(Date.now() + leg.duration.value * 1000);
+    if($("nav-arrival-time")) $("nav-arrival-time").innerHTML = arrivalTime.toLocaleTimeString([], {hour: 'numeric', minute:'2-digit', hour12: true});
+    
+    if($("nav-step-text")) $("nav-step-text").textContent = leg.steps[0].instructions.replace(/<[^>]*>?/gm, ''); 
+    if($("nav-step-dist")) $("nav-step-dist").textContent = leg.steps[0].distance.text;
+
+    map.fitBounds(dottedPath.getBounds(), { paddingBottomRight: [0, 350], paddingTopLeft: [50, 150] });
+
+    // Buttons
+    const startBtn = $("nav-start-btn");
+    const resetBtn = $("nav-exit-btn");
+    
+    startBtn.textContent = "Start Navigation";
+    startBtn.style.background = "#10b981";
+    startBtn.style.color = "#064e3b";
+    if($("nav-status-text")) $("nav-status-text").textContent = "Ready";
+    if($("nav-speed-val")) $("nav-speed-val").textContent = "0";
+
+    // 5. THE ANIMATION LOOP (Clicking Start)
+    startBtn.onclick = () => {
+        if(startBtn.textContent === "Start Navigation") {
+            startBtn.textContent = "Navigating...";
+            startBtn.style.background = "#064e3b"; 
+            startBtn.style.color = "#10b981";
+            if($("nav-status-text")) $("nav-status-text").textContent = "En route";
+            
+            let currentIndex = 0;
+            map.flyTo(fullPath[0], 18, {animate: true, duration: 1.5});
+            
+            setTimeout(() => {
+                navAnimationTimer = setInterval(() => {
+                    if(currentIndex < fullPath.length - 1) {
+                        currentIndex++;
+                        const pos = fullPath[currentIndex];
+                        
+                        // Move Marker
+                        userMarker.setLatLng(pos);
+                        
+                        // Update Solid Green Trail
+                        const completedCoords = fullPath.slice(0, currentIndex + 1);
+                        solidPath.setLatLngs(completedCoords);
+                        
+                        // Pan Map
+                        map.panTo(pos, {animate: true, duration: 0.8});
+                        
+                        // Update Fake Speedometer (20-45 km/h)
+                        const speed = Math.floor(Math.random() * (45 - 20 + 1) + 20);
+                        if($("nav-speed-val")) $("nav-speed-val").textContent = speed;
+                        
+                        // Update Distance
+                        const progress = currentIndex / fullPath.length;
+                        const remainingKm = (leg.distance.value / 1000) * (1 - progress);
+                        if($("nav-total-dist")) $("nav-total-dist").innerHTML = remainingKm.toFixed(1) + "<small style='font-size:12px;color:#9ca3af;'> km</small>";
+
+                        // Update Instruction Step dynamically
+                        const stepIndex = Math.floor(progress * leg.steps.length);
+                        if(leg.steps[stepIndex]) {
+                            const instructionText = leg.steps[stepIndex].instructions.replace(/<[^>]*>?/gm, '');
+                            if($("nav-step-text")) $("nav-step-text").textContent = instructionText;
+                            
+                            let icon = "↑";
+                            if(instructionText.toLowerCase().includes("right")) icon = "↗";
+                            else if(instructionText.toLowerCase().includes("left")) icon = "↖";
+                            if($("nav-turn-icon")) $("nav-turn-icon").textContent = icon;
+                        }
+
+                    } else {
+                        clearInterval(navAnimationTimer);
+                        startBtn.textContent = "Arrived";
+                        startBtn.style.background = "#3b82f6";
+                        startBtn.style.color = "white";
+                        if($("nav-status-text")) $("nav-status-text").textContent = "Arrived";
+                        if($("nav-speed-val")) $("nav-speed-val").textContent = "0";
+                        if($("nav-step-text")) $("nav-step-text").textContent = "Destination reached!";
+                        if($("nav-turn-icon")) $("nav-turn-icon").textContent = "🏁";
+                    }
+                }, 800); // Animation speed
+            }, 1500);
+        }
     };
     
-    $("nav-recalc-btn").onclick = () => {
-        if(!myCoords || !window.google) return;
-        const ds = new google.maps.DirectionsService();
-        ds.route({
-            origin: new google.maps.LatLng(myCoords.lat, myCoords.lng),
-            destination: new google.maps.LatLng(destLat, destLng),
-            travelMode: 'DRIVING'
-        }, (res, status) => {
-            if(status === 'OK' && res.routes.length > 0) startSearchNavigation(destLat, destLng, destName, res.routes[0]);
-        });
+    // Reset/Exit Route
+    resetBtn.onclick = () => {
+        if(navAnimationTimer) clearInterval(navAnimationTimer);
+        navigationLayer.clearLayers();
+        if(ui) ui.style.display = "none";
+        
+        // Restore regular UI elements
+        if($("map-tools")) $("map-tools").style.display = "flex";
+        if($("search-container")) $("search-container").style.display = "flex";
+        if($("top-header")) $("top-header").style.display = "flex";
+        if($("bottom-info")) $("bottom-info").style.display = "flex";
+        if($("chat-toggle-btn")) $("chat-toggle-btn").style.display = "flex";
+        
+        if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
     };
 }
 
