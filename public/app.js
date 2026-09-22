@@ -1038,53 +1038,84 @@ let incomingIceCandidates = [];
 let callDialog = null;
 let activeCallBtn = null;
 
-const rtcConfig = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
+// FIX 1: WhatsApp Jaisa TURN (Relay) Server for Jio/Airtel strict networks
+const rtcConfig = { 
+    iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun.cloudflare.com:3478" },
+        { 
+            urls: "turn:openrelay.metered.ca:80", 
+            username: "openrelayproject", 
+            credential: "openrelayproject" 
+        },
+        { 
+            urls: "turn:openrelay.metered.ca:443", 
+            username: "openrelayproject", 
+            credential: "openrelayproject" 
+        },
+        { 
+            urls: "turn:openrelay.metered.ca:443?transport=tcp", 
+            username: "openrelayproject", 
+            credential: "openrelayproject" 
+        }
+    ] 
+};
+
+// FIX 2: Mobile Safari aur Chrome ke liye strict audio routing
+function attachAudioTrack(event) {
+    let audio = document.getElementById("remote-audio");
+    if(!audio) {
+        audio = document.createElement("audio");
+        audio.id = "remote-audio";
+        audio.autoplay = true;
+        audio.playsInline = true; // Mobile ke liye zaruri
+        audio.hidden = true;
+        document.body.appendChild(audio);
+    }
+    
+    if (event.streams && event.streams[0]) {
+        audio.srcObject = event.streams[0];
+    } else {
+        audio.srcObject = new MediaStream([event.track]);
+    }
+    
+    // Promise ko force handle karna
+    audio.play().catch(e => {
+        console.log("Audio play error, forcing play:", e);
+        // Agar browser autoplay block kare, toh document par click event laga do
+        document.body.addEventListener('click', () => { audio.play(); }, { once: true });
+    });
+}
 
 function initCallButton(u) {
     const callBtn = $("profile-call-btn");
     if (!callBtn) return;
     
-    // Purane clicks hatane ke liye naya clone
     const newBtn = callBtn.cloneNode(true);
     callBtn.parentNode.replaceChild(newBtn, callBtn);
     
     newBtn.onclick = async () => {
-        // OFFLINE CALL: Agar tera internet band hai ya dost offline hai
         if (!navigator.onLine || u.online === false) {
             const phone = prompt(`No Internet or Friend is offline.\nEnter mobile number to dial via SIM:`);
             if (phone) window.location.href = `tel:${phone.trim()}`;
             return;
         }
 
-        // ONLINE WEBRTC CALL
         try {
             localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
             peerConnection = new RTCPeerConnection(rtcConfig);
             localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
-            peerConnection.ontrack = (event) => {
-                let audio = $("remote-audio");
-                if(!audio) {
-                    audio = document.createElement("audio");
-                    audio.id = "remote-audio";
-                    audio.hidden = true;
-                    document.body.appendChild(audio);
-                }
-                audio.srcObject = event.streams[0];
-                audio.play().catch(e => console.log("Audio play error:", e));
-            };
+            peerConnection.ontrack = attachAudioTrack; // Naya audio function call
 
             peerConnection.onicecandidate = (event) => {
                 if (event.candidate) {
-                    // ICE candidate alag se bhejo (Taki signal mix na ho)
                     socket.emit("call-user", { to: u.id, signal: { type: "ice", candidate: event.candidate }, name: currentUser.name });
                 }
             };
 
             const offer = await peerConnection.createOffer();
             await peerConnection.setLocalDescription(offer);
-            
-            // Offer alag se bhejo
             socket.emit("call-user", { to: u.id, signal: { type: "offer", sdp: offer }, name: currentUser.name });
             
             showToast(`📞 Calling ${u.name}...`, 5000);
@@ -1096,9 +1127,7 @@ function initCallButton(u) {
     };
 }
 
-// INCOMING CALL HANDLER (Custom UI - No blocking)
 socket.on("incoming-call", async (data) => {
-    // 1. Agar Call start hone ka Offer aaya hai
     if (data.signal.type === "offer") {
         if (peerConnection) {
             socket.emit("end-call", { to: data.from });
@@ -1108,7 +1137,6 @@ socket.on("incoming-call", async (data) => {
         incomingIceCandidates = [];
         if (callDialog) callDialog.remove();
         
-        // Naya Beautiful Call Popup (Jo code ko block nahi karega)
         callDialog = document.createElement('div');
         callDialog.style.cssText = "position:fixed;top:70px;left:50%;transform:translateX(-50%);background:rgba(15,23,42,0.98);padding:24px;border:1px solid #18d6a3;border-radius:20px;z-index:9999;box-shadow:0 15px 40px rgba(0,0,0,0.7);color:white;text-align:center;backdrop-filter:blur(10px);min-width:280px;animation:modalIn 0.4s ease;";
         callDialog.innerHTML = `
@@ -1122,7 +1150,6 @@ socket.on("incoming-call", async (data) => {
         `;
         document.body.appendChild(callDialog);
 
-        // Jab user 'Accept' dabaye
         document.getElementById("accept-call-btn").onclick = async () => {
             if (callDialog) callDialog.remove();
             callDialog = null;
@@ -1132,17 +1159,7 @@ socket.on("incoming-call", async (data) => {
                 peerConnection = new RTCPeerConnection(rtcConfig);
                 localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
-                peerConnection.ontrack = (event) => {
-                    let audio = $("remote-audio");
-                    if(!audio) {
-                        audio = document.createElement("audio");
-                        audio.id = "remote-audio";
-                        audio.hidden = true;
-                        document.body.appendChild(audio);
-                    }
-                    audio.srcObject = event.streams[0];
-                    audio.play().catch(e => console.log("Audio error:", e));
-                };
+                peerConnection.ontrack = attachAudioTrack; // Naya audio function call
 
                 peerConnection.onicecandidate = (event) => {
                     if (event.candidate) {
@@ -1159,33 +1176,28 @@ socket.on("incoming-call", async (data) => {
                 
                 showActiveCallUI(() => socket.emit("end-call", { to: data.from }));
 
-                // Background mein ruke huye ICE signals ab lagao
                 incomingIceCandidates.forEach(async (c) => {
                     try { await peerConnection.addIceCandidate(new RTCIceCandidate(c)); } catch(e){}
                 });
                 incomingIceCandidates = [];
                 
             } catch (e) {
-                showToast("❌ Mic error or permission denied.");
+                showToast("❌ Mic error.");
                 socket.emit("end-call", { to: data.from });
                 endLocalCall();
             }
         };
 
-        // Jab user 'Decline' dabaye
         document.getElementById("reject-call-btn").onclick = () => {
             if (callDialog) callDialog.remove();
             callDialog = null;
             socket.emit("end-call", { to: data.from });
         };
 
-    } 
-    // 2. Agar piche se ICE Signal aaya hai (Isse audio mix nahi hoga)
-    else if (data.signal.type === "ice") {
+    } else if (data.signal.type === "ice") {
         if (peerConnection && peerConnection.remoteDescription) {
             try { await peerConnection.addIceCandidate(new RTCIceCandidate(data.signal.candidate)); } catch(e){}
         } else {
-            // Agar pehle signal aagaya aur user ne accept nahi kiya, toh queue mein daalo
             incomingIceCandidates.push(data.signal.candidate);
         }
     }
@@ -1205,7 +1217,6 @@ socket.on("call-ended", () => {
     showToast("📴 Call Ended.");
 });
 
-// UI Helper: Floating 'End Call' Button
 function showActiveCallUI(endFn) {
     if (activeCallBtn) return;
     activeCallBtn = document.createElement("button");
@@ -1218,7 +1229,6 @@ function showActiveCallUI(endFn) {
     };
 }
 
-// Memory Clear function
 function endLocalCall() {
     if (activeCallBtn) { activeCallBtn.remove(); activeCallBtn = null; }
     if (callDialog) { callDialog.remove(); callDialog = null; }
@@ -1227,6 +1237,46 @@ function endLocalCall() {
     incomingIceCandidates = [];
 }
 
+// ==========================================
+// PWA APP INSTALL BUTTON LOGIC
+// ==========================================
+let deferredPrompt;
+window.addEventListener('beforeinstallprompt', (e) => {
+    // Browser ka default popup roko
+    e.preventDefault();
+    deferredPrompt = e;
+    
+    // Apna custom button dikhao
+    const installBtn = $("install-app-btn");
+    if (installBtn) installBtn.style.display = 'flex';
+});
+
+window.addEventListener('DOMContentLoaded', () => {
+    const installBtn = $("install-app-btn");
+    if (installBtn) {
+        installBtn.onclick = async () => {
+            if (deferredPrompt) {
+                // Install ka option popup karo
+                deferredPrompt.prompt();
+                const { outcome } = await deferredPrompt.userChoice;
+                if (outcome === 'accepted') {
+                    installBtn.style.display = 'none'; // Download ke baad gayab kar do
+                }
+                deferredPrompt = null;
+            }
+        };
+    }
+    
+    // Agar app already install ho chuka hai, toh button hata do
+    if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true) {
+        if (installBtn) installBtn.style.display = 'none';
+    }
+});
+
+window.addEventListener('appinstalled', () => {
+    const installBtn = $("install-app-btn");
+    if (installBtn) installBtn.style.display = 'none';
+});
 // ==========================================
 // INITIALIZATION
 // ==========================================
@@ -1239,4 +1289,4 @@ function initApp(){
     startGPS(); 
     setupGoogleSearch(); 
 }
-if(document.readyState==="loading") document.addEventListener("DOMContentLoaded", initApp); else initApp();
+if(document.readyState==="loading") document.addEventListener("DOMContentLoaded", initApp); else initApp(); add changes
