@@ -1034,6 +1034,10 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
 // ==========================================
 let peerConnection = null;
 let localStream = null;
+let incomingIceCandidates = [];
+let callDialog = null;
+let activeCallBtn = null;
+
 const rtcConfig = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
 
 function initCallButton(u) {
@@ -1045,14 +1049,14 @@ function initCallButton(u) {
     callBtn.parentNode.replaceChild(newBtn, callBtn);
     
     newBtn.onclick = async () => {
-        // OFFLINE CALL: Agar tera internet band hai (!navigator.onLine) YA dost offline hai
+        // OFFLINE CALL: Agar tera internet band hai ya dost offline hai
         if (!navigator.onLine || u.online === false) {
             const phone = prompt(`No Internet or Friend is offline.\nEnter mobile number to dial via SIM:`);
             if (phone) window.location.href = `tel:${phone.trim()}`;
             return;
         }
 
-        // ONLINE CALL (WebRTC Free Internet Call)
+        // ONLINE WEBRTC CALL
         try {
             localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
             peerConnection = new RTCPeerConnection(rtcConfig);
@@ -1067,69 +1071,161 @@ function initCallButton(u) {
                     document.body.appendChild(audio);
                 }
                 audio.srcObject = event.streams[0];
-                audio.play();
+                audio.play().catch(e => console.log("Audio play error:", e));
             };
 
             peerConnection.onicecandidate = (event) => {
-                if (event.candidate) socket.emit("call-user", { to: u.id, signal: event.candidate, name: currentUser.name });
+                if (event.candidate) {
+                    // ICE candidate alag se bhejo (Taki signal mix na ho)
+                    socket.emit("call-user", { to: u.id, signal: { type: "ice", candidate: event.candidate }, name: currentUser.name });
+                }
             };
 
             const offer = await peerConnection.createOffer();
             await peerConnection.setLocalDescription(offer);
-            socket.emit("call-user", { to: u.id, signal: offer, name: currentUser.name });
+            
+            // Offer alag se bhejo
+            socket.emit("call-user", { to: u.id, signal: { type: "offer", sdp: offer }, name: currentUser.name });
+            
             showToast(`📞 Calling ${u.name}...`, 5000);
+            showActiveCallUI(() => socket.emit("end-call", { to: u.id }));
+            
         } catch (err) {
             showToast("❌ Microphone permission denied.");
         }
     };
 }
 
-// INCOMING CALL HANDLER
+// INCOMING CALL HANDLER (Custom UI - No blocking)
 socket.on("incoming-call", async (data) => {
-    if (confirm(`📞 Incoming voice call from ${data.name}. Accept?`)) {
-        try {
-            localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-            peerConnection = new RTCPeerConnection(rtcConfig);
-            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-
-            peerConnection.ontrack = (event) => {
-                let audio = $("remote-audio");
-                if(!audio) {
-                    audio = document.createElement("audio");
-                    audio.id = "remote-audio";
-                    audio.hidden = true;
-                    document.body.appendChild(audio);
-                }
-                audio.srcObject = event.streams[0];
-                audio.play();
-            };
-
-            await peerConnection.setRemoteDescription(new RTCSessionDescription(data.signal));
-            const answer = await peerConnection.createAnswer();
-            await peerConnection.setLocalDescription(answer);
-
-            socket.emit("answer-call", { to: data.from, signal: answer });
-            showToast(`🎙️ Call Connected with ${data.name}`);
-        } catch (e) {
-            showToast("❌ Mic error.");
+    // 1. Agar Call start hone ka Offer aaya hai
+    if (data.signal.type === "offer") {
+        if (peerConnection) {
+            socket.emit("end-call", { to: data.from });
+            return;
         }
-    } else {
-        socket.emit("end-call", { to: data.from });
+        
+        incomingIceCandidates = [];
+        if (callDialog) callDialog.remove();
+        
+        // Naya Beautiful Call Popup (Jo code ko block nahi karega)
+        callDialog = document.createElement('div');
+        callDialog.style.cssText = "position:fixed;top:70px;left:50%;transform:translateX(-50%);background:rgba(15,23,42,0.98);padding:24px;border:1px solid #18d6a3;border-radius:20px;z-index:9999;box-shadow:0 15px 40px rgba(0,0,0,0.7);color:white;text-align:center;backdrop-filter:blur(10px);min-width:280px;animation:modalIn 0.4s ease;";
+        callDialog.innerHTML = `
+            <div style="font-size:32px;margin-bottom:10px;animation:livePulse 1.5s infinite;">📞</div>
+            <strong style="font-size:18px;display:block;">${escapeHTML(data.name)}</strong>
+            <div style="font-size:13px;color:#94a3b8;margin-top:6px;margin-bottom:20px;">Incoming Voice Call...</div>
+            <div style="display:flex;gap:12px;justify-content:center;">
+                <button id="accept-call-btn" style="flex:1;background:#10b981;border:none;padding:12px;border-radius:12px;color:#064e3b;font-weight:800;cursor:pointer;font-size:15px;box-shadow:0 4px 10px rgba(16,185,129,0.3);">Accept</button>
+                <button id="reject-call-btn" style="flex:1;background:#ef4444;border:none;padding:12px;border-radius:12px;color:white;font-weight:700;cursor:pointer;font-size:15px;box-shadow:0 4px 10px rgba(239,68,68,0.3);">Decline</button>
+            </div>
+        `;
+        document.body.appendChild(callDialog);
+
+        // Jab user 'Accept' dabaye
+        document.getElementById("accept-call-btn").onclick = async () => {
+            if (callDialog) callDialog.remove();
+            callDialog = null;
+            
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                peerConnection = new RTCPeerConnection(rtcConfig);
+                localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+                peerConnection.ontrack = (event) => {
+                    let audio = $("remote-audio");
+                    if(!audio) {
+                        audio = document.createElement("audio");
+                        audio.id = "remote-audio";
+                        audio.hidden = true;
+                        document.body.appendChild(audio);
+                    }
+                    audio.srcObject = event.streams[0];
+                    audio.play().catch(e => console.log("Audio error:", e));
+                };
+
+                peerConnection.onicecandidate = (event) => {
+                    if (event.candidate) {
+                        socket.emit("answer-call", { to: data.from, signal: { type: "ice", candidate: event.candidate } });
+                    }
+                };
+
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(data.signal.sdp));
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+
+                socket.emit("answer-call", { to: data.from, signal: { type: "answer", sdp: answer } });
+                showToast(`🎙️ Call Connected with ${data.name}`);
+                
+                showActiveCallUI(() => socket.emit("end-call", { to: data.from }));
+
+                // Background mein ruke huye ICE signals ab lagao
+                incomingIceCandidates.forEach(async (c) => {
+                    try { await peerConnection.addIceCandidate(new RTCIceCandidate(c)); } catch(e){}
+                });
+                incomingIceCandidates = [];
+                
+            } catch (e) {
+                showToast("❌ Mic error or permission denied.");
+                socket.emit("end-call", { to: data.from });
+                endLocalCall();
+            }
+        };
+
+        // Jab user 'Decline' dabaye
+        document.getElementById("reject-call-btn").onclick = () => {
+            if (callDialog) callDialog.remove();
+            callDialog = null;
+            socket.emit("end-call", { to: data.from });
+        };
+
+    } 
+    // 2. Agar piche se ICE Signal aaya hai (Isse audio mix nahi hoga)
+    else if (data.signal.type === "ice") {
+        if (peerConnection && peerConnection.remoteDescription) {
+            try { await peerConnection.addIceCandidate(new RTCIceCandidate(data.signal.candidate)); } catch(e){}
+        } else {
+            // Agar pehle signal aagaya aur user ne accept nahi kiya, toh queue mein daalo
+            incomingIceCandidates.push(data.signal.candidate);
+        }
     }
 });
 
 socket.on("call-accepted", async (signal) => {
-    if (peerConnection) {
-        await peerConnection.setRemoteDescription(new RTCSessionDescription(signal));
+    if (signal.type === "answer" && peerConnection) {
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.sdp));
         showToast("🎙️ Call Connected!");
+    } else if (signal.type === "ice" && peerConnection && peerConnection.remoteDescription) {
+        try { await peerConnection.addIceCandidate(new RTCIceCandidate(signal.candidate)); } catch(e){}
     }
 });
 
 socket.on("call-ended", () => {
-    if (peerConnection) { peerConnection.close(); peerConnection = null; }
-    if (localStream) { localStream.getTracks().forEach(t => t.stop()); }
+    endLocalCall();
     showToast("📴 Call Ended.");
 });
+
+// UI Helper: Floating 'End Call' Button
+function showActiveCallUI(endFn) {
+    if (activeCallBtn) return;
+    activeCallBtn = document.createElement("button");
+    activeCallBtn.innerHTML = "📴 End Call";
+    activeCallBtn.style.cssText = "position:fixed;top:80px;left:50%;transform:translateX(-50%);z-index:9999;background:#ef4444;color:white;border:none;padding:12px 24px;border-radius:30px;font-weight:bold;box-shadow:0 10px 25px rgba(239,68,68,0.5);cursor:pointer;font-size:14px;";
+    document.body.appendChild(activeCallBtn);
+    activeCallBtn.onclick = () => {
+        endFn();
+        endLocalCall();
+    };
+}
+
+// Memory Clear function
+function endLocalCall() {
+    if (activeCallBtn) { activeCallBtn.remove(); activeCallBtn = null; }
+    if (callDialog) { callDialog.remove(); callDialog = null; }
+    if (peerConnection) { peerConnection.close(); peerConnection = null; }
+    if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+    incomingIceCandidates = [];
+}
 
 // ==========================================
 // INITIALIZATION
