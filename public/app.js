@@ -1101,12 +1101,18 @@ function initCallButton(u) {
             return;
         }
 
+        // --- NAYA CHECK: Browser support ---
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            alert("❌ Browser calling support nahi karta. Kripya Chrome/Safari use karein.");
+            return;
+        }
+
         try {
             localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
             peerConnection = new RTCPeerConnection(rtcConfig);
             localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
-            peerConnection.ontrack = attachAudioTrack; // Naya audio function call
+            peerConnection.ontrack = attachAudioTrack;
 
             peerConnection.onicecandidate = (event) => {
                 if (event.candidate) {
@@ -1122,7 +1128,9 @@ function initCallButton(u) {
             showActiveCallUI(() => socket.emit("end-call", { to: u.id }));
             
         } catch (err) {
-            showToast("❌ Microphone permission denied.");
+            // EXACT ERROR DIKHAANE KE LIYE
+            alert(`Mic Error: ${err.name}\nMessage: ${err.message}\nKya background mein koi aur app mic use kar rahi hai?`);
+            showToast("❌ Mic error: " + err.message);
         }
     };
 }
@@ -1154,12 +1162,18 @@ socket.on("incoming-call", async (data) => {
             if (callDialog) callDialog.remove();
             callDialog = null;
             
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                alert("❌ Browser calling support nahi karta. Kripya Chrome/Safari use karein.");
+                socket.emit("end-call", { to: data.from });
+                return;
+            }
+
             try {
                 localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
                 peerConnection = new RTCPeerConnection(rtcConfig);
                 localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
-                peerConnection.ontrack = attachAudioTrack; // Naya audio function call
+                peerConnection.ontrack = attachAudioTrack;
 
                 peerConnection.onicecandidate = (event) => {
                     if (event.candidate) {
@@ -1182,7 +1196,9 @@ socket.on("incoming-call", async (data) => {
                 incomingIceCandidates = [];
                 
             } catch (e) {
-                showToast("❌ Mic error.");
+                // EXACT ERROR DIKHAANE KE LIYE
+                alert(`Mic Error: ${e.name}\nMessage: ${e.message}\nKya background mein koi aur app mic use kar rahi hai?`);
+                showToast("❌ Mic error: " + e.message);
                 socket.emit("end-call", { to: data.from });
                 endLocalCall();
             }
