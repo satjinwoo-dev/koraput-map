@@ -335,7 +335,7 @@ function updateFriendBadges(){
     Object.keys(friendMarkers).forEach(id=>{
         const f=friendData[id], m=friendMarkers[id]; if(!f||!m) return;
         let text = f.online===false ? "Offline" : f.weather;
-        if(myCoords && validCoord(f.lat,f.lng)) text += ` | 📍 ${distanceKm(myCoords.lat,myCoords.lng,f.lat,f.lng)} km`;
+        if(myCoords && validCoord(f.lat,f.lng)) text += ` | 📍 ${distanceKm(myCoords.lat,myCoords.lng,f.lat,f.lng)} km away`;
         m.unbindTooltip(); if(text) m.bindTooltip(text,{permanent:true,direction:"right",className:"weather-badge",offset:[15,0]});
     });
 }
@@ -378,6 +378,9 @@ function showProfilePopup(u) {
             if(validCoord(u.lat, u.lng)) Navigation.start(u.id);
         };
     }
+    
+    // NAYA: Call Button Activate Karna
+    if (typeof initCallButton === "function") initCallButton(u);
     
     if($("profile-popup")) $("profile-popup").style.display="flex";
     if($("profile-focus-btn")) $("profile-focus-btn").onclick=()=>{ map.flyTo([u.lat,u.lng],16); $("profile-popup").style.display="none"; };
@@ -1025,6 +1028,108 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
         if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
     };
 }
+
+// ==========================================
+// VOICE CALLING (ONLINE WEBRTC & OFFLINE GSM)
+// ==========================================
+let peerConnection = null;
+let localStream = null;
+const rtcConfig = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
+
+function initCallButton(u) {
+    const callBtn = $("profile-call-btn");
+    if (!callBtn) return;
+    
+    // Purane clicks hatane ke liye naya clone
+    const newBtn = callBtn.cloneNode(true);
+    callBtn.parentNode.replaceChild(newBtn, callBtn);
+    
+    newBtn.onclick = async () => {
+        // OFFLINE CALL: Agar tera internet band hai (!navigator.onLine) YA dost offline hai
+        if (!navigator.onLine || u.online === false) {
+            const phone = prompt(`No Internet or Friend is offline.\nEnter mobile number to dial via SIM:`);
+            if (phone) window.location.href = `tel:${phone.trim()}`;
+            return;
+        }
+
+        // ONLINE CALL (WebRTC Free Internet Call)
+        try {
+            localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+            peerConnection = new RTCPeerConnection(rtcConfig);
+            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+            peerConnection.ontrack = (event) => {
+                let audio = $("remote-audio");
+                if(!audio) {
+                    audio = document.createElement("audio");
+                    audio.id = "remote-audio";
+                    audio.hidden = true;
+                    document.body.appendChild(audio);
+                }
+                audio.srcObject = event.streams[0];
+                audio.play();
+            };
+
+            peerConnection.onicecandidate = (event) => {
+                if (event.candidate) socket.emit("call-user", { to: u.id, signal: event.candidate, name: currentUser.name });
+            };
+
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
+            socket.emit("call-user", { to: u.id, signal: offer, name: currentUser.name });
+            showToast(`📞 Calling ${u.name}...`, 5000);
+        } catch (err) {
+            showToast("❌ Microphone permission denied.");
+        }
+    };
+}
+
+// INCOMING CALL HANDLER
+socket.on("incoming-call", async (data) => {
+    if (confirm(`📞 Incoming voice call from ${data.name}. Accept?`)) {
+        try {
+            localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+            peerConnection = new RTCPeerConnection(rtcConfig);
+            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+            peerConnection.ontrack = (event) => {
+                let audio = $("remote-audio");
+                if(!audio) {
+                    audio = document.createElement("audio");
+                    audio.id = "remote-audio";
+                    audio.hidden = true;
+                    document.body.appendChild(audio);
+                }
+                audio.srcObject = event.streams[0];
+                audio.play();
+            };
+
+            await peerConnection.setRemoteDescription(new RTCSessionDescription(data.signal));
+            const answer = await peerConnection.createAnswer();
+            await peerConnection.setLocalDescription(answer);
+
+            socket.emit("answer-call", { to: data.from, signal: answer });
+            showToast(`🎙️ Call Connected with ${data.name}`);
+        } catch (e) {
+            showToast("❌ Mic error.");
+        }
+    } else {
+        socket.emit("end-call", { to: data.from });
+    }
+});
+
+socket.on("call-accepted", async (signal) => {
+    if (peerConnection) {
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(signal));
+        showToast("🎙️ Call Connected!");
+    }
+});
+
+socket.on("call-ended", () => {
+    if (peerConnection) { peerConnection.close(); peerConnection = null; }
+    if (localStream) { localStream.getTracks().forEach(t => t.stop()); }
+    showToast("📴 Call Ended.");
+});
 
 // ==========================================
 // INITIALIZATION
