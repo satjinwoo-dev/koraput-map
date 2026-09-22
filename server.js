@@ -10,13 +10,11 @@ const app = express();
 // ==========================================
 // A. SECURITY SHIELDS (Helmet & Rate Limiter)
 // ==========================================
-// 1. HTTP Security Headers (Hacking aur XSS se bachao)
 app.use(helmet({
     contentSecurityPolicy: false, 
     crossOriginEmbedderPolicy: false
 }));
 
-// 2. DDoS aur Bot Spam Limiter (15 min me max 200 requests per IP)
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, 
     max: 200, 
@@ -61,13 +59,11 @@ io.use((socket, next) => {
         const id = socket.id;
         
         if (!socketMessageCounts[id]) socketMessageCounts[id] = [];
-        // Purani messages clear karo jo 1 second se pehle ki hain
         socketMessageCounts[id] = socketMessageCounts[id].filter(t => now - t < 1000);
         
-        // Agar 1 second me 25 se jyada events aaye (matlab koi bot spam kar raha hai)
         if (socketMessageCounts[id].length > 25) {
             console.log(`[SECURITY] Bot detected and blocked: ${id}`);
-            socket.disconnect(true); // Hacker ko kick out karo
+            socket.disconnect(true);
         }
         socketMessageCounts[id].push(now);
     });
@@ -85,14 +81,12 @@ io.on('connection', (socket) => {
         const user = { ...userData, id: socket.id, online: true };
         users.set(socket.id, user);
 
-        // Send all current states to the newly joined user
         socket.emit('chatHistory', chatMessages);
         socket.emit('loadMemoryPhotos', memories);
         socket.emit('loadGeofences', geofences);
         socket.emit('onlineUsers', Array.from(users.values()));
         if (currentTrip) socket.emit('tripData', currentTrip);
 
-        // Tell everyone else this user is online
         socket.broadcast.emit('userOnline', user);
     });
 
@@ -111,7 +105,6 @@ io.on('connection', (socket) => {
 
         socket.broadcast.emit('friendMoved', user);
 
-        // Geofence Intersection check
         if (oldLat && oldLng) {
             geofences.forEach(fence => {
                 const distOld = distanceKm(oldLat, oldLng, fence.lat, fence.lng) * 1000; 
@@ -242,23 +235,49 @@ io.on('connection', (socket) => {
         io.emit('newMemoryPin', memory);
     });
 
-    // --- G. VOICE CALLING SIGNALS (NEW) ---
+    // --- G. WEBRTC VOICE CALL SIGNALING ---
     socket.on("call-user", data => {
-        io.to(data.to).emit("incoming-call", { signal: data.signal, from: socket.id, name: data.name });
+        if (!data || typeof data !== "object") return;
+        const to = String(data.to || "");
+        if (!to || !data.signal) return;
+        const target = io.sockets.sockets.get(to);
+        if (!target) {
+            socket.emit("call-ended", { reason: "User is offline." });
+            return;
+        }
+        target.emit("incoming-call", {
+            from: socket.id,
+            name: data.name || "User",
+            signal: data.signal
+        });
     });
 
     socket.on("answer-call", data => {
-        io.to(data.to).emit("call-accepted", data.signal);
+        if (!data || typeof data !== "object") return;
+        const to = String(data.to || "");
+        if (!to || !data.signal) return;
+        const target = io.sockets.sockets.get(to);
+        if (!target) {
+            socket.emit("call-ended", { reason: "Caller disconnected." });
+            return;
+        }
+        target.emit("call-accepted", data.signal);
     });
 
     socket.on("end-call", data => {
-        io.to(data.to).emit("call-ended");
+        if (!data || typeof data !== "object") return;
+        const to = String(data.to || "");
+        if (!to) return;
+        const target = io.sockets.sockets.get(to);
+        if (target) {
+            target.emit("call-ended");
+        }
     });
 
     // --- H. DISCONNECT LOGIC ---
     socket.on('disconnect', () => {
         console.log(`🔴 Disconnected: ${socket.id}`);
-        delete socketMessageCounts[socket.id]; // Anti-bot cleanup
+        delete socketMessageCounts[socket.id];
 
         if (users.has(socket.id)) {
             const user = users.get(socket.id);
