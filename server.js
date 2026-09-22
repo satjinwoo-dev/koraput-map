@@ -2,8 +2,28 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
+const rateLimit = require('express-rate-limit');
+const helmet = require('helmet');
 
 const app = express();
+
+// ==========================================
+// A. SECURITY SHIELDS (Helmet & Rate Limiter)
+// ==========================================
+// 1. HTTP Security Headers (Hacking aur XSS se bachao)
+app.use(helmet({
+    contentSecurityPolicy: false, 
+    crossOriginEmbedderPolicy: false
+}));
+
+// 2. DDoS aur Bot Spam Limiter (15 min me max 200 requests per IP)
+const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000, 
+    max: 200, 
+    message: "Too many requests from this IP, please try again later."
+});
+app.use(limiter);
+
 const server = http.createServer(app);
 const io = new Server(server, {
     cors: { origin: "*", methods: ["GET", "POST"] }
@@ -30,6 +50,29 @@ function distanceKm(lat1, lon1, lat2, lon2) {
     const a = 0.5 - Math.cos((lat2 - lat1) * p) / 2 + Math.cos(lat1 * p) * Math.cos(lat2 * p) * Math.sin((lon2 - lon1) * p / 2) ** 2;
     return 12742 * Math.asin(Math.sqrt(a));
 }
+
+// ==========================================
+// B. ANTI-BOT SOCKET MIDDLEWARE
+// ==========================================
+const socketMessageCounts = {};
+io.use((socket, next) => {
+    socket.onAny(() => {
+        const now = Date.now();
+        const id = socket.id;
+        
+        if (!socketMessageCounts[id]) socketMessageCounts[id] = [];
+        // Purani messages clear karo jo 1 second se pehle ki hain
+        socketMessageCounts[id] = socketMessageCounts[id].filter(t => now - t < 1000);
+        
+        // Agar 1 second me 25 se jyada events aaye (matlab koi bot spam kar raha hai)
+        if (socketMessageCounts[id].length > 25) {
+            console.log(`[SECURITY] Bot detected and blocked: ${id}`);
+            socket.disconnect(true); // Hacker ko kick out karo
+        }
+        socketMessageCounts[id].push(now);
+    });
+    next();
+});
 
 // ==========================================
 // 2. SOCKET.IO EVENT HANDLERS
@@ -215,6 +258,8 @@ io.on('connection', (socket) => {
     // --- H. DISCONNECT LOGIC ---
     socket.on('disconnect', () => {
         console.log(`🔴 Disconnected: ${socket.id}`);
+        delete socketMessageCounts[socket.id]; // Anti-bot cleanup
+
         if (users.has(socket.id)) {
             const user = users.get(socket.id);
             user.online = false;
