@@ -330,93 +330,6 @@ emoji-picker{width:100%;height:320px;--background:#0f1926;--border-color:rgba(25
 #join-submit{margin-top:16px;width:100%;height:54px;border-radius:16px;background:linear-gradient(145deg,#2be8b8,#0fa37f);color:#03271d;font-weight:750;font-size:16px;box-shadow:0 12px 30px rgba(15,163,127,.35);position:relative;overflow:hidden}
 #join-submit::after{content:"";position:absolute;top:0;bottom:0;width:60px;left:-80px;background:linear-gradient(100deg,transparent,rgba(255,255,255,.45),transparent);transform:skewX(-20deg);animation:shine 3.4s ease-in-out infinite 1s}
 @keyframes shine{to{left:130%}}
-
-/* =========================================================
-   MAP MARKERS, TOOLTIPS, POPUPS
-   ========================================================= */
-.custom-own-icon>div{animation:radar 2.2s infinite}
-@keyframes radar{0%{box-shadow:0 0 0 0 rgba(52,224,180,.65)}70%{box-shadow:0 0 0 18px rgba(52,224,180,0)}100%{box-shadow:0 0 0 0 rgba(52,224,180,0)}}
-.custom-friend-icon>div{box-shadow:0 4px 14px rgba(0,0,0,.5),0 0 0 3px rgba(106,168,255,.25);animation:markerIn .6s var(--spring) both}
-@keyframes markerIn{from{transform:scale(0)}to{transform:scale(1)}}
-.leaflet-marker-icon{transition:opacity .4s}
-.geofence-marker,.p3-memory-marker{background:transparent!important;border:0!important;display:flex;align-items:center;justify-content:center;font-size:22px;filter:drop-shadow(0 3px 5px rgba(0,0,0,.55))}
-.p3-memory-marker>div{transition:transform .3s var(--spring)}
-.p3-memory-marker:hover>div{transform:scale(1.14)}
-.leaflet-tooltip.weather-badge{padding:5px 10px;border:1px solid var(--line-strong);border-radius:999px;background:var(--glass-solid);color:#fff;font-size:12px;font-weight:600;box-shadow:0 6px 18px rgba(0,0,0,.4);font-variant-numeric:tabular-nums}
-.leaflet-tooltip.weather-badge::before{display:none}
-
-.leaflet-popup-content-wrapper{background:var(--glass-solid)!important;color:#fff!important;border:1px solid var(--line-strong);border-radius:22px!important;box-shadow:0 20px 50px rgba(0,0,0,.6)!important;backdrop-filter:blur(20px);animation:pop .4s var(--spring);transform-origin:bottom center}
-.leaflet-popup-tip{background:var(--ink-2)!important}
-.leaflet-popup-close-button{color:#fff!important;font-size:22px!important;top:8px!important;right:8px!important}
-.leaflet-popup-content{margin:12px 14px!important;font-family:var(--font-ui)}
-.p3-map-popup{width:230px;text-align:center}
-.p3-map-popup img{width:100%;max-height:180px;object-fit:cover;border-radius:14px;margin-bottom:10px;display:block}
-.p3-map-popup b{font-size:15px;color:var(--mint)}
-.p3-open-map-memory{width:100%;height:40px;margin-top:10px;border-radius:12px;background:linear-gradient(145deg,#2be8b8,#0fa37f);color:#03271d;font-weight:700}
-
-/* =========================================================
-   TURN-BY-TURN NAVIGATION
-   ========================================================= */
-#premium-nav-ui{display:none;position:fixed;inset:0;z-index:2500;pointer-events:none}
-.nv-top{position:absolute;top:calc(14px + var(--safe-t));left:14px;right:14px;display:flex;justify-content:space-between;pointer-events:auto}
-.nav-badge{display:flex;align-items:center;gap:9px;height:38px;padding:0 16px;border-radius:999px;background:var(--glass-solid);border:1px solid var(--line-strong);color:#fff;font-size:14px;font-weight:650;box-shadow:var(--shadow);backdrop-filter:blur(16px);font-variant-numeric:tabular-nums;animation:chromeIn .6s var(--ease) both}
-.live-dot{width:8px;height:8px;background:var(--mint);border-radius:50%;animation:livePulse 2s infinite}
-#nav-instruction-card{position:absolute;top:calc(64px + var(--safe-t));left:14px;right:14px;display:flex;align-items:center;gap:16px;padding:16px 18px;border-radius:var(--r-sheet);background:linear-gradient(135deg,rgba(38,44,110,.96),rgba(17,25,40,.96) 65%);border:1px solid rgba(124,131,255,.35);box-shadow:0 20px 50px rgba(0,0,0,.6);backdrop-filter:blur(18px);pointer-events:auto;animation:cardDrop .7s var(--spring) both .1s}
-@keyframes cardDrop{from{opacity:0;transform:translateY(-40px) scale(.94)}to{opacity:1;transform:none}}
-#nav-turn-icon{flex:none;width:56px;height:56px;border-radius:18px;background:rgba(124,131,255,.2);display:flex;align-items:center;justify-content:center;font-size:28px;color:#b5b9ff;font-weight:700}
-.nv-step{flex:1;min-width:0}
-#nav-step-dist{color:#aab4ff;font-size:14px;font-weight:650;margin-bottom:3px;font-variant-numeric:tabular-nums}
-#nav-step-text{font-family:var(--font-display);color:#fff;font-size:21px;font-weight:700;line-height:1.15;letter-spacing:-.015em}
-.nv-dock{position:absolute;left:0;right:0;bottom:0;pointer-events:none}
-.nv-gauges{display:flex;justify-content:space-between;align-items:flex-end;padding:0 16px 14px}
-#nav-speedometer{width:74px;height:74px;border-radius:50%;background:var(--glass-solid);display:flex;flex-direction:column;align-items:center;justify-content:center;border:1px solid var(--line-strong);box-shadow:var(--shadow),inset 0 0 0 5px rgba(52,224,180,.08);pointer-events:auto;animation:dockIn .7s var(--spring) both .3s}
-#nav-speed-val{color:#fff;font-family:var(--font-display);font-size:28px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
-#nav-speedometer span{color:var(--muted);font-size:10px;font-weight:700;margin-top:3px}
-.nv-compass{width:50px;height:50px;border-radius:50%;background:var(--glass-solid);display:flex;align-items:center;justify-content:center;border:1px solid var(--line-strong);box-shadow:var(--shadow);pointer-events:auto;color:var(--danger);animation:dockIn .7s var(--spring) both .38s}
-#nav-bottom-sheet{position:relative;background:var(--ink-2);padding:12px 22px calc(22px + var(--safe-b));border-radius:32px 32px 0 0;border-top:1px solid var(--line-strong);pointer-events:auto;box-shadow:0 -16px 50px rgba(0,0,0,.6);animation:sheetRise .75s var(--ease) both}
-@keyframes sheetRise{from{transform:translateY(100%)}to{transform:none}}
-.nv-handle{width:38px;height:4px;border-radius:2px;background:rgba(255,255,255,.18);margin:0 auto 18px}
-.nv-stats{display:flex;justify-content:space-between;gap:12px;margin-bottom:20px}
-.nv-stat label{display:block;color:var(--muted);font-size:13px;font-weight:600;margin-bottom:4px}
-.nv-stat div{color:#fff;font-family:var(--font-display);font-size:26px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
-.nv-stat div#nav-status-text{font-family:var(--font-ui);font-size:18px;font-weight:650;padding-top:6px;letter-spacing:0}
-.nv-actions{display:flex;gap:10px}
-#nav-start-btn{flex:2;height:56px;border-radius:18px;background:linear-gradient(145deg,#2be8b8,#0fa37f);color:#03271d;font-size:17px;font-weight:750;box-shadow:0 10px 28px rgba(15,163,127,.4)}
-#nav-exit-btn{flex:1;height:56px;border-radius:18px;background:rgba(255,255,255,.09);color:#fff;font-size:16px;font-weight:650}
-
-.nav-path-animated,.anim-dash{stroke-dasharray:14 14;animation:navFlow 1s linear infinite;stroke-linecap:round;stroke-linejoin:round}
-.anim-dash{stroke-dasharray:.1 18!important}
-@keyframes navFlow{to{stroke-dashoffset:-28}}
-.solid-trail{stroke-linecap:round;stroke-linejoin:round}
-.nav-avatar-marker{background:#111928;border:3px solid var(--iris);border-radius:50%;box-shadow:0 0 0 6px rgba(124,131,255,.25),0 6px 18px rgba(0,0,0,.6);overflow:hidden}
-
-/* =========================================================
-   RESPONSIVE
-   ========================================================= */
-@media(max-width:700px){
-  #search-container,#search-container:focus-within{top:calc(76px + var(--safe-t));width:calc(100vw - 28px)}
-  #map-tools{right:10px;top:calc(138px + var(--safe-t))}
-  #map-style-menu{right:70px;top:calc(236px + var(--safe-t))}
-  #trip-panel{top:calc(138px + var(--safe-t));left:10px;width:200px}
-  #toast-container{top:calc(140px + var(--safe-t))}
-  #bottom-info{bottom:calc(14px + var(--safe-b));max-width:calc(100vw - 130px)}
-  .bottom-pill{padding:0 12px;font-size:12.5px}
-  #memoryButton,#chat-toggle-btn{width:48px;height:48px;bottom:calc(13px + var(--safe-b))}
-  #memoryButton{left:10px}#chat-toggle-btn{right:10px}
-  #chat-container{right:0;bottom:0;width:100vw;height:100dvh;border-radius:0;border:0;transform-origin:bottom center}
-  #phase3-memory-panel{width:100vw;height:100dvh;border-radius:0;border:0}
-  #phase3-memory-grid{grid-template-columns:repeat(2,1fr)}
-  .join-card h1{font-size:28px}
-  .pac-container{min-width:0!important;width:calc(100vw - 28px)!important}
-}
-@media(max-height:720px) and (max-width:700px){
-  .map-tool-button{width:38px;height:38px}
-  #map-tools{gap:2px;padding:5px}
-}
-
-@media(prefers-reduced-motion:reduce){
-  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
-}
 </style>
 </head>
 <body>
@@ -596,7 +509,10 @@ emoji-picker{width:100%;height:320px;--background:#0f1926;--border-color:rgba(25
       <div class="profile-row"><span>Distance</span><strong id="profile-popup-distance">--</strong></div>
       <div class="profile-row"><span>Weather</span><strong id="profile-popup-weather">--</strong></div>
     </div>
+    
+    <!-- FIX: Naya Call Button Yahan Daal Diya Gaya Hai -->
     <div class="profile-actions">
+      <button id="profile-call-btn" type="button" style="background:linear-gradient(145deg,#34e0b4,#0fa37f); color:#03271d;"><svg class="i sm"><use href="#i-mic"/></svg>Call</button>
       <button id="profile-nav-btn" type="button"><svg class="i sm"><use href="#i-nav"/></svg>Navigate</button>
       <button id="profile-focus-btn" type="button"><svg class="i sm"><use href="#i-pin"/></svg>Focus</button>
     </div>
@@ -705,6 +621,9 @@ emoji-picker{width:100%;height:320px;--background:#0f1926;--border-color:rgba(25
     </form>
   </div>
 </div>
+
+<!-- FIX: Naya Hidden Audio Tag Yahan Daal Diya Gaya Hai -->
+<audio id="remote-audio" autoplay hidden></audio>
 
 <script src="/socket.io/socket.io.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
