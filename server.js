@@ -199,7 +199,20 @@ io.on('connection', (socket) => {
         io.emit('newMemoryPin', memory);
     });
 
-    // --- G. DISCONNECT LOGIC ---
+    // --- G. VOICE CALLING SIGNALS (NEW) ---
+    socket.on("call-user", data => {
+        io.to(data.to).emit("incoming-call", { signal: data.signal, from: socket.id, name: data.name });
+    });
+
+    socket.on("answer-call", data => {
+        io.to(data.to).emit("call-accepted", data.signal);
+    });
+
+    socket.on("end-call", data => {
+        io.to(data.to).emit("call-ended");
+    });
+
+    // --- H. DISCONNECT LOGIC ---
     socket.on('disconnect', () => {
         console.log(`🔴 Disconnected: ${socket.id}`);
         if (users.has(socket.id)) {
