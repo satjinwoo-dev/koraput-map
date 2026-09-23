@@ -8,10 +8,10 @@ const MAX_CHAT_FILE = 5 * 1024 * 1024;
 const MAX_MEMORY_FILE = 8 * 1024 * 1024;
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
-// FIX 3: preferCanvas ko false kar diya taaki dotted line animate ho sake
-const map = L.map("map", { 
+const map = L.map("map", {
     zoomControl: false, preferCanvas: false, minZoom: 3, maxBounds: [[-90, -180], [90, 180]], maxBoundsViscosity: 1.0
 }).setView(DEFAULT_CENTER, 13);
+// preferCanvas is false so the CSS dash-flow animation on route lines actually runs (canvas ignores class-based CSS).
 
 const satelliteLayer = L.tileLayer("https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}", { maxZoom: 20, subdomains: ["mt0","mt1","mt2","mt3"] });
 const streetLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 });
@@ -21,8 +21,7 @@ satelliteLayer.addTo(map);
 let currentUser = { name: localStorage.getItem("koraput_name") || "", avatar: localStorage.getItem("koraput_avatar") || DEFAULT_AVATAR };
 let myCoords = null, myWeather = "", ownMarker = null, accuracyCircle = null, cityName = "";
 let lastWeatherFetch = 0;
-const friendMarkers = Object.create(null);
-const friendData = Object.create(null);
+let lastFixCoords = null, lastFixTime = 0; // used as a fallback to derive speed when coords.speed is null
 
 let locationHistory = [];
 try {
@@ -48,9 +47,7 @@ let pendingMemoryImage = null;
 let measurePoints = [];
 let currentTrip = null;
 let tripMarker = null;
-
-// FIX 1: Geofence crash theek karne ke liye variables yahan add kar diye
-let geoClickCount = 0, geoClickTimer = null;
+let geoClickCount = 0, geoClickTimer = null; // 3-tap-to-open counter for the geofence tool button
 
 let currentGeofences = []; 
 const memories = new Map();
@@ -173,9 +170,7 @@ const Navigation = {
         }
     }
 };
-
 if($("nav-recalc-btn")) $("nav-recalc-btn").onclick = () => Navigation.calculate();
-// FIX 2: nav-exit-btn ki jagah nav-panel-exit kar diya
 if($("nav-panel-exit")) $("nav-panel-exit").onclick = () => Navigation.stop();
 
 const GroupNavigation = {
@@ -255,6 +250,179 @@ if($("group-nav-stop-btn")) $("group-nav-stop-btn").onclick = () => GroupNavigat
 
 
 // ==========================================
+// SPEED GUARD — 3-tier real-time speed alerting (background, every GPS fix)
+//   60+        -> warning notification only
+//   80 to 90  -> warning notification + one beep
+//   100+       -> warning notification + beep for 3s + red map overlay for 10s
+// ==========================================
+const SPEED_TIERS = { warn: 60, beep: 80, danger: 100 };
+const RENOTIFY_MS = 20000; // don't repeat the same tier's alert more than once per 20s
+
+const SpeedGuard = {
+    audioCtx: null,
+    beepBurstTimer: null,
+    overlayHideTimer: null,
+    lastNotifyAt: { warn: 0, beep: 0, danger: 0 },
+
+    beepOnce(freq = 880, durMs = 160, vol = 0.14) {
+        try {
+            const ctx = this.audioCtx || (this.audioCtx = new (window.AudioContext || window.webkitAudioContext)());
+            if (ctx.state === "suspended") ctx.resume();
+            const osc = ctx.createOscillator(), gain = ctx.createGain();
+            osc.type = "square"; osc.frequency.value = freq;
+            gain.gain.value = vol;
+            osc.connect(gain); gain.connect(ctx.destination);
+            osc.start(); osc.stop(ctx.currentTime + durMs / 1000);
+        } catch (e) {}
+    },
+
+    // Repeated beep pulses for `ms` milliseconds (used for the 100+ danger alert)
+    beepBurst(ms = 3000, everyMs = 350) {
+        clearInterval(this.beepBurstTimer);
+        const startedAt = Date.now();
+        this.beepOnce();
+        this.beepBurstTimer = setInterval(() => {
+            if (Date.now() - startedAt >= ms) { clearInterval(this.beepBurstTimer); return; }
+            this.beepOnce();
+        }, everyMs);
+    },
+
+    // Full-screen red overlay, shown for `ms` milliseconds. Calling this again while
+    // still active just extends the timer, so it stays solid red for as long as the
+    // speed keeps re-triggering it, and only fades `ms` after the last trigger.
+    showRedOverlay(ms = 10000) {
+        const overlay = document.getElementById("speed-danger-overlay");
+        if (overlay) overlay.classList.add("active");
+        clearTimeout(this.overlayHideTimer);
+        this.overlayHideTimer = setTimeout(() => { if (overlay) overlay.classList.remove("active"); }, ms);
+    },
+
+    updateHud(speedKmh) {
+        const hud = $("pill-speed");
+        if (!hud) return;
+        if (speedKmh > 3) {
+            hud.style.display = "flex";
+            if ($("speed-val-text")) $("speed-val-text").textContent = Math.round(speedKmh) + " km/h";
+            hud.classList.toggle("warning", speedKmh >= SPEED_TIERS.warn && speedKmh < SPEED_TIERS.danger);
+            hud.classList.toggle("critical", speedKmh >= SPEED_TIERS.danger);
+        } else {
+            hud.style.display = "none";
+        }
+    },
+
+    evaluate(speedKmh) {
+        this.updateHud(speedKmh);
+        const now = Date.now();
+
+        if (speedKmh >= SPEED_TIERS.danger) {
+            this.showRedOverlay(10000); // keeps the red overlay live as long as speed stays 100+
+            if (now - this.lastNotifyAt.danger > RENOTIFY_MS) {
+                this.lastNotifyAt.danger = now;
+                showToast(`🚨 ${Math.round(speedKmh)} km/h — over 100! Slow down now`, 5000);
+                this.beepBurst(3000);
+            }
+        } else if (speedKmh >= SPEED_TIERS.beep) {
+            if (now - this.lastNotifyAt.beep > RENOTIFY_MS) {
+                this.lastNotifyAt.beep = now;
+                showToast(`⚠️ ${Math.round(speedKmh)} km/h — nearing the limit`, 4000);
+                this.beepOnce();
+            }
+        } else if (speedKmh >= SPEED_TIERS.warn) {
+            if (now - this.lastNotifyAt.warn > RENOTIFY_MS) {
+                this.lastNotifyAt.warn = now;
+                showToast(`⚠️ ${Math.round(speedKmh)} km/h — speed warning`, 4000);
+            }
+        }
+    }
+};
+
+// Mobile browsers block audio until a user gesture — unlock on the first tap anywhere.
+document.addEventListener("click", () => {
+    if (SpeedGuard.audioCtx && SpeedGuard.audioCtx.state === "suspended") SpeedGuard.audioCtx.resume();
+}, { passive: true });
+
+// ==========================================
+// SPEED TREND — toggleable heartbeat-style live speed graph (own profile only)
+// ==========================================
+const SpeedTrend = {
+    enabled: localStorage.getItem("koraput_speedtrack") === "1",
+    points: [],
+    maxPoints: 80,
+
+    init() {
+        try {
+            const stored = JSON.parse(localStorage.getItem("koraput_speedtrack_data") || "[]");
+            if (Array.isArray(stored)) this.points = stored.slice(-this.maxPoints);
+        } catch (e) {}
+        const btn = document.getElementById("speed-record-toggle");
+        if (btn) {
+            btn.checked = this.enabled;
+            btn.onchange = () => this.toggle(btn.checked);
+        }
+        const canvas = document.getElementById("speed-graph-canvas");
+        if (canvas) canvas.style.display = this.enabled ? "block" : "none";
+        this.render();
+    },
+
+    toggle(on) {
+        this.enabled = on;
+        localStorage.setItem("koraput_speedtrack", on ? "1" : "0");
+        const canvas = document.getElementById("speed-graph-canvas");
+        if (canvas) canvas.style.display = on ? "block" : "none";
+        if (!on) { this.points = []; localStorage.removeItem("koraput_speedtrack_data"); this.render(); }
+        showToast(on ? "📈 Speed tracking enabled" : "Speed tracking turned off");
+    },
+
+    activityLabel(v) {
+        if (v < 2) return "Stopped";
+        if (v < 7) return "Walking";
+        if (v < 25) return "Cycling";
+        return "Driving";
+    },
+
+    record(speedKmh) {
+        if (!this.enabled) return;
+        this.points.push(Math.max(0, Math.round(speedKmh)));
+        if (this.points.length > this.maxPoints) this.points.shift();
+        try { localStorage.setItem("koraput_speedtrack_data", JSON.stringify(this.points)); } catch (e) {}
+        this.render();
+    },
+
+    render() {
+        const canvas = document.getElementById("speed-graph-canvas");
+        if (!canvas) return;
+        const ctx = canvas.getContext("2d");
+        const w = canvas.width;
+        const h = canvas.height;
+
+        ctx.clearRect(0, 0, w, h);
+
+        if (this.points.length < 2) {
+            ctx.fillStyle = "#5c6b78";
+            ctx.font = "11px sans-serif";
+            ctx.textAlign = "center";
+            ctx.fillText("No data yet — move around to record", w / 2, h / 2);
+            return;
+        }
+
+        const max = Math.max(20, ...this.points) * 1.15;
+        const step = w / (this.maxPoints - 1);
+        const offset = this.maxPoints - this.points.length;
+
+        ctx.beginPath();
+        ctx.strokeStyle = "#18d6a3";
+        ctx.lineWidth = 2;
+        this.points.forEach((v, i) => {
+            const x = (offset + i) * step;
+            const y = h - (v / max) * h;
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+    }
+};
+
+// ==========================================
 // CORE SYSTEM
 // ==========================================
 socket.on("connect", () => { if (currentUser.name) socket.emit("profileReady", currentUser); });
@@ -303,7 +471,7 @@ function startGPS() {
             cityName = await fetchCity(lat, lng);
             if (cityName) {
                 if ($("header-app-title")) $("header-app-title").textContent = `${cityName} Map`;
-                if ($("pill-city")) $("pill-city").textContent = `📍 ${cityName}`;
+                if ($("city-name-text")) $("city-name-text").textContent = cityName;
             }
         }
 
@@ -318,7 +486,24 @@ function startGPS() {
                 }
             }
         }
-        
+
+        // --- Speed: prefer the GPS-reported speed; fall back to distance/time between fixes ---
+        let speedKmh = 0;
+        if (p.coords.speed != null && p.coords.speed >= 0) {
+            speedKmh = p.coords.speed * 3.6;
+        } else if (lastFixCoords && lastFixTime) {
+            const dtSec = (Date.now() - lastFixTime) / 1000;
+            if (dtSec > 0.5) {
+                const dKm = Number(distanceKm(lastFixCoords.lat, lastFixCoords.lng, lat, lng)) || 0;
+                speedKmh = (dKm / dtSec) * 3600;
+            }
+        }
+        speedKmh = Math.min(speedKmh, 300); // clamp against occasional GPS jump spikes
+        lastFixCoords = { lat, lng }; lastFixTime = Date.now();
+
+        SpeedGuard.evaluate(speedKmh);
+        SpeedTrend.record(speedKmh);
+
         socket.emit("updateLocation",{name:currentUser.name, avatar:currentUser.avatar, lat, lng, weather:myWeather});
         updateFriendBadges(); 
         triggerGroupRouteUpdate(); 
@@ -335,7 +520,7 @@ function updateFriendBadges(){
     Object.keys(friendMarkers).forEach(id=>{
         const f=friendData[id], m=friendMarkers[id]; if(!f||!m) return;
         let text = f.online===false ? "Offline" : f.weather;
-        if(myCoords && validCoord(f.lat,f.lng)) text += ` | 📍 ${distanceKm(myCoords.lat,myCoords.lng,f.lat,f.lng)} km away`;
+        if(myCoords && validCoord(f.lat,f.lng)) text += ` | 📍 ${distanceKm(myCoords.lat,myCoords.lng,f.lat,f.lng)} km`;
         m.unbindTooltip(); if(text) m.bindTooltip(text,{permanent:true,direction:"right",className:"weather-badge",offset:[15,0]});
     });
 }
@@ -345,6 +530,9 @@ socket.on("userOnline", u=>{ if(u.id!==socket.id){ friendData[u.id]={...(friendD
 socket.on("userOffline", d=>{ if(d?.id && friendData[d.id]){ friendData[d.id].online=false; if(friendMarkers[d.id]) friendMarkers[d.id].setOpacity(0.45); } updateOnlineUI(); });
 socket.on("friendMoved", u=>{ if(u?.id) { createOrUpdateFriendMarker({...u,online:true}); updateOnlineUI(); triggerGroupRouteUpdate(); Navigation.onLiveUpdate(); GroupNavigation.onLiveUpdate(); }});
 socket.on("friendDisconnected", id=>{ if(friendMarkers[id]){map.removeLayer(friendMarkers[id]); delete friendMarkers[id];} delete friendData[id]; updateOnlineUI(); });
+
+const friendMarkers = Object.create(null);
+const friendData = Object.create(null);
 
 function createOrUpdateFriendMarker(u){
     if(!u?.id || !validCoord(u.lat,u.lng)) return;
@@ -365,27 +553,37 @@ function updateOnlineUI(){
     });
 }
 
-function showProfilePopup(u) {
+function showProfilePopup(u, isSelf) {
     if($("profile-popup-avatar")) $("profile-popup-avatar").src=u.avatar; 
-    if($("profile-popup-name")) $("profile-popup-name").textContent=u.name;
+    if($("profile-popup-name")) $("profile-popup-name").textContent = isSelf ? `${u.name} (You)` : u.name;
     const st = $("profile-popup-status");
     if(st) { st.textContent = u.online!==false ? "● Online" : "● Offline"; st.style.color = u.online!==false ? "#18d6a3" : "#8fa1aa"; }
-    if($("profile-popup-distance")) $("profile-popup-distance").textContent = myCoords ? `${distanceKm(myCoords.lat,myCoords.lng,u.lat,u.lng)} km away` : "--";
+    if($("profile-popup-distance")) $("profile-popup-distance").textContent = isSelf ? "—" : (myCoords ? `${distanceKm(myCoords.lat,myCoords.lng,u.lat,u.lng)} km away` : "--");
     if($("profile-popup-weather")) $("profile-popup-weather").textContent = u.weather || "--";
-    
-    if($("profile-nav-btn")) {
-        $("profile-nav-btn").onclick = () => {
-            if(validCoord(u.lat, u.lng)) Navigation.start(u.id);
-        };
+
+    const navBtn = $("profile-nav-btn"), focusBtn = $("profile-focus-btn");
+    if(navBtn){
+        navBtn.classList.toggle("hidden", !!isSelf);
+        navBtn.onclick = () => { if(validCoord(u.lat, u.lng)) Navigation.start(u.id); };
     }
-    
-    // NAYA: Call Button Activate Karna
-    if (typeof initCallButton === "function") initCallButton(u);
-    
+    if(focusBtn){
+        focusBtn.classList.remove("hidden");
+        focusBtn.onclick=()=>{ if(validCoord(u.lat,u.lng)) map.flyTo([u.lat,u.lng],16); $("profile-popup").style.display="none"; };
+    }
+
+    const speedSection = $("profile-speed-section");
+    if(speedSection){ speedSection.style.display = isSelf ? "flex" : "none"; }
+    if(isSelf) SpeedTrend.render();
+
     if($("profile-popup")) $("profile-popup").style.display="flex";
-    if($("profile-focus-btn")) $("profile-focus-btn").onclick=()=>{ map.flyTo([u.lat,u.lng],16); $("profile-popup").style.display="none"; };
 }
 $("profile-popup-close")?.addEventListener("click",()=>$("profile-popup").style.display="none");
+
+// Tap your own header avatar to see your profile (with the speed toggle & graph)
+$("header-avatar")?.addEventListener("click", () => {
+    if(!currentUser.name) return;
+    showProfilePopup({ id:"self", name:currentUser.name, avatar:currentUser.avatar, online:true, lat:myCoords?.lat, lng:myCoords?.lng, weather:myWeather }, true);
+});
 
 function renderGeofenceList() {
     const list = $("geofence-items");
@@ -849,13 +1047,14 @@ function setupGoogleSearch() {
                 searchMarker.bindPopup(popupContent).openPopup();
                 if (clearBtn) clearBtn.style.display = "block";
 
-                // ASLI JUGAD: Using Google Directions API instead of OSRM
+                // Using Google Directions API (with live traffic) instead of OSRM for this leg
                 if(myCoords && window.google) {
                     const ds = new google.maps.DirectionsService();
                     ds.route({
                         origin: new google.maps.LatLng(myCoords.lat, myCoords.lng),
                         destination: new google.maps.LatLng(destLat, destLng),
-                        travelMode: 'DRIVING'
+                        travelMode: 'DRIVING',
+                        drivingOptions: { departureTime: new Date(), trafficModel: 'bestguess' }
                     }, (res, status) => {
                         const infoDiv = document.getElementById("search-route-info");
                         const navBtn = document.getElementById("search-nav-btn");
@@ -868,7 +1067,8 @@ function setupGoogleSearch() {
                             const coords = route.overview_path.map(p => [p.lat(), p.lng()]);
                             L.polyline(coords, { color: '#60a5fa', weight: 4, opacity: 0.5, dashArray: '6, 8' }).addTo(navigationLayer);
 
-                            infoDiv.innerHTML = `<span style="color:white; font-size:14px; font-weight:800;">🚗 ${leg.distance.text}</span> <br> <span style="color:white; font-size:14px; font-weight:800;">⏱️ ${leg.duration.text}</span>`;
+                            const durText = leg.duration_in_traffic ? leg.duration_in_traffic.text : leg.duration.text;
+                            infoDiv.innerHTML = `<span style="color:white; font-size:14px; font-weight:800;">🚗 ${leg.distance.text}</span> <br> <span style="color:white; font-size:14px; font-weight:800;">⏱️ ${durText}</span>`;
                             navBtn.style.opacity = "1";
                             navBtn.disabled = false;
                             
@@ -889,7 +1089,7 @@ function setupGoogleSearch() {
 }
 
 // ==========================================
-// REAL GPS PREMIUM NAVIGATION (NO SIMULATION)
+// REAL GPS PREMIUM NAVIGATION (NO SIMULATION) + TRAFFIC-AWARE REROUTING
 // ==========================================
 let navWatchId = null;
 
@@ -907,7 +1107,7 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
     const ui = $("premium-nav-ui");
     if(ui) ui.style.display = "block";
 
-    const leg = routeData.legs[0];
+    let currentLeg = routeData.legs[0]; // reassigned when a faster route is found mid-trip
     const fullPath = routeData.overview_path.map(p => [p.lat(), p.lng()]);
     
     // 1. Dotted Blue Path (Full Route)
@@ -936,14 +1136,14 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
     L.marker([destLat, destLng], { icon: L.divIcon({className: 'geofence-marker', html: '📍'}) }).addTo(navigationLayer);
 
     // 4. Set Initial UI Data
-    if($("nav-total-dist")) $("nav-total-dist").innerHTML = leg.distance.text.replace(" km", "<small style='font-size:12px;color:#9ca3af;'> km</small>");
-    if($("nav-eta-badge")) $("nav-eta-badge").textContent = "ETA " + leg.duration.text;
+    if($("nav-total-dist")) $("nav-total-dist").innerHTML = currentLeg.distance.text.replace(" km", "<small style='font-size:12px;color:#9ca3af;'> km</small>");
+    if($("nav-eta-badge")) $("nav-eta-badge").textContent = "ETA " + (currentLeg.duration_in_traffic ? currentLeg.duration_in_traffic.text : currentLeg.duration.text);
     
-    const arrivalTime = new Date(Date.now() + leg.duration.value * 1000);
+    const arrivalTime = new Date(Date.now() + (currentLeg.duration_in_traffic ? currentLeg.duration_in_traffic.value : currentLeg.duration.value) * 1000);
     if($("nav-arrival-time")) $("nav-arrival-time").innerHTML = arrivalTime.toLocaleTimeString([], {hour: 'numeric', minute:'2-digit', hour12: true});
     
-    if($("nav-step-text")) $("nav-step-text").textContent = leg.steps[0].instructions.replace(/<[^>]*>?/gm, ''); 
-    if($("nav-step-dist")) $("nav-step-dist").textContent = leg.steps[0].distance.text;
+    if($("nav-step-text")) $("nav-step-text").textContent = currentLeg.steps[0].instructions.replace(/<[^>]*>?/gm, ''); 
+    if($("nav-step-dist")) $("nav-step-dist").textContent = currentLeg.steps[0].distance.text;
 
     map.fitBounds(dottedPath.getBounds(), { paddingBottomRight: [0, 350], paddingTopLeft: [50, 150] });
 
@@ -970,6 +1170,7 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
             // Start reading real phone GPS
             if (navigator.geolocation) {
                 let traveledCoords = [];
+                let lastTrafficCheck = 0, lastTrafficCoords = null, rerouting = false;
                 
                 navWatchId = navigator.geolocation.watchPosition((pos) => {
                     const currentLat = pos.coords.latitude;
@@ -993,6 +1194,44 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
                     const remainingMeters = map.distance(currentPos, [destLat, destLng]);
                     const remainingKm = (remainingMeters / 1000).toFixed(1);
                     if($("nav-total-dist")) $("nav-total-dist").innerHTML = remainingKm + "<small style='font-size:12px;color:#9ca3af;'> km</small>";
+
+                    // --- Traffic-aware rerouting: re-check the road ahead every ~60s / 800m ---
+                    const nowT = Date.now();
+                    const movedFar = !lastTrafficCoords || Number(distanceKm(lastTrafficCoords.lat, lastTrafficCoords.lng, currentLat, currentLng)) > 0.8;
+                    if (window.google && !rerouting && (nowT - lastTrafficCheck > 60000) && movedFar && remainingMeters > 300) {
+                        lastTrafficCheck = nowT; lastTrafficCoords = { lat: currentLat, lng: currentLng }; rerouting = true;
+                        const ds = new google.maps.DirectionsService();
+                        ds.route({
+                            origin: new google.maps.LatLng(currentLat, currentLng),
+                            destination: new google.maps.LatLng(destLat, destLng),
+                            travelMode: 'DRIVING',
+                            provideRouteAlternatives: true,
+                            drivingOptions: { departureTime: new Date(), trafficModel: 'bestguess' }
+                        }, (res, status) => {
+                            rerouting = false;
+                            if (status !== 'OK' || !res.routes.length) return;
+                            let best = res.routes[0], bestLeg = best.legs[0];
+                            res.routes.forEach(r => {
+                                const l = r.legs[0];
+                                const lSec = l.duration_in_traffic ? l.duration_in_traffic.value : l.duration.value;
+                                const bSec = bestLeg.duration_in_traffic ? bestLeg.duration_in_traffic.value : bestLeg.duration.value;
+                                if (lSec < bSec) { best = r; bestLeg = l; }
+                            });
+                            const bestSec = bestLeg.duration_in_traffic ? bestLeg.duration_in_traffic.value : bestLeg.duration.value;
+                            const curSec = currentLeg.duration_in_traffic ? currentLeg.duration_in_traffic.value : currentLeg.duration.value;
+                            if (curSec - bestSec > 180) { // switch only if it saves more than 3 minutes
+                                currentLeg = bestLeg;
+                                const newCoords = best.overview_path.map(p => [p.lat(), p.lng()]);
+                                dottedPath.setLatLngs(newCoords);
+                                if($("nav-eta-badge")) $("nav-eta-badge").textContent = "ETA " + (bestLeg.duration_in_traffic ? bestLeg.duration_in_traffic.text : bestLeg.duration.text);
+                                const newArrival = new Date(Date.now() + bestSec * 1000);
+                                if($("nav-arrival-time")) $("nav-arrival-time").innerHTML = newArrival.toLocaleTimeString([], {hour:'numeric', minute:'2-digit', hour12:true});
+                                if($("nav-step-text")) $("nav-step-text").textContent = bestLeg.steps[0].instructions.replace(/<[^>]*>?/gm, '');
+                                if($("nav-step-dist")) $("nav-step-dist").textContent = bestLeg.steps[0].distance.text;
+                                showToast("🚦 Traffic ahead — found a faster route, switching now", 5000);
+                            }
+                        });
+                    }
 
                     // Stop if Arrived (within 30 meters)
                     if(remainingMeters < 30) {
@@ -1038,7 +1277,7 @@ let incomingIceCandidates = [];
 let callDialog = null;
 let activeCallBtn = null;
 
-// FIX 1: WhatsApp Jaisa TURN (Relay) Server for Jio/Airtel strict networks
+// WhatsApp Jaisa TURN (Relay) Server for strict networks
 const rtcConfig = { 
     iceServers: [
         { urls: "stun:stun.l.google.com:19302" },
@@ -1061,14 +1300,13 @@ const rtcConfig = {
     ] 
 };
 
-// FIX 2: Mobile Safari aur Chrome ke liye strict audio routing
 function attachAudioTrack(event) {
     let audio = document.getElementById("remote-audio");
     if(!audio) {
         audio = document.createElement("audio");
         audio.id = "remote-audio";
         audio.autoplay = true;
-        audio.playsInline = true; // Mobile ke liye zaruri
+        audio.playsInline = true;
         audio.hidden = true;
         document.body.appendChild(audio);
     }
@@ -1079,10 +1317,8 @@ function attachAudioTrack(event) {
         audio.srcObject = new MediaStream([event.track]);
     }
     
-    // Promise ko force handle karna
     audio.play().catch(e => {
         console.log("Audio play error, forcing play:", e);
-        // Agar browser autoplay block kare, toh document par click event laga do
         document.body.addEventListener('click', () => { audio.play(); }, { once: true });
     });
 }
@@ -1101,7 +1337,6 @@ function initCallButton(u) {
             return;
         }
 
-        // --- NAYA CHECK: Browser support ---
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
             alert("❌ Browser calling support nahi karta. Kripya Chrome/Safari use karein.");
             return;
@@ -1128,7 +1363,6 @@ function initCallButton(u) {
             showActiveCallUI(() => socket.emit("end-call", { to: u.id }));
             
         } catch (err) {
-            // EXACT ERROR DIKHAANE KE LIYE
             alert(`Mic Error: ${err.name}\nMessage: ${err.message}\nKya background mein koi aur app mic use kar rahi hai?`);
             showToast("❌ Mic error: " + err.message);
         }
@@ -1196,7 +1430,6 @@ socket.on("incoming-call", async (data) => {
                 incomingIceCandidates = [];
                 
             } catch (e) {
-                // EXACT ERROR DIKHAANE KE LIYE
                 alert(`Mic Error: ${e.name}\nMessage: ${e.message}\nKya background mein koi aur app mic use kar rahi hai?`);
                 showToast("❌ Mic error: " + e.message);
                 socket.emit("end-call", { to: data.from });
@@ -1258,11 +1491,8 @@ function endLocalCall() {
 // ==========================================
 let deferredPrompt;
 window.addEventListener('beforeinstallprompt', (e) => {
-    // Browser ka default popup roko
     e.preventDefault();
     deferredPrompt = e;
-    
-    // Apna custom button dikhao
     const installBtn = $("install-app-btn");
     if (installBtn) installBtn.style.display = 'flex';
 });
@@ -1272,18 +1502,15 @@ window.addEventListener('DOMContentLoaded', () => {
     if (installBtn) {
         installBtn.onclick = async () => {
             if (deferredPrompt) {
-                // Install ka option popup karo
                 deferredPrompt.prompt();
                 const { outcome } = await deferredPrompt.userChoice;
                 if (outcome === 'accepted') {
-                    installBtn.style.display = 'none'; // Download ke baad gayab kar do
+                    installBtn.style.display = 'none';
                 }
                 deferredPrompt = null;
             }
         };
     }
-    
-    // Agar app already install ho chuka hai, toh button hata do
     if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true) {
         if (installBtn) installBtn.style.display = 'none';
     }
@@ -1293,6 +1520,7 @@ window.addEventListener('appinstalled', () => {
     const installBtn = $("install-app-btn");
     if (installBtn) installBtn.style.display = 'none';
 });
+
 // ==========================================
 // INITIALIZATION
 // ==========================================
@@ -1302,7 +1530,8 @@ function initApp(){
     setupAdvancedTools(); 
     setupChat(); 
     setupMemories(); 
+    SpeedTrend.init();
     startGPS(); 
     setupGoogleSearch(); 
 }
-if(document.readyState==="loading") document.addEventListener("DOMContentLoaded", initApp); else initApp(); add changes
+if(document.readyState==="loading") document.addEventListener("DOMContentLoaded", initApp); else initApp();
