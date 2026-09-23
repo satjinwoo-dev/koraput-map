@@ -3,687 +3,288 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<meta name="theme-color" content="#080e17">
+<meta name="theme-color" content="#0a0e14">
 
-<!-- PWA (Mobile App) Manifest & Icon -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="satyam.png">
 
-<title>Koraput Live Map</title>
+<title>Koraput Smart Drive</title>
 
+<!-- Claude's Premium Fonts -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600..800&family=Instrument+Sans:wght@400..700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=Bricolage+Grotesque:opsz,wght@12..96,600..800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js"></script>
 
 <style>
 /* =========================================================
-   TOKENS
+   ULTIMATE TOKENS & CLAUDE'S THEME
    ========================================================= */
-:root{
-  --ink:#080e17; --ink-2:#0e1724; --ink-3:#152131;
-  --glass:rgba(11,19,31,.74); --glass-solid:rgba(10,17,28,.94);
-  --line:rgba(255,255,255,.085); --line-strong:rgba(255,255,255,.16);
-  --text:#f2f6f8; --muted:#8b9bab; --soft:#c6d2db;
-  --mint:#34e0b4; --mint-deep:#0fa37f; --sky:#6aa8ff; --iris:#7c83ff; --amber:#fbbf24; --danger:#ff6b6b;
-
-  /* aliases used by app.js inline styles */
-  --bg:var(--ink); --border:var(--line); --green:#12c99b; --green-bright:var(--mint); --blue:var(--sky);
-  --shadow:0 18px 50px rgba(0,0,0,.5), 0 2px 8px rgba(0,0,0,.3);
-
-  --ease:cubic-bezier(.22,1,.36,1);
-  --spring:cubic-bezier(.34,1.56,.64,1);
-  --r-sheet:28px; --r-card:20px; --r-btn:14px; --r-sm:10px;
-  --safe-t:env(safe-area-inset-top,0px); --safe-b:env(safe-area-inset-bottom,0px);
-  --font-ui:"Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
-  --font-display:"Bricolage Grotesque","Instrument Sans",system-ui,sans-serif;
+:root {
+  --bg: #0a0e14; --ink-2: #10151d; --ink-3: #1b2330;
+  --card-bg: rgba(12,16,23,0.82); --card-border: rgba(255,255,255,0.07);
+  --text-hi: #eef2f7; --text-lo: #808b9a;
+  --mint: #34d399; --done-b: #22c55e; --todo: #5865f2;
+  --amber: #f5a524; --danger: #ff6b6b; --danger-glow: rgba(239,68,68,0.3);
+  
+  --font-display: "Sora", "Bricolage Grotesque", sans-serif;
+  --font-body: "Inter", system-ui, sans-serif;
+  
+  --shadow: 0 18px 50px rgba(0,0,0,.6), 0 2px 8px rgba(0,0,0,.4);
+  --ease: cubic-bezier(.22,1,.36,1);
+  --spring: cubic-bezier(.34,1.56,.64,1);
+  --safe-t: env(safe-area-inset-top,0px); --safe-b: env(safe-area-inset-bottom,0px);
 }
 
-*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{width:100%;height:100%;margin:0;overflow:hidden;background:var(--ink);color:var(--text);font-family:var(--font-ui);-webkit-font-smoothing:antialiased}
-button,input{font:inherit;color:inherit;outline:none}
-button{cursor:pointer;border:0;background:none;padding:0}
-input{cursor:text}
-:focus-visible{outline:2px solid var(--mint);outline-offset:2px}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: var(--bg); color: var(--text-hi); font-family: var(--font-body); -webkit-font-smoothing: antialiased; }
+button, input { font: inherit; color: inherit; outline: none; border: none; background: none; }
+button { cursor: pointer; transition: transform .15s var(--ease), opacity .2s; }
+button:active { transform: scale(.94); }
+:focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; }
 
-.i{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none;display:block}
-.i.sm{width:16px;height:16px}
-.i.lg{width:24px;height:24px}
+.i { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; display: block; }
+.i.sm { width: 16px; height: 16px; } .i.lg { width: 24px; height: 24px; }
 
-/* shared glass surface */
-.glass{background:var(--glass);border:1px solid var(--line);backdrop-filter:blur(20px) saturate(1.5);-webkit-backdrop-filter:blur(20px) saturate(1.5);box-shadow:var(--shadow)}
-
-/* press feedback on every tappable control */
-button{transition:transform .18s var(--ease),background-color .2s,color .2s,opacity .2s,box-shadow .2s}
-button:active{transform:scale(.94)}
-
-#map{position:fixed;inset:0;z-index:1;background:var(--ink)}
-.leaflet-control-attribution{display:none}
-.leaflet-container{font-family:var(--font-ui)}
+#map { position: fixed; inset: 0; z-index: 1; background: var(--bg); }
+.leaflet-control-attribution { display: none; }
+.leaflet-container { font-family: var(--font-body); }
 
 /* =========================================================
-   MAP CHROME (header, search, tools, pills)
+   DANGER OVERLAY (GEMINI)
    ========================================================= */
-#top-header{position:fixed;top:calc(14px + var(--safe-t));left:14px;right:14px;z-index:1000;display:flex;justify-content:space-between;pointer-events:none}
-.brand-card{pointer-events:auto;display:flex;align-items:center;gap:11px;padding:8px 8px 8px 14px;border-radius:20px;min-height:52px}
-.brand-dot{flex:0 0 9px;width:9px;height:9px;border-radius:50%;background:var(--mint);position:relative}
-.brand-dot::after{content:"";position:absolute;inset:-5px;border-radius:50%;border:1.5px solid var(--mint);opacity:0;animation:ping 2.4s var(--ease) infinite}
-@keyframes ping{0%{transform:scale(.5);opacity:.8}80%,100%{transform:scale(1.6);opacity:0}}
-.header-info{display:flex;flex-direction:column;line-height:1.1}
-.header-info strong{font-family:var(--font-display);font-size:15px;font-weight:700;letter-spacing:-.01em}
-.header-info span{margin-top:3px;color:var(--muted);font-size:11px}
-#header-avatar{display:none;width:36px;height:36px;object-fit:cover;border-radius:50%;box-shadow:0 0 0 2px var(--ink),0 0 0 3.5px rgba(52,224,180,.7)}
-
-/* NAYA DOWNLOAD (INSTALL) BUTTON */
-#install-app-btn {
-  display:none; 
-  align-items:center; 
-  gap:6px; 
-  background:linear-gradient(145deg,#34e0b4,#0fa37f); 
-  color:#03271d; 
-  border-radius:20px; 
-  padding:0 14px; 
-  font-weight:800; 
-  font-size:13px; 
-  box-shadow:0 8px 20px rgba(15,163,127,.35); 
-  pointer-events:auto; 
-  border:none; 
-  cursor:pointer;
-}
-
-#search-container{position:fixed;top:calc(14px + var(--safe-t));left:0;right:0;margin:auto;width:min(420px,42vw);z-index:2000;display:flex;align-items:center;gap:2px;padding:0 6px 0 14px;height:52px;border-radius:20px;transition:box-shadow .3s var(--ease),border-color .3s,width .4s var(--ease)}
-#search-container:focus-within{border-color:rgba(52,224,180,.55);box-shadow:var(--shadow),0 0 0 4px rgba(52,224,180,.12);width:min(480px,46vw)}
-#search-container .i{color:var(--muted);transition:color .2s}
-#search-container:focus-within .i{color:var(--mint)}
-#location-search-input{flex:1;min-width:0;width:100%;border:0;background:transparent;color:var(--text);padding:0 8px;font-size:15px;height:100%}
-#location-search-input::placeholder{color:#6f8090}
-#location-search-clear{display:none;width:34px;height:34px;border-radius:50%;color:var(--muted);align-items:center;justify-content:center;font-size:0}
-#location-search-clear[style*="block"]{display:flex!important}
-#location-search-clear:hover{background:rgba(255,255,255,.08);color:#fff}
-
-/* tool rail */
-#map-tools{position:fixed;right:14px;top:calc(88px + var(--safe-t));z-index:1000;display:flex;flex-direction:column;gap:4px;padding:6px;border-radius:24px;background:var(--glass);border:1px solid var(--line);backdrop-filter:blur(20px) saturate(1.5);-webkit-backdrop-filter:blur(20px) saturate(1.5);box-shadow:var(--shadow)}
-.map-tool-button{position:relative;width:42px;height:42px;border-radius:var(--r-btn);color:var(--soft);display:flex;align-items:center;justify-content:center}
-@media (hover:hover){.map-tool-button:hover{background:rgba(255,255,255,.08);color:#fff}}
-.map-tool-button.active-tool{background:linear-gradient(145deg,rgba(52,224,180,.28),rgba(52,224,180,.12));color:var(--mint);box-shadow:inset 0 0 0 1px rgba(52,224,180,.5);animation:toolOn .45s var(--spring)}
-@keyframes toolOn{0%{transform:scale(.85)}100%{transform:scale(1)}}
-#compass-icon{display:inline-flex;transition:transform .25s var(--ease)}
-
-#map-style-menu{position:fixed;right:76px;top:calc(186px + var(--safe-t));z-index:1100;display:none;flex-direction:column;gap:2px;min-width:160px;padding:6px;border-radius:18px;background:var(--glass-solid);border:1px solid var(--line-strong);box-shadow:var(--shadow);backdrop-filter:blur(20px);transform-origin:right top;animation:menuIn .32s var(--spring)}
-@keyframes menuIn{from{opacity:0;transform:scale(.88) translateX(10px)}to{opacity:1;transform:none}}
-#map-style-menu button{display:flex;align-items:center;gap:10px;border-radius:12px;padding:11px 12px;color:var(--soft);text-align:left;font-size:14px;font-weight:500;width:100%}
-#map-style-menu button.active{background:rgba(52,224,180,.14);color:var(--mint)}
-@media (hover:hover){#map-style-menu button:hover{background:rgba(255,255,255,.07)}}
-
-#bottom-info{position:fixed;left:50%;bottom:calc(17px + var(--safe-b));transform:translateX(-50%);z-index:1000;display:flex;gap:6px;pointer-events:none}
-.bottom-pill{display:flex;align-items:center;justify-content:center;gap:7px;height:38px;padding:0 15px;border-radius:999px;background:var(--glass);border:1px solid var(--line);backdrop-filter:blur(20px) saturate(1.5);-webkit-backdrop-filter:blur(20px) saturate(1.5);color:var(--text);font-size:13px;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
-.bottom-pill .i{width:15px;height:15px;color:var(--muted)}
-.bottom-pill.live{color:var(--mint);gap:8px}
-.bottom-pill.live::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--mint);box-shadow:0 0 0 0 rgba(52,224,180,.6);animation:livePulse 2s infinite}
-@keyframes livePulse{70%{box-shadow:0 0 0 8px rgba(52,224,180,0)}100%{box-shadow:0 0 0 0 rgba(52,224,180,0)}}
-
-#memoryButton,#chat-toggle-btn{position:fixed;bottom:calc(17px + var(--safe-b));z-index:1200;width:50px;height:50px;background:var(--glass);border:1px solid var(--line);color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow);backdrop-filter:blur(20px) saturate(1.5);-webkit-backdrop-filter:blur(20px) saturate(1.5)}
-#memoryButton{left:16px;border-radius:18px}
-#chat-toggle-btn{right:16px;border-radius:50%;background:linear-gradient(145deg,#2be8b8,#0fa37f);border:0;color:#03271d;box-shadow:0 10px 30px rgba(15,163,127,.45)}
-#chat-unread-badge{position:absolute;right:-3px;top:-3px;display:none;min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:var(--danger);color:#fff;font-size:11px;font-weight:700;align-items:center;justify-content:center;box-shadow:0 0 0 3px var(--ink);animation:pop .4s var(--spring)}
-@keyframes pop{from{transform:scale(0)}to{transform:scale(1)}}
-
-/* one orchestrated reveal after joining */
-@keyframes chromeIn{from{opacity:0;transform:translateY(-12px) scale(.97)}to{opacity:1;transform:none}}
-@keyframes railIn{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:none}}
-@keyframes dockIn{from{opacity:0;transform:translateY(14px) scale(.96)}to{opacity:1;transform:none}}
-body.ready .brand-card{animation:chromeIn .7s var(--ease) both .05s}
-body.ready #search-container{animation:chromeIn .7s var(--ease) both .15s}
-body.ready #map-tools{animation:railIn .75s var(--ease) both .3s}
-body.ready .bottom-pill{animation:dockIn .7s var(--ease) both .45s}
-body.ready .bottom-pill:nth-child(2){animation-delay:.52s}
-body.ready .bottom-pill:nth-child(3){animation-delay:.59s}
-body.ready #memoryButton,body.ready #chat-toggle-btn{animation:dockIn .7s var(--spring) both .6s}
-
-/* hide extras while turn-by-turn is running */
-body:has(#premium-nav-ui[style*="block"]) #memoryButton,
-body:has(#premium-nav-ui[style*="block"]) #trip-panel{display:none!important}
+#speed-danger-overlay { position: fixed; inset: 0; z-index: 500; pointer-events: none; background: rgba(255,0,0,0.25); opacity: 0; transition: opacity 0.3s ease; }
+#speed-danger-overlay.active { animation: dangerPulse 1s infinite alternate; }
+@keyframes dangerPulse { from { opacity: 0.1; } to { opacity: 0.5; } }
 
 /* =========================================================
-   TOASTS
+   CLAUDE'S NAVIGATION HUD
    ========================================================= */
-#toast-container{position:fixed;top:calc(78px + var(--safe-t));left:0;right:0;z-index:9999;display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none}
-.toast{display:flex;align-items:center;gap:9px;max-width:min(92vw,420px);padding:11px 18px;border-radius:999px;background:var(--glass-solid);border:1px solid var(--line-strong);color:var(--text);font-size:13.5px;font-weight:600;box-shadow:var(--shadow);backdrop-filter:blur(16px);animation:toastIn .5s var(--spring) both;transition:opacity .3s,transform .3s var(--ease)}
-.toast::before{content:"";flex:none;width:8px;height:8px;border-radius:50%;background:var(--mint);box-shadow:0 0 12px var(--mint)}
-@keyframes toastIn{from{opacity:0;transform:translateY(-16px) scale(.9)}to{opacity:1;transform:none}}
+.top-hud { position: absolute; top: calc(14px + var(--safe-t)); left: 14px; right: 14px; display: flex; align-items: center; justify-content: space-between; z-index: 1000; pointer-events: none; }
+.top-hud > * { pointer-events: auto; }
+.chip { background: var(--card-bg); border: 1px solid var(--card-border); padding: 9px 13px; border-radius: 999px; font-size: 12.5px; display: flex; align-items: center; gap: 7px; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); box-shadow: var(--shadow); font-weight: 600; }
+.chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--done-b); box-shadow: 0 0 0 3px rgba(34,197,94,0.22); animation: livePulse 2s infinite; }
+@keyframes livePulse { 70% { box-shadow: 0 0 0 8px rgba(34,197,94,0); } 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); } }
+
+/* Claude's Floating Turn Banner */
+.turn-banner { position: absolute; top: calc(65px + var(--safe-t)); left: 14px; right: 14px; background: linear-gradient(180deg, rgba(16,22,31,0.94), rgba(12,16,23,0.86)); border: 1px solid var(--card-border); border-radius: 18px; padding: 14px 16px; display: none; align-items: center; gap: 14px; z-index: 1000; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); box-shadow: 0 10px 30px -12px rgba(0,0,0,0.6); animation: slideDown 0.4s var(--spring); }
+@keyframes slideDown { from { transform: translateY(-20px) scale(0.97); opacity: 0; } to { transform: none; opacity: 1; } }
+.turn-arrow-wrap { width: 44px; height: 44px; border-radius: 14px; flex-shrink: 0; background: linear-gradient(160deg, rgba(88,101,242,0.28), rgba(88,101,242,0.08)); border: 1px solid rgba(99,102,241,0.35); display: flex; align-items: center; justify-content: center; }
+.turn-arrow-wrap svg { width: 24px; height: 24px; stroke: #a5b4fc; stroke-width: 2.5; transition: transform 0.35s var(--spring); }
+.turn-copy { min-width: 0; flex: 1; }
+.turn-copy .d { font-size: 12px; color: var(--text-lo); font-weight: 600; margin-bottom: 2px; }
+.turn-copy .n { font-family: var(--font-display); font-size: 16px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Claude's Speed Dial */
+.speed-dial { position: absolute; left: 14px; bottom: calc(14px + var(--safe-b)); width: 70px; height: 70px; border-radius: 50%; z-index: 1000; background: var(--card-bg); border: 2px solid var(--card-border); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); display: none; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 12px 30px rgba(0,0,0,0.6); transition: border-color 0.3s, box-shadow 0.3s; animation: popIn 0.5s var(--spring); }
+.speed-dial .n { font-family: var(--font-display); font-size: 24px; font-weight: 800; line-height: 1; }
+.speed-dial .u { font-size: 10px; color: var(--text-lo); font-weight: 700; margin-top: 2px; }
+.speed-dial.warn { border-color: var(--amber); box-shadow: 0 0 20px rgba(245,165,36,0.3); }
+.speed-dial.danger { border-color: var(--danger); background: rgba(239,68,68,0.15); box-shadow: 0 0 25px var(--danger-glow); color: var(--danger); animation: dangerShake 0.4s infinite; }
+@keyframes popIn { from { transform: scale(0.5); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes dangerShake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
+
+/* Chat & Tools Position adjustment */
+#map-tools { position: absolute; right: 14px; top: calc(80px + var(--safe-t)); display: flex; flex-direction: column; gap: 6px; z-index: 1000; background: var(--card-bg); padding: 6px; border-radius: 20px; border: 1px solid var(--card-border); backdrop-filter: blur(10px); box-shadow: var(--shadow); }
+.tool-btn { width: 42px; height: 42px; border-radius: 14px; color: var(--text-lo); display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.03); transition: .2s; }
+.tool-btn.active-tool, .tool-btn:hover { background: rgba(52,224,180,0.15); color: var(--mint); }
 
 /* =========================================================
-   SHARED MODAL CARD
+   BOTTOM SHEET & CLAUDE'S TRIP SUMMARY
    ========================================================= */
-.modal{display:none;position:fixed;inset:0;margin:auto;height:fit-content;width:min(340px,92vw);padding:20px;border-radius:var(--r-sheet);flex-direction:column;background:var(--glass-solid);border:1px solid var(--line-strong);box-shadow:0 30px 90px rgba(0,0,0,.7);backdrop-filter:blur(24px);animation:modalIn .5s var(--spring) both}
-@keyframes modalIn{from{opacity:0;transform:translateY(24px) scale(.94)}to{opacity:1;transform:none}}
-.modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
-.modal-head strong{font-family:var(--font-display);font-size:18px;font-weight:700;letter-spacing:-.01em}
-.icon-btn{width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,.07);color:var(--soft);display:flex;align-items:center;justify-content:center}
-@media (hover:hover){.icon-btn:hover{background:rgba(255,255,255,.14);color:#fff}}
-.btn-primary{width:100%;height:48px;border-radius:var(--r-btn);background:linear-gradient(145deg,#2be8b8,#0fa37f);color:#03271d;font-weight:700;font-size:15px;box-shadow:0 8px 24px rgba(15,163,127,.35)}
-.btn-danger{background:rgba(255,107,107,.14);color:var(--danger);border-radius:10px;padding:0 12px;height:32px;font-weight:700;font-size:12px}
+.nav-bottom-sheet { position: absolute; left: 0; right: 0; bottom: 0; background: linear-gradient(180deg, #10151d, #0a0e14); border-top: 1px solid var(--card-border); padding: 18px 18px calc(18px + var(--safe-b)); display: none; flex-direction: column; gap: 16px; z-index: 1000; box-shadow: 0 -10px 40px rgba(0,0,0,0.7); animation: slideUp 0.4s var(--spring); }
+@keyframes slideUp { from { transform: translateY(100%); } to { transform: none; } }
+.nav-stats { display: flex; justify-content: space-between; align-items: center; }
+.n-stat { display: flex; flex-direction: column; gap: 4px; }
+.n-stat .l { font-size: 11px; color: var(--text-lo); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+.n-stat .v { font-family: var(--font-display); font-size: 22px; font-weight: 700; }
+.n-stat .v small { font-family: var(--font-body); font-size: 13px; color: var(--text-lo); font-weight: 500; }
 
-#group-nav-setup{z-index:4000}
-#group-nav-setup p{font-size:13px;color:var(--muted);line-height:1.45;margin:0 0 14px}
-#group-nav-friend-list{display:flex;flex-direction:column;gap:6px;max-height:220px;overflow-y:auto;margin-bottom:16px}
-#group-nav-friend-list label{padding:8px 10px;border-radius:14px;background:rgba(255,255,255,.04);border:1px solid transparent;transition:background .2s,border-color .2s}
-#group-nav-friend-list label:has(input:checked){background:rgba(52,224,180,.1);border-color:rgba(52,224,180,.4)}
-.group-nav-cb{accent-color:var(--mint);width:17px;height:17px}
+.controls-row { display: flex; gap: 12px; }
+.btn-primary { flex: 2; height: 50px; border-radius: 14px; background: linear-gradient(135deg, #34d399, #22c55e); color: #062112; font-family: var(--font-display); font-size: 15px; font-weight: 800; box-shadow: 0 8px 20px rgba(34,197,94,0.3); }
+.btn-secondary { flex: 1; height: 50px; border-radius: 14px; background: rgba(255,255,255,0.08); color: var(--text-hi); font-family: var(--font-display); font-size: 15px; font-weight: 700; }
+.btn-danger { flex: 1; height: 50px; border-radius: 14px; background: rgba(239,68,68,0.15); color: var(--danger); font-family: var(--font-display); font-size: 15px; font-weight: 700; }
 
-#group-nav-active{display:none;position:fixed;left:0;right:0;margin:auto;bottom:calc(80px + var(--safe-b));z-index:2000;width:min(360px,92vw);padding:14px;border-radius:var(--r-sheet);flex-direction:column;background:var(--glass-solid);border:1px solid var(--line-strong);box-shadow:var(--shadow);backdrop-filter:blur(20px);animation:sheetUp .55s var(--ease) both}
-@keyframes sheetUp{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}
-#group-nav-active .modal-head{margin-bottom:10px}
-#group-nav-active .modal-head strong{font-size:15px;color:var(--mint)}
-#group-nav-stats-list{display:flex;flex-direction:column;gap:8px;max-height:280px;overflow-y:auto}
+/* Claude & ChatGPT's Results Panel */
+.results-panel { position: absolute; left: 14px; right: 14px; bottom: calc(14px + var(--safe-b)); z-index: 2000; background: linear-gradient(180deg, rgba(16,22,31,0.96), rgba(12,16,23,0.92)); border: 1px solid var(--card-border); border-radius: 24px; padding: 20px; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 20px 50px rgba(0,0,0,0.8); display: none; flex-direction: column; gap: 12px; animation: popIn 0.5s var(--spring); }
+.results-panel h3 { font-family: var(--font-display); font-size: 18px; margin: 0; color: var(--mint); display: flex; align-items: center; gap: 8px; }
+.r-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-top: 1px solid rgba(255,255,255,0.04); }
+.r-row:first-of-type { border-top: none; }
+.r-label { font-size: 13px; color: var(--text-lo); font-weight: 500; }
+.r-val { font-family: var(--font-display); font-weight: 700; font-size: 15px; }
+.r-val.good { color: var(--done-b); }
+.r-val.bad { color: var(--danger); }
+.ts-subtitle { font-size: 12px; color: var(--text-lo); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700; margin-top: 8px; }
+.fuel-estimate-box { margin-top: 10px; background: rgba(255,255,255,0.03); padding: 14px; border-radius: 14px; border-left: 3px solid var(--amber); }
+.fuel-estimate-box p { margin: 0; font-size: 13px; color: var(--soft); line-height: 1.5; }
 
-#nav-panel{display:none;position:fixed;left:0;right:0;margin:auto;top:calc(150px + var(--safe-t));z-index:2000;width:min(360px,92vw);padding:16px;border-radius:var(--r-sheet);flex-direction:column;background:var(--glass-solid);border:1px solid var(--line-strong);box-shadow:var(--shadow);backdrop-filter:blur(20px);animation:modalIn .5s var(--spring) both}
-.nav-header{display:flex;align-items:center;gap:8px;color:var(--mint);font-weight:700;font-size:14px;margin-bottom:10px}
-.nav-stats{font-family:var(--font-display);font-size:24px;font-weight:700;margin-bottom:12px}
-.nav-instructions{font-size:13px;color:var(--soft);display:flex;flex-direction:column;gap:4px;padding-top:12px;border-top:1px solid var(--line);max-height:130px;overflow-y:auto}
-.nav-actions{display:flex;gap:8px;margin-top:14px}
-.nav-actions button{flex:1;height:42px;border-radius:12px;font-weight:700;font-size:13px}
-#nav-recalc-btn{background:rgba(106,168,255,.16);color:var(--sky)}
-#nav-panel-exit{background:rgba(255,107,107,.15);color:var(--danger)}
+/* Profile Speed & Fuel Settings */
+.modal { display: none; position: fixed; inset: 0; z-index: 5000; background: rgba(4,6,10,0.8); backdrop-filter: blur(8px); align-items: center; justify-content: center; padding: 20px; animation: fadeIn 0.3s ease; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+.modal-card { width: 100%; max-width: 360px; background: var(--ink-2); border: 1px solid var(--card-border); border-radius: 24px; padding: 24px; box-shadow: var(--shadow); animation: popIn 0.4s var(--spring); position: relative; }
+.modal-card h2 { margin: 0 0 20px; font-family: var(--font-display); font-size: 20px; }
+.close-modal { position: absolute; top: 16px; right: 16px; width: 32px; height: 32px; border-radius: 50%; background: rgba(255,255,255,0.08); display: flex; align-items: center; justify-content: center; color: var(--text-hi); }
 
-/* =========================================================
-   TRIP PANEL
-   ========================================================= */
-#trip-panel{position:fixed;top:calc(84px + var(--safe-t));left:14px;z-index:1000;width:232px;padding:14px;border-radius:var(--r-card);display:none;flex-direction:column;background:var(--glass);border:1px solid var(--line);backdrop-filter:blur(20px) saturate(1.5);box-shadow:var(--shadow);animation:sheetUp .55s var(--ease) both}
-.trip-head{display:flex;justify-content:space-between;align-items:center;gap:8px;padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid var(--line)}
-.trip-head strong{font-family:var(--font-display);font-size:14px;color:var(--text);line-height:1.2}
-#trip-action-btn{flex:none;background:rgba(52,224,180,.16);color:var(--mint);border-radius:10px;padding:7px 11px;font-size:12px;font-weight:700}
-#trip-members-list{display:flex;flex-direction:column;gap:8px;max-height:170px;overflow-y:auto}
-.trip-member{display:flex;justify-content:space-between;font-size:13px;color:var(--text);align-items:center;gap:8px}
-.trip-member div{display:flex;align-items:center;font-weight:600}
-.trip-member img{width:24px;height:24px;border-radius:50%;margin-right:8px;object-fit:cover}
-.trip-member small{font-size:11px}
+.setting-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; font-size: 14px; font-weight: 500; }
+.setting-input { background: rgba(255,255,255,0.05); border: 1px solid var(--card-border); color: #fff; padding: 8px 12px; border-radius: 10px; width: 100px; text-align: right; font-family: var(--font-display); font-weight: 700; }
 
-/* =========================================================
-   PROFILE POPUP
-   ========================================================= */
-#profile-popup{position:fixed;inset:0;z-index:5500;display:none;align-items:center;justify-content:center;padding:18px;background:rgba(3,7,12,.55);backdrop-filter:blur(8px);animation:fade .3s ease both}
-@keyframes fade{from{opacity:0}to{opacity:1}}
-.profile-card{position:relative;width:min(330px,92vw);padding:28px 22px 22px;border-radius:var(--r-sheet);background:var(--glass-solid);border:1px solid var(--line-strong);box-shadow:0 30px 90px rgba(0,0,0,.7);text-align:center;animation:modalIn .55s var(--spring) both;overflow:hidden}
-.profile-card::before{content:"";position:absolute;left:-30%;right:-30%;top:-90px;height:190px;background:radial-gradient(closest-side,rgba(52,224,180,.28),transparent);pointer-events:none}
-#profile-popup-close{position:absolute;top:12px;right:12px;width:34px;height:34px;border-radius:50%;background:rgba(255,255,255,.08);color:var(--soft);display:flex;align-items:center;justify-content:center;z-index:1}
-.profile-avatar-wrap{position:relative;width:92px;height:92px;padding:3px;margin:0 auto 14px;border-radius:50%;background:conic-gradient(from 0deg,var(--mint),var(--sky),var(--mint));animation:spinRing 8s linear infinite}
-.profile-avatar-wrap .profile-avatar{animation:spinRing 8s linear infinite reverse;border:3px solid var(--ink-2)}
-@keyframes spinRing{to{transform:rotate(360deg)}}
-.profile-avatar{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block}
-.profile-name{position:relative;margin:0;font-family:var(--font-display);font-size:24px;font-weight:700;letter-spacing:-.02em}
-.profile-status{margin-top:6px;font-size:13px;font-weight:600}
-.profile-info{margin-top:18px;display:grid;gap:8px}
-.profile-row{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border-radius:14px;background:rgba(255,255,255,.05);font-size:14px;color:var(--soft)}
-.profile-row strong{color:var(--text);font-weight:650}
-.profile-actions{display:flex;gap:8px;margin-top:14px}
-.profile-actions button{flex:1;height:48px;border-radius:var(--r-btn);font-weight:700;font-size:14px;display:flex;align-items:center;justify-content:center;gap:8px}
-#profile-nav-btn{background:linear-gradient(145deg,#7aa9ff,#4f7bee);color:#fff;box-shadow:0 8px 22px rgba(79,123,238,.35)}
-#profile-focus-btn{background:rgba(255,255,255,.09);color:var(--text)}
+/* Toggle Switch */
+.switch { position: relative; display: inline-block; width: 46px; height: 26px; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider { position: absolute; cursor: pointer; inset: 0; background: rgba(255,255,255,0.1); border-radius: 26px; transition: .3s; }
+.slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 4px; bottom: 4px; background: var(--text-lo); border-radius: 50%; transition: .3s; }
+input:checked + .slider { background: var(--mint); }
+input:checked + .slider:before { transform: translateX(20px); background: #062112; }
 
-/* =========================================================
-   CHAT
-   ========================================================= */
-#chat-container{position:fixed;right:18px;bottom:calc(18px + var(--safe-b));z-index:2000;width:min(400px,calc(100vw - 28px));height:min(620px,calc(100vh - 36px));display:none;flex-direction:column;overflow:hidden;border:1px solid var(--line-strong);border-radius:var(--r-sheet);background:var(--glass-solid);box-shadow:0 24px 80px rgba(0,0,0,.7);backdrop-filter:blur(24px);transform-origin:bottom right;animation:chatIn .55s var(--spring) both}
-@keyframes chatIn{from{opacity:0;transform:translateY(30px) scale(.9)}to{opacity:1;transform:none}}
-#chat-header{height:64px;flex:0 0 64px;display:flex;align-items:center;justify-content:space-between;padding:0 12px 0 18px;border-bottom:1px solid var(--line)}
-.chat-title-wrapper{display:flex;align-items:center;gap:11px}
-.chat-title-dot{width:9px;height:9px;border-radius:50%;background:var(--mint);box-shadow:0 0 12px var(--mint)}
-.chat-title-text strong{font-family:var(--font-display);font-size:16px;display:block;letter-spacing:-.01em}
-.chat-title-text span{color:var(--muted);font-size:12px}
-.chat-head-actions{display:flex;align-items:center;gap:6px}
-.chat-head-btn{width:38px;height:38px;border-radius:12px;background:rgba(255,255,255,.06);color:var(--soft);display:flex;align-items:center;justify-content:center}
-#online-list{position:absolute;right:12px;top:68px;z-index:10;display:none;width:230px;max-height:300px;overflow-y:auto;padding:6px;border:1px solid var(--line-strong);border-radius:18px;background:var(--glass-solid);box-shadow:0 20px 60px rgba(0,0,0,.6);transform-origin:top right;animation:menuIn .3s var(--spring)}
-.online-friend{display:flex;align-items:center;gap:10px;padding:9px;background:transparent;border-radius:12px;width:100%;text-align:left;font-size:14px}
-.online-friend:hover{background:rgba(255,255,255,.07)}
-.online-friend img{width:32px;height:32px;border-radius:50%;object-fit:cover}
-.status-dot{width:8px;height:8px;border-radius:50%;background:var(--mint);margin-left:auto;box-shadow:0 0 8px var(--mint)}
+/* Graph */
+#speed-graph-canvas { width: 100%; height: 80px; background: rgba(255,255,255,0.02); border-radius: 12px; border: 1px solid var(--card-border); margin-top: 10px; display: none; }
 
-#chat-messages{flex:1;overflow-y:auto;padding:16px 14px;display:flex;flex-direction:column;gap:8px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.14) transparent;scroll-behavior:smooth}
-.chat-row{display:flex;max-width:82%;flex-direction:column;animation:msgIn .45s var(--spring) both}
-.chat-row.mine{align-self:flex-end}
-@keyframes msgIn{from{opacity:0;transform:translateY(12px) scale(.94)}to{opacity:1;transform:none}}
-.chat-message{position:relative;padding:9px 12px;border-radius:18px;font-size:14.5px;line-height:1.42;overflow-wrap:anywhere}
-.msg-mine{align-self:flex-end;background:linear-gradient(145deg,#1fcfa3,#0e9c7c);color:#04241b;border-bottom-right-radius:6px}
-.msg-theirs{align-self:flex-start;background:rgba(255,255,255,.08);border:1px solid var(--line);border-bottom-left-radius:6px}
-.msg-sender{margin-bottom:3px;color:var(--mint);font-size:12px;font-weight:700}
-.msg-mine .msg-sender{color:#04241b}
-.message-meta{margin-top:3px;font-size:10.5px;opacity:.55;text-align:right;font-variant-numeric:tabular-nums}
-.chat-media{max-width:100%;max-height:260px;border-radius:12px;margin-top:5px;display:block}
-.chat-audio{max-width:100%;height:36px;margin-top:4px}
-.chat-document{display:inline-flex;align-items:center;gap:6px;padding:8px 10px;border-radius:10px;background:rgba(0,0,0,.18);color:inherit;text-decoration:none;font-weight:600;font-size:13px}
-.reply-quote{margin-bottom:6px;padding:6px 8px;border-left:3px solid var(--mint);border-radius:8px;background:rgba(0,0,0,.2);color:var(--soft);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.msg-mine .reply-quote{color:#04241b;border-left-color:#04241b;background:rgba(0,0,0,.1)}
-.message-actions{display:none;position:absolute;right:4px;bottom:-30px;z-index:5;gap:1px;padding:4px;border:1px solid var(--line-strong);border-radius:14px;background:var(--ink-2);box-shadow:var(--shadow);animation:pop .25s var(--spring);transform-origin:top right}
-.chat-message:hover .message-actions,.chat-message:focus-within .message-actions{display:flex}
-.action-btn{border-radius:9px;padding:5px 6px;color:#fff;font-size:13px}
-.action-btn:hover{background:rgba(255,255,255,.12);transform:scale(1.2)}
-.reaction-row{display:flex;gap:4px;flex-wrap:wrap}
-.reaction-row:not(:empty){margin-top:6px}
-.reaction-chip{border:1px solid var(--line-strong);border-radius:999px;padding:2px 8px;background:var(--ink-2);color:#fff;font-size:12px;animation:pop .3s var(--spring)}
+/* General Toasts */
+#toast-container { position: fixed; top: calc(80px + var(--safe-t)); left: 0; right: 0; z-index: 9999; display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; }
+.toast { background: var(--card-bg); border: 1px solid var(--card-border); padding: 12px 20px; border-radius: 999px; font-size: 14px; font-weight: 600; box-shadow: var(--shadow); backdrop-filter: blur(16px); animation: slideDown 0.4s var(--spring); transition: opacity 0.3s; }
 
-#typing-indicator{display:none;padding:0 18px 6px;color:var(--muted);font-size:12px}
-#chat-form-area{padding:10px 10px calc(10px + var(--safe-b));border-top:1px solid var(--line);background:rgba(255,255,255,.02)}
-#reply-bar{display:none;align-items:center;justify-content:space-between;padding:8px 12px;margin-bottom:8px;background:rgba(52,224,180,.08);border-left:3px solid var(--mint);border-radius:10px;font-size:13px;color:var(--soft);animation:sheetUp .3s var(--ease)}
-#reply-cancel{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--muted)}
-#attachment-menu{position:absolute;left:12px;bottom:66px;z-index:30;display:none;flex-direction:row;gap:8px;padding:10px;background:var(--glass-solid);border:1px solid var(--line-strong);border-radius:20px;box-shadow:var(--shadow);transform-origin:bottom left;animation:menuIn .35s var(--spring)}
-#attachment-menu button{display:flex;flex-direction:column;align-items:center;gap:7px;border-radius:14px;padding:12px 14px;background:rgba(255,255,255,.06);color:var(--soft);font-size:12px;font-weight:600;white-space:nowrap}
-#attachment-menu button:hover{background:rgba(255,255,255,.13);color:#fff}
-#emoji-picker-container{right:8px;bottom:66px;width:min(340px,calc(100vw - 40px));position:absolute;z-index:30;display:none;border-radius:20px;overflow:hidden;box-shadow:var(--shadow);animation:menuIn .35s var(--spring);transform-origin:bottom right}
-emoji-picker{width:100%;height:320px;--background:#0f1926;--border-color:rgba(255,255,255,.08);--input-border-color:rgba(255,255,255,.12);--indicator-color:#34e0b4}
-#chatForm{display:flex;align-items:center;gap:6px}
-.chat-icon-btn{flex:0 0 40px;width:40px;height:40px;border-radius:14px;color:var(--muted);display:flex;align-items:center;justify-content:center}
-.chat-icon-btn:hover{background:rgba(255,255,255,.08);color:#fff}
-#chatInput{flex:1;min-width:0;height:44px;padding:0 16px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.06);color:#fff;font-size:15px;transition:border-color .2s,background .2s,box-shadow .2s}
-#chatInput:focus{border-color:rgba(52,224,180,.5);background:rgba(255,255,255,.08);box-shadow:0 0 0 4px rgba(52,224,180,.1)}
-#chatInput::placeholder{color:#6f8090}
-#chat-send{display:none;flex:0 0 42px;width:42px;height:42px;border-radius:50%;background:linear-gradient(145deg,#2be8b8,#0fa37f);color:#03271d;align-items:center;justify-content:center;animation:pop .3s var(--spring)}
+/* Search Bar Override */
+#search-container { position: absolute; top: calc(14px + var(--safe-t)); left: 50%; transform: translateX(-50%); width: min(90vw, 400px); height: 50px; background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 25px; display: flex; align-items: center; padding: 0 16px; gap: 10px; z-index: 1000; backdrop-filter: blur(10px); box-shadow: var(--shadow); transition: width 0.3s var(--ease); }
+#search-container input { flex: 1; height: 100%; font-size: 15px; }
+#search-container input::placeholder { color: var(--text-lo); }
 
-/* =========================================================
-   MEMORY GALLERY
-   ========================================================= */
-#phase3-memory-overlay{position:fixed;inset:0;z-index:8000;display:none;background:rgba(3,7,12,.65);backdrop-filter:blur(10px);animation:fade .3s both}
-#phase3-memory-panel{position:absolute;left:0;right:0;top:0;bottom:0;margin:auto;width:min(780px,calc(100vw - 24px));height:min(700px,calc(100vh - 30px));display:flex;flex-direction:column;background:var(--ink-2);border:1px solid var(--line-strong);border-radius:var(--r-sheet);box-shadow:0 30px 100px rgba(0,0,0,.75);overflow:hidden;animation:modalIn .55s var(--spring) both}
-.p3-head{display:flex;align-items:center;justify-content:space-between;padding:18px 20px 14px}
-.p3-head h2{margin:0;font-family:var(--font-display);font-size:22px;letter-spacing:-.02em}
-.p3-head small{color:var(--muted);font-size:13px}
-.p3-actions{display:flex;gap:8px;align-items:center}
-#p3-add-memory-btn{display:flex;align-items:center;gap:7px;height:40px;padding:0 16px;border-radius:999px;background:linear-gradient(145deg,#2be8b8,#0fa37f);color:#03271d;font-size:13.5px;font-weight:700}
-.p3-toolbar{display:flex;gap:6px;padding:4px 16px 14px;overflow-x:auto;scrollbar-width:none}
-.phase3-filter{flex:none;height:34px;padding:0 15px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.04);color:var(--soft);font-size:13px;font-weight:600}
-.phase3-filter.active{background:rgba(52,224,180,.15);border-color:rgba(52,224,180,.45);color:var(--mint)}
-#phase3-memory-search{flex:1;min-width:130px;height:34px;border:1px solid var(--line);border-radius:999px;padding:0 14px;background:rgba(255,255,255,.04);color:#fff;font-size:13px}
-#phase3-memory-search:focus{border-color:rgba(52,224,180,.5)}
-#phase3-memory-content{flex:1;overflow-y:auto;padding:4px 16px 20px}
-#phase3-memory-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
-.p3-card{position:relative;width:100%;padding-top:100%;border-radius:20px;overflow:hidden;cursor:pointer;display:block;background:var(--ink-3);animation:cardIn .55s var(--ease) both;transition:transform .35s var(--ease),box-shadow .35s}
-.p3-card:nth-child(2){animation-delay:.04s}.p3-card:nth-child(3){animation-delay:.08s}.p3-card:nth-child(4){animation-delay:.12s}.p3-card:nth-child(5){animation-delay:.16s}.p3-card:nth-child(6){animation-delay:.2s}.p3-card:nth-child(n+7){animation-delay:.24s}
-@keyframes cardIn{from{opacity:0;transform:translateY(18px) scale(.95)}to{opacity:1;transform:none}}
-.p3-card img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transition:transform .6s var(--ease)}
-@media (hover:hover){.p3-card:hover{transform:translateY(-3px);box-shadow:0 16px 36px rgba(0,0,0,.5)}.p3-card:hover img{transform:scale(1.07)}}
-.p3-card-info{position:absolute;left:0;right:0;bottom:0;padding:34px 12px 11px;background:linear-gradient(transparent,rgba(0,0,0,.82));color:#fff;display:flex;flex-direction:column}
-.p3-card-info b{font-size:13px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.p3-card-info span{font-size:11px;color:#c9d4da;margin-top:2px}
-#phase3-memory-empty{display:none;text-align:center;padding:36px 20px;color:var(--muted);font-size:14px}
-.p3-timeline{margin-top:28px}
-.p3-section-title{font-family:var(--font-display);font-size:16px;font-weight:700;margin:6px 0 12px}
-.p3-time-item{display:flex;align-items:center;gap:14px;padding:10px;margin:0 -10px;border-radius:16px;cursor:pointer;transition:background .2s}
-.p3-time-item:hover{background:rgba(255,255,255,.05)}
-.p3-time-thumb{flex:0 0 56px;width:56px;height:56px;border-radius:14px;overflow:hidden;background:var(--ink-3)}
-.p3-time-thumb img{width:100%;height:100%;object-fit:cover;display:block}
-.p3-time-info{display:flex;flex-direction:column;justify-content:center;flex:1;min-width:0}
-.p3-time-info b{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.p3-time-info span{font-size:12px;color:var(--muted);margin-top:3px}
+/* Quick Action Buttons (Chat & Memory) */
+.action-fab { position: absolute; bottom: calc(14px + var(--safe-b)); width: 54px; height: 54px; border-radius: 50%; background: var(--card-bg); border: 1px solid var(--card-border); display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow); z-index: 1000; backdrop-filter: blur(10px); }
+#chat-toggle-btn { right: 14px; background: linear-gradient(135deg, #3b82f6, #2563eb); border: none; }
+#memoryButton { left: 95px; border-radius: 18px; }
 
-#phase3-photo-viewer{position:fixed;inset:0;z-index:9000;display:none;align-items:center;justify-content:center;padding:18px;background:rgba(0,0,0,.9);backdrop-filter:blur(6px);animation:fade .3s both}
-.p3-view-card{width:min(720px,100%);max-height:calc(100vh - 36px);display:flex;flex-direction:column;border:1px solid var(--line-strong);border-radius:var(--r-sheet);background:var(--ink-2);overflow:hidden;animation:modalIn .55s var(--spring) both}
-#p3-view-image{width:100%;max-height:58vh;object-fit:contain;background:#000;display:block}
-.p3-view-meta{padding:18px 20px 20px;display:flex;flex-direction:column;gap:4px}
-.p3-view-meta b{font-family:var(--font-display);font-size:20px}
-.p3-view-meta small{color:var(--muted);font-size:13px}
-#p3-view-location{margin-top:8px;padding:6px 12px;background:rgba(255,255,255,.07);border-radius:999px;display:inline-flex;align-items:center;gap:6px;align-self:flex-start;font-size:12px}
-.p3-view-actions{display:flex;gap:10px;margin-top:14px}
-.p3-view-actions button{flex:1;height:46px;border-radius:var(--r-btn);font-weight:700;font-size:14px}
-#p3-view-focus{background:rgba(52,224,180,.16);color:var(--mint)}
-#p3-view-close{background:rgba(255,255,255,.09);color:#fff}
-
-/* =========================================================
-   JOIN SCREEN
-   ========================================================= */
-#join-screen{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;background:var(--ink);overflow:hidden}
-.orb{position:absolute;border-radius:50%;filter:blur(70px);opacity:.55;pointer-events:none}
-.orb.a{width:340px;height:340px;background:#0fa37f;top:-90px;left:-70px;animation:drift 14s ease-in-out infinite alternate}
-.orb.b{width:300px;height:300px;background:#3b5bdb;bottom:-90px;right:-60px;animation:drift 17s ease-in-out infinite alternate-reverse}
-.orb.c{width:200px;height:200px;background:#0e7490;top:45%;left:55%;opacity:.35;animation:drift 12s ease-in-out infinite alternate}
-@keyframes drift{to{transform:translate(50px,40px) scale(1.15)}}
-.join-card{position:relative;width:min(400px,100%);padding:32px 26px 26px;border:1px solid var(--line-strong);border-radius:32px;background:rgba(10,17,28,.72);backdrop-filter:blur(26px) saturate(1.4);box-shadow:0 30px 100px rgba(0,0,0,.6);animation:modalIn .9s var(--ease) both}
-.join-logo{width:60px;height:60px;margin:0 0 22px;border-radius:20px;display:flex;align-items:center;justify-content:center;background:linear-gradient(145deg,#2be8b8,#0fa37f);color:#03271d;box-shadow:0 12px 30px rgba(15,163,127,.4);animation:bob 3.2s ease-in-out infinite}
-@keyframes bob{50%{transform:translateY(-5px) rotate(-3deg)}}
-.join-card h1{margin:0;font-family:var(--font-display);font-size:32px;line-height:1.05;letter-spacing:-.03em;font-weight:800}
-.join-card p{margin:10px 0 0;color:var(--muted);font-size:15px;line-height:1.5}
-.join-card input[type=text],.join-card #nameInput{width:100%;height:52px;padding:0 16px;border:1px solid var(--line-strong);border-radius:16px;background:rgba(255,255,255,.05);color:#fff;font-size:16px;margin-top:22px;transition:border-color .25s,box-shadow .25s,background .25s}
-.join-card #nameInput:focus{border-color:rgba(52,224,180,.6);background:rgba(255,255,255,.07);box-shadow:0 0 0 4px rgba(52,224,180,.12)}
-.avatar-upload{display:flex;align-items:center;gap:12px;margin-top:10px;padding:12px 14px;border:1.5px dashed var(--line-strong);border-radius:16px;color:var(--soft);font-size:14px;cursor:pointer;transition:border-color .25s,background .25s}
-.avatar-upload:hover{border-color:rgba(52,224,180,.6);background:rgba(52,224,180,.06)}
-.avatar-upload .ph{width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,.08);display:flex;align-items:center;justify-content:center;color:var(--muted);overflow:hidden;flex:none}
-.avatar-upload .ph img{width:100%;height:100%;object-fit:cover}
-#avatarInput{display:none}
-#join-submit{margin-top:16px;width:100%;height:54px;border-radius:16px;background:linear-gradient(145deg,#2be8b8,#0fa37f);color:#03271d;font-weight:750;font-size:16px;box-shadow:0 12px 30px rgba(15,163,127,.35);position:relative;overflow:hidden}
-#join-submit::after{content:"";position:absolute;top:0;bottom:0;width:60px;left:-80px;background:linear-gradient(100deg,transparent,rgba(255,255,255,.45),transparent);transform:skewX(-20deg);animation:shine 3.4s ease-in-out infinite 1s}
-@keyframes shine{to{left:130%}}
 </style>
 </head>
 <body>
 
-<!-- SVG ICON SPRITE -->
+<!-- SVG SPRITES -->
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <defs>
     <symbol id="i-locate" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="7.5"/><path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3"/></symbol>
-    <symbol id="i-compass" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5"/><path d="m15.6 8.4-2.1 5.1-5.1 2.1 2.1-5.1z"/></symbol>
     <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 12.5 9 5 9-5"/><path d="m3 17 9 5 9-5" opacity=".55"/></symbol>
-    <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="4"/><circle cx="9" cy="10" r="1.6"/><path d="m21 16-5-5-9 9"/></symbol>
-    <symbol id="i-converge" viewBox="0 0 24 24"><circle cx="6" cy="5.5" r="2.5"/><circle cx="18" cy="5.5" r="2.5"/><circle cx="12" cy="19" r="2.5"/><path d="M6 8c0 5 6 4.5 6 8.5M18 8c0 5-6 4.5-6 8.5"/></symbol>
-    <symbol id="i-ruler" viewBox="0 0 24 24"><path d="M3.5 16.5 16.5 3.5l4 4-13 13z"/><path d="m8 12 2 2M11 9l2 2M14 6l2 2"/></symbol>
-    <symbol id="i-fence" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5" stroke-dasharray="3.2 3.2"/><circle cx="12" cy="12" r="2.6"/></symbol>
-    <symbol id="i-flag" viewBox="0 0 24 24"><path d="M5 21V3.5"/><path d="M5 4.5h12.5l-2.5 4 2.5 4H5"/></symbol>
-    <symbol id="i-camera" viewBox="0 0 24 24"><path d="M3.5 8.5a2 2 0 0 1 2-2h2l1.6-2.5h5.8l1.6 2.5h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="3.6"/></symbol>
-    <symbol id="i-chat" viewBox="0 0 24 24"><path d="M20.5 12a8 8 0 0 1-11.6 7.1L3.5 20.5l1.5-4.6A8 8 0 1 1 20.5 12z"/></symbol>
     <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20.5 20.5-4.6-4.6"/></symbol>
     <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
-    <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.6"/><path d="M2.5 20c.6-4 3.3-6 6.5-6s5.9 2 6.5 6"/><path d="M16 4.7a3.6 3.6 0 0 1 0 6.6M18 14.4c1.9.8 3.1 2.7 3.5 5.6"/></symbol>
-    <symbol id="i-send" viewBox="0 0 24 24"><path d="M21.5 2.5 10.5 13.5M21.5 2.5l-6.8 19-4.2-8.5-8.5-4.2z"/></symbol>
-    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
-    <symbol id="i-smile" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5"/><path d="M8 14.5s1.4 2.3 4 2.3 4-2.3 4-2.3M9 9.5h.01M15 9.5h.01"/></symbol>
-    <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11.5a7 7 0 0 0 14 0M12 18.5V22"/></symbol>
-    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21.5s7-6 7-12a7 7 0 1 0-14 0c0 6 7 12 7 12z"/><circle cx="12" cy="9.5" r="2.5"/></symbol>
-    <symbol id="i-temp" viewBox="0 0 24 24"><path d="M14 14.8V5a2 2 0 1 0-4 0v9.8a4 4 0 1 0 4 0z"/></symbol>
-    <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></symbol>
-    <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></symbol>
-    <symbol id="i-nav" viewBox="0 0 24 24"><path d="m3 11 18-8-8 18-2-8z"/></symbol>
-    <symbol id="i-sat" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M4 4l3.5 3.5M16.5 16.5 20 20M20 4l-3.5 3.5M7.5 16.5 4 20"/><circle cx="12" cy="12" r="9.5" opacity=".4"/></symbol>
-    <symbol id="i-map" viewBox="0 0 24 24"><path d="m3 6.5 6-2.5 6 2.5 6-2.5v13.5l-6 2.5-6-2.5-6 2.5z"/><path d="M9 4v13.5M15 6.5V20"/></symbol>
-    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20.5 13.5A8.5 8.5 0 1 1 10.5 3.5a7 7 0 0 0 10 10z"/></symbol>
+    <symbol id="i-fuel" viewBox="0 0 24 24"><path d="M3 22v-8c0-1.1.9-2 2-2h4c1.1 0 2 .9 2 2v8"/><path d="M11 5h2a2 2 0 0 1 2 2v5c0 1.1-.9 2-2 2h-2"/><path d="M3 5v17h8V5z"/><path d="M15 12h2a4 4 0 0 0 4-4V5h-2v3a2 2 0 0 1-2 2h-2"/><circle cx="7" cy="9" r="1.5"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24"><path d="M20.5 12a8 8 0 0 1-11.6 7.1L3.5 20.5l1.5-4.6A8 8 0 1 1 20.5 12z"/></symbol>
+    <symbol id="i-camera" viewBox="0 0 24 24"><path d="M3.5 8.5a2 2 0 0 1 2-2h2l1.6-2.5h5.8l1.6 2.5h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="3.6"/></symbol>
+    <symbol id="i-turn" viewBox="0 0 24 24"><path d="M12 19V5M12 5l-6 6M12 5l6 6"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></symbol>
   </defs>
 </svg>
 
 <div id="toast-container"></div>
 <div id="map"></div>
 
-<!-- ================= TURN-BY-TURN NAVIGATION ================= -->
-<div id="premium-nav-ui">
-  <div class="nv-top">
-    <div class="nav-badge"><span class="live-dot"></span>Live</div>
-    <div class="nav-badge" id="nav-eta-badge">ETA -- min</div>
-  </div>
+<!-- GEMINI: RED DANGER OVERLAY -->
+<div id="speed-danger-overlay"></div>
 
-  <div id="nav-instruction-card">
-    <div id="nav-turn-icon">↑</div>
-    <div class="nv-step">
-      <div id="nav-step-dist">-- m</div>
-      <div id="nav-step-text">Calculating route…</div>
-    </div>
-  </div>
-
-  <div class="nv-dock">
-    <div class="nv-gauges">
-      <div id="nav-speedometer"><strong id="nav-speed-val">0</strong><span>km/h</span></div>
-      <div class="nv-compass"><svg class="i lg"><use href="#i-compass"/></svg></div>
-    </div>
-    <div id="nav-bottom-sheet">
-      <div class="nv-handle"></div>
-      <div class="nv-stats">
-        <div class="nv-stat"><label>Distance</label><div id="nav-total-dist">--</div></div>
-        <div class="nv-stat"><label>Arriving</label><div id="nav-arrival-time">--:--</div></div>
-        <div class="nv-stat"><label>Status</label><div id="nav-status-text">Ready</div></div>
-      </div>
-      <div class="nv-actions">
-        <button id="nav-start-btn">Start navigation</button>
-        <button id="nav-exit-btn">Reset</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- ================= FRIEND ROUTE PANEL (1-on-1) ================= -->
-<div id="nav-panel">
-  <div class="nav-header"><svg class="i sm"><use href="#i-nav"/></svg>Route to <span id="nav-title-name">friend</span></div>
-  <div class="nav-stats" id="nav-stats">--</div>
-  <div class="nav-instructions" id="nav-instructions"></div>
-  <div class="nav-actions">
-    <button id="nav-recalc-btn">Recalculate</button>
-    <button id="nav-panel-exit">End route</button>
-  </div>
-</div>
-
-<!-- ================= GROUP NAVIGATION ================= -->
-<div id="group-nav-setup" class="modal">
-  <div class="modal-head">
-    <strong>Meet up</strong>
-    <button id="group-nav-close-btn" class="icon-btn" aria-label="Close"><svg class="i sm"><use href="#i-x"/></svg></button>
-  </div>
-  <p>Pick up to 3 friends, then tap the map to choose where everyone should meet.</p>
-  <div id="group-nav-friend-list"></div>
-  <button id="group-nav-next-btn" class="btn-primary">Choose meeting point</button>
-</div>
-
-<div id="group-nav-active">
-  <div class="modal-head">
-    <strong>Heading to meeting point</strong>
-    <button id="group-nav-stop-btn" class="btn-danger">Stop</button>
-  </div>
-  <div id="group-nav-stats-list"></div>
-</div>
-
-<!-- ================= GEOFENCE LIST ================= -->
-<div id="geofence-list-modal" class="modal" style="z-index:4000">
-  <div class="modal-head">
-    <strong>Geofences</strong>
-    <button id="geofence-list-close" class="icon-btn" aria-label="Close"><svg class="i sm"><use href="#i-x"/></svg></button>
-  </div>
-  <div id="geofence-items" style="display:flex;flex-direction:column;gap:8px;max-height:300px;overflow-y:auto"></div>
-</div>
-
-<!-- ================= SEARCH ================= -->
-<div id="search-container" class="glass">
-  <svg class="i"><use href="#i-search"/></svg>
-  <input type="text" id="location-search-input" placeholder="Search places" autocomplete="off">
-  <button id="location-search-clear" aria-label="Clear search"><svg class="i sm"><use href="#i-x"/></svg></button>
-</div>
-
-<!-- ================= HEADER ================= -->
-<div id="top-header">
-  <div class="brand-card glass">
-    <div class="brand-dot"></div>
-    <div class="header-info">
-      <strong id="header-app-title">Koraput Map</strong>
-      <span>Sharing live location</span>
-    </div>
-    <img id="header-avatar" src="satyam.png" alt="Your profile">
-  </div>
-  
-  <!-- NAYA DOWNLOAD (INSTALL) BUTTON -->
-  <button id="install-app-btn" style="display:none; align-items:center; gap:6px; background:linear-gradient(145deg,#34e0b4,#0fa37f); color:#03271d; border-radius:20px; padding:0 14px; font-weight:800; font-size:13px; box-shadow:0 8px 20px rgba(15,163,127,.35); pointer-events:auto; border:none; cursor:pointer;">
-    📥 Install App
+<!-- CLAUDE: TOP HUD -->
+<div class="top-hud">
+  <div class="chip"><span class="dot"></span> Live GPS</div>
+  <div class="chip" id="top-weather" style="display:none;">--°C</div>
+  <button id="profile-open-btn" class="chip" style="pointer-events:auto; padding:5px 12px; background:linear-gradient(135deg,#34d399,#22c55e); color:#062112; border:none;">
+    <svg class="i sm" style="stroke:#062112; margin-right:4px;"><use href="#i-settings"/></svg> Safe Drive
   </button>
 </div>
 
-<div id="trip-panel">
-  <div class="trip-head">
-    <strong id="trip-title">Group trip</strong>
-    <button id="trip-action-btn">Join</button>
-  </div>
-  <div id="trip-members-list"></div>
+<!-- SEARCH -->
+<div id="search-container">
+  <svg class="i" style="color:var(--text-lo)"><use href="#i-search"/></svg>
+  <input type="text" id="location-search-input" placeholder="Search destination..." autocomplete="off">
+  <button id="location-search-clear" style="display:none; color:var(--text-lo)"><svg class="i sm"><use href="#i-x"/></svg></button>
 </div>
 
-<!-- ================= TOOL RAIL ================= -->
+<!-- MAP TOOLS -->
 <div id="map-tools">
-  <button id="my-location-btn" class="map-tool-button" title="My location" aria-label="My location"><svg class="i"><use href="#i-locate"/></svg></button>
-  <button id="compass-btn" class="map-tool-button" title="Reset north" aria-label="Reset north"><span id="compass-icon"><svg class="i"><use href="#i-compass"/></svg></span></button>
-  <button id="map-style-btn" class="map-tool-button" title="Map style" aria-label="Map style"><svg class="i"><use href="#i-layers"/></svg></button>
-  <button id="phase3-gallery-btn" class="map-tool-button" title="Memory gallery" aria-label="Memory gallery"><svg class="i"><use href="#i-image"/></svg></button>
-  <button id="group-nav-btn" class="map-tool-button" title="Meet up" aria-label="Meet up"><svg class="i"><use href="#i-converge"/></svg></button>
-  <button id="measure-btn" class="map-tool-button" title="Measure distance" aria-label="Measure distance"><svg class="i"><use href="#i-ruler"/></svg></button>
-  <button id="geofence-btn" class="map-tool-button" title="Geofence" aria-label="Geofence"><svg class="i"><use href="#i-fence"/></svg></button>
-  <button id="trip-btn" class="map-tool-button" title="Start group trip" aria-label="Start group trip"><svg class="i"><use href="#i-flag"/></svg></button>
+  <button id="my-location-btn" class="tool-btn" title="My Location"><svg class="i"><use href="#i-locate"/></svg></button>
+  <button id="map-style-btn" class="tool-btn" title="Layers"><svg class="i"><use href="#i-layers"/></svg></button>
 </div>
 
-<div id="map-style-menu">
-  <button data-style="satellite" class="active"><svg class="i sm"><use href="#i-sat"/></svg>Satellite</button>
-  <button data-style="street"><svg class="i sm"><use href="#i-map"/></svg>Street</button>
-  <button data-style="dark"><svg class="i sm"><use href="#i-moon"/></svg>Dark</button>
+<!-- ACTIONS -->
+<button id="memoryButton" class="action-fab"><svg class="i lg"><use href="#i-camera"/></svg></button>
+<button id="chat-toggle-btn" class="action-fab" style="color:#fff;"><svg class="i lg"><use href="#i-chat"/></svg></button>
+
+<!-- CLAUDE: TURN BANNER -->
+<div class="turn-banner" id="turn-banner">
+  <div class="turn-arrow-wrap"><svg id="turn-svg"><use href="#i-turn"/></svg></div>
+  <div class="turn-copy">
+    <div class="d" id="turn-dist">Calculating...</div>
+    <div class="n" id="turn-name">Finding optimal route</div>
+  </div>
 </div>
 
-<div id="bottom-info">
-  <div class="bottom-pill" id="pill-city"><svg class="i"><use href="#i-pin"/></svg>Locating…</div>
-  <div class="bottom-pill"><svg class="i"><use href="#i-temp"/></svg><span id="map-temp-display">--°C</span></div>
-  <div class="bottom-pill live">Live</div>
+<!-- CLAUDE: SPEED DIAL -->
+<div class="speed-dial" id="speed-dial">
+  <div class="n" id="speed-n">0</div>
+  <div class="u">KM/H</div>
 </div>
 
-<button id="memoryButton" type="button" title="Add a photo memory" aria-label="Add a photo memory"><svg class="i lg"><use href="#i-camera"/></svg></button>
-<input id="memoryPhotoInput" type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden>
+<!-- CLAUDE: BOTTOM NAVIGATION SHEET -->
+<div class="nav-bottom-sheet" id="nav-bottom-sheet">
+  <div class="nav-stats">
+    <div class="n-stat"><div class="l">Distance</div><div class="v" id="stat-dist">--<small> km</small></div></div>
+    <div class="n-stat"><div class="l">ETA</div><div class="v" id="stat-eta">--<small> min</small></div></div>
+    <div class="n-stat" style="text-align:right;"><div class="l">Status</div><div class="v" id="stat-status" style="font-size:16px; color:var(--mint);">Ready</div></div>
+  </div>
+  <div class="controls-row">
+    <button class="btn-primary" id="btn-start-nav">Start Drive</button>
+    <button class="btn-danger" id="btn-exit-nav" style="display:none;">Stop</button>
+    <button class="btn-secondary" id="btn-reset-nav">Cancel</button>
+  </div>
+</div>
 
-<button id="chat-toggle-btn" type="button" title="Open chat" aria-label="Open chat"><svg class="i lg"><use href="#i-chat"/></svg><span id="chat-unread-badge">0</span></button>
+<!-- CHATGPT / CLAUDE: TRIP SUMMARY RESULTS PANEL -->
+<div class="results-panel" id="results-panel">
+  <h3><svg class="i"><use href="#i-fuel"/></svg> Trip Summary</h3>
+  
+  <div class="ts-subtitle">Journey</div>
+  <div class="r-row"><span class="r-label">Total Distance</span><span class="r-val" id="res-dist">0 km</span></div>
+  <div class="r-row"><span class="r-label">Avg Speed</span><span class="r-val" id="res-avg-speed">0 km/h</span></div>
+  <div class="r-row"><span class="r-label">Max Speed</span><span class="r-val bad" id="res-max-speed">0 km/h</span></div>
+  
+  <div class="ts-subtitle">Speed Analysis</div>
+  <div class="r-row"><span class="r-label">Efficient (40-60 km/h)</span><span class="r-val good" id="res-eff-time">0 min</span></div>
+  <div class="r-row"><span class="r-label">Inefficient (>80 km/h)</span><span class="r-val bad" id="res-ineff-time">0 min</span></div>
+  
+  <div class="fuel-estimate-box">
+    <p>At <strong id="res-base-mlg" style="color:#fff;">15 km/l</strong>, you consumed approx <strong id="res-actual-fuel" style="color:var(--danger); font-size:15px;">0 L</strong>. Optimal driving could have saved fuel.</p>
+  </div>
+  <button id="close-results-btn" class="btn-secondary" style="width:100%; height:44px; margin-top:8px;">Dismiss</button>
+</div>
 
-<!-- ================= PROFILE ================= -->
-<div id="profile-popup">
-  <div class="profile-card">
-    <button id="profile-popup-close" aria-label="Close"><svg class="i sm"><use href="#i-x"/></svg></button>
-    <div class="profile-avatar-wrap"><img id="profile-popup-avatar" class="profile-avatar" src="" alt="Avatar"></div>
-    <h2 id="profile-popup-name" class="profile-name">Friend</h2>
-    <div id="profile-popup-status" class="profile-status">● Online</div>
-    <div class="profile-info">
-      <div class="profile-row"><span>Distance</span><strong id="profile-popup-distance">--</strong></div>
-      <div class="profile-row"><span>Weather</span><strong id="profile-popup-weather">--</strong></div>
+<!-- CHATGPT: PROFILE & SETTINGS MODAL -->
+<div class="modal" id="profile-settings-modal">
+  <div class="modal-card">
+    <button class="close-modal" id="close-settings-btn"><svg class="i sm"><use href="#i-x"/></svg></button>
+    <h2>Smart Drive Settings</h2>
+    
+    <div class="setting-row">
+      <span style="color:var(--text-lo);">Record Trip & Graph</span>
+      <label class="switch">
+        <input type="checkbox" id="speed-record-toggle">
+        <span class="slider"></span>
+      </label>
     </div>
     
-    <div class="profile-actions">
-      <button id="profile-call-btn" type="button" style="background:linear-gradient(145deg,#34e0b4,#0fa37f); color:#03271d;"><svg class="i sm"><use href="#i-mic"/></svg>Call</button>
-      <button id="profile-nav-btn" type="button"><svg class="i sm"><use href="#i-nav"/></svg>Navigate</button>
-      <button id="profile-focus-btn" type="button"><svg class="i sm"><use href="#i-pin"/></svg>Focus</button>
+    <div class="setting-row">
+      <span style="color:var(--text-lo);">Vehicle Mileage (km/L)</span>
+      <input type="number" id="fuel-input-val" class="setting-input" value="18" min="1" max="100">
     </div>
+    
+    <div class="ts-subtitle">Live Speed Graph</div>
+    <canvas id="speed-graph-canvas"></canvas>
   </div>
 </div>
 
-<!-- ================= CHAT ================= -->
-<div id="chat-container">
-  <div id="chat-header">
-    <div class="chat-title-wrapper">
-      <div class="chat-title-dot"></div>
-      <div class="chat-title-text">
-        <strong>Group chat</strong>
-        <span id="chat-subtitle">0 online</span>
-      </div>
-    </div>
-    <div class="chat-head-actions">
-      <button id="online-btn" class="chat-head-btn" type="button" title="Who's online" aria-label="Who's online"><svg class="i"><use href="#i-users"/></svg></button>
-      <button id="chat-minimize-btn" class="chat-head-btn" type="button" title="Close chat" aria-label="Close chat"><svg class="i"><use href="#i-x"/></svg></button>
-    </div>
-  </div>
-  <div id="online-list"></div>
-  <div id="chat-messages"></div>
-  <div id="typing-indicator"></div>
-
-  <div id="chat-form-area">
-    <div id="reply-bar"><span id="reply-preview"></span><button id="reply-cancel" type="button" aria-label="Cancel reply"><svg class="i sm"><use href="#i-x"/></svg></button></div>
-    <div id="attachment-menu">
-      <button id="att-media" type="button"><svg class="i lg"><use href="#i-image"/></svg>Photo or video</button>
-      <button id="att-doc" type="button"><svg class="i lg"><use href="#i-file"/></svg>Document</button>
-      <button id="att-audio" type="button"><svg class="i lg"><use href="#i-music"/></svg>Audio</button>
-    </div>
-    <div id="emoji-picker-container"><emoji-picker id="emojiPicker"></emoji-picker></div>
-
-    <form id="chatForm">
-      <button id="chat-attach-btn" class="chat-icon-btn" type="button" aria-label="Attach"><svg class="i"><use href="#i-plus"/></svg></button>
-      <button id="emojiButton" class="chat-icon-btn" type="button" aria-label="Emoji"><svg class="i"><use href="#i-smile"/></svg></button>
-      <input id="chatInput" type="text" maxlength="1000" autocomplete="off" placeholder="Message">
-      <button id="voiceButton" class="chat-icon-btn" type="button" aria-label="Voice"><svg class="i"><use href="#i-mic"/></svg></button>
-      <button id="chat-send" type="submit" aria-label="Send"><svg class="i"><use href="#i-send"/></svg></button>
-    </form>
-    <input id="chatFileInput" type="file" hidden>
-  </div>
-</div>
-
-<!-- ================= MEMORY GALLERY ================= -->
-<div id="phase3-memory-overlay">
-  <div id="phase3-memory-panel">
-    <div class="p3-head">
-      <div>
-        <h2>Memories</h2>
-        <small id="phase3-memory-count">0 memories</small>
-      </div>
-      <div class="p3-actions">
-        <button id="p3-add-memory-btn"><svg class="i sm"><use href="#i-plus"/></svg>Add photo</button>
-        <button id="phase3-memory-close" class="icon-btn" aria-label="Close"><svg class="i sm"><use href="#i-x"/></svg></button>
-      </div>
-    </div>
-    <div class="p3-toolbar">
-      <button class="phase3-filter active" data-filter="all">All</button>
-      <button class="phase3-filter" data-filter="today">Today</button>
-      <button class="phase3-filter" data-filter="mine">Mine</button>
-      <input id="phase3-memory-search" type="text" placeholder="Search by name">
-    </div>
-    <div id="phase3-memory-content">
-      <div id="phase3-memory-grid"></div>
-      <div id="phase3-memory-empty">No memories yet. Add a photo and pin it on the map.</div>
-      <div class="p3-timeline">
-        <div class="p3-section-title">Timeline</div>
-        <div id="phase3-timeline-list"></div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<div id="phase3-photo-viewer">
-  <div class="p3-view-card">
-    <img id="p3-view-image" src="" alt="Memory">
-    <div class="p3-view-meta">
-      <b id="p3-view-name">Memory</b>
-      <small id="p3-view-date">--</small>
-      <div id="p3-view-location" class="loc"><svg class="i sm"><use href="#i-pin"/></svg>Pinned on map</div>
-      <div class="p3-view-actions">
-        <button id="p3-view-focus">Show on map</button>
-        <button id="p3-view-close">Close</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- ================= JOIN ================= -->
-<div id="join-screen">
-  <div class="orb a"></div><div class="orb b"></div><div class="orb c"></div>
-  <div class="join-card">
-    <div class="join-logo"><svg class="i lg"><use href="#i-pin"/></svg></div>
-    <h1>See where everyone is</h1>
-    <p>Live locations, group chat and shared photos, all on one map.</p>
-    <form id="join-form">
-      <input id="nameInput" maxlength="40" autocomplete="name" placeholder="Your name" required>
-      <label class="avatar-upload" for="avatarInput">
-        <span class="ph" id="avatar-preview"><svg class="i sm"><use href="#i-camera"/></svg></span>
-        <span id="avatar-label-text">Add a profile photo</span>
-      </label>
-      <input id="avatarInput" type="file" accept="image/jpeg,image/png,image/webp,image/gif">
-      <button id="join-submit" type="submit">Join the map</button>
-    </form>
-  </div>
-</div>
-
-<!-- FIX: Mobile browsers me audio play karne ke liye 'playsinline' zaroori hai -->
+<input id="memoryPhotoInput" type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden>
 <audio id="remote-audio" autoplay playsinline hidden></audio>
 
 <script src="/socket.io/socket.io.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<!-- Restrict this key to your domain in Google Cloud Console (HTTP referrers) -->
-<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCGv2XX9FHRYXmsKbqQh_nXEBS6bBXCQCU&libraries=places"></script>
+<!-- REPLACE WITH YOUR ACTUAL GOOGLE API KEY -->
+<script src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&libraries=places"></script>
 <script src="app.js"></script>
 
-<script>
-/* UI-only helpers: reveal animation after join + avatar preview */
-(function(){
-  var join = document.getElementById('join-screen');
-  function markReady(){ document.body.classList.add('ready'); }
-  function check(){ if (join && getComputedStyle(join).display === 'none') { markReady(); return true; } return false; }
-  document.addEventListener('DOMContentLoaded', check);
-  if (join) new MutationObserver(function(){ if (check()) this.disconnect(); }).observe(join, {attributes:true, attributeFilter:['style']});
-
-  var inp = document.getElementById('avatarInput');
-  if (inp) inp.addEventListener('change', function(){
-    var f = inp.files && inp.files[0]; if (!f) return;
-    document.getElementById('avatar-label-text').textContent = f.name.length > 26 ? f.name.slice(0,23) + '…' : f.name;
-    var r = new FileReader();
-    r.onload = function(){ document.getElementById('avatar-preview').innerHTML = '<img alt="" src="' + r.result + '">'; };
-    r.readAsDataURL(f);
-  });
-  
-  // --- PWA SERVICE WORKER REGISTRATION ---
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('sw.js').then(reg => {
-        console.log('PWA Service Worker registered!', reg);
-      }).catch(err => console.log('Service Worker failed', err));
-    });
-  }
-})();
-</script>
 </body>
 </html>
