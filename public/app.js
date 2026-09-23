@@ -3,6 +3,12 @@
 // ==========================================
 // 1. SETUP & LEAFLET MAP
 // ==========================================
+
+// (डार्क मैप का API एरर फिक्स करने के लिए CSS को जावास्क्रिप्ट से ही डाल दिया है)
+const styleObj = document.createElement('style');
+styleObj.innerHTML = `.google-dark-map { filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%); }`;
+document.head.appendChild(styleObj);
+
 const socket = io({ transports: ["websocket", "polling"] });
 const DEFAULT_CENTER = [18.8136, 82.7153];
 const DEFAULT_AVATAR = "satyam.png";
@@ -11,19 +17,26 @@ const MAX_CHAT_FILE = 5 * 1024 * 1024;
 const MAX_MEMORY_FILE = 8 * 1024 * 1024;
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
-const map = L.map("map", {
-    zoomControl: false, preferCanvas: true, minZoom: 3, maxBounds: [[-90, -180], [90, 180]], maxBoundsViscosity: 1.0
+// FIX 3: preferCanvas ko false kar diya taaki dotted line animate ho sake
+const map = L.map("map", { 
+    zoomControl: false, preferCanvas: false, minZoom: 3, maxBounds: [[-90, -180], [90, 180]], maxBoundsViscosity: 1.0
 }).setView(DEFAULT_CENTER, 13);
 
 const satelliteLayer = L.tileLayer("https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}", { maxZoom: 20, subdomains: ["mt0","mt1","mt2","mt3"] });
 const streetLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 });
-const darkLayer = L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", { maxZoom: 20 });
-darkLayer.addTo(map);
+// CartoDB ka API Key error bypass karke Google Map ko Dark banaya
+const darkLayer = L.tileLayer("https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}", { 
+    maxZoom: 20, subdomains: ["mt0","mt1","mt2","mt3"], className: "google-dark-map" 
+});
+satelliteLayer.addTo(map);
 
 let currentUser = { name: localStorage.getItem("koraput_name") || "", avatar: localStorage.getItem("koraput_avatar") || DEFAULT_AVATAR };
 let myCoords = null, myWeather = "", ownMarker = null, accuracyCircle = null, cityName = "";
 let lastWeatherFetch = 0;
-let lastFixCoords = null, lastFixTime = 0; 
+const friendMarkers = Object.create(null);
+const friendData = Object.create(null);
+
+let lastFixCoords = null, lastFixTime = 0; // used as a fallback to derive speed when coords.speed is null
 
 let locationHistory = [];
 try {
@@ -49,11 +62,15 @@ let pendingMemoryImage = null;
 let measurePoints = [];
 let currentTrip = null;
 let tripMarker = null;
+
+// FIX 1: Geofence crash theek karne ke liye variables yahan add kar diye
 let geoClickCount = 0, geoClickTimer = null; 
 
 let currentGeofences = []; 
 const memories = new Map();
 let currentGalleryFilter = "all", currentGallerySearch = "", selectedMemoryId = null;
+
+// SEARCH MARKER
 let searchMarker = null;
 
 const $ = id => document.getElementById(id);
@@ -111,7 +128,7 @@ async function fetchCity(lat,lng){
 }
 
 // ==========================================
-// 2. ULTIMATE SMART DRIVE ENGINE (Gemini + ChatGPT)
+// NEW FEATURE: SMART DRIVE ENGINE (Fuel, Graph, Alert)
 // ==========================================
 const SmartDrive = {
     isRecording: false,
@@ -147,33 +164,45 @@ const SmartDrive = {
             this.baseMileage = parseFloat(e.target.value) || 18;
             localStorage.setItem("sd_mileage", this.baseMileage);
         });
+        
         $("speed-record-toggle")?.addEventListener("change", (e) => {
             this.isRecording = e.target.checked;
             localStorage.setItem("sd_record", this.isRecording ? "1" : "0");
-            $("speed-graph-canvas").style.display = this.isRecording ? "block" : "none";
+            if($("speed-graph-canvas")) $("speed-graph-canvas").style.display = this.isRecording ? "block" : "none";
             if(!this.isRecording) this.speedHistory = [];
         });
 
-        $("profile-open-btn")?.addEventListener("click", () => $("profile-settings-modal").style.display = "flex");
-        $("close-settings-btn")?.addEventListener("click", () => $("profile-settings-modal").style.display = "none");
+        $("profile-open-btn")?.addEventListener("click", () => {
+            if($("profile-settings-modal")) $("profile-settings-modal").style.display = "flex";
+        });
+        
+        $("close-settings-btn")?.addEventListener("click", () => {
+            if($("profile-settings-modal")) $("profile-settings-modal").style.display = "none";
+        });
+        
         $("close-results-btn")?.addEventListener("click", () => {
-            $("results-panel").style.display = "none";
-            $("results-panel").classList.remove("popIn");
+            if($("results-panel")) $("results-panel").style.display = "none";
         });
         
         document.addEventListener("click", () => {
-            if(!this.audioCtx) this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            if(this.audioCtx.state === "suspended") this.audioCtx.resume();
-        }, {once:true});
+            if(!this.audioCtx) {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                if(AudioContext) this.audioCtx = new AudioContext();
+            }
+            if(this.audioCtx && this.audioCtx.state === "suspended") this.audioCtx.resume();
+        }, {passive:true});
     },
 
     beep(freq, ms) {
         if(!this.audioCtx) return;
-        const osc = this.audioCtx.createOscillator(), gain = this.audioCtx.createGain();
-        osc.type = "square"; osc.frequency.value = freq;
-        gain.gain.value = 0.15;
-        osc.connect(gain); gain.connect(this.audioCtx.destination);
-        osc.start(); osc.stop(this.audioCtx.currentTime + ms/1000);
+        try {
+            if (this.audioCtx.state === "suspended") this.audioCtx.resume();
+            const osc = this.audioCtx.createOscillator(), gain = this.audioCtx.createGain();
+            osc.type = "square"; osc.frequency.value = freq;
+            gain.gain.value = 0.15;
+            osc.connect(gain); gain.connect(this.audioCtx.destination);
+            osc.start(); osc.stop(this.audioCtx.currentTime + ms/1000);
+        } catch(e) {}
     },
 
     triggerRedMap() {
@@ -191,14 +220,14 @@ const SmartDrive = {
         if(dial) {
             if(speed > 3) {
                 dial.style.display = "flex";
-                $("speed-n").textContent = speed;
+                if($("speed-n")) $("speed-n").textContent = Math.round(speed);
                 dial.className = "speed-dial " + (speed >= 100 ? "danger" : (speed >= 80 ? "warn" : ""));
             } else {
                 dial.style.display = "none";
             }
         }
 
-        if (now - this.lastAlertTime < 15000) return;
+        if (now - this.lastAlertTime < 15000) return; // Cooldown 15 sec
 
         if (speed >= 100) {
             showToast("🚨 DANGER: Speed 100+ km/h! Slow Down!", 5000);
@@ -269,26 +298,171 @@ const SmartDrive = {
     startTrip() {
         this.trip = { active: true, startTime: Date.now(), totalDist: 0, actualFuel: 0, maxSpeed: 0, sumSpeed: 0, ticks: 0, ranges: {efficient:0, moderate:0, inefficient:0} };
     },
+    
     endTrip() {
         if(!this.trip.active || this.trip.ticks === 0) return;
         this.trip.active = false;
         
         const avg = this.trip.sumSpeed / this.trip.ticks;
         
-        $("res-dist").textContent = this.trip.totalDist.toFixed(2) + " km";
-        $("res-avg-speed").textContent = Math.round(avg) + " km/h";
-        $("res-max-speed").textContent = Math.round(this.trip.maxSpeed) + " km/h";
-        $("res-eff-time").textContent = Math.round(this.trip.ranges.efficient / 60) + " min";
-        $("res-ineff-time").textContent = Math.round(this.trip.ranges.inefficient / 60) + " min";
-        $("res-base-mlg").textContent = this.baseMileage + " km/L";
-        $("res-actual-fuel").textContent = this.trip.actualFuel.toFixed(2) + " L";
+        if($("res-dist")) $("res-dist").textContent = this.trip.totalDist.toFixed(2) + " km";
+        if($("res-avg-speed")) $("res-avg-speed").textContent = Math.round(avg) + " km/h";
+        if($("res-max-speed")) $("res-max-speed").textContent = Math.round(this.trip.maxSpeed) + " km/h";
+        if($("res-eff-time")) $("res-eff-time").textContent = Math.round(this.trip.ranges.efficient / 60) + " min";
+        if($("res-ineff-time")) $("res-ineff-time").textContent = Math.round(this.trip.ranges.inefficient / 60) + " min";
+        if($("res-base-mlg")) $("res-base-mlg").textContent = this.baseMileage + " km/L";
+        if($("res-actual-fuel")) $("res-actual-fuel").textContent = this.trip.actualFuel.toFixed(2) + " L";
 
-        $("results-panel").style.display = "flex";
+        if($("results-panel")) {
+            $("results-panel").style.display = "flex";
+            $("results-panel").classList.add("popIn");
+        }
     }
 };
 
+const Navigation = {
+    active: false, targetId: null, targetCoords: null,
+    async start(friendId) {
+        const f = friendData[friendId];
+        if(!f || !validCoord(f.lat, f.lng) || !myCoords) return showToast("❌ Location not available for routing.");
+        this.active = true; this.targetId = friendId; this.targetCoords = { lat: f.lat, lng: f.lng };
+        
+        if($("profile-popup")) $("profile-popup").style.display = "none";
+        if($("nav-title-name")) $("nav-title-name").textContent = f.name;
+        if($("nav-panel")) $("nav-panel").style.display = "flex";
+        await this.calculate();
+    },
+    async calculate() {
+        if(!this.active || !myCoords || !this.targetCoords) return;
+        navigationLayer.clearLayers();
+        if($("nav-instructions")) $("nav-instructions").innerHTML = "<i>Analyzing roads & finding optimal route...</i>";
+        try {
+            const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${myCoords.lng},${myCoords.lat};${this.targetCoords.lng},${this.targetCoords.lat}?steps=true&geometries=geojson&overview=full`);
+            if(!res.ok) throw new Error("Route failed");
+            const data = await res.json();
+            
+            if(data.routes && data.routes.length > 0) {
+                const r = data.routes[0];
+                const coords = r.geometry.coordinates.map(c => [c[1], c[0]]); 
+                const path = L.polyline(coords, { color: '#18d6a3', weight: 5, opacity: 0.8, className: 'nav-path-animated' }).addTo(navigationLayer);
+                map.fitBounds(path.getBounds(), { padding: [50, 50] });
+
+                const distKm = (r.distance / 1000).toFixed(1);
+                const timeMin = Math.round(r.duration / 60);
+                showToast(`🚗 Best Route: ${distKm} km • ⏱️ ${timeMin} mins`, 6000);
+                if($("nav-stats")) $("nav-stats").innerHTML = `🚗 ${distKm} km &nbsp; ⏱️ ${timeMin} min`;
+                
+                let instHTML = "";
+                if(r.legs[0] && r.legs[0].steps) {
+                    r.legs[0].steps.slice(0, 4).forEach(s => {
+                        let arrow = "↑";
+                        if(s.maneuver.modifier) { if(s.maneuver.modifier.includes('right')) arrow = "↱"; if(s.maneuver.modifier.includes('left')) arrow = "↰"; }
+                        instHTML += `<div style="padding:4px 0;">${arrow} ${s.maneuver.instruction}</div>`;
+                    });
+                }
+                if($("nav-instructions")) $("nav-instructions").innerHTML = instHTML || "Follow the highlighted route on the map.";
+            } else { if($("nav-instructions")) $("nav-instructions").innerHTML = "<i>No viable road route found.</i>"; }
+        } catch (e) { if($("nav-instructions")) $("nav-instructions").innerHTML = "<i>Navigation error. Try again later.</i>"; }
+    },
+    stop() {
+        this.active = false; this.targetId = null; this.targetCoords = null;
+        navigationLayer.clearLayers();
+        if($("nav-panel")) $("nav-panel").style.display = "none";
+        if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
+    },
+    onLiveUpdate() {
+        if(!this.active) return;
+        if(this.targetId && friendData[this.targetId]) {
+            const f = friendData[this.targetId];
+            if(!this.targetCoords) return;
+            const dist = distanceKm(this.targetCoords.lat, this.targetCoords.lng, f.lat, f.lng);
+            if(Number(dist) > 0.1) { this.targetCoords = { lat: f.lat, lng: f.lng }; this.calculate(); }
+        }
+    }
+};
+
+if($("nav-recalc-btn")) $("nav-recalc-btn").onclick = () => Navigation.calculate();
+// FIX 2: nav-exit-btn ki jagah nav-panel-exit kar diya
+if($("nav-panel-exit")) $("nav-panel-exit").onclick = () => Navigation.stop();
+
+const GroupNavigation = {
+    active: false, destination: null, selectedMembers: [], layerGroup: L.layerGroup().addTo(map),
+    lastFetchedCoords: {}, colors: ['#18d6a3', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6'], recalcTimer: null,
+
+    openSetup() {
+        const list = $("group-nav-friend-list"); list.innerHTML = "";
+        const activeFriends = Object.values(friendData).filter(f => f.online !== false);
+        if(activeFriends.length === 0) list.innerHTML = `<div style="color:var(--muted); font-size:11px;">No friends online.</div>`;
+        else activeFriends.forEach(f => {
+            list.innerHTML += `<label style="display:flex; align-items:center; gap:8px; font-size:13px; color:white; cursor:pointer;"><input type="checkbox" value="${f.id}" class="group-nav-cb"><img src="${escapeHTML(f.avatar)}" style="width:28px; height:28px; border-radius:50%; object-fit:cover;">${escapeHTML(f.name)}</label>`;
+        });
+        $("group-nav-setup").style.display = "flex";
+    },
+    startSelection() {
+        const cbs = document.querySelectorAll(".group-nav-cb:checked");
+        if(cbs.length === 0) return showToast("Select at least 1 friend.");
+        if(cbs.length > 3) return showToast("Select up to 3 friends only.");
+        this.selectedMembers = ["me", ...Array.from(cbs).map(cb => cb.value)];
+        $("group-nav-setup").style.display = "none";
+        mapActionMode = 'group-nav';
+        showToast("📍 Tap the map to set the common destination!", 5000);
+    },
+    async setDestination(latlng) {
+        this.active = true; this.destination = latlng; this.layerGroup.clearLayers(); this.lastFetchedCoords = {};
+        L.marker(latlng, { icon: L.divIcon({className: 'geofence-marker', html: '🎯'}) }).bindTooltip("Group Destination", {permanent:true, direction:"top", className:"weather-badge"}).addTo(this.layerGroup);
+        $("group-nav-active").style.display = "flex";
+        await this.calculateAll();
+    },
+    async calculateAll() {
+        if(!this.active || !this.destination) return;
+        $("group-nav-stats-list").innerHTML = "<div style='color:var(--muted); font-size:11px; text-align:center;'>Calculating road paths...</div>";
+
+        let statsHTML = "", validPaths = [];
+
+        for(let i = 0; i < this.selectedMembers.length; i++) {
+            const memberId = this.selectedMembers[i];
+            const color = this.colors[i % this.colors.length];
+            let name = "User", avatar = DEFAULT_AVATAR, coords = null;
+
+            if (memberId === "me") { if (!myCoords) continue; name = "You"; avatar = currentUser.avatar; coords = myCoords; } 
+            else { const f = friendData[memberId]; if (!f || f.online === false || !validCoord(f.lat, f.lng)) continue; name = f.name; avatar = f.avatar; coords = { lat: f.lat, lng: f.lng }; }
+
+            try {
+                const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${coords.lng},${coords.lat};${this.destination.lng},${this.destination.lat}?overview=full&geometries=geojson`);
+                const data = await res.json();
+                if(data.routes && data.routes.length > 0) {
+                    const r = data.routes[0];
+                    const pathCoords = r.geometry.coordinates.map(c => [c[1], c[0]]);
+                    this.layerGroup.eachLayer(l => { if(l.memberId === memberId) this.layerGroup.removeLayer(l); });
+                    const poly = L.polyline(pathCoords, { color: color, weight: 5, opacity: 0.8, className: 'nav-path-animated' });
+                    poly.memberId = memberId; poly.addTo(this.layerGroup); validPaths.push(poly);
+
+                    const distKm = (r.distance / 1000).toFixed(1); const timeMin = Math.round(r.duration / 60);
+                    statsHTML += `<div style="display:flex; justify-content:space-between; align-items:center; padding:10px; background:rgba(255,255,255,0.05); border-radius:10px; border-left:4px solid ${color};"><div style="display:flex; align-items:center; gap:10px;"><img src="${escapeHTML(avatar)}" style="width:30px; height:30px; border-radius:50%; object-fit:cover;"><span style="color:white; font-size:13px; font-weight:bold;">${escapeHTML(name)}</span></div><div style="text-align:right;"><div style="color:white; font-size:13px; font-weight:bold;">${distKm} km</div><div style="color:var(--muted); font-size:11px;">${timeMin} min</div></div></div>`;
+                    this.lastFetchedCoords[memberId] = { lat: coords.lat, lng: coords.lng };
+                } else statsHTML += `<div style="color:#ef4444; font-size:11px; padding:10px;">No road route for ${escapeHTML(name)}</div>`;
+            } catch(e) {}
+        }
+        $("group-nav-stats-list").innerHTML = statsHTML;
+        if(validPaths.length > 0) map.fitBounds(L.featureGroup(validPaths).getBounds(), { padding: [40, 40] });
+    },
+    onLiveUpdate() {
+        if(!this.active || !this.destination) return;
+        let needsRecalc = false;
+        if (this.selectedMembers.includes("me") && myCoords) { const last = this.lastFetchedCoords["me"]; if(!last || distanceKm(last.lat, last.lng, myCoords.lat, myCoords.lng) > 0.1) needsRecalc = true; }
+        this.selectedMembers.forEach(id => { if(id !== "me" && friendData[id]) { const f = friendData[id]; const last = this.lastFetchedCoords[id]; if(validCoord(f.lat, f.lng) && (!last || distanceKm(last.lat, last.lng, f.lat, f.lng) > 0.1)) needsRecalc = true; }});
+        if (needsRecalc) { clearTimeout(this.recalcTimer); this.recalcTimer = setTimeout(() => this.calculateAll(), 3000); }
+    },
+    stop() { this.active = false; this.destination = null; this.selectedMembers = []; this.layerGroup.clearLayers(); $("group-nav-active").style.display = "none"; if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16); }
+};
+
+if($("group-nav-close-btn")) $("group-nav-close-btn").onclick = () => { $("group-nav-setup").style.display = "none"; mapActionMode = null; $("group-nav-btn").classList.remove("active-tool"); };
+if($("group-nav-next-btn")) $("group-nav-next-btn").onclick = () => GroupNavigation.startSelection();
+if($("group-nav-stop-btn")) $("group-nav-stop-btn").onclick = () => GroupNavigation.stop();
+
+
 // ==========================================
-// 3. CORE SYSTEM (SOCKETS & GPS)
+// CORE SYSTEM
 // ==========================================
 socket.on("connect", () => { if (currentUser.name) socket.emit("profileReady", currentUser); });
 
@@ -304,6 +478,7 @@ socket.on("geofenceAlert", (data) => {
     showToast(`🔔 ${data.user} has ${action} ${data.fence}!`);
 });
 
+// FIXED GPS WITH ERROR HANDLING (Will not crash app if denied)
 function startGPS() {
     if(!navigator.geolocation) {
         showToast("❌ Browser does not support GPS");
@@ -335,7 +510,7 @@ function startGPS() {
             cityName = await fetchCity(lat, lng);
             if (cityName) {
                 if ($("header-app-title")) $("header-app-title").textContent = `${cityName} Map`;
-                if ($("city-name-text")) $("city-name-text").textContent = cityName;
+                if ($("pill-city")) $("pill-city").textContent = `📍 ${cityName}`;
             }
         }
 
@@ -352,6 +527,7 @@ function startGPS() {
             }
         }
 
+        // --- Speed & Fuel Engine Calculation ---
         let speedKmh = 0;
         let dist = 0;
         if (p.coords.speed != null && p.coords.speed >= 0) {
@@ -367,11 +543,14 @@ function startGPS() {
         speedKmh = Math.min(speedKmh, 300); 
         lastFixCoords = { lat, lng }; lastFixTime = Date.now();
 
+        // Feed data to SmartDrive
         SmartDrive.tick(speedKmh, dist);
 
         socket.emit("updateLocation",{name:currentUser.name, avatar:currentUser.avatar, lat, lng, weather:myWeather});
         updateFriendBadges(); 
         triggerGroupRouteUpdate(); 
+        Navigation.onLiveUpdate(); 
+        GroupNavigation.onLiveUpdate(); 
     }, e => {
         console.warn("GPS error", e);
         if(e.code === 1) showToast("⚠️ GPS Permission Denied! Location tools disabled.", 6000);
@@ -383,7 +562,7 @@ function updateFriendBadges(){
     Object.keys(friendMarkers).forEach(id=>{
         const f=friendData[id], m=friendMarkers[id]; if(!f||!m) return;
         let text = f.online===false ? "Offline" : f.weather;
-        if(myCoords && validCoord(f.lat,f.lng)) text += ` | 📍 ${distanceKm(myCoords.lat,myCoords.lng,f.lat,f.lng)} km`;
+        if(myCoords && validCoord(f.lat,f.lng)) text += ` | 📍 ${distanceKm(myCoords.lat,myCoords.lng,f.lat,f.lng)} km away`;
         m.unbindTooltip(); if(text) m.bindTooltip(text,{permanent:true,direction:"right",className:"weather-badge",offset:[15,0]});
     });
 }
@@ -391,11 +570,8 @@ function updateFriendBadges(){
 socket.on("onlineUsers", list=>{ if(Array.isArray(list)) list.forEach(u=>{ if(u.id!==socket.id){ friendData[u.id]={...(friendData[u.id]||{}),...u,online:true}; createOrUpdateFriendMarker(u);} }); updateOnlineUI(); });
 socket.on("userOnline", u=>{ if(u.id!==socket.id){ friendData[u.id]={...(friendData[u.id]||{}),...u,online:true}; createOrUpdateFriendMarker(u); } updateOnlineUI(); });
 socket.on("userOffline", d=>{ if(d?.id && friendData[d.id]){ friendData[d.id].online=false; if(friendMarkers[d.id]) friendMarkers[d.id].setOpacity(0.45); } updateOnlineUI(); });
-socket.on("friendMoved", u=>{ if(u?.id) { createOrUpdateFriendMarker({...u,online:true}); updateOnlineUI(); triggerGroupRouteUpdate(); }});
+socket.on("friendMoved", u=>{ if(u?.id) { createOrUpdateFriendMarker({...u,online:true}); updateOnlineUI(); triggerGroupRouteUpdate(); Navigation.onLiveUpdate(); GroupNavigation.onLiveUpdate(); }});
 socket.on("friendDisconnected", id=>{ if(friendMarkers[id]){map.removeLayer(friendMarkers[id]); delete friendMarkers[id];} delete friendData[id]; updateOnlineUI(); });
-
-const friendMarkers = Object.create(null);
-const friendData = Object.create(null);
 
 function createOrUpdateFriendMarker(u){
     if(!u?.id || !validCoord(u.lat,u.lng)) return;
@@ -418,18 +594,23 @@ function updateOnlineUI(){
 
 function showProfilePopup(u) {
     if($("profile-popup-avatar")) $("profile-popup-avatar").src=u.avatar; 
-    if($("profile-popup-name")) $("profile-popup-name").textContent = u.name;
+    if($("profile-popup-name")) $("profile-popup-name").textContent=u.name;
     const st = $("profile-popup-status");
     if(st) { st.textContent = u.online!==false ? "● Online" : "● Offline"; st.style.color = u.online!==false ? "#18d6a3" : "#8fa1aa"; }
-    if($("profile-popup-distance")) $("profile-popup-distance").textContent = (myCoords ? `${distanceKm(myCoords.lat,myCoords.lng,u.lat,u.lng)} km away` : "--");
+    if($("profile-popup-distance")) $("profile-popup-distance").textContent = myCoords ? `${distanceKm(myCoords.lat,myCoords.lng,u.lat,u.lng)} km away` : "--";
     if($("profile-popup-weather")) $("profile-popup-weather").textContent = u.weather || "--";
-
-    if($("profile-focus-btn")){
-        $("profile-focus-btn").onclick=()=>{ if(validCoord(u.lat,u.lng)) map.flyTo([u.lat,u.lng],16); $("profile-popup").style.display="none"; };
+    
+    if($("profile-nav-btn")) {
+        $("profile-nav-btn").onclick = () => {
+            if(validCoord(u.lat, u.lng)) Navigation.start(u.id);
+        };
     }
+    
+    // NAYA: Call Button Activate Karna
     if (typeof initCallButton === "function") initCallButton(u);
-
+    
     if($("profile-popup")) $("profile-popup").style.display="flex";
+    if($("profile-focus-btn")) $("profile-focus-btn").onclick=()=>{ map.flyTo([u.lat,u.lng],16); $("profile-popup").style.display="none"; };
 }
 $("profile-popup-close")?.addEventListener("click",()=>$("profile-popup").style.display="none");
 
@@ -445,7 +626,14 @@ function renderGeofenceList() {
                 ? `<button onclick="removeGeofence('${f.id}')" style="background:rgba(239, 68, 68, 0.2); color:#ef4444; border:none; padding:6px 12px; border-radius:8px; font-weight:bold; font-size:11px; cursor:pointer;">Remove</button>`
                 : `<span style="font-size:10px; color:var(--muted); font-weight:bold;">Owner: ${escapeHTML(f.ownerName)}</span>`;
 
-            list.innerHTML += `<div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.05); padding:10px; border-radius:10px;"><div><div style="color:white; font-size:13px; font-weight:bold;">${escapeHTML(f.name)}</div><div style="color:var(--muted); font-size:11px;">Radius: ${f.radius}m</div></div>${actionBtn}</div>`;
+            list.innerHTML += `
+            <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.05); padding:10px; border-radius:10px;">
+                <div>
+                    <div style="color:white; font-size:13px; font-weight:bold;">${escapeHTML(f.name)}</div>
+                    <div style="color:var(--muted); font-size:11px;">Radius: ${f.radius}m</div>
+                </div>
+                ${actionBtn}
+            </div>`;
         });
     }
     $("geofence-list-modal").style.display = "flex";
@@ -464,11 +652,15 @@ function setupAdvancedTools() {
     $("geofence-btn").onclick = () => {
         geoClickCount++;
         if (geoClickCount === 3) {
-            clearTimeout(geoClickTimer); geoClickCount = 0; renderGeofenceList(); return;
+            clearTimeout(geoClickTimer);
+            geoClickCount = 0;
+            renderGeofenceList(); 
+            return;
         }
         clearTimeout(geoClickTimer);
         geoClickTimer = setTimeout(() => {
-            geoClickCount = 0; mapActionMode = mapActionMode === 'geofence' ? null : 'geofence';
+            geoClickCount = 0;
+            mapActionMode = mapActionMode === 'geofence' ? null : 'geofence';
             $("geofence-btn").classList.toggle("active-tool", mapActionMode === 'geofence');
             $("measure-btn").classList.remove("active-tool"); $("trip-btn").classList.remove("active-tool"); $("group-nav-btn").classList.remove("active-tool");
             if(mapActionMode === 'geofence') showToast("⭕ Tap map to set Geofence. (Tap button 3 times to view/delete)");
@@ -494,21 +686,31 @@ function setupAdvancedTools() {
         if (mapActionMode === 'measure') {
             measurePoints.push(e.latlng);
             L.circleMarker(e.latlng, {color: '#f59e0b', radius: 5, fillOpacity: 1}).addTo(measureLayer);
+            
             if (measurePoints.length === 2) {
                 const p1 = measurePoints[0], p2 = measurePoints[1];
                 showToast("📏 Calculating road distance...", 2000);
+                
                 fetch(`https://router.project-osrm.org/route/v1/driving/${p1.lng},${p1.lat};${p2.lng},${p2.lat}?overview=full&geometries=geojson`)
-                .then(r => r.json()).then(data => {
+                .then(r => r.json())
+                .then(data => {
                     measureLayer.clearLayers();
                     if(data.routes && data.routes.length > 0) {
                         const r = data.routes[0];
                         const coords = r.geometry.coordinates.map(c => [c[1], c[0]]);
                         L.polyline(coords, {color: '#f59e0b', weight: 4, dashArray: '5, 10', className: 'nav-path-animated'}).addTo(measureLayer);
-                        const distKm = (r.distance / 1000).toFixed(2); const timeMin = Math.round(r.duration / 60);
+                        const distKm = (r.distance / 1000).toFixed(2);
+                        const timeMin = Math.round(r.duration / 60);
                         showToast(`📏 Road Distance: ${distKm} km • ⏱️ ETA: ${timeMin} mins`, 6000);
-                    } else { showToast("❌ Road route unavailable."); }
+                    } else {
+                        showToast("❌ Road route unavailable. Try again.");
+                    }
                     setTimeout(() => { measureLayer.clearLayers(); measurePoints = []; mapActionMode = null; $("measure-btn").classList.remove("active-tool"); }, 6000);
-                }).catch(() => { measureLayer.clearLayers(); showToast("❌ Road route unavailable."); setTimeout(() => { measureLayer.clearLayers(); measurePoints = []; mapActionMode = null; $("measure-btn").classList.remove("active-tool"); }, 6000); });
+                }).catch(() => {
+                    measureLayer.clearLayers();
+                    showToast("❌ Road route unavailable. Try again.");
+                    setTimeout(() => { measureLayer.clearLayers(); measurePoints = []; mapActionMode = null; $("measure-btn").classList.remove("active-tool"); }, 6000);
+                });
             }
         } 
         else if (mapActionMode === 'geofence') {
@@ -519,13 +721,18 @@ function setupAdvancedTools() {
                 if (Number.isFinite(radius) && radius >= 10 && radius <= 50000) {
                     socket.emit("addGeofence", { name: name.trim(), lat: e.latlng.lat, lng: e.latlng.lng, radius: radius });
                     showToast(`⭕ Geofence '${name}' created with ${radius}m radius!`);
-                } else { showToast("❌ Invalid radius! Must be between 10 and 50000 meters."); }
+                } else {
+                    showToast("❌ Invalid radius! Must be between 10 and 50000 meters.");
+                }
             }
             mapActionMode = null; $("geofence-btn").classList.remove("active-tool");
         }
         else if (mapActionMode === 'trip') {
             const name = prompt("Enter Trip Destination Name:");
-            if (name && name.trim()) { socket.emit("startTrip", { name: name.trim(), lat: e.latlng.lat, lng: e.latlng.lng }); showToast(`🚗 Trip started to ${name}!`); }
+            if (name && name.trim()) {
+                socket.emit("startTrip", { name: name.trim(), lat: e.latlng.lat, lng: e.latlng.lng });
+                showToast(`🚗 Trip started to ${name}!`);
+            }
             mapActionMode = null; $("trip-btn").classList.remove("active-tool");
         }
         else if (mapActionMode === 'memory') {
@@ -551,7 +758,8 @@ function setupAdvancedTools() {
         currentTrip = trip;
         if(tripMarker) { map.removeLayer(tripMarker); tripMarker = null; }
         if(trip) {
-            $("trip-panel").style.display = "flex"; $("trip-title").textContent = `Trip to ${trip.name}`;
+            $("trip-panel").style.display = "flex";
+            $("trip-title").textContent = `Trip to ${trip.name}`;
             tripMarker = L.marker([trip.lat, trip.lng], { icon: L.divIcon({className: 'geofence-marker', html: '🏁'}) }).addTo(map);
 
             const isMember = trip.members.some(m => m.id === socket.id);
@@ -559,9 +767,22 @@ function setupAdvancedTools() {
             const actionBtn = $("trip-action-btn");
             
             if (actionBtn) {
-                if (isHost) { actionBtn.textContent = "End Trip"; actionBtn.style.color = "#ef4444"; actionBtn.style.background = "rgba(239, 68, 68, 0.2)"; actionBtn.onclick = () => socket.emit("leaveTrip"); } 
-                else if (isMember) { actionBtn.textContent = "Leave Trip"; actionBtn.style.color = "#f59e0b"; actionBtn.style.background = "rgba(245, 158, 11, 0.2)"; actionBtn.onclick = () => socket.emit("leaveTrip"); } 
-                else { actionBtn.textContent = "Join Trip"; actionBtn.style.color = "#10b981"; actionBtn.style.background = "rgba(16, 185, 129, 0.2)"; actionBtn.onclick = () => socket.emit("joinTrip"); }
+                if (isHost) {
+                    actionBtn.textContent = "End Trip";
+                    actionBtn.style.color = "#ef4444";
+                    actionBtn.style.background = "rgba(239, 68, 68, 0.2)";
+                    actionBtn.onclick = () => socket.emit("leaveTrip");
+                } else if (isMember) {
+                    actionBtn.textContent = "Leave Trip";
+                    actionBtn.style.color = "#f59e0b";
+                    actionBtn.style.background = "rgba(245, 158, 11, 0.2)";
+                    actionBtn.onclick = () => socket.emit("leaveTrip");
+                } else {
+                    actionBtn.textContent = "Join Trip";
+                    actionBtn.style.color = "#10b981";
+                    actionBtn.style.background = "rgba(16, 185, 129, 0.2)";
+                    actionBtn.onclick = () => socket.emit("joinTrip");
+                }
             }
             triggerGroupRouteUpdate(); 
         } else {
@@ -586,21 +807,28 @@ async function updateGroupTripRoutes() {
     const promises = currentTrip.members.map(async (member, index) => {
         const color = routeColors[index % routeColors.length];
         let coords = null;
+        
         if (member.id === socket.id && myCoords) coords = myCoords;
         else if (friendData[member.id] && friendData[member.id].online !== false) coords = friendData[member.id];
         
         if (coords) {
             const last = tripLastFetchedCoords[member.id];
             if (last && distanceKm(last.lat, last.lng, coords.lat, coords.lng) < 0.1) return;
+
             try {
                 const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${coords.lng},${coords.lat};${currentTrip.lng},${currentTrip.lat}?geometries=geojson`);
                 const data = await res.json();
+                
                 if (data.routes && data.routes.length > 0) {
                     const r = data.routes[0];
                     const pathCoords = r.geometry.coordinates.map(c => [c[1], c[0]]);
+                    
                     tripRoutesLayer.eachLayer(l => { if(l.memberId === member.id) tripRoutesLayer.removeLayer(l); });
+
                     const poly = L.polyline(pathCoords, { color: color, weight: 5, opacity: 0.8, className: 'nav-path-animated' });
-                    poly.memberId = member.id; poly.addTo(tripRoutesLayer);
+                    poly.memberId = member.id;
+                    poly.addTo(tripRoutesLayer);
+                    
                     tripLastFetchedCoords[member.id] = { lat: coords.lat, lng: coords.lng };
                     tripRoadStats[member.id] = { dist: (r.distance / 1000).toFixed(1), time: Math.round(r.duration / 60) };
                 }
@@ -617,11 +845,14 @@ function updateTripPanel() {
     if(!currentTrip) return;
     const list = $("trip-members-list"); if(!list) return;
     list.innerHTML = "";
+    
     const isMember = currentTrip.members.some(m => m.id === socket.id);
+
     if(myCoords && currentUser.name && isMember) {
         const stats = tripRoadStats[socket.id] || { dist: distanceKm(myCoords.lat, myCoords.lng, currentTrip.lat, currentTrip.lng), time: '--' };
         list.innerHTML += `<div class="trip-member"><div><img src="${escapeHTML(currentUser.avatar)}"> You</div> <span style="text-align:right;">${stats.dist} km<br><small style="color:var(--muted)">${stats.time} min</small></span></div>`;
     }
+    
     Object.values(friendData).filter(f => f.online !== false && currentTrip.members.some(m => m.id === f.id)).forEach(f => {
         const stats = tripRoadStats[f.id] || { dist: distanceKm(f.lat, f.lng, currentTrip.lat, currentTrip.lng), time: '--' };
         list.innerHTML += `<div class="trip-member"><div><img src="${escapeHTML(f.avatar)}"> ${escapeHTML(f.name)}</div> <span style="text-align:right;">${stats.dist} km<br><small style="color:var(--muted)">${stats.time} min</small></span></div>`;
@@ -630,7 +861,7 @@ function updateTripPanel() {
 
 function setupBasicControls(){
     $("my-location-btn").onclick = () => { if(myCoords) map.flyTo([myCoords.lat,myCoords.lng], 16); };
-    $("compass-btn").onclick = () => { map.setView(map.getCenter(), map.getZoom(), {animate:true}); };
+    $("compass-btn").onclick = () => { map.setView(map.getCenter(), map.getZoom(), {animate:true}); $("compass-icon").style.transform="rotate(0deg)"; };
     $("map-style-btn").onclick = (e) => { e.stopPropagation(); $("map-style-menu").style.display = $("map-style-menu").style.display==="flex"?"none":"flex"; };
     $("map-style-menu").onclick = (e) => {
         const b=e.target.closest("[data-style]"); if(!b) return; const s=b.dataset.style;
@@ -639,32 +870,8 @@ function setupBasicControls(){
         document.querySelectorAll("#map-style-menu button").forEach(x=>x.classList.toggle("active",x.dataset.style===s));
         $("map-style-menu").style.display="none";
     };
+    if (window.DeviceOrientationEvent) window.addEventListener("deviceorientation", e => { const icon = $("compass-icon"); if (icon) icon.style.transform = `rotate(${e.webkitCompassHeading ? -e.webkitCompassHeading : e.alpha}deg)`; }, true);
 }
-
-const GroupNavigation = {
-    openSetup() {
-        const list = $("group-nav-friend-list"); list.innerHTML = "";
-        const activeFriends = Object.values(friendData).filter(f => f.online !== false);
-        if(activeFriends.length === 0) list.innerHTML = `<div style="color:var(--muted); font-size:11px;">No friends online.</div>`;
-        else activeFriends.forEach(f => {
-            list.innerHTML += `<label style="display:flex; align-items:center; gap:8px; font-size:13px; color:white; cursor:pointer;"><input type="checkbox" value="${f.id}" class="group-nav-cb"><img src="${escapeHTML(f.avatar)}" style="width:28px; height:28px; border-radius:50%; object-fit:cover;">${escapeHTML(f.name)}</label>`;
-        });
-        $("group-nav-setup").style.display = "flex";
-    },
-    startSelection() {
-        const cbs = document.querySelectorAll(".group-nav-cb:checked");
-        if(cbs.length === 0) return showToast("Select at least 1 friend.");
-        if(cbs.length > 3) return showToast("Select up to 3 friends only.");
-        this.selectedMembers = ["me", ...Array.from(cbs).map(cb => cb.value)];
-        $("group-nav-setup").style.display = "none";
-        mapActionMode = 'group-nav';
-        showToast("📍 Tap the map to set the common destination!", 5000);
-    },
-    stop() { this.active = false; this.destination = null; this.selectedMembers = []; this.layerGroup.clearLayers(); $("group-nav-active").style.display = "none"; if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16); }
-};
-if($("group-nav-close-btn")) $("group-nav-close-btn").onclick = () => { $("group-nav-setup").style.display = "none"; mapActionMode = null; $("group-nav-btn").classList.remove("active-tool"); };
-if($("group-nav-next-btn")) $("group-nav-next-btn").onclick = () => GroupNavigation.startSelection();
-if($("group-nav-stop-btn")) $("group-nav-stop-btn").onclick = () => GroupNavigation.stop();
 
 function setupChat(){
     const cc=$("chat-container"), inp=$("chatInput"), send=$("chat-send"), vb=$("voiceButton");
@@ -771,6 +978,7 @@ function setupMemories(){
 
     const mInp=$("memoryPhotoInput");
     $("memoryButton").onclick=()=>{ if(!currentUser.name) return alert("Join map first."); mInp.click(); };
+    
     const addMemBtn = $("p3-add-memory-btn");
     if(addMemBtn) addMemBtn.onclick = () => { $("phase3-memory-overlay").style.display="none"; $("memoryButton").click(); };
     
@@ -780,7 +988,8 @@ function setupMemories(){
         const r=new FileReader(); 
         r.onload=()=>{
             if(validImageData(r.result)){ 
-                pendingMemoryImage = r.result; mapActionMode = 'memory';
+                pendingMemoryImage = r.result;
+                mapActionMode = 'memory';
                 alert("📸 Photo Selected!\n\nTap ANYWHERE on the map to pin it.");
             }
         }; 
@@ -798,10 +1007,8 @@ function setupJoin(){
 }
 
 // ==========================================
-// GOOGLE DIRECTIONS & SMART TRAFFIC
+// GOOGLE DIRECTIONS & SEARCH (Fixed by Claude)
 // ==========================================
-let navWatchId = null;
-
 function setupGoogleSearch() {
     const searchInput = $("location-search-input");
     if (!searchInput) return;
@@ -809,20 +1016,27 @@ function setupGoogleSearch() {
     const clearBtn = $("location-search-clear");
     if (clearBtn) {
         clearBtn.onclick = () => {
-            searchInput.value = ""; clearBtn.style.display = "none";
+            searchInput.value = "";
+            clearBtn.style.display = "none";
             if (searchMarker) { map.removeLayer(searchMarker); searchMarker = null; }
             navigationLayer.clearLayers();
+            if($("nav-panel")) $("nav-panel").style.display = "none";
             if($("nav-bottom-sheet")) $("nav-bottom-sheet").style.display = "none";
             if (myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
         };
     }
 
-    searchInput.addEventListener('input', () => { if (clearBtn) clearBtn.style.display = searchInput.value.length > 0 ? "block" : "none"; });
+    searchInput.addEventListener('input', () => {
+        if (clearBtn) clearBtn.style.display = searchInput.value.length > 0 ? "block" : "none";
+    });
 
     const checkGoogle = setInterval(() => {
         if (window.google && window.google.maps && window.google.maps.places) {
             clearInterval(checkGoogle);
-            const autocomplete = new google.maps.places.Autocomplete(searchInput, { componentRestrictions: { country: "in" } });
+            
+            const autocomplete = new google.maps.places.Autocomplete(searchInput, {
+                componentRestrictions: { country: "in" }
+            });
 
             function updateSearchBounds() {
                 if(!map) return;
@@ -835,7 +1049,7 @@ function setupGoogleSearch() {
 
             autocomplete.addListener("place_changed", () => {
                 const place = autocomplete.getPlace();
-                if (!place.geometry) return showToast("❌ Location not found.");
+                if (!place.geometry || !place.geometry.location) return showToast("❌ Location not found.");
                 
                 const destLat = place.geometry.location.lat();
                 const destLng = place.geometry.location.lng();
@@ -843,156 +1057,220 @@ function setupGoogleSearch() {
                 
                 if (searchMarker) map.removeLayer(searchMarker);
                 navigationLayer.clearLayers();
+                if($("nav-panel")) $("nav-panel").style.display = "none";
                 
                 map.flyTo([destLat, destLng], 15);
                 
-                searchMarker = L.marker([destLat, destLng], { icon: L.divIcon({ className: 'geofence-marker', html: '📍', iconSize: [30, 30], iconAnchor: [15, 30] }) }).addTo(map);
+                const popupContent = `
+                    <div style="text-align:center; padding:6px; min-width:180px;">
+                        <strong style="color:var(--green-bright); font-size:15px; display:block; margin-bottom:8px;">📍 ${escapeHTML(placeName)}</strong>
+                        <div id="search-route-info" style="font-size:12px; color:var(--muted); margin-bottom:12px; background:rgba(255,255,255,0.05); padding:8px; border-radius:10px; border: 1px solid rgba(255,255,255,0.1);">
+                            <i>Calculating route... ⏳</i>
+                        </div>
+                        <button id="search-nav-btn" style="width:100%; padding:10px; border:none; border-radius:10px; background:var(--green); color:white; font-weight:800; font-size:13px; cursor:pointer; opacity:0.5; transition:0.3s;" disabled>
+                            ▶ Start Navigation
+                        </button>
+                    </div>
+                `;
+                
+                searchMarker = L.marker([destLat, destLng], {
+                    icon: L.divIcon({ className: 'geofence-marker', html: '📍', iconSize: [30, 30], iconAnchor: [15, 30] })
+                }).addTo(map);
+                
+                searchMarker.bindPopup(popupContent).openPopup();
                 if (clearBtn) clearBtn.style.display = "block";
 
+                // ASLI JUGAD: Using Google Directions API instead of OSRM
                 if(myCoords && window.google) {
-                    $("nav-bottom-sheet").style.display = "flex";
-                    $("btn-start-nav").style.display = "block";
-                    $("btn-exit-nav").style.display = "none";
-                    $("stat-status").textContent = "Calculating...";
-
                     const ds = new google.maps.DirectionsService();
                     ds.route({
                         origin: new google.maps.LatLng(myCoords.lat, myCoords.lng),
                         destination: new google.maps.LatLng(destLat, destLng),
-                        travelMode: 'DRIVING',
-                        drivingOptions: { departureTime: new Date(), trafficModel: 'bestguess' }
+                        travelMode: 'DRIVING'
                     }, (res, status) => {
-                        if(status === 'OK' && res.routes.length > 0) {
+                        const infoDiv = document.getElementById("search-route-info");
+                        const navBtn = document.getElementById("search-nav-btn");
+                        
+                        if(status === 'OK' && res.routes.length > 0 && infoDiv && navBtn) {
                             const route = res.routes[0];
                             const leg = route.legs[0];
                             
+                            // Preview Line
                             const coords = route.overview_path.map(p => [p.lat(), p.lng()]);
                             L.polyline(coords, { color: '#60a5fa', weight: 4, opacity: 0.5, dashArray: '6, 8' }).addTo(navigationLayer);
 
-                            $("stat-dist").innerHTML = leg.distance.text;
-                            $("stat-eta").innerHTML = leg.duration_in_traffic ? leg.duration_in_traffic.text : leg.duration.text;
-                            $("stat-status").textContent = "Ready";
+                            infoDiv.innerHTML = `<span style="color:white; font-size:14px; font-weight:800;">🚗 ${leg.distance.text}</span> <br> <span style="color:white; font-size:14px; font-weight:800;">⏱️ ${leg.duration.text}</span>`;
+                            navBtn.style.opacity = "1";
+                            navBtn.disabled = false;
                             
-                            $("btn-start-nav").onclick = () => startSearchNavigation(destLat, destLng, placeName, route);
-                            $("btn-reset-nav").onclick = () => {
-                                searchMarker.remove(); navigationLayer.clearLayers();
-                                $("nav-bottom-sheet").style.display = "none"; searchInput.value = "";
+                            navBtn.onclick = () => {
+                                searchMarker.closePopup();
+                                startSearchNavigation(destLat, destLng, placeName, route);
                             };
-                        } else {
-                            $("stat-status").textContent = "Route failed";
+                        } else if (infoDiv) {
+                            infoDiv.innerHTML = "<span style='color:#ef4444;'>No driving route found.</span>";
                         }
                     });
+                } else {
+                    if(document.getElementById("search-route-info")) document.getElementById("search-route-info").innerHTML = "<span style='color:#f59e0b;'>GPS required.</span>";
                 }
             });
         }
     }, 500); 
 }
 
+// ==========================================
+// REAL GPS PREMIUM NAVIGATION (NO SIMULATION)
+// ==========================================
+let navWatchId = null;
+
 function startSearchNavigation(destLat, destLng, destName, routeData) {
     navigationLayer.clearLayers();
     if(navWatchId) navigator.geolocation.clearWatch(navWatchId);
     
-    $("map-tools").style.display = "none";
-    $("search-container").style.display = "none";
-    $("top-header").style.display = "none";
-    $("bottom-info").style.display = "none";
-    $("chat-toggle-btn").style.display = "none";
+    // Hide regular UI elements
+    if($("map-tools")) $("map-tools").style.display = "none";
+    if($("search-container")) $("search-container").style.display = "none";
+    if($("top-header")) $("top-header").style.display = "none";
+    if($("bottom-info")) $("bottom-info").style.display = "none";
+    if($("chat-toggle-btn")) $("chat-toggle-btn").style.display = "none";
     
-    $("turn-banner").style.display = "flex";
-    
-    let currentLeg = routeData.legs[0]; 
+    const ui = $("premium-nav-ui");
+    if(ui) ui.style.display = "block";
+
+    if($("nav-bottom-sheet")) $("nav-bottom-sheet").style.display = "flex";
+    if($("turn-banner")) $("turn-banner").style.display = "flex";
+
+    const leg = routeData.legs[0];
     const fullPath = routeData.overview_path.map(p => [p.lat(), p.lng()]);
     
-    const dottedPath = L.polyline(fullPath, { color: '#4f46e5', weight: 8, opacity: 0.7, className: 'anim-dash' }).addTo(navigationLayer);
-    const solidPath = L.polyline([], { color: '#10b981', weight: 8, opacity: 1, className: 'solid-trail' }).addTo(navigationLayer);
+    // 1. Dotted Blue Path (Full Route)
+    const dottedPath = L.polyline(fullPath, {
+        color: '#4f46e5', weight: 8, opacity: 0.7, className: 'anim-dash'
+    }).addTo(navigationLayer);
 
-    const userIcon = L.divIcon({ className: 'nav-avatar-marker', html: `<img src="${currentUser.avatar}" style="width:100%;height:100%;object-fit:cover;">`, iconSize: [40, 40], iconAnchor: [20, 20] });
+    // 2. Solid Green Path (Traveled Route behind user)
+    const solidPath = L.polyline([], {
+        color: '#10b981', weight: 8, opacity: 1, className: 'solid-trail'
+    }).addTo(navigationLayer);
+
+    // 3. User Avatar Marker
+    const userIcon = L.divIcon({
+        className: 'nav-avatar-marker',
+        html: `<img src="${currentUser.avatar}" style="width:100%;height:100%;object-fit:cover; border-radius:50%; border:2px solid #10b981;">`,
+        iconSize: [40, 40],
+        iconAnchor: [20, 20]
+    });
+    
+    // Place initial marker at user's real GPS position
     const startPos = myCoords ? [myCoords.lat, myCoords.lng] : fullPath[0];
     const userMarker = L.marker(startPos, {icon: userIcon, zIndexOffset: 1000}).addTo(navigationLayer);
     
+    // Destination Pin
     L.marker([destLat, destLng], { icon: L.divIcon({className: 'geofence-marker', html: '📍'}) }).addTo(navigationLayer);
 
-    $("stat-dist").innerHTML = currentLeg.distance.text.replace(" km", "<small style='font-size:12px;color:#9ca3af;'> km</small>");
-    $("stat-eta").innerHTML = currentLeg.duration_in_traffic ? currentLeg.duration_in_traffic.text : currentLeg.duration.text;
-    $("turn-name").textContent = currentLeg.steps[0].instructions.replace(/<[^>]*>?/gm, ''); 
-    $("turn-dist").textContent = currentLeg.steps[0].distance.text;
+    // 4. Set Initial UI Data
+    if($("stat-dist")) $("stat-dist").innerHTML = leg.distance.text.replace(" km", "<small style='font-size:12px;color:#9ca3af;'> km</small>");
+    if($("stat-eta")) $("stat-eta").innerHTML = leg.duration.text.replace(" mins", "<small> min</small>");
+    
+    if($("turn-name")) $("turn-name").textContent = leg.steps[0].instructions.replace(/<[^>]*>?/gm, ''); 
+    if($("turn-dist")) $("turn-dist").textContent = leg.steps[0].distance.text;
 
     map.fitBounds(dottedPath.getBounds(), { paddingBottomRight: [0, 350], paddingTopLeft: [50, 150] });
 
-    $("btn-start-nav").style.display = "none";
-    $("btn-exit-nav").style.display = "block";
-    $("btn-reset-nav").style.display = "none";
-    $("stat-status").textContent = "En route";
-
-    SmartDrive.startTrip();
-
-    if (navigator.geolocation) {
-        let traveledCoords = [];
-        let lastTrafficCheck = 0, lastTrafficCoords = null, rerouting = false;
-        
-        navWatchId = navigator.geolocation.watchPosition((pos) => {
-            const currentLat = pos.coords.latitude, currentLng = pos.coords.longitude;
-            const currentPos = [currentLat, currentLng];
-            const speedKmh = Math.round((pos.coords.speed || 0) * 3.6);
-
-            userMarker.setLatLng(currentPos);
-            map.panTo(currentPos);
-            traveledCoords.push(L.latLng(currentLat, currentLng));
-            solidPath.setLatLngs(traveledCoords);
-
-            const remainingMeters = map.distance(currentPos, [destLat, destLng]);
-            $("stat-dist").innerHTML = (remainingMeters / 1000).toFixed(1) + "<small style='font-size:12px;color:#9ca3af;'> km</small>";
-
-            const nowT = Date.now();
-            const movedFar = !lastTrafficCoords || Number(distanceKm(lastTrafficCoords.lat, lastTrafficCoords.lng, currentLat, currentLng)) > 0.8;
-            if (window.google && !rerouting && (nowT - lastTrafficCheck > 60000) && movedFar && remainingMeters > 300) {
-                lastTrafficCheck = nowT; lastTrafficCoords = { lat: currentLat, lng: currentLng }; rerouting = true;
-                const ds = new google.maps.DirectionsService();
-                ds.route({
-                    origin: new google.maps.LatLng(currentLat, currentLng),
-                    destination: new google.maps.LatLng(destLat, destLng),
-                    travelMode: 'DRIVING', provideRouteAlternatives: true,
-                    drivingOptions: { departureTime: new Date(), trafficModel: 'bestguess' }
-                }, (res, status) => {
-                    rerouting = false;
-                    if (status !== 'OK' || !res.routes.length) return;
-                    let best = res.routes[0], bestLeg = best.legs[0];
-                    res.routes.forEach(r => {
-                        const lSec = r.legs[0].duration_in_traffic ? r.legs[0].duration_in_traffic.value : r.legs[0].duration.value;
-                        const bSec = bestLeg.duration_in_traffic ? bestLeg.duration_in_traffic.value : bestLeg.duration.value;
-                        if (lSec < bSec) { best = r; bestLeg = r.legs[0]; }
-                    });
-                    const bestSec = bestLeg.duration_in_traffic ? bestLeg.duration_in_traffic.value : bestLeg.duration.value;
-                    const curSec = currentLeg.duration_in_traffic ? currentLeg.duration_in_traffic.value : currentLeg.duration.value;
-                    if (curSec - bestSec > 180) { 
-                        currentLeg = bestLeg;
-                        dottedPath.setLatLngs(best.overview_path.map(p => [p.lat(), p.lng()]));
-                        $("stat-eta").innerHTML = bestLeg.duration_in_traffic ? bestLeg.duration_in_traffic.text : bestLeg.duration.text;
-                        $("turn-name").textContent = bestLeg.steps[0].instructions.replace(/<[^>]*>?/gm, '');
-                        $("turn-dist").textContent = bestLeg.steps[0].distance.text;
-                        showToast("🚦 Traffic ahead — switching to faster route!", 5000);
-                    }
-                });
-            }
-
-            if(remainingMeters < 30) {
-                navigator.geolocation.clearWatch(navWatchId);
-                $("stat-status").textContent = "Arrived";
-                $("turn-name").textContent = "Destination reached!";
-                stopDrive();
-            }
-        }, (err) => console.error("GPS Error:", err), { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 });
+    // Buttons
+    const startBtn = $("btn-start-nav");
+    const resetBtn = $("btn-reset-nav");
+    const exitBtn = $("btn-exit-nav");
+    
+    if(startBtn) {
+        startBtn.style.display = "block";
+        startBtn.textContent = "Start Navigation";
+        startBtn.style.background = "linear-gradient(135deg, #34d399, #22c55e)";
+        startBtn.style.color = "#062112";
     }
+    if(resetBtn) resetBtn.style.display = "block";
+    if(exitBtn) exitBtn.style.display = "none";
+    if($("stat-status")) $("stat-status").textContent = "Ready";
+    if($("speed-n")) $("speed-n").textContent = "0";
 
-    $("btn-exit-nav").onclick = stopDrive;
+    // 5. ASLI GPS TRACKING LOOP (Real-time movement)
+    if(startBtn) startBtn.onclick = () => {
+        startBtn.style.display = "none";
+        if(resetBtn) resetBtn.style.display = "none";
+        if(exitBtn) exitBtn.style.display = "block";
+        
+        if($("stat-status")) {
+            $("stat-status").textContent = "En route";
+            $("stat-status").style.color = "#f5a524";
+        }
+        
+        if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 18, {animate: true, duration: 1.5});
+        
+        // Start Trip Engine Tracker
+        SmartDrive.startTrip();
+        
+        // Start reading real phone GPS specifically for Navigation View
+        if (navigator.geolocation) {
+            let traveledCoords = [];
+            
+            navWatchId = navigator.geolocation.watchPosition((pos) => {
+                const currentLat = pos.coords.latitude;
+                const currentLng = pos.coords.longitude;
+                const currentPos = [currentLat, currentLng];
+                
+                // Update UI based on global SpeedGuard which is already calculating it in startGPS
+                // Just panning map and drawing lines
+                
+                userMarker.setLatLng(currentPos);
+                map.panTo(currentPos);
+
+                traveledCoords.push(L.latLng(currentLat, currentLng));
+                solidPath.setLatLngs(traveledCoords);
+
+                const remainingMeters = map.distance(currentPos, [destLat, destLng]);
+                const remainingKm = (remainingMeters / 1000).toFixed(1);
+                if($("stat-dist")) $("stat-dist").innerHTML = remainingKm + "<small style='font-size:12px;color:#9ca3af;'> km</small>";
+
+                if(remainingMeters < 30) {
+                    navigator.geolocation.clearWatch(navWatchId);
+                    if(exitBtn) {
+                        exitBtn.textContent = "Arrived";
+                        exitBtn.style.background = "#3b82f6";
+                        exitBtn.style.color = "white";
+                    }
+                    if($("stat-status")) {
+                        $("stat-status").textContent = "Arrived";
+                        $("stat-status").style.color = "var(--mint)";
+                    }
+                    if($("turn-name")) $("turn-name").textContent = "Destination reached!";
+                    
+                    setTimeout(() => stopDrive(), 3000);
+                }
+            }, (err) => {
+                console.error("GPS Error during nav:", err);
+            }, { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 });
+        }
+    };
+    
+    // Cancel Route before starting
+    if(resetBtn) resetBtn.onclick = () => {
+        stopDrive(true); // cancelled
+    };
+
+    // Exit mid-route
+    if(exitBtn) exitBtn.onclick = () => {
+        stopDrive();
+    };
 }
 
-function stopDrive() {
+function stopDrive(cancelled = false) {
     if(navWatchId) navigator.geolocation.clearWatch(navWatchId);
     navigationLayer.clearLayers();
-    $("nav-bottom-sheet").style.display = "none";
-    $("turn-banner").style.display = "none";
-    $("speed-dial").style.display = "none";
+    if($("premium-nav-ui")) $("premium-nav-ui").style.display = "none";
+    if($("nav-bottom-sheet")) $("nav-bottom-sheet").style.display = "none";
+    if($("turn-banner")) $("turn-banner").style.display = "none";
+    if($("speed-dial")) $("speed-dial").style.display = "none";
     
     $("map-tools").style.display = "flex";
     $("search-container").style.display = "flex";
@@ -1001,7 +1279,10 @@ function stopDrive() {
     $("chat-toggle-btn").style.display = "flex";
     
     if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
-    SmartDrive.endTrip();
+    
+    if(!cancelled) {
+        SmartDrive.endTrip();
+    }
 }
 
 // ==========================================
@@ -1013,27 +1294,51 @@ let incomingIceCandidates = [];
 let callDialog = null;
 let activeCallBtn = null;
 
+// FIX 1: WhatsApp Jaisa TURN (Relay) Server for Jio/Airtel strict networks
 const rtcConfig = { 
     iceServers: [
         { urls: "stun:stun.l.google.com:19302" },
         { urls: "stun:stun.cloudflare.com:3478" },
-        { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
-        { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" },
-        { urls: "turn:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" }
+        { 
+            urls: "turn:openrelay.metered.ca:80", 
+            username: "openrelayproject", 
+            credential: "openrelayproject" 
+        },
+        { 
+            urls: "turn:openrelay.metered.ca:443", 
+            username: "openrelayproject", 
+            credential: "openrelayproject" 
+        },
+        { 
+            urls: "turn:openrelay.metered.ca:443?transport=tcp", 
+            username: "openrelayproject", 
+            credential: "openrelayproject" 
+        }
     ] 
 };
 
+// FIX 2: Mobile Safari aur Chrome ke liye strict audio routing
 function attachAudioTrack(event) {
     let audio = document.getElementById("remote-audio");
     if(!audio) {
         audio = document.createElement("audio");
-        audio.id = "remote-audio"; audio.autoplay = true; audio.playsInline = true; audio.hidden = true;
+        audio.id = "remote-audio";
+        audio.autoplay = true;
+        audio.playsInline = true; // Mobile ke liye zaruri
+        audio.hidden = true;
         document.body.appendChild(audio);
     }
-    if (event.streams && event.streams[0]) audio.srcObject = event.streams[0];
-    else audio.srcObject = new MediaStream([event.track]);
     
+    if (event.streams && event.streams[0]) {
+        audio.srcObject = event.streams[0];
+    } else {
+        audio.srcObject = new MediaStream([event.track]);
+    }
+    
+    // Promise ko force handle karna
     audio.play().catch(e => {
+        console.log("Audio play error, forcing play:", e);
+        // Agar browser autoplay block kare, toh document par click event laga do
         document.body.addEventListener('click', () => { audio.play(); }, { once: true });
     });
 }
@@ -1041,6 +1346,7 @@ function attachAudioTrack(event) {
 function initCallButton(u) {
     const callBtn = $("profile-call-btn");
     if (!callBtn) return;
+    
     const newBtn = callBtn.cloneNode(true);
     callBtn.parentNode.replaceChild(newBtn, callBtn);
     
@@ -1050,69 +1356,106 @@ function initCallButton(u) {
             if (phone) window.location.href = `tel:${phone.trim()}`;
             return;
         }
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return alert("❌ Browser calling support nahi karta.");
 
         try {
             localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
             peerConnection = new RTCPeerConnection(rtcConfig);
             localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-            peerConnection.ontrack = attachAudioTrack;
+
+            peerConnection.ontrack = attachAudioTrack; // Naya audio function call
+
             peerConnection.onicecandidate = (event) => {
-                if (event.candidate) socket.emit("call-user", { to: u.id, signal: { type: "ice", candidate: event.candidate }, name: currentUser.name });
+                if (event.candidate) {
+                    socket.emit("call-user", { to: u.id, signal: { type: "ice", candidate: event.candidate }, name: currentUser.name });
+                }
             };
+
             const offer = await peerConnection.createOffer();
             await peerConnection.setLocalDescription(offer);
             socket.emit("call-user", { to: u.id, signal: { type: "offer", sdp: offer }, name: currentUser.name });
             
             showToast(`📞 Calling ${u.name}...`, 5000);
             showActiveCallUI(() => socket.emit("end-call", { to: u.id }));
+            
         } catch (err) {
-            alert(`Mic Error: ${err.name}\nMessage: ${err.message}`);
+            showToast("❌ Microphone permission denied.");
         }
     };
 }
 
 socket.on("incoming-call", async (data) => {
     if (data.signal.type === "offer") {
-        if (peerConnection) { socket.emit("end-call", { to: data.from }); return; }
+        if (peerConnection) {
+            socket.emit("end-call", { to: data.from });
+            return;
+        }
+        
         incomingIceCandidates = [];
         if (callDialog) callDialog.remove();
         
         callDialog = document.createElement('div');
-        callDialog.style.cssText = "position:fixed;top:70px;left:50%;transform:translateX(-50%);background:rgba(15,23,42,0.98);padding:24px;border:1px solid #18d6a3;border-radius:20px;z-index:9999;color:white;text-align:center;backdrop-filter:blur(10px);min-width:280px;animation:modalIn 0.4s ease;";
-        callDialog.innerHTML = `<div style="font-size:32px;margin-bottom:10px;">📞</div><strong style="font-size:18px;display:block;">${escapeHTML(data.name)}</strong><div style="font-size:13px;color:#94a3b8;margin-top:6px;margin-bottom:20px;">Incoming Voice Call...</div><div style="display:flex;gap:12px;justify-content:center;"><button id="accept-call-btn" style="flex:1;background:#10b981;border:none;padding:12px;border-radius:12px;color:#064e3b;font-weight:800;cursor:pointer;">Accept</button><button id="reject-call-btn" style="flex:1;background:#ef4444;border:none;padding:12px;border-radius:12px;color:white;font-weight:700;cursor:pointer;">Decline</button></div>`;
+        callDialog.style.cssText = "position:fixed;top:70px;left:50%;transform:translateX(-50%);background:rgba(15,23,42,0.98);padding:24px;border:1px solid #18d6a3;border-radius:20px;z-index:9999;box-shadow:0 15px 40px rgba(0,0,0,0.7);color:white;text-align:center;backdrop-filter:blur(10px);min-width:280px;animation:modalIn 0.4s ease;";
+        callDialog.innerHTML = `
+            <div style="font-size:32px;margin-bottom:10px;animation:livePulse 1.5s infinite;">📞</div>
+            <strong style="font-size:18px;display:block;">${escapeHTML(data.name)}</strong>
+            <div style="font-size:13px;color:#94a3b8;margin-top:6px;margin-bottom:20px;">Incoming Voice Call...</div>
+            <div style="display:flex;gap:12px;justify-content:center;">
+                <button id="accept-call-btn" style="flex:1;background:#10b981;border:none;padding:12px;border-radius:12px;color:#064e3b;font-weight:800;cursor:pointer;font-size:15px;box-shadow:0 4px 10px rgba(16,185,129,0.3);">Accept</button>
+                <button id="reject-call-btn" style="flex:1;background:#ef4444;border:none;padding:12px;border-radius:12px;color:white;font-weight:700;cursor:pointer;font-size:15px;box-shadow:0 4px 10px rgba(239,68,68,0.3);">Decline</button>
+            </div>
+        `;
         document.body.appendChild(callDialog);
 
         document.getElementById("accept-call-btn").onclick = async () => {
-            if (callDialog) callDialog.remove(); callDialog = null;
-            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { socket.emit("end-call", { to: data.from }); return; }
+            if (callDialog) callDialog.remove();
+            callDialog = null;
+            
             try {
                 localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
                 peerConnection = new RTCPeerConnection(rtcConfig);
                 localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-                peerConnection.ontrack = attachAudioTrack;
+
+                peerConnection.ontrack = attachAudioTrack; // Naya audio function call
+
                 peerConnection.onicecandidate = (event) => {
-                    if (event.candidate) socket.emit("answer-call", { to: data.from, signal: { type: "ice", candidate: event.candidate } });
+                    if (event.candidate) {
+                        socket.emit("answer-call", { to: data.from, signal: { type: "ice", candidate: event.candidate } });
+                    }
                 };
+
                 await peerConnection.setRemoteDescription(new RTCSessionDescription(data.signal.sdp));
                 const answer = await peerConnection.createAnswer();
                 await peerConnection.setLocalDescription(answer);
+
                 socket.emit("answer-call", { to: data.from, signal: { type: "answer", sdp: answer } });
                 showToast(`🎙️ Call Connected with ${data.name}`);
+                
                 showActiveCallUI(() => socket.emit("end-call", { to: data.from }));
-                incomingIceCandidates.forEach(async (c) => { try { await peerConnection.addIceCandidate(new RTCIceCandidate(c)); } catch(e){} });
+
+                incomingIceCandidates.forEach(async (c) => {
+                    try { await peerConnection.addIceCandidate(new RTCIceCandidate(c)); } catch(e){}
+                });
                 incomingIceCandidates = [];
+                
             } catch (e) {
-                alert(`Mic Error: ${e.name}`); socket.emit("end-call", { to: data.from }); endLocalCall();
+                showToast("❌ Mic error.");
+                socket.emit("end-call", { to: data.from });
+                endLocalCall();
             }
         };
+
         document.getElementById("reject-call-btn").onclick = () => {
-            if (callDialog) callDialog.remove(); callDialog = null; socket.emit("end-call", { to: data.from });
+            if (callDialog) callDialog.remove();
+            callDialog = null;
+            socket.emit("end-call", { to: data.from });
         };
+
     } else if (data.signal.type === "ice") {
         if (peerConnection && peerConnection.remoteDescription) {
             try { await peerConnection.addIceCandidate(new RTCIceCandidate(data.signal.candidate)); } catch(e){}
-        } else incomingIceCandidates.push(data.signal.candidate);
+        } else {
+            incomingIceCandidates.push(data.signal.candidate);
+        }
     }
 });
 
@@ -1125,15 +1468,21 @@ socket.on("call-accepted", async (signal) => {
     }
 });
 
-socket.on("call-ended", () => { endLocalCall(); showToast("📴 Call Ended."); });
+socket.on("call-ended", () => {
+    endLocalCall();
+    showToast("📴 Call Ended.");
+});
 
 function showActiveCallUI(endFn) {
     if (activeCallBtn) return;
     activeCallBtn = document.createElement("button");
     activeCallBtn.innerHTML = "📴 End Call";
-    activeCallBtn.style.cssText = "position:fixed;top:80px;left:50%;transform:translateX(-50%);z-index:9999;background:#ef4444;color:white;border:none;padding:12px 24px;border-radius:30px;font-weight:bold;cursor:pointer;";
+    activeCallBtn.style.cssText = "position:fixed;top:80px;left:50%;transform:translateX(-50%);z-index:9999;background:#ef4444;color:white;border:none;padding:12px 24px;border-radius:30px;font-weight:bold;box-shadow:0 10px 25px rgba(239,68,68,0.5);cursor:pointer;font-size:14px;";
     document.body.appendChild(activeCallBtn);
-    activeCallBtn.onclick = () => { endFn(); endLocalCall(); };
+    activeCallBtn.onclick = () => {
+        endFn();
+        endLocalCall();
+    };
 }
 
 function endLocalCall() {
@@ -1149,7 +1498,11 @@ function endLocalCall() {
 // ==========================================
 let deferredPrompt;
 window.addEventListener('beforeinstallprompt', (e) => {
-    e.preventDefault(); deferredPrompt = e;
+    // Browser ka default popup roko
+    e.preventDefault();
+    deferredPrompt = e;
+    
+    // Apna custom button dikhao
     const installBtn = $("install-app-btn");
     if (installBtn) installBtn.style.display = 'flex';
 });
@@ -1159,18 +1512,27 @@ window.addEventListener('DOMContentLoaded', () => {
     if (installBtn) {
         installBtn.onclick = async () => {
             if (deferredPrompt) {
+                // Install ka option popup karo
                 deferredPrompt.prompt();
                 const { outcome } = await deferredPrompt.userChoice;
-                if (outcome === 'accepted') installBtn.style.display = 'none';
+                if (outcome === 'accepted') {
+                    installBtn.style.display = 'none'; // Download ke baad gayab kar do
+                }
                 deferredPrompt = null;
             }
         };
     }
+    
+    // Agar app already install ho chuka hai, toh button hata do
     if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true) {
         if (installBtn) installBtn.style.display = 'none';
     }
 });
-window.addEventListener('appinstalled', () => { const btn = $("install-app-btn"); if (btn) btn.style.display = 'none'; });
+
+window.addEventListener('appinstalled', () => {
+    const installBtn = $("install-app-btn");
+    if (installBtn) installBtn.style.display = 'none';
+});
 
 // ==========================================
 // INITIALIZATION
