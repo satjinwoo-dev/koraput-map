@@ -1,5 +1,14 @@
 "use strict";
 
+// ==========================================
+// 1. SETUP & LEAFLET MAP
+// ==========================================
+
+// (डार्क मैप का API एरर फिक्स करने के लिए CSS को जावास्क्रिप्ट से ही डाल दिया है)
+const styleObj = document.createElement('style');
+styleObj.innerHTML = `.google-dark-map { filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%); }`;
+document.head.appendChild(styleObj);
+
 const socket = io({ transports: ["websocket", "polling"] });
 const DEFAULT_CENTER = [18.8136, 82.7153];
 const DEFAULT_AVATAR = "satyam.png";
@@ -15,7 +24,10 @@ const map = L.map("map", {
 
 const satelliteLayer = L.tileLayer("https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}", { maxZoom: 20, subdomains: ["mt0","mt1","mt2","mt3"] });
 const streetLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 });
-const darkLayer = L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", { maxZoom: 20 });
+// CartoDB ka API Key error bypass karke Google Map ko Dark banaya
+const darkLayer = L.tileLayer("https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}", { 
+    maxZoom: 20, subdomains: ["mt0","mt1","mt2","mt3"], className: "google-dark-map" 
+});
 satelliteLayer.addTo(map);
 
 let currentUser = { name: localStorage.getItem("koraput_name") || "", avatar: localStorage.getItem("koraput_avatar") || DEFAULT_AVATAR };
@@ -23,6 +35,8 @@ let myCoords = null, myWeather = "", ownMarker = null, accuracyCircle = null, ci
 let lastWeatherFetch = 0;
 const friendMarkers = Object.create(null);
 const friendData = Object.create(null);
+
+let lastFixCoords = null, lastFixTime = 0; // used as a fallback to derive speed when coords.speed is null
 
 let locationHistory = [];
 try {
@@ -50,14 +64,15 @@ let currentTrip = null;
 let tripMarker = null;
 
 // FIX 1: Geofence crash theek karne ke liye variables yahan add kar diye
-let geoClickCount = 0, geoClickTimer = null;
+let geoClickCount = 0, geoClickTimer = null; 
 
 let currentGeofences = []; 
 const memories = new Map();
 let currentGalleryFilter = "all", currentGallerySearch = "", selectedMemoryId = null;
 
-// SEARCH MARKER
+// SEARCH MARKER & OFFLINE QUEUE
 let searchMarker = null;
+let offlineMessageQueue = [];
 
 const $ = id => document.getElementById(id);
 const cleanName = v => String(v || "User").trim().replace(/\s+/g," ").slice(0, MAX_NAME);
@@ -112,6 +127,199 @@ async function fetchCity(lat,lng){
         if (r.ok) { const d = await r.json(); return d.address?.city || d.address?.town || d.address?.county || "Rourkela"; }
     } catch { return "Rourkela"; }
 }
+
+// ==========================================
+// NEW FEATURE: SMART DRIVE ENGINE (Fuel, Graph, Alert)
+// ==========================================
+const SmartDrive = {
+    isRecording: false,
+    baseMileage: 18,
+    speedHistory: [],
+    
+    trip: {
+        active: false,
+        startTime: 0,
+        totalDist: 0,
+        actualFuel: 0,
+        maxSpeed: 0,
+        sumSpeed: 0,
+        ticks: 0,
+        ranges: { efficient: 0, moderate: 0, inefficient: 0 } 
+    },
+
+    audioCtx: null,
+    lastAlertTime: 0,
+    overlayTimer: null,
+
+    init() {
+        const savedMil = localStorage.getItem("sd_mileage");
+        if(savedMil) this.baseMileage = parseFloat(savedMil);
+        if($("fuel-input-val")) $("fuel-input-val").value = this.baseMileage;
+        
+        const savedRec = localStorage.getItem("sd_record");
+        this.isRecording = savedRec === "1";
+        if($("speed-record-toggle")) $("speed-record-toggle").checked = this.isRecording;
+        if($("speed-graph-canvas")) $("speed-graph-canvas").style.display = this.isRecording ? "block" : "none";
+
+        $("fuel-input-val")?.addEventListener("change", (e) => {
+            this.baseMileage = parseFloat(e.target.value) || 18;
+            localStorage.setItem("sd_mileage", this.baseMileage);
+        });
+        
+        $("speed-record-toggle")?.addEventListener("change", (e) => {
+            this.isRecording = e.target.checked;
+            localStorage.setItem("sd_record", this.isRecording ? "1" : "0");
+            if($("speed-graph-canvas")) $("speed-graph-canvas").style.display = this.isRecording ? "block" : "none";
+            if(!this.isRecording) this.speedHistory = [];
+        });
+
+        $("profile-open-btn")?.addEventListener("click", () => {
+            if($("profile-settings-modal")) $("profile-settings-modal").style.display = "flex";
+        });
+        
+        $("close-settings-btn")?.addEventListener("click", () => {
+            if($("profile-settings-modal")) $("profile-settings-modal").style.display = "none";
+        });
+        
+        $("close-results-btn")?.addEventListener("click", () => {
+            if($("results-panel")) $("results-panel").style.display = "none";
+        });
+        
+        document.addEventListener("click", () => {
+            if(!this.audioCtx) {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                if(AudioContext) this.audioCtx = new AudioContext();
+            }
+            if(this.audioCtx && this.audioCtx.state === "suspended") this.audioCtx.resume();
+        }, {passive:true});
+    },
+
+    beep(freq, ms) {
+        if(!this.audioCtx) return;
+        try {
+            if (this.audioCtx.state === "suspended") this.audioCtx.resume();
+            const osc = this.audioCtx.createOscillator(), gain = this.audioCtx.createGain();
+            osc.type = "square"; osc.frequency.value = freq;
+            gain.gain.value = 0.15;
+            osc.connect(gain); gain.connect(this.audioCtx.destination);
+            osc.start(); osc.stop(this.audioCtx.currentTime + ms/1000);
+        } catch(e) {}
+    },
+
+    triggerRedMap() {
+        const overlay = $("speed-danger-overlay");
+        if(overlay) {
+            overlay.classList.add("active");
+            clearTimeout(this.overlayTimer);
+            this.overlayTimer = setTimeout(() => overlay.classList.remove("active"), 10000);
+        }
+    },
+
+    checkSafetyLimits(speed) {
+        const now = Date.now();
+        const dial = $("speed-dial");
+        if(dial) {
+            if(speed > 3) {
+                dial.style.display = "flex";
+                if($("speed-n")) $("speed-n").textContent = Math.round(speed);
+                dial.className = "speed-dial " + (speed >= 100 ? "danger" : (speed >= 80 ? "warn" : ""));
+            } else {
+                dial.style.display = "none";
+            }
+        }
+
+        if (now - this.lastAlertTime < 15000) return; // Cooldown 15 sec
+
+        if (speed >= 100) {
+            showToast("🚨 DANGER: Speed 100+ km/h! Slow Down!", 5000);
+            this.triggerRedMap();
+            this.beep(800, 300); setTimeout(()=>this.beep(800, 300), 500); setTimeout(()=>this.beep(800, 300), 1000);
+            this.lastAlertTime = now;
+        } else if (speed >= 80) {
+            showToast("⚠️ WARNING: Crossing 80 km/h.", 4000);
+            this.beep(600, 400); 
+            this.lastAlertTime = now;
+        } else if (speed >= 60) {
+            showToast("🟢 Alert: Speed above 60 km/h.", 3000);
+            this.lastAlertTime = now;
+        }
+    },
+
+    tick(speedKmh, distKm) {
+        this.checkSafetyLimits(speedKmh);
+
+        if (!this.trip.active && !this.isRecording) return;
+
+        this.speedHistory.push(speedKmh);
+        if(this.speedHistory.length > 50) this.speedHistory.shift();
+        this.drawGraph();
+
+        if (this.trip.active && distKm > 0) {
+            this.trip.totalDist += distKm;
+            this.trip.ticks += 1;
+            this.trip.sumSpeed += speedKmh;
+            if(speedKmh > this.trip.maxSpeed) this.trip.maxSpeed = speedKmh;
+
+            if(speedKmh >= 40 && speedKmh <= 60) this.trip.ranges.efficient++;
+            else if (speedKmh > 80) this.trip.ranges.inefficient++;
+            else this.trip.ranges.moderate++;
+
+            let currentEff = this.baseMileage;
+            if (speedKmh > 60) {
+                currentEff -= (speedKmh - 60) * 0.005 * this.baseMileage; 
+            } else if (speedKmh < 40) {
+                currentEff -= (40 - speedKmh) * 0.004 * this.baseMileage; 
+            }
+            currentEff = Math.max(2, currentEff); 
+            this.trip.actualFuel += (distKm / currentEff);
+        }
+    },
+
+    drawGraph() {
+        const cvs = $("speed-graph-canvas");
+        if(!cvs || !this.isRecording) return;
+        const ctx = cvs.getContext("2d");
+        const w = cvs.width = cvs.offsetWidth, h = cvs.height = cvs.offsetHeight;
+        
+        ctx.clearRect(0,0,w,h);
+        if(this.speedHistory.length < 2) return;
+        
+        const max = Math.max(60, ...this.speedHistory);
+        ctx.beginPath();
+        ctx.strokeStyle = "#3b82f6";
+        ctx.lineWidth = 2;
+        this.speedHistory.forEach((v, i) => {
+            const x = (i / (this.speedHistory.length - 1)) * w;
+            const y = h - (v / max) * h * 0.8;
+            if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+        });
+        ctx.stroke();
+    },
+
+    startTrip() {
+        this.trip = { active: true, startTime: Date.now(), totalDist: 0, actualFuel: 0, maxSpeed: 0, sumSpeed: 0, ticks: 0, ranges: {efficient:0, moderate:0, inefficient:0} };
+    },
+    
+    endTrip() {
+        if(!this.trip.active || this.trip.ticks === 0) return;
+        this.trip.active = false;
+        
+        const avg = this.trip.sumSpeed / this.trip.ticks;
+        
+        if($("res-dist")) $("res-dist").textContent = this.trip.totalDist.toFixed(2) + " km";
+        if($("res-avg-speed")) $("res-avg-speed").textContent = Math.round(avg) + " km/h";
+        if($("res-max-speed")) $("res-max-speed").textContent = Math.round(this.trip.maxSpeed) + " km/h";
+        if($("res-eff-time")) $("res-eff-time").textContent = Math.round(this.trip.ranges.efficient / 60) + " min";
+        if($("res-ineff-time")) $("res-ineff-time").textContent = Math.round(this.trip.ranges.inefficient / 60) + " min";
+        if($("res-base-mlg")) $("res-base-mlg").textContent = this.baseMileage + " km/L";
+        if($("res-actual-fuel")) $("res-actual-fuel").textContent = this.trip.actualFuel.toFixed(2) + " L";
+
+        if($("results-panel")) {
+            $("results-panel").style.display = "flex";
+            $("results-panel").classList.add("popIn");
+        }
+    }
+};
 
 const Navigation = {
     active: false, targetId: null, targetCoords: null,
@@ -257,7 +465,15 @@ if($("group-nav-stop-btn")) $("group-nav-stop-btn").onclick = () => GroupNavigat
 // ==========================================
 // CORE SYSTEM
 // ==========================================
-socket.on("connect", () => { if (currentUser.name) socket.emit("profileReady", currentUser); });
+socket.on("connect", () => { 
+    if (currentUser.name) socket.emit("profileReady", currentUser); 
+    // Flush Offline Message Queue
+    if(offlineMessageQueue.length > 0) {
+        offlineMessageQueue.forEach(msg => socket.emit("chatMessage", msg));
+        offlineMessageQueue = [];
+        showToast("📶 Back online! Sent queued messages.");
+    }
+});
 
 function showToast(message, duration = 4000) {
     const container = $("toast-container"); if(!container) return;
@@ -279,8 +495,9 @@ function startGPS() {
     }
     navigator.geolocation.watchPosition(async p=>{
         const lat=Number(p.coords.latitude), lng=Number(p.coords.longitude), acc=Number(p.coords.accuracy);
+        const alt = p.coords.altitude ? Math.round(p.coords.altitude) : null;
         if(!validCoord(lat,lng)) return;
-        myCoords={lat,lng};
+        myCoords={lat,lng, alt};
 
         locationHistory.push([lat, lng]);
         if(locationHistory.length > 1000) locationHistory.shift(); 
@@ -313,13 +530,34 @@ function startGPS() {
                 myWeather = w;
                 lastWeatherFetch = Date.now();
                 if ($("map-temp-display")) $("map-temp-display").textContent = w;
+                if ($("top-weather")) { $("top-weather").style.display = "flex"; $("top-weather").textContent = w; }
+                const badgeText = alt !== null ? `${w} | ⛰️${alt}m` : w;
                 if (ownMarker) {
-                    ownMarker.unbindTooltip().bindTooltip(w, { permanent: true, direction: "right", className: "weather-badge", offset: [15, 0] });
+                    ownMarker.unbindTooltip().bindTooltip(badgeText, { permanent: true, direction: "right", className: "weather-badge", offset: [15, 0] });
                 }
             }
         }
-        
-        socket.emit("updateLocation",{name:currentUser.name, avatar:currentUser.avatar, lat, lng, weather:myWeather});
+
+        // --- Speed & Fuel Engine Calculation ---
+        let speedKmh = 0;
+        let dist = 0;
+        if (p.coords.speed != null && p.coords.speed >= 0) {
+            speedKmh = p.coords.speed * 3.6;
+        } 
+        if (lastFixCoords && lastFixTime) {
+            dist = Number(distanceKm(lastFixCoords.lat, lastFixCoords.lng, lat, lng)) || 0;
+            const dtSec = (Date.now() - lastFixTime) / 1000;
+            if (!p.coords.speed && dtSec > 0.5) {
+                speedKmh = (dist / dtSec) * 3600;
+            }
+        }
+        speedKmh = Math.min(speedKmh, 300); 
+        lastFixCoords = { lat, lng }; lastFixTime = Date.now();
+
+        // Feed data to SmartDrive
+        SmartDrive.tick(speedKmh, dist);
+
+        socket.emit("updateLocation",{name:currentUser.name, avatar:currentUser.avatar, lat, lng, alt, speedKmh, weather:myWeather});
         updateFriendBadges(); 
         triggerGroupRouteUpdate(); 
         Navigation.onLiveUpdate(); 
@@ -335,6 +573,7 @@ function updateFriendBadges(){
     Object.keys(friendMarkers).forEach(id=>{
         const f=friendData[id], m=friendMarkers[id]; if(!f||!m) return;
         let text = f.online===false ? "Offline" : f.weather;
+        if(f.alt) text += ` | ⛰️${f.alt}m`;
         if(myCoords && validCoord(f.lat,f.lng)) text += ` | 📍 ${distanceKm(myCoords.lat,myCoords.lng,f.lat,f.lng)} km away`;
         m.unbindTooltip(); if(text) m.bindTooltip(text,{permanent:true,direction:"right",className:"weather-badge",offset:[15,0]});
     });
@@ -348,7 +587,7 @@ socket.on("friendDisconnected", id=>{ if(friendMarkers[id]){map.removeLayer(frie
 
 function createOrUpdateFriendMarker(u){
     if(!u?.id || !validCoord(u.lat,u.lng)) return;
-    friendData[u.id] = { id:u.id, name:u.name||"Friend", avatar:u.avatar||DEFAULT_AVATAR, lat:u.lat, lng:u.lng, weather:u.weather||"", online:u.online!==false };
+    friendData[u.id] = { id:u.id, name:u.name||"Friend", avatar:u.avatar||DEFAULT_AVATAR, lat:u.lat, lng:u.lng, alt:u.alt, speedKmh:u.speedKmh, weather:u.weather||"", online:u.online!==false };
     let m = friendMarkers[u.id];
     if(!m){ m=L.marker([u.lat,u.lng],{icon:friendIcon(u.avatar)}).addTo(map); m.on("click",()=>showProfilePopup(u)); friendMarkers[u.id]=m; }
     else { m.setLatLng([u.lat,u.lng]); m.setOpacity(u.online===false?0.45:1); }
@@ -510,8 +749,13 @@ function setupAdvancedTools() {
         }
         else if (mapActionMode === 'memory') {
             if (pendingMemoryImage) {
-                socket.emit("uploadMemoryPhoto", { name: currentUser.name, lat: e.latlng.lat, lng: e.latlng.lng, image: pendingMemoryImage });
-                showToast("✅ Memory pinned successfully!");
+                const payload = { name: currentUser.name, lat: e.latlng.lat, lng: e.latlng.lng, image: pendingMemoryImage };
+                if (navigator.onLine) {
+                    socket.emit("uploadMemoryPhoto", payload);
+                    showToast("✅ Memory pinned successfully!");
+                } else {
+                    showToast("📶 Offline: Memory will be pinned when connected.");
+                }
             }
             mapActionMode = null; pendingMemoryImage = null;
         }
@@ -542,15 +786,18 @@ function setupAdvancedTools() {
             if (actionBtn) {
                 if (isHost) {
                     actionBtn.textContent = "End Trip";
-                    actionBtn.style.color = "#ef4444"; actionBtn.style.background = "rgba(239, 68, 68, 0.2)";
+                    actionBtn.style.color = "#ef4444";
+                    actionBtn.style.background = "rgba(239, 68, 68, 0.2)";
                     actionBtn.onclick = () => socket.emit("leaveTrip");
                 } else if (isMember) {
                     actionBtn.textContent = "Leave Trip";
-                    actionBtn.style.color = "#f59e0b"; actionBtn.style.background = "rgba(245, 158, 11, 0.2)";
+                    actionBtn.style.color = "#f59e0b";
+                    actionBtn.style.background = "rgba(245, 158, 11, 0.2)";
                     actionBtn.onclick = () => socket.emit("leaveTrip");
                 } else {
                     actionBtn.textContent = "Join Trip";
-                    actionBtn.style.color = "#10b981"; actionBtn.style.background = "rgba(16, 185, 129, 0.2)";
+                    actionBtn.style.color = "#10b981";
+                    actionBtn.style.background = "rgba(16, 185, 129, 0.2)";
                     actionBtn.onclick = () => socket.emit("joinTrip");
                 }
             }
@@ -641,6 +888,15 @@ function setupBasicControls(){
         $("map-style-menu").style.display="none";
     };
     if (window.DeviceOrientationEvent) window.addEventListener("deviceorientation", e => { const icon = $("compass-icon"); if (icon) icon.style.transform = `rotate(${e.webkitCompassHeading ? -e.webkitCompassHeading : e.alpha}deg)`; }, true);
+
+    window.addEventListener('offline', () => showToast("📶 You are offline. Chat & Pins will save locally."));
+    window.addEventListener('online', () => {
+        showToast("📶 Back online!");
+        if(offlineMessageQueue.length > 0) {
+            offlineMessageQueue.forEach(msg => socket.emit("chatMessage", msg));
+            offlineMessageQueue = [];
+        }
+    });
 }
 
 function setupChat(){
@@ -667,9 +923,23 @@ function setupChat(){
     $("att-media").onclick=()=>{fInp.accept="image/*,video/*";fInp.click();$("attachment-menu").style.display="none";};
     $("att-doc").onclick=()=>{fInp.accept=".pdf,.doc,.txt,.zip";fInp.click();$("attachment-menu").style.display="none";};
     $("att-audio").onclick=()=>{fInp.accept="audio/*";fInp.click();$("attachment-menu").style.display="none";};
-    fInp.onchange=()=>{ const f=fInp.files?.[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ socket.emit("chatMessage",{name:currentUser.name, type:f.type.split('/')[0]==="image"?"image":f.type.split('/')[0]==="video"?"video":f.type.split('/')[0]==="audio"?"audio":"document", data:r.result, replyTo}); $("reply-cancel").click();}; r.readAsDataURL(f); fInp.value="";};
+    fInp.onchange=()=>{ 
+        const f=fInp.files?.[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ 
+        const payload = {name:currentUser.name, type:f.type.split('/')[0]==="image"?"image":f.type.split('/')[0]==="video"?"video":f.type.split('/')[0]==="audio"?"audio":"document", data:r.result, replyTo};
+        if(navigator.onLine) socket.emit("chatMessage", payload); 
+        else { offlineMessageQueue.push(payload); showToast("📶 Offline: Message queued"); }
+        $("reply-cancel").click();}; r.readAsDataURL(f); fInp.value="";
+    };
 
-    $("chatForm").onsubmit=e=>{ e.preventDefault(); const t=inp.value.trim(); if(t){socket.emit("chatMessage",{name:currentUser.name,type:"text",data:t,replyTo}); inp.value=""; $("reply-cancel").click(); send.style.display="none"; vb.style.display="flex"; inp.focus();} };
+    $("chatForm").onsubmit=e=>{ 
+        e.preventDefault(); const t=inp.value.trim(); 
+        if(t){
+            const payload = {name:currentUser.name,type:"text",data:t,replyTo};
+            if(navigator.onLine) socket.emit("chatMessage",payload);
+            else { offlineMessageQueue.push(payload); showToast("📶 Offline: Message queued"); }
+            inp.value=""; $("reply-cancel").click(); send.style.display="none"; vb.style.display="flex"; inp.focus();
+        } 
+    };
 
     function renderMsg(m){
         if(msgStore.has(m.id)) return;
@@ -777,7 +1047,7 @@ function setupJoin(){
 }
 
 // ==========================================
-// FIXED: GOOGLE DIRECTIONS & SEARCH
+// GOOGLE DIRECTIONS & SEARCH (Fixed by Claude)
 // ==========================================
 function setupGoogleSearch() {
     const searchInput = $("location-search-input");
@@ -791,6 +1061,7 @@ function setupGoogleSearch() {
             if (searchMarker) { map.removeLayer(searchMarker); searchMarker = null; }
             navigationLayer.clearLayers();
             if($("nav-panel")) $("nav-panel").style.display = "none";
+            if($("nav-bottom-sheet")) $("nav-bottom-sheet").style.display = "none";
             if (myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
         };
     }
@@ -907,6 +1178,9 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
     const ui = $("premium-nav-ui");
     if(ui) ui.style.display = "block";
 
+    if($("nav-bottom-sheet")) $("nav-bottom-sheet").style.display = "flex";
+    if($("turn-banner")) $("turn-banner").style.display = "flex";
+
     const leg = routeData.legs[0];
     const fullPath = routeData.overview_path.map(p => [p.lat(), p.lng()]);
     
@@ -923,7 +1197,7 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
     // 3. User Avatar Marker
     const userIcon = L.divIcon({
         className: 'nav-avatar-marker',
-        html: '<img src="satyam.png" style="width:100%;height:100%;object-fit:cover;">',
+        html: `<img src="${currentUser.avatar}" style="width:100%;height:100%;object-fit:cover; border-radius:50%; border:2px solid #10b981;">`,
         iconSize: [40, 40],
         iconAnchor: [20, 20]
     });
@@ -948,85 +1222,110 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
     map.fitBounds(dottedPath.getBounds(), { paddingBottomRight: [0, 350], paddingTopLeft: [50, 150] });
 
     // Buttons
-    const startBtn = $("nav-start-btn");
-    const resetBtn = $("nav-exit-btn");
+    const startBtn = $("btn-start-nav");
+    const resetBtn = $("btn-reset-nav");
+    const exitBtn = $("btn-exit-nav");
     
-    startBtn.textContent = "Start Navigation";
-    startBtn.style.background = "#10b981";
-    startBtn.style.color = "#064e3b";
-    if($("nav-status-text")) $("nav-status-text").textContent = "Ready";
-    if($("nav-speed-val")) $("nav-speed-val").textContent = "0";
+    if(startBtn) {
+        startBtn.style.display = "block";
+        startBtn.textContent = "Start Navigation";
+        startBtn.style.background = "linear-gradient(135deg, #34d399, #22c55e)";
+        startBtn.style.color = "#062112";
+    }
+    if(resetBtn) resetBtn.style.display = "block";
+    if(exitBtn) exitBtn.style.display = "none";
+    if($("stat-status")) $("stat-status").textContent = "Ready";
+    if($("speed-n")) $("speed-n").textContent = "0";
 
     // 5. ASLI GPS TRACKING LOOP (Real-time movement)
-    startBtn.onclick = () => {
-        if(startBtn.textContent === "Start Navigation") {
-            startBtn.textContent = "Navigating...";
-            startBtn.style.background = "#064e3b"; // Dark green Active state
-            startBtn.style.color = "#10b981";
-            if($("nav-status-text")) $("nav-status-text").textContent = "En route";
+    if(startBtn) startBtn.onclick = () => {
+        startBtn.style.display = "none";
+        if(resetBtn) resetBtn.style.display = "none";
+        if(exitBtn) exitBtn.style.display = "block";
+        
+        if($("stat-status")) {
+            $("stat-status").textContent = "En route";
+            $("stat-status").style.color = "#f5a524";
+        }
+        
+        if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 18, {animate: true, duration: 1.5});
+        
+        // Start Trip Engine Tracker
+        SmartDrive.startTrip();
+        
+        // Start reading real phone GPS specifically for Navigation View
+        if (navigator.geolocation) {
+            let traveledCoords = [];
             
-            if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 18, {animate: true, duration: 1.5});
-            
-            // Start reading real phone GPS
-            if (navigator.geolocation) {
-                let traveledCoords = [];
+            navWatchId = navigator.geolocation.watchPosition((pos) => {
+                const currentLat = pos.coords.latitude;
+                const currentLng = pos.coords.longitude;
+                const currentPos = [currentLat, currentLng];
                 
-                navWatchId = navigator.geolocation.watchPosition((pos) => {
-                    const currentLat = pos.coords.latitude;
-                    const currentLng = pos.coords.longitude;
-                    const currentPos = [currentLat, currentLng];
-                    
-                    // Calculate Real Speed (meters/second to KM/H)
-                    const speedMps = pos.coords.speed || 0; 
-                    const speedKmh = Math.round(speedMps * 3.6);
-                    if($("nav-speed-val")) $("nav-speed-val").textContent = speedKmh;
+                // Update UI based on global SpeedGuard which is already calculating it in startGPS
+                // Just panning map and drawing lines
+                
+                userMarker.setLatLng(currentPos);
+                map.panTo(currentPos);
 
-                    // Move Marker & Pan Map with user
-                    userMarker.setLatLng(currentPos);
-                    map.panTo(currentPos);
+                traveledCoords.push(L.latLng(currentLat, currentLng));
+                solidPath.setLatLngs(traveledCoords);
 
-                    // Draw Solid Green Line exactly where user walked/drove
-                    traveledCoords.push(L.latLng(currentLat, currentLng));
-                    solidPath.setLatLngs(traveledCoords);
+                const remainingMeters = map.distance(currentPos, [destLat, destLng]);
+                const remainingKm = (remainingMeters / 1000).toFixed(1);
+                if($("stat-dist")) $("stat-dist").innerHTML = remainingKm + "<small style='font-size:12px;color:#9ca3af;'> km</small>";
 
-                    // Update Real Remaining Distance dynamically
-                    const remainingMeters = map.distance(currentPos, [destLat, destLng]);
-                    const remainingKm = (remainingMeters / 1000).toFixed(1);
-                    if($("nav-total-dist")) $("nav-total-dist").innerHTML = remainingKm + "<small style='font-size:12px;color:#9ca3af;'> km</small>";
-
-                    // Stop if Arrived (within 30 meters)
-                    if(remainingMeters < 30) {
-                        navigator.geolocation.clearWatch(navWatchId);
-                        startBtn.textContent = "Arrived";
-                        startBtn.style.background = "#3b82f6";
-                        startBtn.style.color = "white";
-                        if($("nav-status-text")) $("nav-status-text").textContent = "Arrived";
-                        if($("nav-speed-val")) $("nav-speed-val").textContent = "0";
-                        if($("nav-step-text")) $("nav-step-text").textContent = "Destination reached!";
-                        if($("nav-turn-icon")) $("nav-turn-icon").textContent = "🏁";
+                if(remainingMeters < 30) {
+                    navigator.geolocation.clearWatch(navWatchId);
+                    if(exitBtn) {
+                        exitBtn.textContent = "Arrived";
+                        exitBtn.style.background = "#3b82f6";
+                        exitBtn.style.color = "white";
                     }
-                }, (err) => {
-                    console.error("GPS Error during nav:", err);
-                }, { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 });
-            }
+                    if($("stat-status")) {
+                        $("stat-status").textContent = "Arrived";
+                        $("stat-status").style.color = "var(--mint)";
+                    }
+                    if($("turn-name")) $("turn-name").textContent = "Destination reached!";
+                    
+                    setTimeout(() => stopDrive(), 3000);
+                }
+            }, (err) => {
+                console.error("GPS Error during nav:", err);
+            }, { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 });
         }
     };
     
-    // Reset/Exit Route
-    resetBtn.onclick = () => {
-        if(navWatchId) navigator.geolocation.clearWatch(navWatchId);
-        navigationLayer.clearLayers();
-        if(ui) ui.style.display = "none";
-        
-        // Restore regular UI elements
-        if($("map-tools")) $("map-tools").style.display = "flex";
-        if($("search-container")) $("search-container").style.display = "flex";
-        if($("top-header")) $("top-header").style.display = "flex";
-        if($("bottom-info")) $("bottom-info").style.display = "flex";
-        if($("chat-toggle-btn")) $("chat-toggle-btn").style.display = "flex";
-        
-        if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
+    // Cancel Route before starting
+    if(resetBtn) resetBtn.onclick = () => {
+        stopDrive(true); // cancelled
     };
+
+    // Exit mid-route
+    if(exitBtn) exitBtn.onclick = () => {
+        stopDrive();
+    };
+}
+
+function stopDrive(cancelled = false) {
+    if(navWatchId) navigator.geolocation.clearWatch(navWatchId);
+    navigationLayer.clearLayers();
+    if($("premium-nav-ui")) $("premium-nav-ui").style.display = "none";
+    if($("nav-bottom-sheet")) $("nav-bottom-sheet").style.display = "none";
+    if($("turn-banner")) $("turn-banner").style.display = "none";
+    if($("speed-dial")) $("speed-dial").style.display = "none";
+    
+    $("map-tools").style.display = "flex";
+    $("search-container").style.display = "flex";
+    $("top-header").style.display = "flex";
+    $("bottom-info").style.display = "flex";
+    $("chat-toggle-btn").style.display = "flex";
+    
+    if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
+    
+    if(!cancelled) {
+        SmartDrive.endTrip();
+    }
 }
 
 // ==========================================
@@ -1277,6 +1576,77 @@ window.addEventListener('appinstalled', () => {
     const installBtn = $("install-app-btn");
     if (installBtn) installBtn.style.display = 'none';
 });
+
+// ==========================================
+// KORAPUT GEAR CHECKLIST & SOS FEATURE
+// ==========================================
+const TripChecklist = {
+    items: JSON.parse(localStorage.getItem("koraput_gear")) || {
+        "Action Camera & V50X Mounts": false,
+        "Powerbanks & Extra Batteries": false,
+        "Motorcycle & ID Documents": false,
+        "Deomali Trekking Shoes": false,
+        "First Aid & Meds": false
+    },
+    toggle(key) {
+        this.items[key] = !this.items[key];
+        localStorage.setItem("koraput_gear", JSON.stringify(this.items));
+        this.render();
+    },
+    render() {
+        const container = $("trip-checklist-container");
+        if(!container) return; 
+        container.innerHTML = `<h4 style="margin:5px 0; color:#18d6a3; font-size:13px;">🎒 Trip Gear Checklist</h4>`;
+        Object.keys(this.items).forEach(item => {
+            container.innerHTML += `
+            <label style="display:flex; align-items:center; gap:8px; font-size:12px; color:white; cursor:pointer; margin-bottom:4px;">
+                <input type="checkbox" ${this.items[item] ? "checked" : ""} onchange="TripChecklist.toggle('${item}')" style="accent-color:#18d6a3;">
+                <span style="${this.items[item] ? 'text-decoration:line-through; color:#94a3b8;' : ''}">${item}</span>
+            </label>`;
+        });
+    }
+};
+window.TripChecklist = TripChecklist;
+
+function setupSOS() {
+    let sosBtn = $("sos-btn");
+    if (!sosBtn) {
+        sosBtn = document.createElement("button");
+        sosBtn.id = "sos-btn";
+        sosBtn.innerHTML = "🚨 SOS";
+        sosBtn.style.cssText = "position:fixed;bottom:90px;right:20px;z-index:9998;background:#ef4444;color:white;border:none;border-radius:50%;width:55px;height:55px;font-weight:900;font-size:12px;box-shadow:0 0 15px rgba(239,68,68,0.7);cursor:pointer;animation:dangerPulse 1s infinite alternate;";
+        document.body.appendChild(sosBtn);
+    }
+    
+    sosBtn.onclick = () => {
+        if(!myCoords) return showToast("❌ Waiting for GPS...");
+        if(confirm("🚨 SEND EMERGENCY SOS? This will alert all friends with your exact coordinates!")) {
+            socket.emit("sos-alert", { 
+                name: currentUser.name, 
+                lat: myCoords.lat, 
+                lng: myCoords.lng, 
+                alt: myCoords.alt || "Unknown" 
+            });
+            showToast("🚨 SOS BROADCASTED TO ALL FRIENDS!", 8000);
+        }
+    };
+
+    socket.on("sos-alert", (data) => {
+        const div = document.createElement("div");
+        div.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(239,68,68,0.3);border:10px solid #ef4444;z-index:99999;pointer-events:none;animation:dangerPulse 1s infinite alternate;";
+        document.body.appendChild(div);
+        
+        showToast(`🚨 URGENT SOS FROM ${data.name.toUpperCase()}! Check Map!`, 15000);
+        
+        L.marker([data.lat, data.lng], {
+            icon: L.divIcon({className: 'sos-marker', html: '<div style="font-size:30px;animation:dangerPulse 1s infinite alternate;">🚨</div>'})
+        }).bindPopup(`<b style="color:red;">EMERGENCY SOS: ${data.name}</b>`).addTo(map).openPopup();
+        
+        map.flyTo([data.lat, data.lng], 16, {animate:true, duration: 2});
+        setTimeout(() => div.remove(), 10000);
+    });
+}
+
 // ==========================================
 // INITIALIZATION
 // ==========================================
@@ -1286,7 +1656,19 @@ function initApp(){
     setupAdvancedTools(); 
     setupChat(); 
     setupMemories(); 
+    SmartDrive.init();
     startGPS(); 
     setupGoogleSearch(); 
+    setupSOS(); 
+    
+    setTimeout(() => {
+        if($("trip-panel") && !$("trip-checklist-container")) {
+            const listDiv = document.createElement("div");
+            listDiv.id = "trip-checklist-container";
+            listDiv.style.cssText = "background:rgba(255,255,255,0.05); padding:10px; border-radius:10px; margin-top:10px;";
+            $("trip-panel").insertBefore(listDiv, $("trip-action-btn"));
+            TripChecklist.render();
+        }
+    }, 1000);
 }
-if(document.readyState==="loading") document.addEventListener("DOMContentLoaded", initApp); else initApp(); add changes
+if(document.readyState==="loading") document.addEventListener("DOMContentLoaded", initApp); else initApp();
