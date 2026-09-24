@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<meta name="theme-color" content="#0a0e14">
+<meta name="theme-color" content="#080e17">
 
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="satyam.png">
 
 <title>Koraput Smart Drive</title>
 
-<!-- Fonts & External Libs -->
+<!-- Fonts -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -18,50 +18,51 @@
 <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js"></script>
 
 <style>
-/* =========================================================
-   CORE TOKENS
-   ========================================================= */
-:root {
-  --bg: #0a0e14; --ink-2: #10151d; --ink-3: #1b2330;
-  --card-bg: rgba(12,16,23,0.82); --card-border: rgba(255,255,255,0.07);
-  --text-hi: #eef2f7; --text-lo: #808b9a; --soft: #c6d2db;
-  --mint: #34d399; --done-b: #22c55e; --todo: #5865f2;
-  --amber: #f5a524; --danger: #ff6b6b;
-  --line: rgba(255,255,255,0.085); --line-strong: rgba(255,255,255,0.16);
-  --glass: rgba(11,19,31,0.74); --glass-solid: rgba(10,17,28,0.94);
-  --font-display: "Sora", sans-serif;
-  --font-body: "Inter", sans-serif;
-  --shadow: 0 18px 50px rgba(0,0,0,.6), 0 2px 8px rgba(0,0,0,.4);
-  --safe-t: env(safe-area-inset-top,0px); 
-  --safe-b: env(safe-area-inset-bottom,0px);
+:root{
+  --ink:#080e17; --ink-2:#0e1724; --ink-3:#152131;
+  --glass:rgba(11,19,31,.74); --glass-solid:rgba(10,17,28,.94);
+  --line:rgba(255,255,255,.085); --line-strong:rgba(255,255,255,.16);
+  --text:#f2f6f8; --muted:#8b9bab; --soft:#c6d2db;
+  --mint:#34e0b4; --danger:#ff6b6b;
+  --font-ui:"Inter",system-ui,-apple-system,sans-serif;
+  --font-display:"Sora",sans-serif;
+  --shadow:0 18px 50px rgba(0,0,0,.5), 0 2px 8px rgba(0,0,0,.3);
+  --safe-t:env(safe-area-inset-top,0px); --safe-b:env(safe-area-inset-bottom,0px);
 }
 
-* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: var(--bg); color: var(--text-hi); font-family: var(--font-body); }
-button, input { font: inherit; color: inherit; outline: none; border: none; background: none; }
-button { cursor: pointer; }
-button:active { transform: scale(.94); }
-.i { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; display: block; }
-.i.sm { width: 16px; height: 16px; } .i.lg { width: 24px; height: 24px; }
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{width:100%;height:100%;margin:0;overflow:hidden;background:var(--ink);color:var(--text);font-family:var(--font-ui);}
+button,input{font:inherit;color:inherit;outline:none;border:none;background:none;}
+button{cursor:pointer;transition:transform .15s;}
+button:active{transform:scale(.94)}
 
-#map { position: fixed; inset: 0; z-index: 1; background: var(--bg); }
-.leaflet-control-attribution { display: none; }
+.i{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;display:block}
+.i.sm{width:16px;height:16px} .i.lg{width:24px;height:24px}
 
-/* RED DANGER OVERLAY */
-#speed-alert-overlay { position: fixed; inset: 0; z-index: 500; pointer-events: none; background: rgba(255,0,0,0.25); opacity: 0; transition: opacity 0.3s ease; }
-#speed-alert-overlay.active { opacity: 1 !important; animation: dangerPulse 1s infinite alternate; }
+#map{position:fixed;inset:0;z-index:1;background:var(--ink)}
+.leaflet-control-attribution{display:none}
+
+#speed-danger-overlay { position: fixed; inset: 0; z-index: 500; pointer-events: none; background: rgba(255,0,0,0.25); opacity: 0; transition: opacity 0.3s ease; }
+#speed-danger-overlay.active { opacity: 1; animation: dangerPulse 1s infinite alternate; }
 @keyframes dangerPulse { from { opacity: 0.1; } to { opacity: 0.6; } }
 
 /* =========================================================
-   UI LAYOUT & FIXES (No Overlap)
+   ORIGINAL HEADER (Avatar & Sharing Text Restored)
    ========================================================= */
 #top-header { position: fixed; top: calc(14px + var(--safe-t)); left: 14px; right: 14px; z-index: 1000; display: flex; justify-content: space-between; pointer-events: none; }
 #top-header > * { pointer-events: auto; }
-.brand-card { display: flex; align-items: center; gap: 11px; padding: 8px 14px; border-radius: 20px; background: var(--glass); border: 1px solid var(--line); backdrop-filter: blur(20px); box-shadow: var(--shadow); }
-.header-info strong { font-family: var(--font-display); font-size: 15px; font-weight: 700; }
-.header-info span { display: block; color: var(--muted); font-size: 11px; }
+.brand-card { display: flex; align-items: center; gap: 11px; padding: 8px 14px 8px 14px; border-radius: 20px; background: var(--glass); border: 1px solid var(--line); backdrop-filter: blur(20px); box-shadow: var(--shadow); }
+.brand-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--mint); position: relative; }
+.brand-dot::after { content: ""; position: absolute; inset: -5px; border-radius: 50%; border: 1.5px solid var(--mint); opacity: 0; animation: ping 2.4s infinite; }
+@keyframes ping { 0% { transform: scale(.5); opacity: .8; } 80%, 100% { transform: scale(1.6); opacity: 0; } }
+.header-info { display: flex; flex-direction: column; line-height: 1.1; }
+.header-info strong { font-family: var(--font-display); font-size: 15px; font-weight: 700; color: #fff; }
+.header-info span { margin-top: 3px; color: var(--muted); font-size: 11px; }
+#header-avatar { display: none; width: 36px; height: 36px; object-fit: cover; border-radius: 50%; box-shadow: 0 0 0 2px var(--ink), 0 0 0 3.5px rgba(52,224,180,.7); }
 
-/* SEARCH BAR FIXED POSITION */
+/* =========================================================
+   SEARCH BAR & TOOLS (Proper Spacing)
+   ========================================================= */
 #search-container {
     position: fixed;
     top: calc(76px + var(--safe-t));
@@ -73,49 +74,55 @@ button:active { transform: scale(.94); }
 }
 #location-search-input { flex: 1; width: 100%; height: 100%; border: 0; background: transparent; color: #fff; font-size: 15px; }
 
-/* MAP TOOLS FIXED POSITION (Shifted down to gap 134px) */
 #map-tools {
     position: fixed; right: 14px; top: calc(134px + var(--safe-t));
     z-index: 1000; display: flex; flex-direction: column; gap: 12px; padding: 8px;
     border-radius: 20px; background: var(--glass); border: 1px solid var(--line);
     backdrop-filter: blur(20px); box-shadow: var(--shadow);
 }
-.tool-btn { width: 42px; height: 42px; border-radius: 14px; color: var(--text-lo); display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.03); transition: .2s; }
+.tool-btn { width: 42px; height: 42px; border-radius: 14px; color: var(--soft); display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.03); transition: .2s; }
 .tool-btn.active-tool, .tool-btn:hover { background: rgba(52,224,180,0.15); color: var(--mint); }
+
 #map-style-menu { position:fixed; right:76px; top:calc(134px + var(--safe-t)); z-index:1100; display:none; flex-direction:column; padding:6px; border-radius:18px; background:var(--glass-solid); border:1px solid var(--line-strong); }
 #map-style-menu button { padding: 10px; text-align:left; font-size:14px; width:120px; color:var(--soft); }
 
+/* =========================================================
+   ORIGINAL BOTTOM INFO (Locating... & Weather Restored)
+   ========================================================= */
 #bottom-info { position: fixed; left: 50%; bottom: calc(17px + var(--safe-b)); transform: translateX(-50%); z-index: 1000; display: flex; gap: 6px; pointer-events: none; }
 .bottom-pill { display: flex; align-items: center; gap: 7px; height: 38px; padding: 0 15px; border-radius: 999px; background: var(--glass); border: 1px solid var(--line); backdrop-filter: blur(20px); color: var(--text); font-size: 13px; font-weight: 600; pointer-events: auto; }
+.bottom-pill.live { color: var(--mint); gap: 8px; }
+.bottom-pill.live::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--mint); box-shadow: 0 0 0 0 rgba(52,224,180,.6); animation: livePulse 2s infinite; }
+@keyframes livePulse { 70% { box-shadow: 0 0 0 8px rgba(52,224,180,0); } 100% { box-shadow: 0 0 0 0 rgba(52,224,180,0); } }
 
-.action-fab { position: absolute; bottom: calc(14px + var(--safe-b)); width: 54px; height: 54px; border-radius: 50%; background: var(--card-bg); border: 1px solid var(--card-border); display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow); z-index: 1000; color:#fff; }
+.action-fab { position: absolute; bottom: calc(14px + var(--safe-b)); width: 54px; height: 54px; border-radius: 50%; background: var(--glass-solid); border: 1px solid var(--line-strong); display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow); z-index: 1000; color:#fff; }
 #chat-toggle-btn { right: 14px; background: linear-gradient(135deg, #3b82f6, #2563eb); border: none; }
 #memoryButton { left: 14px; border-radius: 18px; }
 #chat-unread-badge{position:absolute;right:-3px;top:-3px;display:none;min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:var(--danger);color:#fff;font-size:11px;font-weight:700;align-items:center;justify-content:center;}
 
 /* =========================================================
-   NAVIGATION, SPEED, FUEL UI
+   PREMIUM NAVIGATION UI
    ========================================================= */
 #premium-nav-ui { display: none; }
 .turn-banner { position: fixed; top: calc(65px + var(--safe-t)); left: 14px; right: 14px; background: var(--glass-solid); border: 1px solid var(--line-strong); border-radius: 18px; padding: 14px 16px; display: flex; align-items: center; gap: 14px; z-index: 3000; box-shadow: var(--shadow); }
 .turn-arrow-wrap { width: 44px; height: 44px; border-radius: 14px; background: rgba(88,101,242,0.15); display: flex; align-items: center; justify-content: center; color: #a5b4fc; }
-.turn-copy .d { font-size: 12px; color: var(--text-lo); font-weight: 600; margin-bottom: 2px; }
-.turn-copy .n { font-family: var(--font-display); font-size: 16px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.turn-copy .d { font-size: 12px; color: var(--muted); font-weight: 600; margin-bottom: 2px; }
+.turn-copy .n { font-family: var(--font-display); font-size: 16px; font-weight: 700; }
 
 .nav-bottom-sheet { position: fixed; left: 0; right: 0; bottom: 0; background: var(--ink-2); border-top: 1px solid var(--line-strong); padding: 18px 18px calc(18px + var(--safe-b)); display: flex; flex-direction: column; gap: 16px; z-index: 3000; }
 .nav-stats { display: flex; justify-content: space-between; align-items: center; }
 .n-stat { display: flex; flex-direction: column; gap: 4px; }
-.n-stat .l { font-size: 11px; color: var(--text-lo); font-weight: 600; text-transform: uppercase; }
+.n-stat .l { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; }
 .n-stat .v { font-family: var(--font-display); font-size: 22px; font-weight: 700; }
 .controls-row { display: flex; gap: 12px; }
 .btn-primary-nav { flex: 2; height: 50px; border-radius: 14px; background: linear-gradient(135deg, #34d399, #22c55e); color: #062112; font-family: var(--font-display); font-weight: 800; }
 .btn-secondary-nav { flex: 1; height: 50px; border-radius: 14px; background: rgba(255,255,255,0.08); font-weight: 700; }
 .btn-danger-nav { flex: 1; height: 50px; border-radius: 14px; background: rgba(239,68,68,0.15); color: var(--danger); font-weight: 700; }
 
-.speed-hud { position: fixed; left: 14px; bottom: calc(85px + var(--safe-b)); width: 70px; height: 70px; border-radius: 50%; z-index: 3000; background: var(--glass-solid); border: 2px solid var(--line-strong); display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: var(--shadow); }
-.speed-hud .n { font-family: var(--font-display); font-size: 24px; font-weight: 800; line-height: 1; }
-.speed-hud .u { font-size: 10px; color: var(--text-lo); font-weight: 700; margin-top: 2px; }
-.speed-hud.danger { border-color: var(--danger); color: var(--danger); background: rgba(239,68,68,0.15); }
+.speed-dial { position: fixed; left: 14px; bottom: calc(85px + var(--safe-b)); width: 70px; height: 70px; border-radius: 50%; z-index: 3000; background: var(--glass-solid); border: 2px solid var(--line-strong); display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: var(--shadow); }
+.speed-dial .n { font-family: var(--font-display); font-size: 24px; font-weight: 800; line-height: 1; }
+.speed-dial .u { font-size: 10px; color: var(--muted); font-weight: 700; margin-top: 2px; }
+.speed-dial.danger { border-color: var(--danger); color: var(--danger); background: rgba(239,68,68,0.15); }
 
 /* TRIP SUMMARY & MODALS */
 .results-panel { position: fixed; left: 14px; right: 14px; bottom: calc(14px + var(--safe-b)); z-index: 4000; background: var(--glass-solid); border: 1px solid var(--line-strong); border-radius: 24px; padding: 20px; box-shadow: var(--shadow); display: none; flex-direction: column; gap: 12px; }
@@ -124,7 +131,7 @@ button:active { transform: scale(.94); }
 .r-row:first-of-type { border-top: none; }
 .r-val { font-family: var(--font-display); font-weight: 700; font-size: 15px; }
 
-/* CHAT, PROFILE & MEMORIES (Preserved Styles) */
+/* CHAT, PROFILE & MEMORIES */
 #chat-container{position:fixed;right:18px;bottom:calc(18px + var(--safe-b));z-index:5000;width:min(400px,calc(100vw - 28px));height:min(620px,calc(100vh - 36px));display:none;flex-direction:column;overflow:hidden;border:1px solid var(--line-strong);border-radius:28px;background:var(--glass-solid);box-shadow:var(--shadow);backdrop-filter:blur(24px);}
 #chat-header{height:64px;display:flex;align-items:center;justify-content:space-between;padding:0 12px 0 18px;border-bottom:1px solid var(--line)}
 #chat-messages{flex:1;overflow-y:auto;padding:16px 14px;display:flex;flex-direction:column;gap:8px;}
@@ -149,9 +156,9 @@ button:active { transform: scale(.94); }
 .p3-card{position:relative;width:100%;padding-top:100%;border-radius:20px;overflow:hidden;cursor:pointer;}
 .p3-card img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}
 
-#join-screen{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;background:var(--bg);}
+#join-screen{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;background:var(--ink);}
 #toast-container{position:fixed;top:calc(80px + var(--safe-t));left:0;right:0;z-index:9999;display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none}
-.toast{background:var(--card-bg);border:1px solid var(--card-border);padding:12px 20px;border-radius:999px;font-size:14px;font-weight:600;box-shadow:var(--shadow);}
+.toast{background:var(--glass-solid);border:1px solid var(--line-strong);padding:12px 20px;border-radius:999px;font-size:14px;font-weight:600;box-shadow:var(--shadow);}
 </style>
 </head>
 <body>
@@ -186,26 +193,31 @@ button:active { transform: scale(.94); }
 <div id="map"></div>
 
 <!-- SPEED ALERT OVERLAY -->
-<div id="speed-alert-overlay"></div>
+<div id="speed-danger-overlay"></div>
 
-<!-- TOP HUD -->
-<div class="top-hud" id="top-header">
-  <div class="brand-card">
-    <strong id="header-app-title">Koraput Map</strong>
+<!-- ================= TOP HEADER (RESTORED ORIGINAL) ================= -->
+<div id="top-header">
+  <div class="brand-card glass">
+    <div class="brand-dot"></div>
+    <div class="header-info">
+      <strong id="header-app-title">Koraput Map</strong>
+      <span>Sharing live location</span>
+    </div>
+    <img id="header-avatar" src="satyam.png" alt="Your profile">
   </div>
-  <button id="profile-open-btn" class="chip" style="padding:5px 12px; background:linear-gradient(135deg,#34d399,#22c55e); color:#062112; border:none;">
-    <svg class="i sm" style="stroke:#062112; margin-right:4px;"><use href="#i-settings"/></svg> Safe Drive
+  <button id="profile-open-btn" style="pointer-events:auto; display:flex; align-items:center; gap:6px; background:linear-gradient(145deg,#34d399,#22c55e); color:#062112; border-radius:20px; padding:0 14px; font-weight:800; font-size:13px; box-shadow:var(--shadow); border:none;">
+    <svg class="i sm"><use href="#i-settings"/></svg> Safe Drive
   </button>
 </div>
 
-<!-- SEARCH -->
+<!-- ================= SEARCH ================= -->
 <div id="search-container">
   <svg class="i" style="color:var(--text-lo)"><use href="#i-search"/></svg>
   <input type="text" id="location-search-input" placeholder="Search destination..." autocomplete="off">
   <button id="location-search-clear" style="display:none; color:var(--text-lo)"><svg class="i sm"><use href="#i-x"/></svg></button>
 </div>
 
-<!-- MAP TOOLS -->
+<!-- ================= MAP TOOLS ================= -->
 <div id="map-tools">
   <button id="my-location-btn" class="tool-btn" title="My Location"><svg class="i"><use href="#i-locate"/></svg></button>
   <button id="map-style-btn" class="tool-btn" title="Layers"><svg class="i"><use href="#i-layers"/></svg></button>
@@ -222,12 +234,13 @@ button:active { transform: scale(.94); }
   <button data-style="dark">Dark</button>
 </div>
 
-<!-- ACTIONS & BOTTOM INFO -->
+<!-- ================= BOTTOM INFO & FABs (RESTORED) ================= -->
 <button id="memoryButton" class="action-fab"><svg class="i lg"><use href="#i-camera"/></svg></button>
 <button id="chat-toggle-btn" class="action-fab"><svg class="i lg"><use href="#i-chat"/></svg><span id="chat-unread-badge">0</span></button>
 
 <div id="bottom-info">
   <div class="bottom-pill" id="pill-city"><svg class="i"><use href="#i-pin"/></svg><span id="city-name-text">Locating…</span></div>
+  <div class="bottom-pill"><svg class="i"><use href="#i-temp"/></svg><span id="map-temp-display">--°C</span></div>
   <div class="bottom-pill live">Live</div>
 </div>
 
@@ -241,7 +254,7 @@ button:active { transform: scale(.94); }
       </div>
     </div>
 
-    <div class="speed-hud" id="speed-dial">
+    <div class="speed-dial" id="speed-dial">
       <div class="n" id="speed-n">0</div>
       <div class="u">KM/H</div>
     </div>
