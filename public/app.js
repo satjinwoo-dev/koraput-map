@@ -8,7 +8,9 @@ styleObj.innerHTML = `.google-dark-map { filter: invert(100%) hue-rotate(180deg)
 document.head.appendChild(styleObj);
 
 const socket = io({ transports: ["websocket", "polling"] });
-const DEFAULT_CENTER = [18.8136, 82.7153]; // Centered near Koraput
+
+// FIX 1: Default map center changed to Rourkela instead of Koraput
+const DEFAULT_CENTER = [22.2475, 84.8828]; 
 const DEFAULT_AVATAR = "satyam.png";
 const MAX_NAME = 40;
 const MAX_CHAT_FILE = 5 * 1024 * 1024;
@@ -41,7 +43,6 @@ try {
     if (!Array.isArray(locationHistory)) locationHistory = [];
 } catch(e) { locationHistory = []; }
 
-// ALL LAYERS
 const p4LayerGroup = L.layerGroup().addTo(map);
 const measureLayer = L.layerGroup().addTo(map);
 const historyPolyline = L.polyline(locationHistory, { color: '#3b82f6', weight: 4, opacity: 0.8, dashArray: '5, 10' }).addTo(p4LayerGroup);
@@ -120,8 +121,8 @@ async function fetchCity(lat,lng){
     } catch (e) {}
     try {
         const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}&zoom=10`);
-        if (r.ok) { const d = await r.json(); return d.address?.city || d.address?.town || d.address?.county || "Koraput Area"; }
-    } catch { return "Koraput Area"; }
+        if (r.ok) { const d = await r.json(); return d.address?.city || d.address?.town || d.address?.county || "Local Area"; }
+    } catch { return "Local Area"; }
 }
 
 // ==========================================
@@ -220,7 +221,7 @@ const SmartDrive = {
         if (speed >= 100) {
             showToast("🚨 DANGER: Speed 100+ km/h! Slow Down!", 5000);
             this.triggerRedMap();
-            this.beep(800, 3000); 
+            this.beep(800, 300); setTimeout(()=>this.beep(800, 300), 500); setTimeout(()=>this.beep(800, 300), 1000);
             this.lastAlertTime = now;
         } else if (speed >= 80) {
             showToast("⚠️ WARNING: Crossing 80 km/h.", 4000);
@@ -308,7 +309,7 @@ const SmartDrive = {
 };
 
 // ==========================================
-// 3. CORE SYSTEM WITH ELEVATION & SPEED ADDITIONS
+// 3. CORE SYSTEM WITH FAST GPS FIX
 // ==========================================
 socket.on("connect", () => { 
     if (currentUser.name) socket.emit("profileReady", currentUser); 
@@ -337,16 +338,16 @@ socket.on("geofenceAlert", (data) => {
     showToast(`🔔 ${data.user} has ${action} ${data.fence}!`);
 });
 
-// Fixed GPS extracting Elevation (for Deomali) & Speed (for Motorcycle)
+// FIX 2: Fast GPS Implementation (Dual Mode)
 function startGPS() {
     if(!navigator.geolocation) {
         showToast("❌ Browser does not support GPS");
         return;
     }
-    navigator.geolocation.watchPosition(async p=>{
-        const lat=Number(p.coords.latitude), lng=Number(p.coords.longitude), acc=Number(p.coords.accuracy);
+
+    const processLocation = (p) => {
+        const lat = Number(p.coords.latitude), lng = Number(p.coords.longitude), acc = Number(p.coords.accuracy);
         
-        // NEW: Altitude & Speed Extraction
         const alt = p.coords.altitude ? Math.round(p.coords.altitude) : null;
         let speedKmh = 0;
         let dist = 0;
@@ -363,7 +364,7 @@ function startGPS() {
         speedKmh = Math.min(speedKmh, 300); 
         
         if(!validCoord(lat,lng)) return;
-        myCoords={lat,lng, alt, speedKmh};
+        myCoords = {lat, lng, alt, speedKmh};
 
         locationHistory.push([lat, lng]);
         if(locationHistory.length > 1000) locationHistory.shift(); 
@@ -372,34 +373,45 @@ function startGPS() {
 
         if(!ownMarker){
             ownMarker = L.marker([lat,lng],{icon:ownIcon(), zIndexOffset:1000}).addTo(map);
-            map.setView([lat,lng], 16);
+            // This immediately pans the map to you
+            map.setView([lat,lng], 16); 
         } else {
             ownMarker.setLatLng([lat,lng]);
         }
 
-        if(acc>0 && acc<100000){
-            if(!accuracyCircle) accuracyCircle=L.circle([lat,lng],{radius:acc, color:"#10b981", weight:2, fillOpacity:.15}).addTo(map);
-            else {accuracyCircle.setLatLng([lat,lng]); accuracyCircle.setRadius(acc);}
+        if(acc > 0 && acc < 100000){
+            if(!accuracyCircle) accuracyCircle = L.circle([lat,lng],{radius:acc, color:"#10b981", weight:2, fillOpacity:.15}).addTo(map);
+            else { accuracyCircle.setLatLng([lat,lng]); accuracyCircle.setRadius(acc); }
         }
 
+        // FIX 3: Non-blocking API requests so map doesn't freeze waiting for city
         if (!cityName) {
-            cityName = await fetchCity(lat, lng);
-            if (cityName) {
-                if ($("header-app-title")) $("header-app-title").textContent = `${cityName} Map`;
-                if ($("city-name-text")) $("city-name-text").textContent = cityName;
-            }
+            fetchCity(lat, lng).then(c => {
+                if (c) {
+                    cityName = c;
+                    if ($("header-app-title")) $("header-app-title").textContent = `${cityName} Map`;
+                    
+                    // Carefully update only the text part, keeping the SVG pin icon
+                    if ($("city-name-text")) {
+                        $("city-name-text").textContent = cityName;
+                    } else if ($("pill-city")) {
+                        $("pill-city").textContent = `📍 ${cityName}`;
+                    }
+                }
+            });
         }
 
         if (!myWeather || Date.now() - lastWeatherFetch > 180000) {
-            const w = await fetchWeather(lat, lng);
-            if (w) {
-                myWeather = w;
-                lastWeatherFetch = Date.now();
-                if ($("map-temp-display")) $("map-temp-display").textContent = w;
-                
-                const badgeText = alt !== null ? `${w} | ⛰️${alt}m` : w;
-                if (ownMarker) ownMarker.unbindTooltip().bindTooltip(badgeText, { permanent: true, direction: "right", className: "weather-badge", offset: [15, 0] });
-            }
+            fetchWeather(lat, lng).then(w => {
+                if (w) {
+                    myWeather = w;
+                    lastWeatherFetch = Date.now();
+                    if ($("map-temp-display")) $("map-temp-display").textContent = w;
+                    
+                    const badgeText = alt !== null ? `${w} | ⛰️${alt}m` : w;
+                    if (ownMarker) ownMarker.unbindTooltip().bindTooltip(badgeText, { permanent: true, direction: "right", className: "weather-badge", offset: [15, 0] });
+                }
+            });
         }
 
         lastFixCoords = { lat, lng }; lastFixTime = Date.now();
@@ -409,11 +421,19 @@ function startGPS() {
         socket.emit("updateLocation",{name:currentUser.name, avatar:currentUser.avatar, lat, lng, alt, speedKmh, weather:myWeather});
         updateFriendBadges(); 
         triggerGroupRouteUpdate(); 
-    }, e => {
+    };
+
+    const handleGpsError = (e) => {
         console.warn("GPS error", e);
         if(e.code === 1) showToast("⚠️ GPS Permission Denied! Location tools disabled.", 6000);
-        else showToast("⚠️ GPS Signal Lost or Weak", 6000);
-    }, {enableHighAccuracy:true,timeout:15000,maximumAge:3000});
+        // Silently retry timeout errors without spamming toasts
+    };
+
+    // Step 1: Force an immediate, fast location fetch using Network/WiFi
+    navigator.geolocation.getCurrentPosition(processLocation, handleGpsError, { enableHighAccuracy: false, timeout: 10000, maximumAge: 0 });
+
+    // Step 2: Start continuous, high-accuracy Satellite tracking
+    navigator.geolocation.watchPosition(processLocation, handleGpsError, { enableHighAccuracy: true, timeout: 20000, maximumAge: 2000 });
 }
 
 function updateFriendBadges(){
@@ -459,21 +479,17 @@ function showProfilePopup(u) {
     if($("profile-popup-distance")) $("profile-popup-distance").textContent = myCoords ? `${distanceKm(myCoords.lat,myCoords.lng,u.lat,u.lng)} km away` : "--";
     if($("profile-popup-weather")) $("profile-popup-weather").textContent = u.weather || "--";
     
-    if($("profile-nav-btn")) {
-        $("profile-nav-btn").onclick = () => {
-            if(validCoord(u.lat, u.lng)) Navigation.start(u.id);
-        };
-    }
-    
     if (typeof initCallButton === "function") initCallButton(u);
     
-    if($("profile-popup")) $("profile-popup").style.display="flex";
-    if($("profile-focus-btn")) $("profile-focus-btn").onclick=()=>{ map.flyTo([u.lat,u.lng],16); $("profile-popup").style.display="none"; };
+    safeShow("profile-popup", "flex");
+    const fb = $("profile-focus-btn");
+    if(fb) fb.onclick=()=>{ map.flyTo([u.lat,u.lng],16); safeHide("profile-popup"); };
 }
-$("profile-popup-close")?.addEventListener("click",()=>$("profile-popup").style.display="none");
+$("profile-popup-close")?.addEventListener("click",()=>safeHide("profile-popup"));
 
 function renderGeofenceList() {
     const list = $("geofence-items");
+    if(!list) return;
     list.innerHTML = "";
     if(currentGeofences.length === 0) {
         list.innerHTML = "<div style='color:var(--muted); font-size:12px; text-align:center;'>No active geofences.</div>";
@@ -485,7 +501,7 @@ function renderGeofenceList() {
                 : `<span style="font-size:10px; color:var(--muted); font-weight:bold;">Owner: ${escapeHTML(f.ownerName)}</span>`;
 
             list.innerHTML += `
-            <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.05); padding:10px; border-radius:10px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.05); padding:10px; border-radius:10px; margin-bottom:8px;">
                 <div>
                     <div style="color:white; font-size:13px; font-weight:bold;">${escapeHTML(f.name)}</div>
                     <div style="color:var(--muted); font-size:11px;">Radius: ${f.radius}m</div>
@@ -494,46 +510,63 @@ function renderGeofenceList() {
             </div>`;
         });
     }
-    if ($("geofence-list-modal")) $("geofence-list-modal").style.display = "flex";
+    const modal = $("geofence-list-modal");
+    if(modal) modal.style.display = "flex";
 }
-if($("geofence-list-close")) $("geofence-list-close").onclick = () => $("geofence-list-modal").style.display = "none";
+$("geofence-list-close")?.addEventListener("click", () => safeHide("geofence-list-modal"));
 
 function setupAdvancedTools() {
-    $("measure-btn").onclick = () => {
+    const mb = $("measure-btn");
+    if(mb) mb.onclick = () => {
         mapActionMode = mapActionMode === 'measure' ? null : 'measure';
-        $("measure-btn").classList.toggle("active-tool", mapActionMode === 'measure');
-        $("geofence-btn").classList.remove("active-tool"); $("trip-btn").classList.remove("active-tool"); $("group-nav-btn").classList.remove("active-tool");
+        mb.classList.toggle("active-tool", mapActionMode === 'measure');
+        if($("geofence-btn")) $("geofence-btn").classList.remove("active-tool"); 
+        if($("trip-btn")) $("trip-btn").classList.remove("active-tool"); 
+        if($("group-nav-btn")) $("group-nav-btn").classList.remove("active-tool");
         if(mapActionMode !== 'measure') { measureLayer.clearLayers(); measurePoints = []; }
         else showToast("📍 Tap two points on the map to measure road distance");
     };
 
-    $("geofence-btn").onclick = () => {
+    const gb = $("geofence-btn");
+    if(gb) gb.onclick = () => {
         geoClickCount++;
         if (geoClickCount === 3) {
-            clearTimeout(geoClickTimer); geoClickCount = 0; renderGeofenceList(); return;
+            clearTimeout(geoClickTimer);
+            geoClickCount = 0;
+            renderGeofenceList(); 
+            return;
         }
         clearTimeout(geoClickTimer);
         geoClickTimer = setTimeout(() => {
-            geoClickCount = 0; mapActionMode = mapActionMode === 'geofence' ? null : 'geofence';
-            $("geofence-btn").classList.toggle("active-tool", mapActionMode === 'geofence');
-            $("measure-btn").classList.remove("active-tool"); $("trip-btn").classList.remove("active-tool"); $("group-nav-btn").classList.remove("active-tool");
+            geoClickCount = 0;
+            mapActionMode = mapActionMode === 'geofence' ? null : 'geofence';
+            gb.classList.toggle("active-tool", mapActionMode === 'geofence');
+            if($("measure-btn")) $("measure-btn").classList.remove("active-tool"); 
+            if($("trip-btn")) $("trip-btn").classList.remove("active-tool"); 
+            if($("group-nav-btn")) $("group-nav-btn").classList.remove("active-tool");
             if(mapActionMode === 'geofence') showToast("⭕ Tap map to set Geofence. (Tap button 3 times to view/delete)");
         }, 900);
     };
 
-    $("trip-btn").onclick = () => {
+    const tb = $("trip-btn");
+    if(tb) tb.onclick = () => {
         mapActionMode = mapActionMode === 'trip' ? null : 'trip';
-        $("trip-btn").classList.toggle("active-tool", mapActionMode === 'trip');
-        $("measure-btn").classList.remove("active-tool"); $("geofence-btn").classList.remove("active-tool"); $("group-nav-btn").classList.remove("active-tool");
+        tb.classList.toggle("active-tool", mapActionMode === 'trip');
+        if($("measure-btn")) $("measure-btn").classList.remove("active-tool"); 
+        if($("geofence-btn")) $("geofence-btn").classList.remove("active-tool"); 
+        if($("group-nav-btn")) $("group-nav-btn").classList.remove("active-tool");
         if(mapActionMode === 'trip') showToast("🚗 Tap the map to set Group Trip Destination");
     };
 
-    $("group-nav-btn").onclick = () => {
+    const gnb = $("group-nav-btn");
+    if(gnb) gnb.onclick = () => {
         mapActionMode = mapActionMode === 'group-nav' ? null : 'group-nav';
-        $("group-nav-btn").classList.toggle("active-tool", mapActionMode === 'group-nav');
-        $("measure-btn").classList.remove("active-tool"); $("geofence-btn").classList.remove("active-tool"); $("trip-btn").classList.remove("active-tool");
+        gnb.classList.toggle("active-tool", mapActionMode === 'group-nav');
+        if($("measure-btn")) $("measure-btn").classList.remove("active-tool"); 
+        if($("geofence-btn")) $("geofence-btn").classList.remove("active-tool"); 
+        if($("trip-btn")) $("trip-btn").classList.remove("active-tool");
         if(mapActionMode === 'group-nav') GroupNavigation.openSetup();
-        else $("group-nav-setup").style.display = "none";
+        else safeHide("group-nav-setup");
     };
 
     map.on('click', (e) => {
@@ -559,11 +592,11 @@ function setupAdvancedTools() {
                     } else {
                         showToast("❌ Road route unavailable. Try again.");
                     }
-                    setTimeout(() => { measureLayer.clearLayers(); measurePoints = []; mapActionMode = null; $("measure-btn").classList.remove("active-tool"); }, 6000);
+                    setTimeout(() => { measureLayer.clearLayers(); measurePoints = []; mapActionMode = null; if($("measure-btn")) $("measure-btn").classList.remove("active-tool"); }, 6000);
                 }).catch(() => {
                     measureLayer.clearLayers();
                     showToast("❌ Road route unavailable. Try again.");
-                    setTimeout(() => { measureLayer.clearLayers(); measurePoints = []; mapActionMode = null; $("measure-btn").classList.remove("active-tool"); }, 6000);
+                    setTimeout(() => { measureLayer.clearLayers(); measurePoints = []; mapActionMode = null; if($("measure-btn")) $("measure-btn").classList.remove("active-tool"); }, 6000);
                 });
             }
         } 
@@ -579,7 +612,7 @@ function setupAdvancedTools() {
                     showToast("❌ Invalid radius! Must be between 10 and 50000 meters.");
                 }
             }
-            mapActionMode = null; $("geofence-btn").classList.remove("active-tool");
+            mapActionMode = null; if($("geofence-btn")) $("geofence-btn").classList.remove("active-tool");
         }
         else if (mapActionMode === 'trip') {
             const name = prompt("Enter Trip Destination Name:");
@@ -587,7 +620,7 @@ function setupAdvancedTools() {
                 socket.emit("startTrip", { name: name.trim(), lat: e.latlng.lat, lng: e.latlng.lng });
                 showToast(`🚗 Trip started to ${name}!`);
             }
-            mapActionMode = null; $("trip-btn").classList.remove("active-tool");
+            mapActionMode = null; if($("trip-btn")) $("trip-btn").classList.remove("active-tool");
         }
         else if (mapActionMode === 'memory') {
             if (pendingMemoryImage) {
@@ -619,8 +652,8 @@ function setupAdvancedTools() {
         currentTrip = trip;
         if(tripMarker) { map.removeLayer(tripMarker); tripMarker = null; }
         if(trip) {
-            $("trip-panel").style.display = "flex";
-            $("trip-title").textContent = `Trip to ${trip.name}`;
+            safeShow("trip-panel", "flex");
+            if($("trip-title")) $("trip-title").textContent = `Trip to ${trip.name}`;
             tripMarker = L.marker([trip.lat, trip.lng], { icon: L.divIcon({className: 'geofence-marker', html: '🏁'}) }).addTo(map);
 
             const isMember = trip.members.some(m => m.id === socket.id);
@@ -649,7 +682,7 @@ function setupAdvancedTools() {
             if(window.renderTripChecklist) window.renderTripChecklist();
         } else {
             tripRoutesLayer.clearLayers(); tripRoadStats = {};
-            if($("trip-panel")) $("trip-panel").style.display = "none";
+            safeHide("trip-panel");
         }
     });
 }
@@ -723,14 +756,14 @@ function updateTripPanel() {
 
 function setupBasicControls(){
     $("my-location-btn").onclick = () => { if(myCoords) map.flyTo([myCoords.lat,myCoords.lng], 16); };
-    $("compass-btn").onclick = () => { map.setView(map.getCenter(), map.getZoom(), {animate:true}); $("compass-icon").style.transform="rotate(0deg)"; };
-    $("map-style-btn").onclick = (e) => { e.stopPropagation(); $("map-style-menu").style.display = $("map-style-menu").style.display==="flex"?"none":"flex"; };
+    $("compass-btn").onclick = () => { map.setView(map.getCenter(), map.getZoom(), {animate:true}); const ci=$("compass-icon"); if(ci) ci.style.transform="rotate(0deg)"; };
+    $("map-style-btn").onclick = (e) => { e.stopPropagation(); const sm=$("map-style-menu"); if(sm) sm.style.display = sm.style.display==="flex"?"none":"flex"; };
     $("map-style-menu").onclick = (e) => {
         const b=e.target.closest("[data-style]"); if(!b) return; const s=b.dataset.style;
         [satelliteLayer,streetLayer,darkLayer].forEach(l=>map.removeLayer(l));
         ({satellite:satelliteLayer,street:streetLayer,dark:darkLayer})[s].addTo(map);
         document.querySelectorAll("#map-style-menu button").forEach(x=>x.classList.toggle("active",x.dataset.style===s));
-        $("map-style-menu").style.display="none";
+        safeHide("map-style-menu");
     };
     if (window.DeviceOrientationEvent) window.addEventListener("deviceorientation", e => { const icon = $("compass-icon"); if (icon) icon.style.transform = `rotate(${e.webkitCompassHeading ? -e.webkitCompassHeading : e.alpha}deg)`; }, true);
 
@@ -741,6 +774,10 @@ function setupBasicControls(){
             offlineMessageQueue.forEach(msg => socket.emit("chatMessage", msg));
             offlineMessageQueue = [];
         }
+        if(offlineMemoryQueue.length > 0) {
+            offlineMemoryQueue.forEach(mem => socket.emit("uploadMemoryPhoto", mem));
+            offlineMemoryQueue = [];
+        }
     });
 }
 
@@ -749,42 +786,55 @@ function setupChat(){
     let unread=0, typingTimer=null, replyTo=null, reactingId=null;
     const msgStore=new Map(), emojis=["👍","❤️","😂","😮","😢","🔥"];
 
-    function updateUnreadBadge(){ const b=$("chat-unread-badge"); if(!b) return; b.textContent=unread>99?"99+":unread; b.style.display=unread>0?"flex":"none"; }
+    function updateUnreadBadge(){ const b=$("chat-unread-badge"); if(b){ b.textContent=unread>99?"99+":unread; b.style.display=unread>0?"flex":"none"; } }
 
-    $("chat-toggle-btn").onclick = () => { cc.style.display = "flex"; $("chat-toggle-btn").style.display = "none"; unread=0; updateUnreadBadge(); inp.focus(); };
-    $("chat-minimize-btn").onclick = () => { cc.style.display = "none"; $("chat-toggle-btn").style.display = "flex"; };
-    $("online-btn").onclick = (e) => { e.stopPropagation(); const l=$("online-list"); l.style.display = l.style.display === "block" ? "none" : "block"; updateOnlineUI(); };
-    document.addEventListener("click", e => { if ($("online-list") && !$("online-list").contains(e.target) && e.target !== $("online-btn")) $("online-list").style.display = "none"; });
+    $("chat-toggle-btn").onclick = () => { safeShow("chat-container", "flex"); safeHide("chat-toggle-btn"); unread=0; updateUnreadBadge(); if(inp) inp.focus(); };
+    $("chat-minimize-btn").onclick = () => { safeHide("chat-container"); safeShow("chat-toggle-btn", "flex"); };
+    $("online-btn").onclick = (e) => { e.stopPropagation(); const l=$("online-list"); if(l) l.style.display = l.style.display === "block" ? "none" : "block"; updateOnlineUI(); };
+    document.addEventListener("click", e => { if ($("online-list") && !$("online-list").contains(e.target) && e.target !== $("online-btn")) safeHide("online-list"); });
 
-    inp.oninput=()=>{ socket.emit("typing",true); clearTimeout(typingTimer); typingTimer=setTimeout(()=>socket.emit("typing",false), 1200); send.style.display=inp.value.trim()?"flex":"none"; vb.style.display=inp.value.trim()?"none":"flex"; };
-    socket.on("typing", d=>{ const t=$("typing-indicator"); if(d.id!==socket.id && d.isTyping){t.textContent=`${escapeHTML(d.name)} is typing…`; t.style.display="block";}else t.style.display="none"; });
+    if(inp) {
+        inp.oninput=()=>{ socket.emit("typing",true); clearTimeout(typingTimer); typingTimer=setTimeout(()=>socket.emit("typing",false), 1200); if(send && vb) { send.style.display=inp.value.trim()?"flex":"none"; vb.style.display=inp.value.trim()?"none":"flex"; } };
+    }
+    socket.on("typing", d=>{ const t=$("typing-indicator"); if(t) { if(d.id!==socket.id && d.isTyping){t.textContent=`${escapeHTML(d.name)} is typing…`; t.style.display="block";}else t.style.display="none"; } });
 
-    $("reply-cancel").onclick=()=>{replyTo=null; $("reply-bar").style.display="none";};
-    $("emojiButton").onclick=(e)=>{e.stopPropagation(); $("attachment-menu").style.display="none"; $("emoji-picker-container").style.display=$("emoji-picker-container").style.display==="block"?"none":"block";};
-    $("emojiPicker").addEventListener("emoji-click",e=>{ const em=e.detail.unicode; if(reactingId){socket.emit("messageReaction",{messageId:reactingId,emoji:em});$("emoji-picker-container").style.display="none";reactingId=null;}else{inp.value+=em;inp.focus();send.style.display="flex";vb.style.display="none";} });
+    $("reply-cancel").onclick=()=>{replyTo=null; safeHide("reply-bar");};
+    $("emojiButton").onclick=(e)=>{e.stopPropagation(); safeHide("attachment-menu"); const ec=$("emoji-picker-container"); if(ec) ec.style.display=ec.style.display==="block"?"none":"block";};
     
-    $("chat-attach-btn").onclick=(e)=>{e.stopPropagation(); $("emoji-picker-container").style.display="none"; $("attachment-menu").style.display=$("attachment-menu").style.display==="flex"?"none":"flex";};
+    const emojiPicker = $("emojiPicker");
+    if(emojiPicker) {
+        emojiPicker.addEventListener("emoji-click",e=>{ const em=e.detail.unicode; if(reactingId){socket.emit("messageReaction",{messageId:reactingId,emoji:em});safeHide("emoji-picker-container");reactingId=null;}else if(inp){inp.value+=em;inp.focus();if(send) send.style.display="flex";if(vb) vb.style.display="none";} });
+    }
+    
+    $("chat-attach-btn").onclick=(e)=>{e.stopPropagation(); safeHide("emoji-picker-container"); const am=$("attachment-menu"); if(am) am.style.display=am.style.display==="flex"?"none":"flex";};
     const fInp=$("chatFileInput");
-    $("att-media").onclick=()=>{fInp.accept="image/*,video/*";fInp.click();$("attachment-menu").style.display="none";};
-    $("att-doc").onclick=()=>{fInp.accept=".pdf,.doc,.txt,.zip";fInp.click();$("attachment-menu").style.display="none";};
-    $("att-audio").onclick=()=>{fInp.accept="audio/*";fInp.click();$("attachment-menu").style.display="none";};
-    fInp.onchange=()=>{ 
-        const f=fInp.files?.[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ 
-        const payload = {name:currentUser.name, type:f.type.split('/')[0]==="image"?"image":f.type.split('/')[0]==="video"?"video":f.type.split('/')[0]==="audio"?"audio":"document", data:r.result, replyTo};
-        if(navigator.onLine) socket.emit("chatMessage", payload); 
-        else { offlineMessageQueue.push(payload); showToast("📶 Offline: Message queued"); }
-        $("reply-cancel").click();}; r.readAsDataURL(f); fInp.value="";
-    };
-
-    $("chatForm").onsubmit=e=>{ 
-        e.preventDefault(); const t=inp.value.trim(); 
-        if(t){
-            const payload = {name:currentUser.name,type:"text",data:t,replyTo};
-            if(navigator.onLine) socket.emit("chatMessage",payload);
+    $("att-media").onclick=()=>{if(fInp){fInp.accept="image/*,video/*";fInp.click();safeHide("attachment-menu");}};
+    $("att-doc").onclick=()=>{if(fInp){fInp.accept=".pdf,.doc,.txt,.zip";fInp.click();safeHide("attachment-menu");}};
+    $("att-audio").onclick=()=>{if(fInp){fInp.accept="audio/*";fInp.click();safeHide("attachment-menu");}};
+    if(fInp) {
+        fInp.onchange=()=>{ 
+            const f=fInp.files?.[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ 
+            const payload = {name:currentUser.name, type:f.type.split('/')[0]==="image"?"image":f.type.split('/')[0]==="video"?"video":f.type.split('/')[0]==="audio"?"audio":"document", data:r.result, replyTo};
+            if(navigator.onLine) socket.emit("chatMessage", payload); 
             else { offlineMessageQueue.push(payload); showToast("📶 Offline: Message queued"); }
-            inp.value=""; $("reply-cancel").click(); send.style.display="none"; vb.style.display="flex"; inp.focus();
-        } 
-    };
+            if($("reply-cancel")) $("reply-cancel").click();}; r.readAsDataURL(f); fInp.value="";
+        };
+    }
+
+    const cf = $("chatForm");
+    if(cf) {
+        cf.onsubmit=e=>{ 
+            e.preventDefault(); 
+            if(!inp) return;
+            const t=inp.value.trim(); 
+            if(t){
+                const payload = {name:currentUser.name,type:"text",data:t,replyTo};
+                if(navigator.onLine) socket.emit("chatMessage",payload);
+                else { offlineMessageQueue.push(payload); showToast("📶 Offline: Message queued"); }
+                inp.value=""; if($("reply-cancel")) $("reply-cancel").click(); if(send) send.style.display="none"; if(vb) vb.style.display="flex"; inp.focus();
+            } 
+        };
+    }
 
     function renderMsg(m){
         if(msgStore.has(m.id)) return;
@@ -803,28 +853,40 @@ function setupChat(){
         
         const a=document.createElement("div"); a.className="message-actions";
         emojis.forEach(e=>{const btn=document.createElement("button"); btn.className="action-btn"; btn.textContent=e; btn.onclick=()=>socket.emit("messageReaction",{messageId:m.id,emoji:e}); a.appendChild(btn);});
-        const rep=document.createElement("button"); rep.className="action-btn"; rep.textContent="↩ Reply"; rep.onclick=()=>{replyTo={id:m.id,name:m.name,type:m.type,preview:m.type==="text"?m.data.slice(0,50):"Attachment"}; $("reply-preview").textContent=`↩ ${m.name}`; $("reply-bar").style.display="flex"; inp.focus();}; a.appendChild(rep);
-        b.appendChild(a); const rr=document.createElement("div"); rr.className="reaction-row"; b.appendChild(rr); w.appendChild(b); $("chat-messages").appendChild(w);
+        const rep=document.createElement("button"); rep.className="action-btn"; rep.textContent="↩ Reply"; rep.onclick=()=>{replyTo={id:m.id,name:m.name,type:m.type,preview:m.type==="text"?m.data.slice(0,50):"Attachment"}; if($("reply-preview")) $("reply-preview").textContent=`↩ ${m.name}`; safeShow("reply-bar", "flex"); if(inp) inp.focus();}; a.appendChild(rep);
+        b.appendChild(a); const rr=document.createElement("div"); rr.className="reaction-row"; b.appendChild(rr); w.appendChild(b); 
+        
+        const chatMessages = $("chat-messages");
+        if(chatMessages) chatMessages.appendChild(w);
         
         msgStore.set(m.id,{msg:m,el:w});
-        if(m.senderId!==socket.id && cc.style.display!=="flex"){unread++; updateUnreadBadge();}
-        $("chat-messages").scrollTop=$("chat-messages").scrollHeight;
+        if(m.senderId!==socket.id && cc && cc.style.display!=="flex"){unread++; updateUnreadBadge();}
+        if(chatMessages) chatMessages.scrollTop=chatMessages.scrollHeight;
     }
 
     socket.on("chatHistory", l=>l.forEach(renderMsg)); socket.on("chatMessage", renderMsg);
-    socket.on("messageReaction", d=>{ const s=msgStore.get(d.messageId); if(s){ const c=s.el.querySelector(".reaction-row"); c.innerHTML=""; Object.keys(d.reactions).forEach(e=>{ if(d.reactions[e].length){ const b=document.createElement("button"); b.className="reaction-chip"; b.textContent=`${e} ${d.reactions[e].length}`; b.onclick=()=>socket.emit("messageReaction",{messageId:d.messageId,emoji:e}); c.appendChild(b);} }); }});
+    socket.on("messageReaction", d=>{ const s=msgStore.get(d.messageId); if(s){ const c=s.el.querySelector(".reaction-row"); if(c) { c.innerHTML=""; Object.keys(d.reactions).forEach(e=>{ if(d.reactions[e].length){ const b=document.createElement("button"); b.className="reaction-chip"; b.textContent=`${e} ${d.reactions[e].length}`; b.onclick=()=>socket.emit("messageReaction",{messageId:d.messageId,emoji:e}); c.appendChild(b);} }); } }});
 }
 
 function setupMemories(){
-    $("phase3-gallery-btn").onclick = () => { $("phase3-memory-overlay").style.display="block"; renderMemGallery(); };
-    $("phase3-memory-close").onclick = () => $("phase3-memory-overlay").style.display="none";
-    $("p3-view-close").onclick = () => $("phase3-photo-viewer").style.display="none";
+    const p3gb = $("phase3-gallery-btn");
+    if(p3gb) p3gb.onclick = () => { safeShow("phase3-memory-overlay", "block"); renderMemGallery(); };
+    
+    const p3mc = $("phase3-memory-close");
+    if(p3mc) p3mc.onclick = () => safeHide("phase3-memory-overlay");
+    
+    const p3vc = $("p3-view-close");
+    if(p3vc) p3vc.onclick = () => safeHide("phase3-photo-viewer");
     
     document.querySelectorAll(".phase3-filter").forEach(b => {
         b.onclick = () => { document.querySelectorAll(".phase3-filter").forEach(x=>x.classList.remove("active")); b.classList.add("active"); currentGalleryFilter=b.dataset.filter; renderMemGallery(); };
     });
-    $("phase3-memory-search").oninput = e => { currentGallerySearch=e.target.value.toLowerCase(); renderMemGallery(); };
-    $("p3-view-focus").onclick = () => { const m=memories.get(selectedMemoryId); if(m) map.flyTo([m.lat,m.lng],17); $("phase3-photo-viewer").style.display="none"; $("phase3-memory-overlay").style.display="none"; };
+    
+    const ms = $("phase3-memory-search");
+    if(ms) ms.oninput = e => { currentGallerySearch=e.target.value.toLowerCase(); renderMemGallery(); };
+    
+    const pvf = $("p3-view-focus");
+    if(pvf) pvf.onclick = () => { const m=memories.get(selectedMemoryId); if(m) map.flyTo([m.lat,m.lng],17); safeHide("phase3-photo-viewer"); safeHide("phase3-memory-overlay"); };
 
     function renderMemGallery(){
         let arr = Array.from(memories.values());
@@ -833,18 +895,25 @@ function setupMemories(){
         if(currentGallerySearch) arr=arr.filter(m=>cleanName(m.name).toLowerCase().includes(currentGallerySearch));
         arr.sort((a,b) => new Date(b.time) - new Date(a.time));
 
-        $("phase3-memory-count").textContent = `${arr.length} memories`;
+        if($("phase3-memory-count")) $("phase3-memory-count").textContent = `${arr.length} memories`;
         const grid=$("phase3-memory-grid"), time=$("phase3-timeline-list"), emp=$("phase3-memory-empty");
-        grid.innerHTML=""; time.innerHTML=""; emp.style.display=arr.length?"none":"block";
+        if(grid) grid.innerHTML=""; 
+        if(time) time.innerHTML=""; 
+        if(emp) emp.style.display=arr.length?"none":"block";
 
         arr.forEach(m=>{
-            const c=document.createElement("div"); c.className="p3-card";
-            c.innerHTML=`<img src="${escapeHTML(m.image)}" loading="lazy"><div class="p3-card-info"><b>${escapeHTML(m.name)}</b><span>${new Date(m.time).toLocaleDateString()}</span></div>`;
-            c.onclick=()=>{selectedMemoryId=m.id; $("p3-view-image").src=m.image; $("p3-view-name").textContent=m.name; $("p3-view-date").textContent=new Date(m.time).toLocaleString(); $("phase3-photo-viewer").style.display="flex";}; grid.appendChild(c);
-            
-            const t=document.createElement("div"); t.className="p3-time-item";
-            t.innerHTML=`<div class="p3-time-thumb"><img src="${escapeHTML(m.image)}" loading="lazy"></div><div class="p3-time-info"><b>${escapeHTML(m.name)}</b><span>${new Date(m.time).toLocaleString()}</span></div>`;
-            t.onclick=c.onclick; time.appendChild(t);
+            if(grid) {
+                const c=document.createElement("div"); c.className="p3-card";
+                c.innerHTML=`<img src="${escapeHTML(m.image)}" loading="lazy"><div class="p3-card-info"><b>${escapeHTML(m.name)}</b><span>${new Date(m.time).toLocaleDateString()}</span></div>`;
+                c.onclick=()=>{selectedMemoryId=m.id; if($("p3-view-image")) $("p3-view-image").src=m.image; if($("p3-view-name")) $("p3-view-name").textContent=m.name; if($("p3-view-date")) $("p3-view-date").textContent=new Date(m.time).toLocaleString(); safeShow("phase3-photo-viewer", "flex");}; 
+                grid.appendChild(c);
+            }
+            if(time) {
+                const t=document.createElement("div"); t.className="p3-time-item";
+                t.innerHTML=`<div class="p3-time-thumb"><img src="${escapeHTML(m.image)}" loading="lazy"></div><div class="p3-time-info"><b>${escapeHTML(m.name)}</b><span>${new Date(m.time).toLocaleString()}</span></div>`;
+                t.onclick=()=>{selectedMemoryId=m.id; if($("p3-view-image")) $("p3-view-image").src=m.image; if($("p3-view-name")) $("p3-view-name").textContent=m.name; if($("p3-view-date")) $("p3-view-date").textContent=new Date(m.time).toLocaleString(); safeShow("phase3-photo-viewer", "flex");}; 
+                time.appendChild(t);
+            }
         });
     }
 
@@ -854,41 +923,42 @@ function setupMemories(){
             const icon = L.divIcon({ className:"p3-memory-marker", html:`<div style="width:46px;height:46px;border-radius:50%;overflow:hidden;border:2px solid #fff;background:#071018;box-shadow:0 4px 15px rgba(0,0,0,.65)"><img src="${escapeHTML(m.image)}" style="width:100%;height:100%;object-fit:cover;"></div>`, iconSize:[46,46], iconAnchor:[23,23]});
             const marker = L.marker([m.lat,m.lng],{icon}).addTo(memoryLayer);
             marker.bindPopup(`<div class="p3-map-popup"><img src="${escapeHTML(m.image)}"><b>📸 ${escapeHTML(m.name)}</b><button class="p3-open-map-memory">View</button></div>`);
-            marker.on("popupopen",e=>{ const b=e.popup.getElement()?.querySelector(".p3-open-map-memory"); if(b) b.onclick=()=>{selectedMemoryId=m.id; $("p3-view-image").src=m.image; $("p3-view-name").textContent=m.name; $("p3-view-date").textContent=new Date(m.time).toLocaleString(); $("phase3-photo-viewer").style.display="flex";}; });
+            marker.on("popupopen",e=>{ const b=e.popup.getElement()?.querySelector(".p3-open-map-memory"); if(b) b.onclick=()=>{selectedMemoryId=m.id; if($("p3-view-image")) $("p3-view-image").src=m.image; if($("p3-view-name")) $("p3-view-name").textContent=m.name; if($("p3-view-date")) $("p3-view-date").textContent=new Date(m.time).toLocaleString(); safeShow("phase3-photo-viewer", "flex");}; });
         });
     }
 
     socket.on("loadMemoryPhotos", l=>{ memories.clear(); l.forEach(m=>memories.set(m.id,m)); renderPins(); });
-    socket.on("newMemoryPin", m=>{ memories.set(m.id,m); renderPins(); if($("phase3-memory-overlay").style.display==="block") renderMemGallery(); });
+    socket.on("newMemoryPin", m=>{ memories.set(m.id,m); renderPins(); const p3mo=$("phase3-memory-overlay"); if(p3mo && p3mo.style.display==="block") renderMemGallery(); });
 
     const mInp=$("memoryPhotoInput");
-    $("memoryButton").onclick=()=>{ if(!currentUser.name) return alert("Join map first."); mInp.click(); };
+    const mb = $("memoryButton");
+    if(mb) mb.onclick=()=>{ if(!currentUser.name) return alert("Join map first."); if(mInp) mInp.click(); };
     
     const addMemBtn = $("p3-add-memory-btn");
-    if(addMemBtn) addMemBtn.onclick = () => { $("phase3-memory-overlay").style.display="none"; $("memoryButton").click(); };
+    if(addMemBtn) addMemBtn.onclick = () => { safeHide("phase3-memory-overlay"); if(mInp) mInp.click(); };
     
-    mInp.onchange=()=>{
-        const f=mInp.files?.[0]; if(!f) return;
-        if(!IMAGE_TYPES.includes(f.type)||f.size>MAX_MEMORY_FILE){alert("Invalid image or >8MB."); mInp.value=""; return;}
-        const r=new FileReader(); 
-        r.onload=()=>{
-            if(validImageData(r.result)){ 
-                pendingMemoryImage = r.result;
-                showToast("📸 Photo Selected! Tap ANYWHERE on the map to pin it.", 5000);
-                setTimeout(() => { mapActionMode = 'memory'; }, 300);
-            }
-        }; 
-        r.readAsDataURL(f); mInp.value="";
-    };
+    if(mInp) {
+        mInp.onchange=()=>{
+            const f=mInp.files?.[0]; if(!f) return;
+            if(!IMAGE_TYPES.includes(f.type)||f.size>MAX_MEMORY_FILE){alert("Invalid image or >8MB."); mInp.value=""; return;}
+            const r=new FileReader(); 
+            r.onload=()=>{
+                if(validImageData(r.result)){ 
+                    pendingMemoryImage = r.result;
+                    showToast("📸 Photo Selected! Tap ANYWHERE on the map to pin it.", 5000);
+                    setTimeout(() => { mapActionMode = 'memory'; }, 300);
+                }
+            }; 
+            r.readAsDataURL(f); mInp.value="";
+        };
+    }
 }
 
 function setupJoin(){
     if(currentUser.name){ 
-        $("join-screen").style.display="none"; 
-        if($("header-avatar")) {
-            $("header-avatar").style.display="block"; 
-            $("header-avatar").src=currentUser.avatar; 
-        }
+        safeHide("join-screen"); 
+        const ha = $("header-avatar");
+        if(ha) { ha.style.display="block"; ha.src=currentUser.avatar; }
         socket.emit("profileReady",currentUser); 
     }
     const jf = $("join-form");
@@ -899,16 +969,12 @@ function setupJoin(){
             if(nInp) currentUser.name=cleanName(nInp.value); 
             localStorage.setItem("koraput_name",currentUser.name);
             const aInp = $("avatarInput");
-            const f=aInp ? aInp.files?.[0] : null;
-            if(f){
-                const r=new FileReader(); 
-                r.onload=()=>{currentUser.avatar=r.result; localStorage.setItem("koraput_avatar",r.result); done();}; 
-                r.readAsDataURL(f);
-            } else done();
+            const f=aInp?aInp.files?.[0]:null;
+            if(f){const r=new FileReader(); r.onload=()=>{currentUser.avatar=r.result; localStorage.setItem("koraput_avatar",r.result); done();}; r.readAsDataURL(f);} else done();
             
-            function done(){ 
-                $("join-screen").style.display="none"; 
-                const ha = $("header-avatar"); 
+            function done(){
+                safeHide("join-screen"); 
+                const ha = $("header-avatar");
                 if(ha) { ha.style.display="block"; ha.src=currentUser.avatar; } 
                 socket.emit("profileReady",currentUser); 
                 updateOnlineUI();
@@ -918,7 +984,7 @@ function setupJoin(){
 }
 
 // ==========================================
-// GOOGLE DIRECTIONS & SEARCH (Fixed by Claude)
+// GOOGLE DIRECTIONS & SEARCH
 // ==========================================
 function setupGoogleSearch() {
     const searchInput = $("location-search-input");
@@ -931,8 +997,8 @@ function setupGoogleSearch() {
             clearBtn.style.display = "none";
             if (searchMarker) { map.removeLayer(searchMarker); searchMarker = null; }
             navigationLayer.clearLayers();
-            if($("nav-panel")) $("nav-panel").style.display = "none";
-            if($("nav-bottom-sheet")) $("nav-bottom-sheet").style.display = "none";
+            safeHide("nav-panel");
+            safeHide("nav-bottom-sheet");
             if (myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
         };
     }
@@ -968,7 +1034,7 @@ function setupGoogleSearch() {
                 
                 if (searchMarker) map.removeLayer(searchMarker);
                 navigationLayer.clearLayers();
-                if($("nav-panel")) $("nav-panel").style.display = "none";
+                safeHide("nav-panel");
                 
                 map.flyTo([destLat, destLng], 15);
                 
@@ -991,7 +1057,6 @@ function setupGoogleSearch() {
                 searchMarker.bindPopup(popupContent).openPopup();
                 if (clearBtn) clearBtn.style.display = "block";
 
-                // ASLI JUGAD: Using Google Directions API instead of OSRM
                 if(myCoords && window.google) {
                     const ds = new google.maps.DirectionsService();
                     ds.route({
@@ -1006,7 +1071,6 @@ function setupGoogleSearch() {
                             const route = res.routes[0];
                             const leg = route.legs[0];
                             
-                            // Preview Line
                             const coords = route.overview_path.map(p => [p.lat(), p.lng()]);
                             L.polyline(coords, { color: '#60a5fa', weight: 4, opacity: 0.5, dashArray: '6, 8' }).addTo(navigationLayer);
 
@@ -1039,48 +1103,33 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
     navigationLayer.clearLayers();
     if(navWatchId) navigator.geolocation.clearWatch(navWatchId);
     
-    // Hide regular UI elements
-    if($("map-tools")) $("map-tools").style.display = "none";
-    if($("search-container")) $("search-container").style.display = "none";
-    if($("top-header")) $("top-header").style.display = "none";
-    if($("bottom-info")) $("bottom-info").style.display = "none";
-    if($("chat-toggle-btn")) $("chat-toggle-btn").style.display = "none";
+    safeHide("map-tools");
+    safeHide("search-container");
+    safeHide("top-header");
+    safeHide("bottom-info");
+    safeHide("chat-toggle-btn");
     
-    const ui = $("premium-nav-ui");
-    if(ui) ui.style.display = "block";
-
-    if($("nav-bottom-sheet")) $("nav-bottom-sheet").style.display = "flex";
-    if($("turn-banner")) $("turn-banner").style.display = "flex";
+    safeShow("premium-nav-ui", "block");
+    safeShow("nav-bottom-sheet", "flex");
+    safeShow("turn-banner", "flex");
 
     const leg = routeData.legs[0];
     const fullPath = routeData.overview_path.map(p => [p.lat(), p.lng()]);
     
-    // 1. Dotted Blue Path (Full Route)
-    const dottedPath = L.polyline(fullPath, {
-        color: '#4f46e5', weight: 8, opacity: 0.7, className: 'anim-dash'
-    }).addTo(navigationLayer);
+    const dottedPath = L.polyline(fullPath, { color: '#4f46e5', weight: 8, opacity: 0.7, className: 'anim-dash' }).addTo(navigationLayer);
+    const solidPath = L.polyline([], { color: '#10b981', weight: 8, opacity: 1, className: 'solid-trail' }).addTo(navigationLayer);
 
-    // 2. Solid Green Path (Traveled Route behind user)
-    const solidPath = L.polyline([], {
-        color: '#10b981', weight: 8, opacity: 1, className: 'solid-trail'
-    }).addTo(navigationLayer);
-
-    // 3. User Avatar Marker
     const userIcon = L.divIcon({
         className: 'nav-avatar-marker',
-        html: `<img src="${currentUser.avatar}" style="width:100%;height:100%;object-fit:cover; border-radius:50%; border:2px solid #10b981;">`,
+        html: `<img src="${escapeHTML(currentUser.avatar)}" style="width:100%;height:100%;object-fit:cover; border-radius:50%; border:2px solid #10b981;">`,
         iconSize: [40, 40],
         iconAnchor: [20, 20]
     });
     
-    // Place initial marker at user's real GPS position
     const startPos = myCoords ? [myCoords.lat, myCoords.lng] : fullPath[0];
     const userMarker = L.marker(startPos, {icon: userIcon, zIndexOffset: 1000}).addTo(navigationLayer);
-    
-    // Destination Pin
     L.marker([destLat, destLng], { icon: L.divIcon({className: 'geofence-marker', html: '📍'}) }).addTo(navigationLayer);
 
-    // 4. Set Initial UI Data
     if($("stat-dist")) $("stat-dist").innerHTML = leg.distance.text.replace(" km", "<small style='font-size:12px;color:#9ca3af;'> km</small>");
     if($("stat-eta")) $("stat-eta").innerHTML = leg.duration.text.replace(" mins", "<small> min</small>");
     
@@ -1092,7 +1141,6 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
 
     map.fitBounds(dottedPath.getBounds(), { paddingBottomRight: [0, 350], paddingTopLeft: [50, 150] });
 
-    // Buttons
     const startBtn = $("btn-start-nav");
     const resetBtn = $("btn-reset-nav");
     const exitBtn = $("btn-exit-nav");
@@ -1108,7 +1156,6 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
     if($("stat-status")) $("stat-status").textContent = "Ready";
     if($("speed-n")) $("speed-n").textContent = "0";
 
-    // 5. ASLI GPS TRACKING LOOP (Real-time movement)
     if(startBtn) {
         startBtn.onclick = () => {
             startBtn.style.display = "none";
@@ -1122,18 +1169,19 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
             
             if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 18, {animate: true, duration: 1.5});
             
-            // Start Trip Engine Tracker
             SmartDrive.startTrip();
             
-            // Start reading real phone GPS specifically for Navigation View
             if (navigator.geolocation) {
                 let traveledCoords = [];
-                
                 navWatchId = navigator.geolocation.watchPosition((pos) => {
                     const currentLat = pos.coords.latitude;
                     const currentLng = pos.coords.longitude;
                     const currentPos = [currentLat, currentLng];
                     
+                    const speedMps = pos.coords.speed || 0; 
+                    const speedKmh = Math.round(speedMps * 3.6);
+                    if($("speed-n")) $("speed-n").textContent = speedKmh;
+
                     userMarker.setLatLng(currentPos);
                     map.panTo(currentPos);
 
@@ -1159,37 +1207,28 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
                         
                         setTimeout(() => stopDrive(), 3000);
                     }
-                }, (err) => {
-                    console.error("GPS Error during nav:", err);
-                }, { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 });
+                }, (err) => {}, { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 });
             }
         };
     }
     
-    // Cancel Route before starting
-    if(resetBtn) resetBtn.onclick = () => {
-        stopDrive(true); // cancelled
-    };
-
-    // Exit mid-route
-    if(exitBtn) exitBtn.onclick = () => {
-        stopDrive();
-    };
+    if(resetBtn) resetBtn.onclick = () => stopDrive(true);
+    if(exitBtn) exitBtn.onclick = () => stopDrive();
 }
 
 function stopDrive(cancelled = false) {
     if(navWatchId) navigator.geolocation.clearWatch(navWatchId);
     navigationLayer.clearLayers();
-    if($("premium-nav-ui")) $("premium-nav-ui").style.display = "none";
-    if($("nav-bottom-sheet")) $("nav-bottom-sheet").style.display = "none";
-    if($("turn-banner")) $("turn-banner").style.display = "none";
-    if($("speed-dial")) $("speed-dial").style.display = "none";
+    safeHide("premium-nav-ui");
+    safeHide("nav-bottom-sheet");
+    safeHide("turn-banner");
+    safeHide("speed-dial");
     
-    if($("map-tools")) $("map-tools").style.display = "flex";
-    if($("search-container")) $("search-container").style.display = "flex";
-    if($("top-header")) $("top-header").style.display = "flex";
-    if($("bottom-info")) $("bottom-info").style.display = "flex";
-    if($("chat-toggle-btn")) $("chat-toggle-btn").style.display = "flex";
+    safeShow("map-tools", "flex");
+    safeShow("search-container", "flex");
+    safeShow("top-header", "flex");
+    safeShow("bottom-info", "flex");
+    safeShow("chat-toggle-btn", "flex");
     
     if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
     
@@ -1201,12 +1240,7 @@ function stopDrive(cancelled = false) {
 // ==========================================
 // VOICE CALLING (ONLINE WEBRTC & OFFLINE GSM)
 // ==========================================
-let peerConnection = null;
-let localStream = null;
-let incomingIceCandidates = [];
-let callDialog = null;
-let activeCallBtn = null;
-
+let peerConnection = null, localStream = null, incomingIceCandidates = [], callDialog = null, activeCallBtn = null;
 const rtcConfig = { 
     iceServers: [
         { urls: "stun:stun.l.google.com:19302" },
@@ -1235,7 +1269,6 @@ function attachAudioTrack(event) {
     }
     
     audio.play().catch(e => {
-        console.log("Audio play error, forcing play:", e);
         document.body.addEventListener('click', () => { audio.play(); }, { once: true });
     });
 }
@@ -1251,6 +1284,11 @@ function initCallButton(u) {
         if (!navigator.onLine || u.online === false) {
             const phone = prompt(`No Internet or Friend is offline.\nEnter mobile number to dial via SIM:`);
             if (phone) window.location.href = `tel:${phone.trim()}`;
+            return;
+        }
+
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            showToast("❌ Microphone is not available in this browser.");
             return;
         }
 
@@ -1275,7 +1313,7 @@ function initCallButton(u) {
             showActiveCallUI(() => socket.emit("end-call", { to: u.id }));
             
         } catch (err) {
-            showToast("❌ Microphone permission denied.");
+            showToast(`❌ Mic Error: ${err.name || "Unknown"}`);
         }
     };
 }
@@ -1291,9 +1329,9 @@ socket.on("incoming-call", async (data) => {
         if (callDialog) callDialog.remove();
         
         callDialog = document.createElement('div');
-        callDialog.style.cssText = "position:fixed;top:70px;left:50%;transform:translateX(-50%);background:rgba(15,23,42,0.98);padding:24px;border:1px solid #18d6a3;border-radius:20px;z-index:9999;box-shadow:0 15px 40px rgba(0,0,0,0.7);color:white;text-align:center;backdrop-filter:blur(10px);min-width:280px;animation:modalIn 0.4s ease;";
+        callDialog.style.cssText = "position:fixed;top:70px;left:50%;transform:translateX(-50%);background:rgba(15,23,42,0.98);padding:24px;border:1px solid #18d6a3;border-radius:20px;z-index:9999;box-shadow:0 15px 40px rgba(0,0,0,0.7);color:white;text-align:center;backdrop-filter:blur(10px);min-width:280px;";
         callDialog.innerHTML = `
-            <div style="font-size:32px;margin-bottom:10px;animation:livePulse 1.5s infinite;">📞</div>
+            <div style="font-size:32px;margin-bottom:10px;">📞</div>
             <strong style="font-size:18px;display:block;">${escapeHTML(data.name)}</strong>
             <div style="font-size:13px;color:#94a3b8;margin-top:6px;margin-bottom:20px;">Incoming Voice Call...</div>
             <div style="display:flex;gap:12px;justify-content:center;">
