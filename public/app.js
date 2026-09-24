@@ -1,16 +1,7 @@
 "use strict";
 
-// ==========================================
-// 1. SETUP & LEAFLET MAP
-// ==========================================
-
-// (डार्क मैप का API एरर फिक्स करने के लिए CSS को जावास्क्रिप्ट से ही डाल दिया है)
-const styleObj = document.createElement('style');
-styleObj.innerHTML = `.google-dark-map { filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%); }`;
-document.head.appendChild(styleObj);
-
 const socket = io({ transports: ["websocket", "polling"] });
-const DEFAULT_CENTER = [18.8136, 82.7153];
+const DEFAULT_CENTER = [18.8136, 82.7153]; // Centered near Koraput
 const DEFAULT_AVATAR = "satyam.png";
 const MAX_NAME = 40;
 const MAX_CHAT_FILE = 5 * 1024 * 1024;
@@ -24,10 +15,7 @@ const map = L.map("map", {
 
 const satelliteLayer = L.tileLayer("https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}", { maxZoom: 20, subdomains: ["mt0","mt1","mt2","mt3"] });
 const streetLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 });
-// CartoDB ka API Key error bypass karke Google Map ko Dark banaya
-const darkLayer = L.tileLayer("https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}", { 
-    maxZoom: 20, subdomains: ["mt0","mt1","mt2","mt3"], className: "google-dark-map" 
-});
+const darkLayer = L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", { maxZoom: 20 });
 satelliteLayer.addTo(map);
 
 let currentUser = { name: localStorage.getItem("koraput_name") || "", avatar: localStorage.getItem("koraput_avatar") || DEFAULT_AVATAR };
@@ -35,8 +23,6 @@ let myCoords = null, myWeather = "", ownMarker = null, accuracyCircle = null, ci
 let lastWeatherFetch = 0;
 const friendMarkers = Object.create(null);
 const friendData = Object.create(null);
-
-let lastFixCoords = null, lastFixTime = 0; // used as a fallback to derive speed when coords.speed is null
 
 let locationHistory = [];
 try {
@@ -63,16 +49,16 @@ let measurePoints = [];
 let currentTrip = null;
 let tripMarker = null;
 
-// FIX 1: Geofence crash theek karne ke liye variables yahan add kar diye
-let geoClickCount = 0, geoClickTimer = null; 
-
+// GEOFENCE VARS
+let geoClickCount = 0, geoClickTimer = null;
 let currentGeofences = []; 
 const memories = new Map();
 let currentGalleryFilter = "all", currentGallerySearch = "", selectedMemoryId = null;
 
-// SEARCH MARKER & OFFLINE QUEUE
+// SEARCH MARKER & OFFLINE QUEUE (3-DAY ADDITIONS)
 let searchMarker = null;
 let offlineMessageQueue = [];
+let isNetworkOnline = navigator.onLine;
 
 const $ = id => document.getElementById(id);
 const cleanName = v => String(v || "User").trim().replace(/\s+/g," ").slice(0, MAX_NAME);
@@ -124,8 +110,8 @@ async function fetchCity(lat,lng){
     } catch (e) {}
     try {
         const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}&zoom=10`);
-        if (r.ok) { const d = await r.json(); return d.address?.city || d.address?.town || d.address?.county || "Rourkela"; }
-    } catch { return "Rourkela"; }
+        if (r.ok) { const d = await r.json(); return d.address?.city || d.address?.town || d.address?.county || "Koraput Area"; }
+    } catch { return "Koraput Area"; }
 }
 
 // ==========================================
@@ -383,7 +369,6 @@ const Navigation = {
 };
 
 if($("nav-recalc-btn")) $("nav-recalc-btn").onclick = () => Navigation.calculate();
-// FIX 2: nav-exit-btn ki jagah nav-panel-exit kar diya
 if($("nav-panel-exit")) $("nav-panel-exit").onclick = () => Navigation.stop();
 
 const GroupNavigation = {
@@ -463,7 +448,7 @@ if($("group-nav-stop-btn")) $("group-nav-stop-btn").onclick = () => GroupNavigat
 
 
 // ==========================================
-// CORE SYSTEM
+// CORE SYSTEM WITH ELEVATION & SPEED ADDITIONS
 // ==========================================
 socket.on("connect", () => { 
     if (currentUser.name) socket.emit("profileReady", currentUser); 
@@ -487,17 +472,25 @@ socket.on("geofenceAlert", (data) => {
     showToast(`🔔 ${data.user} has ${action} ${data.fence}!`);
 });
 
-// FIXED GPS WITH ERROR HANDLING (Will not crash app if denied)
+// Fixed GPS extracting Elevation (for Deomali) & Speed (for Motorcycle)
 function startGPS() {
     if(!navigator.geolocation) {
         showToast("❌ Browser does not support GPS");
         return;
     }
     navigator.geolocation.watchPosition(async p=>{
-        const lat=Number(p.coords.latitude), lng=Number(p.coords.longitude), acc=Number(p.coords.accuracy);
+        const lat = Number(p.coords.latitude), lng = Number(p.coords.longitude), acc = Number(p.coords.accuracy);
+        
+        // --- NEW: Altitude & Speed Extraction ---
         const alt = p.coords.altitude ? Math.round(p.coords.altitude) : null;
+        const speedKmh = p.coords.speed ? Math.round(p.coords.speed * 3.6) : null;
+        
         if(!validCoord(lat,lng)) return;
-        myCoords={lat,lng, alt};
+        myCoords = {lat, lng, alt, speedKmh};
+
+        // Render UI Speed/Alt dynamically if elements exist (or create them visually)
+        if($("map-alt-display")) $("map-alt-display").textContent = alt !== null ? `⛰️ ${alt}m` : '';
+        if($("map-speed-display")) $("map-speed-display").textContent = speedKmh !== null ? `🏍️ ${speedKmh} km/h` : '';
 
         locationHistory.push([lat, lng]);
         if(locationHistory.length > 1000) locationHistory.shift(); 
@@ -519,7 +512,7 @@ function startGPS() {
         if (!cityName) {
             cityName = await fetchCity(lat, lng);
             if (cityName) {
-                if ($("header-app-title")) $("header-app-title").textContent = `${cityName} Map`;
+                if ($("header-app-title")) $("header-app-title").textContent = `${cityName} Tracker`;
                 if ($("pill-city")) $("pill-city").textContent = `📍 ${cityName}`;
             }
         }
@@ -530,33 +523,13 @@ function startGPS() {
                 myWeather = w;
                 lastWeatherFetch = Date.now();
                 if ($("map-temp-display")) $("map-temp-display").textContent = w;
-                if ($("top-weather")) { $("top-weather").style.display = "flex"; $("top-weather").textContent = w; }
+                
+                // Add Elevation to own badge
                 const badgeText = alt !== null ? `${w} | ⛰️${alt}m` : w;
-                if (ownMarker) {
-                    ownMarker.unbindTooltip().bindTooltip(badgeText, { permanent: true, direction: "right", className: "weather-badge", offset: [15, 0] });
-                }
+                if (ownMarker) ownMarker.unbindTooltip().bindTooltip(badgeText, { permanent: true, direction: "right", className: "weather-badge", offset: [15, 0] });
             }
         }
-
-        // --- Speed & Fuel Engine Calculation ---
-        let speedKmh = 0;
-        let dist = 0;
-        if (p.coords.speed != null && p.coords.speed >= 0) {
-            speedKmh = p.coords.speed * 3.6;
-        } 
-        if (lastFixCoords && lastFixTime) {
-            dist = Number(distanceKm(lastFixCoords.lat, lastFixCoords.lng, lat, lng)) || 0;
-            const dtSec = (Date.now() - lastFixTime) / 1000;
-            if (!p.coords.speed && dtSec > 0.5) {
-                speedKmh = (dist / dtSec) * 3600;
-            }
-        }
-        speedKmh = Math.min(speedKmh, 300); 
-        lastFixCoords = { lat, lng }; lastFixTime = Date.now();
-
-        // Feed data to SmartDrive
-        SmartDrive.tick(speedKmh, dist);
-
+        
         socket.emit("updateLocation",{name:currentUser.name, avatar:currentUser.avatar, lat, lng, alt, speedKmh, weather:myWeather});
         updateFriendBadges(); 
         triggerGroupRouteUpdate(); 
@@ -574,7 +547,7 @@ function updateFriendBadges(){
         const f=friendData[id], m=friendMarkers[id]; if(!f||!m) return;
         let text = f.online===false ? "Offline" : f.weather;
         if(f.alt) text += ` | ⛰️${f.alt}m`;
-        if(myCoords && validCoord(f.lat,f.lng)) text += ` | 📍 ${distanceKm(myCoords.lat,myCoords.lng,f.lat,f.lng)} km away`;
+        if(myCoords && validCoord(f.lat,f.lng)) text += ` | 📍 ${distanceKm(myCoords.lat,myCoords.lng,f.lat,f.lng)} km`;
         m.unbindTooltip(); if(text) m.bindTooltip(text,{permanent:true,direction:"right",className:"weather-badge",offset:[15,0]});
     });
 }
@@ -749,12 +722,13 @@ function setupAdvancedTools() {
         }
         else if (mapActionMode === 'memory') {
             if (pendingMemoryImage) {
-                const payload = { name: currentUser.name, lat: e.latlng.lat, lng: e.latlng.lng, image: pendingMemoryImage };
-                if (navigator.onLine) {
-                    socket.emit("uploadMemoryPhoto", payload);
+                // Offline fallback
+                if(navigator.onLine) {
+                    socket.emit("uploadMemoryPhoto", { name: currentUser.name, lat: e.latlng.lat, lng: e.latlng.lng, image: pendingMemoryImage });
                     showToast("✅ Memory pinned successfully!");
                 } else {
-                    showToast("📶 Offline: Memory will be pinned when connected.");
+                    showToast("📶 Offline: Memory saved. Will sync when reconnected.");
+                    // Fallback logic could be added here to queue memory
                 }
             }
             mapActionMode = null; pendingMemoryImage = null;
@@ -802,6 +776,8 @@ function setupAdvancedTools() {
                 }
             }
             triggerGroupRouteUpdate(); 
+            // Re-render checklist if open
+            if(window.renderTripChecklist) window.renderTripChecklist();
         } else {
             tripRoutesLayer.clearLayers(); tripRoadStats = {};
             if($("trip-panel")) $("trip-panel").style.display = "none";
@@ -888,8 +864,9 @@ function setupBasicControls(){
         $("map-style-menu").style.display="none";
     };
     if (window.DeviceOrientationEvent) window.addEventListener("deviceorientation", e => { const icon = $("compass-icon"); if (icon) icon.style.transform = `rotate(${e.webkitCompassHeading ? -e.webkitCompassHeading : e.alpha}deg)`; }, true);
-
-    window.addEventListener('offline', () => showToast("📶 You are offline. Chat & Pins will save locally."));
+    
+    // Online/Offline status listeners
+    window.addEventListener('offline', () => showToast("📶 You are offline. Data saved locally."));
     window.addEventListener('online', () => {
         showToast("📶 Back online!");
         if(offlineMessageQueue.length > 0) {
@@ -1222,8 +1199,8 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
     map.fitBounds(dottedPath.getBounds(), { paddingBottomRight: [0, 350], paddingTopLeft: [50, 150] });
 
     // Buttons
-    const startBtn = $("btn-start-nav");
-    const resetBtn = $("btn-reset-nav");
+    const startBtn = $("nav-start-btn");
+    const resetBtn = $("nav-exit-btn");
     const exitBtn = $("btn-exit-nav");
     
     if(startBtn) {
@@ -1273,7 +1250,7 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
 
                 const remainingMeters = map.distance(currentPos, [destLat, destLng]);
                 const remainingKm = (remainingMeters / 1000).toFixed(1);
-                if($("stat-dist")) $("stat-dist").innerHTML = remainingKm + "<small style='font-size:12px;color:#9ca3af;'> km</small>";
+                if($("nav-total-dist")) $("nav-total-dist").innerHTML = remainingKm + "<small style='font-size:12px;color:#9ca3af;'> km</small>";
 
                 if(remainingMeters < 30) {
                     navigator.geolocation.clearWatch(navWatchId);
@@ -1541,11 +1518,8 @@ function endLocalCall() {
 // ==========================================
 let deferredPrompt;
 window.addEventListener('beforeinstallprompt', (e) => {
-    // Browser ka default popup roko
     e.preventDefault();
     deferredPrompt = e;
-    
-    // Apna custom button dikhao
     const installBtn = $("install-app-btn");
     if (installBtn) installBtn.style.display = 'flex';
 });
@@ -1555,18 +1529,15 @@ window.addEventListener('DOMContentLoaded', () => {
     if (installBtn) {
         installBtn.onclick = async () => {
             if (deferredPrompt) {
-                // Install ka option popup karo
                 deferredPrompt.prompt();
                 const { outcome } = await deferredPrompt.userChoice;
                 if (outcome === 'accepted') {
-                    installBtn.style.display = 'none'; // Download ke baad gayab kar do
+                    installBtn.style.display = 'none'; 
                 }
                 deferredPrompt = null;
             }
         };
     }
-    
-    // Agar app already install ho chuka hai, toh button hata do
     if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true) {
         if (installBtn) installBtn.style.display = 'none';
     }
