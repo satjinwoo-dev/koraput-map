@@ -1,7 +1,7 @@
 "use strict";
 
 const socket = io({ transports: ["websocket", "polling"] });
-const DEFAULT_CENTER = [18.8136, 82.7153]; // Default Koraput Center
+const DEFAULT_CENTER = [18.8136, 82.7153];
 const DEFAULT_AVATAR = "satyam.png";
 const MAX_NAME = 40;
 const MAX_CHAT_FILE = 5 * 1024 * 1024;
@@ -71,7 +71,6 @@ function distanceKm(a,b,c,d){
 }
 function escapeHTML(v) { return String(v ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;"); }
 
-// TUMHARA ORIGINAL AVATAR MARKER CODE (Bilkul safe hai)
 function ownIcon() { 
     return L.divIcon({ 
         className: "custom-own-icon", 
@@ -114,14 +113,15 @@ async function fetchCity(lat,lng){
     } catch { return "Local Area"; }
 }
 
-// ==========================================
-// SMART DRIVE ENGINE
-// ==========================================
 const SmartDrive = {
     isRecording: false,
     baseMileage: 18,
     speedHistory: [],
-    trip: { active: false, startTime: 0, totalDist: 0, actualFuel: 0, maxSpeed: 0, sumSpeed: 0, ticks: 0, ranges: { efficient: 0, moderate: 0, inefficient: 0 } },
+    
+    trip: {
+        active: false, startTime: 0, totalDist: 0, actualFuel: 0, maxSpeed: 0, sumSpeed: 0, ticks: 0, ranges: { efficient: 0, moderate: 0, inefficient: 0 } 
+    },
+
     audioCtx: null, lastAlertTime: 0, overlayTimer: null,
 
     init() {
@@ -146,9 +146,17 @@ const SmartDrive = {
             if(!this.isRecording) this.speedHistory = [];
         });
 
-        $("profile-open-btn")?.addEventListener("click", () => safeShow("profile-settings-modal", "flex"));
-        $("close-settings-btn")?.addEventListener("click", () => safeHide("profile-settings-modal"));
-        $("close-results-btn")?.addEventListener("click", () => safeHide("results-panel"));
+        $("profile-open-btn")?.addEventListener("click", () => {
+            if($("profile-settings-modal")) $("profile-settings-modal").style.display = "flex";
+        });
+        
+        $("close-settings-btn")?.addEventListener("click", () => {
+            if($("profile-settings-modal")) $("profile-settings-modal").style.display = "none";
+        });
+        
+        $("close-results-btn")?.addEventListener("click", () => {
+            if($("results-panel")) $("results-panel").style.display = "none";
+        });
         
         document.addEventListener("click", () => {
             if(!this.audioCtx) {
@@ -188,7 +196,9 @@ const SmartDrive = {
                 dial.style.display = "flex";
                 if($("speed-n")) $("speed-n").textContent = Math.round(speed);
                 dial.className = "speed-dial " + (speed >= 100 ? "danger" : (speed >= 80 ? "warn" : ""));
-            } else { dial.style.display = "none"; }
+            } else {
+                dial.style.display = "none";
+            }
         }
 
         if (now - this.lastAlertTime < 15000) return; 
@@ -210,21 +220,29 @@ const SmartDrive = {
 
     tick(speedKmh, distKm) {
         this.checkSafetyLimits(speedKmh);
+
         if (!this.trip.active && !this.isRecording) return;
+
         this.speedHistory.push(speedKmh);
         if(this.speedHistory.length > 50) this.speedHistory.shift();
         this.drawGraph();
 
         if (this.trip.active && distKm > 0) {
-            this.trip.totalDist += distKm; this.trip.ticks += 1; this.trip.sumSpeed += speedKmh;
+            this.trip.totalDist += distKm;
+            this.trip.ticks += 1;
+            this.trip.sumSpeed += speedKmh;
             if(speedKmh > this.trip.maxSpeed) this.trip.maxSpeed = speedKmh;
+
             if(speedKmh >= 40 && speedKmh <= 60) this.trip.ranges.efficient++;
             else if (speedKmh > 80) this.trip.ranges.inefficient++;
             else this.trip.ranges.moderate++;
 
             let currentEff = this.baseMileage;
-            if (speedKmh > 60) currentEff -= (speedKmh - 60) * 0.005 * this.baseMileage; 
-            else if (speedKmh < 40) currentEff -= (40 - speedKmh) * 0.004 * this.baseMileage; 
+            if (speedKmh > 60) {
+                currentEff -= (speedKmh - 60) * 0.005 * this.baseMileage; 
+            } else if (speedKmh < 40) {
+                currentEff -= (40 - speedKmh) * 0.004 * this.baseMileage; 
+            }
             currentEff = Math.max(2, currentEff); 
             this.trip.actualFuel += (distKm / currentEff);
         }
@@ -235,11 +253,14 @@ const SmartDrive = {
         if(!cvs || !this.isRecording) return;
         const ctx = cvs.getContext("2d");
         const w = cvs.width = cvs.offsetWidth, h = cvs.height = cvs.offsetHeight;
+        
         ctx.clearRect(0,0,w,h);
         if(this.speedHistory.length < 2) return;
         
         const max = Math.max(60, ...this.speedHistory);
-        ctx.beginPath(); ctx.strokeStyle = "#3b82f6"; ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.strokeStyle = "#3b82f6";
+        ctx.lineWidth = 2;
         this.speedHistory.forEach((v, i) => {
             const x = (i / (this.speedHistory.length - 1)) * w;
             const y = h - (v / max) * h * 0.8;
@@ -248,11 +269,14 @@ const SmartDrive = {
         ctx.stroke();
     },
 
-    startTrip() { this.trip = { active: true, startTime: Date.now(), totalDist: 0, actualFuel: 0, maxSpeed: 0, sumSpeed: 0, ticks: 0, ranges: {efficient:0, moderate:0, inefficient:0} }; },
+    startTrip() {
+        this.trip = { active: true, startTime: Date.now(), totalDist: 0, actualFuel: 0, maxSpeed: 0, sumSpeed: 0, ticks: 0, ranges: {efficient:0, moderate:0, inefficient:0} };
+    },
     
     endTrip() {
         if(!this.trip.active || this.trip.ticks === 0) return;
         this.trip.active = false;
+        
         const avg = this.trip.sumSpeed / this.trip.ticks;
         
         if($("res-dist")) $("res-dist").textContent = this.trip.totalDist.toFixed(2) + " km";
@@ -262,7 +286,10 @@ const SmartDrive = {
         if($("res-ineff-time")) $("res-ineff-time").textContent = Math.round(this.trip.ranges.inefficient / 60) + " min";
         if($("res-base-mlg")) $("res-base-mlg").textContent = this.baseMileage + " km/L";
         if($("res-actual-fuel")) $("res-actual-fuel").textContent = this.trip.actualFuel.toFixed(2) + " L";
-        if($("results-panel")) $("results-panel").style.display = "flex";
+
+        if($("results-panel")) {
+            $("results-panel").style.display = "flex";
+        }
     }
 };
 
@@ -733,6 +760,7 @@ function setupAdvancedTools() {
                     socket.emit("uploadMemoryPhoto", payload);
                     showToast("✅ Memory pinned successfully!");
                 } else {
+                    offlineMemoryQueue.push(payload);
                     showToast("📶 Offline: Memory saved. Will sync when reconnected.");
                 }
             }
@@ -781,7 +809,7 @@ function setupAdvancedTools() {
                     actionBtn.onclick = () => socket.emit("joinTrip");
                 }
             }
-            if(typeof triggerGroupRouteUpdate === "function") triggerGroupRouteUpdate(); 
+            triggerGroupRouteUpdate(); 
             if(window.renderTripChecklist) window.renderTripChecklist();
         } else {
             tripRoutesLayer.clearLayers(); tripRoadStats = {};
@@ -790,35 +818,96 @@ function setupAdvancedTools() {
     });
 }
 
-function setupBasicControls(){
-    const mlb = $("my-location-btn");
-    if(mlb) mlb.onclick = () => { if(myCoords) map.flyTo([myCoords.lat,myCoords.lng], 16); };
+let groupRouteUpdateTimer = null;
+let isFetchingGroupRoutes = false;
+
+function triggerGroupRouteUpdate() {
+    clearTimeout(groupRouteUpdateTimer);
+    groupRouteUpdateTimer = setTimeout(() => updateGroupTripRoutes(), 1000);
+}
+
+async function updateGroupTripRoutes() {
+    if (!currentTrip || isFetchingGroupRoutes) return;
+    isFetchingGroupRoutes = true;
+
+    const promises = currentTrip.members.map(async (member, index) => {
+        const color = routeColors[index % routeColors.length];
+        let coords = null;
+        
+        if (member.id === socket.id && myCoords) coords = myCoords;
+        else if (friendData[member.id] && friendData[member.id].online !== false) coords = friendData[member.id];
+        
+        if (coords) {
+            const last = tripLastFetchedCoords[member.id];
+            if (last && distanceKm(last.lat, last.lng, coords.lat, coords.lng) < 0.1) return;
+
+            try {
+                const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${coords.lng},${coords.lat};${currentTrip.lng},${currentTrip.lat}?geometries=geojson`);
+                const data = await res.json();
+                
+                if (data.routes && data.routes.length > 0) {
+                    const r = data.routes[0];
+                    const pathCoords = r.geometry.coordinates.map(c => [c[1], c[0]]);
+                    
+                    tripRoutesLayer.eachLayer(l => { if(l.memberId === member.id) tripRoutesLayer.removeLayer(l); });
+
+                    const poly = L.polyline(pathCoords, { color: color, weight: 5, opacity: 0.8, className: 'nav-path-animated' });
+                    poly.memberId = member.id;
+                    poly.addTo(tripRoutesLayer);
+                    
+                    tripLastFetchedCoords[member.id] = { lat: coords.lat, lng: coords.lng };
+                    tripRoadStats[member.id] = { dist: (r.distance / 1000).toFixed(1), time: Math.round(r.duration / 60) };
+                }
+            } catch(e) {}
+        }
+    });
+
+    await Promise.all(promises);
+    isFetchingGroupRoutes = false;
+    updateTripPanel();
+}
+
+function updateTripPanel() {
+    if(!currentTrip) return;
+    const list = $("trip-members-list"); if(!list) return;
+    list.innerHTML = "";
     
-    const cb = $("compass-btn");
-    if(cb) cb.onclick = () => { map.setView(map.getCenter(), map.getZoom(), {animate:true}); const ci=$("compass-icon"); if(ci) ci.style.transform="rotate(0deg)"; };
-    
-    const msb = $("map-style-btn");
-    if(msb) msb.onclick = (e) => { e.stopPropagation(); const sm=$("map-style-menu"); if(sm) sm.style.display = sm.style.display==="flex"?"none":"flex"; };
-    
-    const msm = $("map-style-menu");
-    if(msm) {
-        msm.onclick = (e) => {
-            const b=e.target.closest("[data-style]"); if(!b) return; const s=b.dataset.style;
-            [satelliteLayer,streetLayer,darkLayer].forEach(l=>map.removeLayer(l));
-            ({satellite:satelliteLayer,street:streetLayer,dark:darkLayer})[s].addTo(map);
-            document.querySelectorAll("#map-style-menu button").forEach(x=>x.classList.toggle("active",x.dataset.style===s));
-            safeHide("map-style-menu");
-        };
+    const isMember = currentTrip.members.some(m => m.id === socket.id);
+
+    if(myCoords && currentUser.name && isMember) {
+        const stats = tripRoadStats[socket.id] || { dist: distanceKm(myCoords.lat, myCoords.lng, currentTrip.lat, currentTrip.lng), time: '--' };
+        list.innerHTML += `<div class="trip-member"><div><img src="${escapeHTML(currentUser.avatar)}"> You</div> <span style="text-align:right;">${stats.dist} km<br><small style="color:var(--muted)">${stats.time} min</small></span></div>`;
     }
     
+    Object.values(friendData).filter(f => f.online !== false && currentTrip.members.some(m => m.id === f.id)).forEach(f => {
+        const stats = tripRoadStats[f.id] || { dist: distanceKm(f.lat, f.lng, currentTrip.lat, currentTrip.lng), time: '--' };
+        list.innerHTML += `<div class="trip-member"><div><img src="${escapeHTML(f.avatar)}"> ${escapeHTML(f.name)}</div> <span style="text-align:right;">${stats.dist} km<br><small style="color:var(--muted)">${stats.time} min</small></span></div>`;
+    });
+}
+
+function setupBasicControls(){
+    $("my-location-btn").onclick = () => { if(myCoords) map.flyTo([myCoords.lat,myCoords.lng], 16); };
+    $("compass-btn").onclick = () => { map.setView(map.getCenter(), map.getZoom(), {animate:true}); const ci=$("compass-icon"); if(ci) ci.style.transform="rotate(0deg)"; };
+    $("map-style-btn").onclick = (e) => { e.stopPropagation(); const sm=$("map-style-menu"); if(sm) sm.style.display = sm.style.display==="flex"?"none":"flex"; };
+    $("map-style-menu").onclick = (e) => {
+        const b=e.target.closest("[data-style]"); if(!b) return; const s=b.dataset.style;
+        [satelliteLayer,streetLayer,darkLayer].forEach(l=>map.removeLayer(l));
+        ({satellite:satelliteLayer,street:streetLayer,dark:darkLayer})[s].addTo(map);
+        document.querySelectorAll("#map-style-menu button").forEach(x=>x.classList.toggle("active",x.dataset.style===s));
+        safeHide("map-style-menu");
+    };
     if (window.DeviceOrientationEvent) window.addEventListener("deviceorientation", e => { const icon = $("compass-icon"); if (icon) icon.style.transform = `rotate(${e.webkitCompassHeading ? -e.webkitCompassHeading : e.alpha}deg)`; }, true);
 
     window.addEventListener('offline', () => showToast("📶 You are offline. Data saved locally."));
     window.addEventListener('online', () => {
         showToast("📶 Back online!");
-        if(offlineMessageQueue && offlineMessageQueue.length > 0) {
+        if(offlineMessageQueue.length > 0) {
             offlineMessageQueue.forEach(msg => socket.emit("chatMessage", msg));
             offlineMessageQueue = [];
+        }
+        if(offlineMemoryQueue.length > 0) {
+            offlineMemoryQueue.forEach(mem => socket.emit("uploadMemoryPhoto", mem));
+            offlineMemoryQueue = [];
         }
     });
 }
@@ -830,15 +919,18 @@ function setupChat(){
 
     function updateUnreadBadge(){ const b=$("chat-unread-badge"); if(b){ b.textContent=unread>99?"99+":unread; b.style.display=unread>0?"flex":"none"; } }
 
-    const ctb = $("chat-toggle-btn");
-    if(ctb) ctb.onclick = () => { safeShow("chat-container", "flex"); safeHide("chat-toggle-btn"); unread=0; updateUnreadBadge(); if(inp) inp.focus(); };
-    
-    const cmb = $("chat-minimize-btn");
-    if(cmb) cmb.onclick = () => { safeHide("chat-container"); safeShow("chat-toggle-btn", "flex"); };
-    
-    const ob = $("online-btn");
-    if(ob) ob.onclick = (e) => { e.stopPropagation(); const l=$("online-list"); if(l) l.style.display = l.style.display === "block" ? "none" : "block"; updateOnlineUI(); };
-    
+    const chatTglBtn = $("chat-toggle-btn");
+    if(chatTglBtn) {
+        chatTglBtn.onclick = () => { safeShow("chat-container", "flex"); safeHide("chat-toggle-btn"); unread=0; updateUnreadBadge(); if(inp) inp.focus(); };
+    }
+    const chatMinBtn = $("chat-minimize-btn");
+    if(chatMinBtn) {
+        chatMinBtn.onclick = () => { safeHide("chat-container"); safeShow("chat-toggle-btn", "flex"); };
+    }
+    const onlineBtn = $("online-btn");
+    if(onlineBtn) {
+        onlineBtn.onclick = (e) => { e.stopPropagation(); const l=$("online-list"); if(l) l.style.display = l.style.display === "block" ? "none" : "block"; updateOnlineUI(); };
+    }
     document.addEventListener("click", e => { if ($("online-list") && !$("online-list").contains(e.target) && e.target !== $("online-btn")) safeHide("online-list"); });
 
     if(inp) {
@@ -846,24 +938,24 @@ function setupChat(){
     }
     socket.on("typing", d=>{ const t=$("typing-indicator"); if(t) { if(d.id!==socket.id && d.isTyping){t.textContent=`${escapeHTML(d.name)} is typing…`; t.style.display="block";}else t.style.display="none"; } });
 
-    const rc = $("reply-cancel");
-    if(rc) rc.onclick=()=>{replyTo=null; safeHide("reply-bar");};
+    const replyCancel = $("reply-cancel");
+    if(replyCancel) replyCancel.onclick=()=>{replyTo=null; safeHide("reply-bar");};
     
-    const eb = $("emojiButton");
-    if(eb) eb.onclick=(e)=>{e.stopPropagation(); safeHide("attachment-menu"); const ec=$("emoji-picker-container"); if(ec) ec.style.display=ec.style.display==="block"?"none":"block";};
+    const emojiBtn = $("emojiButton");
+    if(emojiBtn) emojiBtn.onclick=(e)=>{e.stopPropagation(); safeHide("attachment-menu"); const ec=$("emoji-picker-container"); if(ec) ec.style.display=ec.style.display==="block"?"none":"block";};
     
-    const ep = $("emojiPicker");
-    if(ep) {
-        ep.addEventListener("emoji-click",e=>{ const em=e.detail.unicode; if(reactingId){socket.emit("messageReaction",{messageId:reactingId,emoji:em});safeHide("emoji-picker-container");reactingId=null;}else if(inp){inp.value+=em;inp.focus();if(send) send.style.display="flex";if(vb) vb.style.display="none";} });
+    const emojiPicker = $("emojiPicker");
+    if(emojiPicker) {
+        emojiPicker.addEventListener("emoji-click",e=>{ const em=e.detail.unicode; if(reactingId){socket.emit("messageReaction",{messageId:reactingId,emoji:em});safeHide("emoji-picker-container");reactingId=null;}else if(inp){inp.value+=em;inp.focus();if(send) send.style.display="flex";if(vb) vb.style.display="none";} });
     }
     
-    const cab = $("chat-attach-btn");
-    if(cab) cab.onclick=(e)=>{e.stopPropagation(); safeHide("emoji-picker-container"); const am=$("attachment-menu"); if(am) am.style.display=am.style.display==="flex"?"none":"flex";};
+    const attBtn = $("chat-attach-btn");
+    if(attBtn) attBtn.onclick=(e)=>{e.stopPropagation(); safeHide("emoji-picker-container"); const am=$("attachment-menu"); if(am) am.style.display=am.style.display==="flex"?"none":"flex";};
     
     const fInp=$("chatFileInput");
-    const atm = $("att-media"); if(atm) atm.onclick=()=>{if(fInp){fInp.accept="image/*,video/*";fInp.click();safeHide("attachment-menu");}};
-    const atd = $("att-doc"); if(atd) atd.onclick=()=>{if(fInp){fInp.accept=".pdf,.doc,.txt,.zip";fInp.click();safeHide("attachment-menu");}};
-    const ata = $("att-audio"); if(ata) ata.onclick=()=>{if(fInp){fInp.accept="audio/*";fInp.click();safeHide("attachment-menu");}};
+    const attMedia = $("att-media"); if(attMedia) attMedia.onclick=()=>{if(fInp){fInp.accept="image/*,video/*";fInp.click();safeHide("attachment-menu");}};
+    const attDoc = $("att-doc"); if(attDoc) attDoc.onclick=()=>{if(fInp){fInp.accept=".pdf,.doc,.txt,.zip";fInp.click();safeHide("attachment-menu");}};
+    const attAudio = $("att-audio"); if(attAudio) attAudio.onclick=()=>{if(fInp){fInp.accept="audio/*";fInp.click();safeHide("attachment-menu");}};
     if(fInp) {
         fInp.onchange=()=>{ 
             const f=fInp.files?.[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ 
@@ -874,9 +966,9 @@ function setupChat(){
         };
     }
 
-    const cf = $("chatForm");
-    if(cf) {
-        cf.onsubmit=e=>{ 
+    const cForm = $("chatForm");
+    if(cForm) {
+        cForm.onsubmit=e=>{ 
             e.preventDefault(); 
             if(!inp) return;
             const t=inp.value.trim(); 
@@ -908,13 +1000,14 @@ function setupChat(){
         emojis.forEach(e=>{const btn=document.createElement("button"); btn.className="action-btn"; btn.textContent=e; btn.onclick=()=>socket.emit("messageReaction",{messageId:m.id,emoji:e}); a.appendChild(btn);});
         const rep=document.createElement("button"); rep.className="action-btn"; rep.textContent="↩ Reply"; rep.onclick=()=>{replyTo={id:m.id,name:m.name,type:m.type,preview:m.type==="text"?m.data.slice(0,50):"Attachment"}; if($("reply-preview")) $("reply-preview").textContent=`↩ ${m.name}`; safeShow("reply-bar", "flex"); if(inp) inp.focus();}; a.appendChild(rep);
         b.appendChild(a); const rr=document.createElement("div"); rr.className="reaction-row"; b.appendChild(rr); w.appendChild(b); 
-        
-        const cm = $("chat-messages");
-        if(cm) cm.appendChild(w);
+        const chatMsgs = $("chat-messages");
+        if(chatMsgs) {
+            chatMsgs.appendChild(w);
+            chatMsgs.scrollTop=chatMsgs.scrollHeight;
+        }
         
         msgStore.set(m.id,{msg:m,el:w});
         if(m.senderId!==socket.id && cc && cc.style.display!=="flex"){unread++; updateUnreadBadge();}
-        if(cm) cm.scrollTop=cm.scrollHeight;
     }
 
     socket.on("chatHistory", l=>l.forEach(renderMsg)); socket.on("chatMessage", renderMsg);
@@ -922,24 +1015,22 @@ function setupChat(){
 }
 
 function setupMemories(){
-    const pgb = $("phase3-gallery-btn");
-    if(pgb) pgb.onclick = () => { safeShow("phase3-memory-overlay", "block"); renderMemGallery(); };
-    
-    const pmc = $("phase3-memory-close");
-    if(pmc) pmc.onclick = () => safeHide("phase3-memory-overlay");
-    
-    const pvc = $("p3-view-close");
-    if(pvc) pvc.onclick = () => safeHide("phase3-photo-viewer");
+    const galBtn = $("phase3-gallery-btn");
+    if(galBtn) galBtn.onclick = () => { safeShow("phase3-memory-overlay", "block"); renderMemGallery(); };
+    const closeOverlayBtn = $("phase3-memory-close");
+    if(closeOverlayBtn) closeOverlayBtn.onclick = () => safeHide("phase3-memory-overlay");
+    const closeViewBtn = $("p3-view-close");
+    if(closeViewBtn) closeViewBtn.onclick = () => safeHide("phase3-photo-viewer");
     
     document.querySelectorAll(".phase3-filter").forEach(b => {
         b.onclick = () => { document.querySelectorAll(".phase3-filter").forEach(x=>x.classList.remove("active")); b.classList.add("active"); currentGalleryFilter=b.dataset.filter; renderMemGallery(); };
     });
     
-    const pms = $("phase3-memory-search");
-    if(pms) pms.oninput = e => { currentGallerySearch=e.target.value.toLowerCase(); renderMemGallery(); };
+    const searchInp = $("phase3-memory-search");
+    if(searchInp) searchInp.oninput = e => { currentGallerySearch=e.target.value.toLowerCase(); renderMemGallery(); };
     
-    const pvf = $("p3-view-focus");
-    if(pvf) pvf.onclick = () => { const m=memories.get(selectedMemoryId); if(m) map.flyTo([m.lat,m.lng],17); safeHide("phase3-photo-viewer"); safeHide("phase3-memory-overlay"); };
+    const focusBtn = $("p3-view-focus");
+    if(focusBtn) focusBtn.onclick = () => { const m=memories.get(selectedMemoryId); if(m) map.flyTo([m.lat,m.lng],17); safeHide("phase3-photo-viewer"); safeHide("phase3-memory-overlay"); };
 
     function renderMemGallery(){
         let arr = Array.from(memories.values());
@@ -981,7 +1072,7 @@ function setupMemories(){
     }
 
     socket.on("loadMemoryPhotos", l=>{ memories.clear(); l.forEach(m=>memories.set(m.id,m)); renderPins(); });
-    socket.on("newMemoryPin", m=>{ memories.set(m.id,m); renderPins(); const pmo=$("phase3-memory-overlay"); if(pmo && pmo.style.display==="block") renderMemGallery(); });
+    socket.on("newMemoryPin", m=>{ memories.set(m.id,m); renderPins(); const p3overlay = $("phase3-memory-overlay"); if(p3overlay && p3overlay.style.display==="block") renderMemGallery(); });
 
     const mInp=$("memoryPhotoInput");
     const mb = $("memoryButton");
@@ -993,44 +1084,44 @@ function setupMemories(){
     if(mInp) {
         mInp.onchange=()=>{
             const f=mInp.files?.[0]; if(!f) return;
-            if(!IMAGE_TYPES.includes(f.type)||f.size>MAX_MEMORY_FILE){alert("Invalid image or >8MB."); mInp.value=""; return;}
+            if(!IMAGE_TYPES.includes(f.type)||f.size>MAX_MEMORY_FILE){
+                alert("Invalid image or >8MB."); 
+                mInp.value=""; 
+                return;
+            }
             const r=new FileReader(); 
             r.onload=()=>{
                 if(validImageData(r.result)){ 
                     pendingMemoryImage = r.result;
-                    showToast("📸 Photo Selected! Tap ANYWHERE on the map to pin it.", 5000);
-                    setTimeout(() => { mapActionMode = 'memory'; }, 300);
+                    mapActionMode = 'memory'; 
+                    showToast("📸 Photo Selected! Now TAP ANYWHERE on the map to pin it.", 5000);
                 }
             }; 
-            r.readAsDataURL(f); mInp.value="";
+            r.readAsDataURL(f); 
+            mInp.value="";
         };
     }
 }
 
-// BUILT TO WITHSTAND ANY HTML VERSION
 function setupJoin(){
-    // If user already logged in, immediately dismiss join screen
     if(currentUser.name){ 
-        if($("join-screen")) $("join-screen").style.display="none"; 
-        if($("header-avatar")) { $("header-avatar").style.display="block"; $("header-avatar").src=currentUser.avatar; } 
+        safeHide("join-screen"); 
+        const hAv = $("header-avatar");
+        if(hAv) { hAv.style.display="block"; hAv.src=currentUser.avatar; } 
         socket.emit("profileReady",currentUser); 
     }
-    
-    // Support both old and new form IDs or bind directly to the button if form doesn't exist
     const jForm = $("join-form") || document.querySelector("form");
     const joinBtn = $("join-submit") || document.querySelector("button[type='submit']");
     
     const handleJoin = (e) => {
         if(e) e.preventDefault(); 
         
-        // Find name input safely
         const nInp = $("nameInput") || document.querySelector("input[placeholder*='name' i]") || document.querySelector("input[type='text']");
         if(nInp && nInp.value.trim()) currentUser.name = cleanName(nInp.value); 
         else currentUser.name = "Explorer";
         
         localStorage.setItem("koraput_name",currentUser.name);
         
-        // Find avatar input safely
         const aInp = $("avatarInput") || document.querySelector("input[type='file']");
         const f = aInp ? aInp.files?.[0] : null;
         if(f){
@@ -1053,15 +1144,16 @@ function setupJoin(){
     }
     
     function done(){
-        if($("join-screen")) $("join-screen").style.display="none"; 
-        if($("header-avatar")) { $("header-avatar").style.display="block"; $("header-avatar").src=currentUser.avatar; } 
+        safeHide("join-screen"); 
+        const hAv2 = $("header-avatar");
+        if(hAv2) { hAv2.style.display="block"; hAv2.src=currentUser.avatar; } 
         socket.emit("profileReady",currentUser); 
         updateOnlineUI();
     }
 }
 
 // ==========================================
-// GOOGLE DIRECTIONS & SEARCH
+// GOOGLE DIRECTIONS & SEARCH (Fixed by Claude)
 // ==========================================
 function setupGoogleSearch() {
     const searchInput = $("location-search-input");
@@ -1134,6 +1226,7 @@ function setupGoogleSearch() {
                 searchMarker.bindPopup(popupContent).openPopup();
                 if (clearBtn) safeShow("location-search-clear", "block");
 
+                // ASLI JUGAD: Using Google Directions API instead of OSRM
                 if(myCoords && window.google) {
                     const ds = new google.maps.DirectionsService();
                     ds.route({
@@ -1148,6 +1241,7 @@ function setupGoogleSearch() {
                             const route = res.routes[0];
                             const leg = route.legs[0];
                             
+                            // Preview Line
                             const coords = route.overview_path.map(p => [p.lat(), p.lng()]);
                             L.polyline(coords, { color: '#60a5fa', weight: 4, opacity: 0.5, dashArray: '6, 8' }).addTo(navigationLayer);
 
@@ -1171,12 +1265,16 @@ function setupGoogleSearch() {
     }, 500); 
 }
 
+// ==========================================
+// REAL GPS PREMIUM NAVIGATION (NO SIMULATION)
+// ==========================================
 let navWatchId = null;
 
 function startSearchNavigation(destLat, destLng, destName, routeData) {
     navigationLayer.clearLayers();
     if(navWatchId) navigator.geolocation.clearWatch(navWatchId);
     
+    // Hide regular UI elements
     safeHide("map-tools");
     safeHide("search-container");
     safeHide("top-header");
@@ -1206,8 +1304,12 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
 
     if($("stat-dist")) $("stat-dist").innerHTML = leg.distance.text.replace(" km", "<small style='font-size:12px;color:#9ca3af;'> km</small>");
     if($("stat-eta")) $("stat-eta").innerHTML = leg.duration.text.replace(" mins", "<small> min</small>");
-    if($("turn-name")) $("turn-name").textContent = leg.steps[0].instructions.replace(/<[^>]*>?/gm, ''); 
-    if($("turn-dist")) $("turn-dist").textContent = leg.steps[0].distance.text;
+    
+    const arrivalTime = new Date(Date.now() + leg.duration.value * 1000);
+    if($("nav-arrival-time")) $("nav-arrival-time").innerHTML = arrivalTime.toLocaleTimeString([], {hour: 'numeric', minute:'2-digit', hour12: true});
+    
+    if($("nav-step-text")) $("nav-step-text").textContent = leg.steps[0].instructions.replace(/<[^>]*>?/gm, ''); 
+    if($("nav-step-dist")) $("nav-step-dist").textContent = leg.steps[0].distance.text;
 
     map.fitBounds(dottedPath.getBounds(), { paddingBottomRight: [0, 350], paddingTopLeft: [50, 150] });
 
@@ -1312,7 +1414,12 @@ function stopDrive(cancelled = false) {
 // ==========================================
 // VOICE CALLING (ONLINE WEBRTC & OFFLINE GSM)
 // ==========================================
-let peerConnection = null, localStream = null, incomingIceCandidates = [], callDialog = null, activeCallBtn = null;
+let peerConnection = null;
+let localStream = null;
+let incomingIceCandidates = [];
+let callDialog = null;
+let activeCallBtn = null;
+
 const rtcConfig = { 
     iceServers: [
         { urls: "stun:stun.l.google.com:19302" },
@@ -1327,12 +1434,23 @@ function attachAudioTrack(event) {
     let audio = document.getElementById("remote-audio");
     if(!audio) {
         audio = document.createElement("audio");
-        audio.id = "remote-audio"; audio.autoplay = true; audio.playsInline = true; audio.hidden = true;
+        audio.id = "remote-audio";
+        audio.autoplay = true;
+        audio.playsInline = true;
+        audio.hidden = true;
         document.body.appendChild(audio);
     }
-    if (event.streams && event.streams[0]) audio.srcObject = event.streams[0];
-    else audio.srcObject = new MediaStream([event.track]);
-    audio.play().catch(e => { document.body.addEventListener('click', () => { audio.play(); }, { once: true }); });
+    
+    if (event.streams && event.streams[0]) {
+        audio.srcObject = event.streams[0];
+    } else {
+        audio.srcObject = new MediaStream([event.track]);
+    }
+    
+    audio.play().catch(e => {
+        console.log("Audio play error, forcing play:", e);
+        document.body.addEventListener('click', () => { audio.play(); }, { once: true });
+    });
 }
 
 function initCallButton(u) {
@@ -1360,6 +1478,7 @@ function initCallButton(u) {
             localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
             peerConnection.ontrack = attachAudioTrack; 
+
             peerConnection.onicecandidate = (event) => {
                 if (event.candidate) {
                     socket.emit("call-user", { to: u.id, signal: { type: "ice", candidate: event.candidate }, name: currentUser.name });
@@ -1415,7 +1534,7 @@ socket.on("incoming-call", async (data) => {
                     peerConnection = new RTCPeerConnection(rtcConfig);
                     localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
-                    peerConnection.ontrack = attachAudioTrack;
+                    peerConnection.ontrack = attachAudioTrack; 
 
                     peerConnection.onicecandidate = (event) => {
                         if (event.candidate) {
@@ -1516,19 +1635,20 @@ window.addEventListener('DOMContentLoaded', () => {
                 deferredPrompt.prompt();
                 const { outcome } = await deferredPrompt.userChoice;
                 if (outcome === 'accepted') {
-                    safeHide("install-app-btn"); 
+                    installBtn.style.display = 'none'; 
                 }
                 deferredPrompt = null;
             }
         };
     }
     if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true) {
-        safeHide("install-app-btn");
+        if (installBtn) installBtn.style.display = 'none';
     }
 });
 
 window.addEventListener('appinstalled', () => {
-    safeHide("install-app-btn");
+    const installBtn = $("install-app-btn");
+    if (installBtn) installBtn.style.display = 'none';
 });
 
 // ==========================================
