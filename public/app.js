@@ -1,15 +1,7 @@
 "use strict";
 
-// ==========================================
-// 1. SETUP & LEAFLET MAP
-// ==========================================
-
-const styleObj = document.createElement('style');
-styleObj.innerHTML = `.google-dark-map { filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%); }`;
-document.head.appendChild(styleObj);
-
 const socket = io({ transports: ["websocket", "polling"] });
-const DEFAULT_CENTER = [18.8136, 82.7153];
+const DEFAULT_CENTER = [18.8136, 82.7153]; // Centered near Koraput
 const DEFAULT_AVATAR = "satyam.png";
 const MAX_NAME = 40;
 const MAX_CHAT_FILE = 5 * 1024 * 1024;
@@ -23,9 +15,7 @@ const map = L.map("map", {
 
 const satelliteLayer = L.tileLayer("https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}", { maxZoom: 20, subdomains: ["mt0","mt1","mt2","mt3"] });
 const streetLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 });
-const darkLayer = L.tileLayer("https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}", { 
-    maxZoom: 20, subdomains: ["mt0","mt1","mt2","mt3"], className: "google-dark-map" 
-});
+const darkLayer = L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", { maxZoom: 20 });
 satelliteLayer.addTo(map);
 
 let currentUser = { name: localStorage.getItem("koraput_name") || "", avatar: localStorage.getItem("koraput_avatar") || DEFAULT_AVATAR };
@@ -33,8 +23,6 @@ let myCoords = null, myWeather = "", ownMarker = null, accuracyCircle = null, ci
 let lastWeatherFetch = 0;
 const friendMarkers = Object.create(null);
 const friendData = Object.create(null);
-
-let lastFixCoords = null, lastFixTime = 0; 
 
 let locationHistory = [];
 try {
@@ -61,18 +49,20 @@ let measurePoints = [];
 let currentTrip = null;
 let tripMarker = null;
 
-let geoClickCount = 0, geoClickTimer = null; 
+// GEOFENCE VARS
+let geoClickCount = 0, geoClickTimer = null;
 let currentGeofences = []; 
 const memories = new Map();
 let currentGalleryFilter = "all", currentGallerySearch = "", selectedMemoryId = null;
 
+// SEARCH MARKER & OFFLINE QUEUE
 let searchMarker = null;
-
-// NEW: OFFLINE SYNC QUEUES
 let offlineMessageQueue = [];
-let offlineMemoryQueue = [];
+let isNetworkOnline = navigator.onLine;
 
 const $ = id => document.getElementById(id);
+const safeShow = (id, displayStyle = "flex") => { const el = $(id); if (el) el.style.display = displayStyle; };
+const safeHide = (id) => { const el = $(id); if (el) el.style.display = "none"; };
 const cleanName = v => String(v || "User").trim().replace(/\s+/g," ").slice(0, MAX_NAME);
 const validCoord = (lat,lng) => Number.isFinite(lat) && Number.isFinite(lng) && lat>=-90 && lat<=90 && lng>=-180 && lng<=180;
 const validImageData = v => typeof v === "string" && v.startsWith("data:image/");
@@ -122,208 +112,168 @@ async function fetchCity(lat,lng){
     } catch (e) {}
     try {
         const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}&zoom=10`);
-        if (r.ok) { const d = await r.json(); return d.address?.city || d.address?.town || d.address?.county || "Rourkela"; }
-    } catch { return "Rourkela"; }
+        if (r.ok) { const d = await r.json(); return d.address?.city || d.address?.town || d.address?.county || "Koraput Area"; }
+    } catch { return "Koraput Area"; }
 }
 
-// ==========================================
-// 2. SMART DRIVE ENGINE (Fuel, Graph, Alert)
-// ==========================================
-const SmartDrive = {
-    isRecording: false,
-    baseMileage: 18,
-    speedHistory: [],
-    
-    trip: {
-        active: false, startTime: 0, totalDist: 0, actualFuel: 0, maxSpeed: 0, sumSpeed: 0, ticks: 0, ranges: { efficient: 0, moderate: 0, inefficient: 0 } 
+const Navigation = {
+    active: false, targetId: null, targetCoords: null,
+    async start(friendId) {
+        const f = friendData[friendId];
+        if(!f || !validCoord(f.lat, f.lng) || !myCoords) return showToast("❌ Location not available for routing.");
+        this.active = true; this.targetId = friendId; this.targetCoords = { lat: f.lat, lng: f.lng };
+        
+        safeHide("profile-popup");
+        if($("nav-title-name")) $("nav-title-name").textContent = f.name;
+        safeShow("nav-panel", "flex");
+        await this.calculate();
     },
-
-    audioCtx: null, lastAlertTime: 0, overlayTimer: null,
-
-    init() {
-        const savedMil = localStorage.getItem("sd_mileage");
-        if(savedMil) this.baseMileage = parseFloat(savedMil);
-        if($("fuel-input-val")) $("fuel-input-val").value = this.baseMileage;
-        
-        const savedRec = localStorage.getItem("sd_record");
-        this.isRecording = savedRec === "1";
-        if($("speed-record-toggle")) $("speed-record-toggle").checked = this.isRecording;
-        if($("speed-graph-canvas")) $("speed-graph-canvas").style.display = this.isRecording ? "block" : "none";
-
-        $("fuel-input-val")?.addEventListener("change", (e) => {
-            this.baseMileage = parseFloat(e.target.value) || 18;
-            localStorage.setItem("sd_mileage", this.baseMileage);
-        });
-        
-        $("speed-record-toggle")?.addEventListener("change", (e) => {
-            this.isRecording = e.target.checked;
-            localStorage.setItem("sd_record", this.isRecording ? "1" : "0");
-            if($("speed-graph-canvas")) $("speed-graph-canvas").style.display = this.isRecording ? "block" : "none";
-            if(!this.isRecording) this.speedHistory = [];
-        });
-
-        $("profile-open-btn")?.addEventListener("click", () => {
-            if($("profile-settings-modal")) $("profile-settings-modal").style.display = "flex";
-        });
-        
-        $("close-settings-btn")?.addEventListener("click", () => {
-            if($("profile-settings-modal")) $("profile-settings-modal").style.display = "none";
-        });
-        
-        $("close-results-btn")?.addEventListener("click", () => {
-            if($("results-panel")) $("results-panel").style.display = "none";
-        });
-        
-        document.addEventListener("click", () => {
-            if(!this.audioCtx) {
-                const AudioContext = window.AudioContext || window.webkitAudioContext;
-                if(AudioContext) this.audioCtx = new AudioContext();
-            }
-            if(this.audioCtx && this.audioCtx.state === "suspended") this.audioCtx.resume();
-        }, {passive:true});
-    },
-
-    beep(freq, ms) {
-        if(!this.audioCtx) return;
+    async calculate() {
+        if(!this.active || !myCoords || !this.targetCoords) return;
+        navigationLayer.clearLayers();
+        if($("nav-instructions")) $("nav-instructions").innerHTML = "<i>Analyzing roads & finding optimal route...</i>";
         try {
-            if (this.audioCtx.state === "suspended") this.audioCtx.resume();
-            const osc = this.audioCtx.createOscillator(), gain = this.audioCtx.createGain();
-            osc.type = "square"; osc.frequency.value = freq;
-            gain.gain.value = 0.15;
-            osc.connect(gain); gain.connect(this.audioCtx.destination);
-            osc.start(); osc.stop(this.audioCtx.currentTime + ms/1000);
-        } catch(e) {}
+            const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${myCoords.lng},${myCoords.lat};${this.targetCoords.lng},${this.targetCoords.lat}?steps=true&geometries=geojson&overview=full`);
+            if(!res.ok) throw new Error("Route failed");
+            const data = await res.json();
+            
+            if(data.routes && data.routes.length > 0) {
+                const r = data.routes[0];
+                const coords = r.geometry.coordinates.map(c => [c[1], c[0]]); 
+                const path = L.polyline(coords, { color: '#18d6a3', weight: 5, opacity: 0.8, className: 'nav-path-animated' }).addTo(navigationLayer);
+                map.fitBounds(path.getBounds(), { padding: [50, 50] });
+
+                const distKm = (r.distance / 1000).toFixed(1);
+                const timeMin = Math.round(r.duration / 60);
+                showToast(`🚗 Best Route: ${distKm} km • ⏱️ ${timeMin} mins`, 6000);
+                if($("nav-stats")) $("nav-stats").innerHTML = `🚗 ${distKm} km &nbsp; ⏱️ ${timeMin} min`;
+                
+                let instHTML = "";
+                if(r.legs[0] && r.legs[0].steps) {
+                    r.legs[0].steps.slice(0, 4).forEach(s => {
+                        let arrow = "↑";
+                        if(s.maneuver.modifier) { if(s.maneuver.modifier.includes('right')) arrow = "↱"; if(s.maneuver.modifier.includes('left')) arrow = "↰"; }
+                        instHTML += `<div style="padding:4px 0;">${arrow} ${s.maneuver.instruction}</div>`;
+                    });
+                }
+                if($("nav-instructions")) $("nav-instructions").innerHTML = instHTML || "Follow the highlighted route on the map.";
+            } else { if($("nav-instructions")) $("nav-instructions").innerHTML = "<i>No viable road route found.</i>"; }
+        } catch (e) { if($("nav-instructions")) $("nav-instructions").innerHTML = "<i>Navigation error. Try again later.</i>"; }
     },
-
-    triggerRedMap() {
-        const overlay = $("speed-alert-overlay");
-        if(overlay) {
-            overlay.classList.add("active");
-            clearTimeout(this.overlayTimer);
-            this.overlayTimer = setTimeout(() => overlay.classList.remove("active"), 10000);
-        }
+    stop() {
+        this.active = false; this.targetId = null; this.targetCoords = null;
+        navigationLayer.clearLayers();
+        safeHide("nav-panel");
+        if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
     },
-
-    checkSafetyLimits(speed) {
-        const now = Date.now();
-        const dial = $("speed-dial");
-        if(dial) {
-            if(speed > 3) {
-                dial.style.display = "flex";
-                if($("speed-n")) $("speed-n").textContent = Math.round(speed);
-                dial.className = "speed-dial " + (speed >= 100 ? "danger" : (speed >= 80 ? "warn" : ""));
-            } else {
-                dial.style.display = "none";
-            }
-        }
-
-        if (now - this.lastAlertTime < 15000) return; 
-
-        if (speed >= 100) {
-            showToast("🚨 DANGER: Speed 100+ km/h! Slow Down!", 5000);
-            this.triggerRedMap();
-            this.beep(800, 300); setTimeout(()=>this.beep(800, 300), 500); setTimeout(()=>this.beep(800, 300), 1000);
-            this.lastAlertTime = now;
-        } else if (speed >= 80) {
-            showToast("⚠️ WARNING: Crossing 80 km/h.", 4000);
-            this.beep(600, 400); 
-            this.lastAlertTime = now;
-        } else if (speed >= 60) {
-            showToast("🟢 Alert: Speed above 60 km/h.", 3000);
-            this.lastAlertTime = now;
-        }
-    },
-
-    tick(speedKmh, distKm) {
-        this.checkSafetyLimits(speedKmh);
-
-        if (!this.trip.active && !this.isRecording) return;
-
-        this.speedHistory.push(speedKmh);
-        if(this.speedHistory.length > 50) this.speedHistory.shift();
-        this.drawGraph();
-
-        if (this.trip.active && distKm > 0) {
-            this.trip.totalDist += distKm;
-            this.trip.ticks += 1;
-            this.trip.sumSpeed += speedKmh;
-            if(speedKmh > this.trip.maxSpeed) this.trip.maxSpeed = speedKmh;
-
-            if(speedKmh >= 40 && speedKmh <= 60) this.trip.ranges.efficient++;
-            else if (speedKmh > 80) this.trip.ranges.inefficient++;
-            else this.trip.ranges.moderate++;
-
-            let currentEff = this.baseMileage;
-            if (speedKmh > 60) {
-                currentEff -= (speedKmh - 60) * 0.005 * this.baseMileage; 
-            } else if (speedKmh < 40) {
-                currentEff -= (40 - speedKmh) * 0.004 * this.baseMileage; 
-            }
-            currentEff = Math.max(2, currentEff); 
-            this.trip.actualFuel += (distKm / currentEff);
-        }
-    },
-
-    drawGraph() {
-        const cvs = $("speed-graph-canvas");
-        if(!cvs || !this.isRecording) return;
-        const ctx = cvs.getContext("2d");
-        const w = cvs.width = cvs.offsetWidth, h = cvs.height = cvs.offsetHeight;
-        
-        ctx.clearRect(0,0,w,h);
-        if(this.speedHistory.length < 2) return;
-        
-        const max = Math.max(60, ...this.speedHistory);
-        ctx.beginPath();
-        ctx.strokeStyle = "#3b82f6";
-        ctx.lineWidth = 2;
-        this.speedHistory.forEach((v, i) => {
-            const x = (i / (this.speedHistory.length - 1)) * w;
-            const y = h - (v / max) * h * 0.8;
-            if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
-        });
-        ctx.stroke();
-    },
-
-    startTrip() {
-        this.trip = { active: true, startTime: Date.now(), totalDist: 0, actualFuel: 0, maxSpeed: 0, sumSpeed: 0, ticks: 0, ranges: {efficient:0, moderate:0, inefficient:0} };
-    },
-    
-    endTrip() {
-        if(!this.trip.active || this.trip.ticks === 0) return;
-        this.trip.active = false;
-        
-        const avg = this.trip.sumSpeed / this.trip.ticks;
-        
-        if($("res-dist")) $("res-dist").textContent = this.trip.totalDist.toFixed(2) + " km";
-        if($("res-avg-speed")) $("res-avg-speed").textContent = Math.round(avg) + " km/h";
-        if($("res-max-speed")) $("res-max-speed").textContent = Math.round(this.trip.maxSpeed) + " km/h";
-        if($("res-eff-time")) $("res-eff-time").textContent = Math.round(this.trip.ranges.efficient / 60) + " min";
-        if($("res-ineff-time")) $("res-ineff-time").textContent = Math.round(this.trip.ranges.inefficient / 60) + " min";
-        if($("res-base-mlg")) $("res-base-mlg").textContent = this.baseMileage + " km/L";
-        if($("res-actual-fuel")) $("res-actual-fuel").textContent = this.trip.actualFuel.toFixed(2) + " L";
-
-        if($("results-panel")) {
-            $("results-panel").style.display = "flex";
+    onLiveUpdate() {
+        if(!this.active) return;
+        if(this.targetId && friendData[this.targetId]) {
+            const f = friendData[this.targetId];
+            if(!this.targetCoords) return;
+            const dist = distanceKm(this.targetCoords.lat, this.targetCoords.lng, f.lat, f.lng);
+            if(Number(dist) > 0.1) { this.targetCoords = { lat: f.lat, lng: f.lng }; this.calculate(); }
         }
     }
 };
 
+const navRecalcBtn = $("nav-recalc-btn");
+if(navRecalcBtn) navRecalcBtn.onclick = () => Navigation.calculate();
+const navPanelExit = $("nav-panel-exit");
+if(navPanelExit) navPanelExit.onclick = () => Navigation.stop();
+
+const GroupNavigation = {
+    active: false, destination: null, selectedMembers: [], layerGroup: L.layerGroup().addTo(map),
+    lastFetchedCoords: {}, colors: ['#18d6a3', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6'], recalcTimer: null,
+
+    openSetup() {
+        const list = $("group-nav-friend-list"); 
+        if(!list) return;
+        list.innerHTML = "";
+        const activeFriends = Object.values(friendData).filter(f => f.online !== false);
+        if(activeFriends.length === 0) list.innerHTML = `<div style="color:var(--muted); font-size:11px;">No friends online.</div>`;
+        else activeFriends.forEach(f => {
+            list.innerHTML += `<label style="display:flex; align-items:center; gap:8px; font-size:13px; color:white; cursor:pointer;"><input type="checkbox" value="${f.id}" class="group-nav-cb"><img src="${escapeHTML(f.avatar)}" style="width:28px; height:28px; border-radius:50%; object-fit:cover;">${escapeHTML(f.name)}</label>`;
+        });
+        safeShow("group-nav-setup", "flex");
+    },
+    startSelection() {
+        const cbs = document.querySelectorAll(".group-nav-cb:checked");
+        if(cbs.length === 0) return showToast("Select at least 1 friend.");
+        if(cbs.length > 3) return showToast("Select up to 3 friends only.");
+        this.selectedMembers = ["me", ...Array.from(cbs).map(cb => cb.value)];
+        safeHide("group-nav-setup");
+        mapActionMode = 'group-nav';
+        showToast("📍 Tap the map to set the common destination!", 5000);
+    },
+    async setDestination(latlng) {
+        this.active = true; this.destination = latlng; this.layerGroup.clearLayers(); this.lastFetchedCoords = {};
+        L.marker(latlng, { icon: L.divIcon({className: 'geofence-marker', html: '🎯'}) }).bindTooltip("Group Destination", {permanent:true, direction:"top", className:"weather-badge"}).addTo(this.layerGroup);
+        safeShow("group-nav-active", "flex");
+        await this.calculateAll();
+    },
+    async calculateAll() {
+        if(!this.active || !this.destination) return;
+        const statsList = $("group-nav-stats-list");
+        if(statsList) statsList.innerHTML = "<div style='color:var(--muted); font-size:11px; text-align:center;'>Calculating road paths...</div>";
+
+        let statsHTML = "", validPaths = [];
+
+        for(let i = 0; i < this.selectedMembers.length; i++) {
+            const memberId = this.selectedMembers[i];
+            const color = this.colors[i % this.colors.length];
+            let name = "User", avatar = DEFAULT_AVATAR, coords = null;
+
+            if (memberId === "me") { if (!myCoords) continue; name = "You"; avatar = currentUser.avatar; coords = myCoords; } 
+            else { const f = friendData[memberId]; if (!f || f.online === false || !validCoord(f.lat, f.lng)) continue; name = f.name; avatar = f.avatar; coords = { lat: f.lat, lng: f.lng }; }
+
+            try {
+                const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${coords.lng},${coords.lat};${this.destination.lng},${this.destination.lat}?overview=full&geometries=geojson`);
+                const data = await res.json();
+                if(data.routes && data.routes.length > 0) {
+                    const r = data.routes[0];
+                    const pathCoords = r.geometry.coordinates.map(c => [c[1], c[0]]);
+                    this.layerGroup.eachLayer(l => { if(l.memberId === memberId) this.layerGroup.removeLayer(l); });
+                    const poly = L.polyline(pathCoords, { color: color, weight: 5, opacity: 0.8, className: 'nav-path-animated' });
+                    poly.memberId = memberId; poly.addTo(this.layerGroup); validPaths.push(poly);
+
+                    const distKm = (r.distance / 1000).toFixed(1); const timeMin = Math.round(r.duration / 60);
+                    statsHTML += `<div style="display:flex; justify-content:space-between; align-items:center; padding:10px; background:rgba(255,255,255,0.05); border-radius:10px; border-left:4px solid ${color};"><div style="display:flex; align-items:center; gap:10px;"><img src="${escapeHTML(avatar)}" style="width:30px; height:30px; border-radius:50%; object-fit:cover;"><span style="color:white; font-size:13px; font-weight:bold;">${escapeHTML(name)}</span></div><div style="text-align:right;"><div style="color:white; font-size:13px; font-weight:bold;">${distKm} km</div><div style="color:var(--muted); font-size:11px;">${timeMin} min</div></div></div>`;
+                    this.lastFetchedCoords[memberId] = { lat: coords.lat, lng: coords.lng };
+                } else statsHTML += `<div style="color:#ef4444; font-size:11px; padding:10px;">No road route for ${escapeHTML(name)}</div>`;
+            } catch(e) {}
+        }
+        if(statsList) statsList.innerHTML = statsHTML;
+        if(validPaths.length > 0) map.fitBounds(L.featureGroup(validPaths).getBounds(), { padding: [40, 40] });
+    },
+    onLiveUpdate() {
+        if(!this.active || !this.destination) return;
+        let needsRecalc = false;
+        if (this.selectedMembers.includes("me") && myCoords) { const last = this.lastFetchedCoords["me"]; if(!last || distanceKm(last.lat, last.lng, myCoords.lat, myCoords.lng) > 0.1) needsRecalc = true; }
+        this.selectedMembers.forEach(id => { if(id !== "me" && friendData[id]) { const f = friendData[id]; const last = this.lastFetchedCoords[id]; if(validCoord(f.lat, f.lng) && (!last || distanceKm(last.lat, last.lng, f.lat, f.lng) > 0.1)) needsRecalc = true; }});
+        if (needsRecalc) { clearTimeout(this.recalcTimer); this.recalcTimer = setTimeout(() => this.calculateAll(), 3000); }
+    },
+    stop() { this.active = false; this.destination = null; this.selectedMembers = []; this.layerGroup.clearLayers(); safeHide("group-nav-active"); if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16); }
+};
+
+const gNCB = $("group-nav-close-btn");
+if(gNCB) gNCB.onclick = () => { safeHide("group-nav-setup"); mapActionMode = null; const btn = $("group-nav-btn"); if(btn) btn.classList.remove("active-tool"); };
+const gNNB = $("group-nav-next-btn");
+if(gNNB) gNNB.onclick = () => GroupNavigation.startSelection();
+const gNSB = $("group-nav-stop-btn");
+if(gNSB) gNSB.onclick = () => GroupNavigation.stop();
+
+
 // ==========================================
-// 3. CORE SYSTEM WITH ELEVATION & SPEED ADDITIONS
+// CORE SYSTEM WITH ELEVATION & SPEED ADDITIONS
 // ==========================================
 socket.on("connect", () => { 
     if (currentUser.name) socket.emit("profileReady", currentUser); 
-    
+    // Flush Offline Message Queue
     if(offlineMessageQueue.length > 0) {
         offlineMessageQueue.forEach(msg => socket.emit("chatMessage", msg));
         offlineMessageQueue = [];
         showToast("📶 Back online! Sent queued messages.");
-    }
-    if(offlineMemoryQueue.length > 0) {
-        offlineMemoryQueue.forEach(mem => socket.emit("uploadMemoryPhoto", mem));
-        offlineMemoryQueue = [];
-        showToast("📶 Back online! Pinned queued memories.");
     }
 });
 
@@ -346,9 +296,9 @@ function startGPS() {
         return;
     }
     navigator.geolocation.watchPosition(async p=>{
-        const lat=Number(p.coords.latitude), lng=Number(p.coords.longitude), acc=Number(p.coords.accuracy);
+        const lat = Number(p.coords.latitude), lng = Number(p.coords.longitude), acc = Number(p.coords.accuracy);
         
-        // NEW: Altitude & Speed Extraction
+        // --- NEW: Altitude & Speed Extraction ---
         const alt = p.coords.altitude ? Math.round(p.coords.altitude) : null;
         let speedKmh = 0;
         let dist = 0;
@@ -365,7 +315,7 @@ function startGPS() {
         speedKmh = Math.min(speedKmh, 300); 
         
         if(!validCoord(lat,lng)) return;
-        myCoords={lat,lng, alt, speedKmh};
+        myCoords = {lat, lng, alt, speedKmh};
 
         locationHistory.push([lat, lng]);
         if(locationHistory.length > 1000) locationHistory.shift(); 
@@ -387,7 +337,7 @@ function startGPS() {
         if (!cityName) {
             cityName = await fetchCity(lat, lng);
             if (cityName) {
-                if ($("header-app-title")) $("header-app-title").textContent = `${cityName} Map`;
+                if ($("header-app-title")) $("header-app-title").textContent = `${cityName} Tracker`;
                 if ($("pill-city")) $("pill-city").textContent = `📍 ${cityName}`;
             }
         }
@@ -398,13 +348,14 @@ function startGPS() {
                 myWeather = w;
                 lastWeatherFetch = Date.now();
                 if ($("map-temp-display")) $("map-temp-display").textContent = w;
+                if ($("top-weather")) { safeShow("top-weather", "flex"); $("top-weather").textContent = w; }
                 
                 // Add Elevation to own badge
                 const badgeText = alt !== null ? `${w} | ⛰️${alt}m` : w;
                 if (ownMarker) ownMarker.unbindTooltip().bindTooltip(badgeText, { permanent: true, direction: "right", className: "weather-badge", offset: [15, 0] });
             }
         }
-
+        
         lastFixCoords = { lat, lng }; lastFixTime = Date.now();
 
         SmartDrive.tick(speedKmh, dist);
@@ -412,6 +363,8 @@ function startGPS() {
         socket.emit("updateLocation",{name:currentUser.name, avatar:currentUser.avatar, lat, lng, alt, speedKmh, weather:myWeather});
         updateFriendBadges(); 
         triggerGroupRouteUpdate(); 
+        Navigation.onLiveUpdate(); 
+        GroupNavigation.onLiveUpdate(); 
     }, e => {
         console.warn("GPS error", e);
         if(e.code === 1) showToast("⚠️ GPS Permission Denied! Location tools disabled.", 6000);
@@ -424,7 +377,7 @@ function updateFriendBadges(){
         const f=friendData[id], m=friendMarkers[id]; if(!f||!m) return;
         let text = f.online===false ? "Offline" : f.weather;
         if(f.alt) text += ` | ⛰️${f.alt}m`;
-        if(myCoords && validCoord(f.lat,f.lng)) text += ` | 📍 ${distanceKm(myCoords.lat,myCoords.lng,f.lat,f.lng)} km away`;
+        if(myCoords && validCoord(f.lat,f.lng)) text += ` | 📍 ${distanceKm(myCoords.lat,myCoords.lng,f.lat,f.lng)} km`;
         m.unbindTooltip(); if(text) m.bindTooltip(text,{permanent:true,direction:"right",className:"weather-badge",offset:[15,0]});
     });
 }
@@ -432,7 +385,7 @@ function updateFriendBadges(){
 socket.on("onlineUsers", list=>{ if(Array.isArray(list)) list.forEach(u=>{ if(u.id!==socket.id){ friendData[u.id]={...(friendData[u.id]||{}),...u,online:true}; createOrUpdateFriendMarker(u);} }); updateOnlineUI(); });
 socket.on("userOnline", u=>{ if(u.id!==socket.id){ friendData[u.id]={...(friendData[u.id]||{}),...u,online:true}; createOrUpdateFriendMarker(u); } updateOnlineUI(); });
 socket.on("userOffline", d=>{ if(d?.id && friendData[d.id]){ friendData[d.id].online=false; if(friendMarkers[d.id]) friendMarkers[d.id].setOpacity(0.45); } updateOnlineUI(); });
-socket.on("friendMoved", u=>{ if(u?.id) { createOrUpdateFriendMarker({...u,online:true}); updateOnlineUI(); triggerGroupRouteUpdate(); }});
+socket.on("friendMoved", u=>{ if(u?.id) { createOrUpdateFriendMarker({...u,online:true}); updateOnlineUI(); triggerGroupRouteUpdate(); Navigation.onLiveUpdate(); GroupNavigation.onLiveUpdate(); }});
 socket.on("friendDisconnected", id=>{ if(friendMarkers[id]){map.removeLayer(friendMarkers[id]); delete friendMarkers[id];} delete friendData[id]; updateOnlineUI(); });
 
 function createOrUpdateFriendMarker(u){
@@ -462,16 +415,24 @@ function showProfilePopup(u) {
     if($("profile-popup-distance")) $("profile-popup-distance").textContent = myCoords ? `${distanceKm(myCoords.lat,myCoords.lng,u.lat,u.lng)} km away` : "--";
     if($("profile-popup-weather")) $("profile-popup-weather").textContent = u.weather || "--";
     
+    if($("profile-nav-btn")) {
+        $("profile-nav-btn").onclick = () => {
+            if(validCoord(u.lat, u.lng)) Navigation.start(u.id);
+        };
+    }
+    
     // NAYA: Call Button Activate Karna
     if (typeof initCallButton === "function") initCallButton(u);
     
-    if($("profile-popup")) $("profile-popup").style.display="flex";
-    if($("profile-focus-btn")) $("profile-focus-btn").onclick=()=>{ map.flyTo([u.lat,u.lng],16); $("profile-popup").style.display="none"; };
+    safeShow("profile-popup", "flex");
+    const fb = $("profile-focus-btn");
+    if(fb) fb.onclick=()=>{ map.flyTo([u.lat,u.lng],16); safeHide("profile-popup"); };
 }
-$("profile-popup-close")?.addEventListener("click",()=>$("profile-popup").style.display="none");
+$("profile-popup-close")?.addEventListener("click",()=>safeHide("profile-popup"));
 
 function renderGeofenceList() {
     const list = $("geofence-items");
+    if(!list) return;
     list.innerHTML = "";
     if(currentGeofences.length === 0) {
         list.innerHTML = "<div style='color:var(--muted); font-size:12px; text-align:center;'>No active geofences.</div>";
@@ -483,7 +444,7 @@ function renderGeofenceList() {
                 : `<span style="font-size:10px; color:var(--muted); font-weight:bold;">Owner: ${escapeHTML(f.ownerName)}</span>`;
 
             list.innerHTML += `
-            <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.05); padding:10px; border-radius:10px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.05); padding:10px; border-radius:10px; margin-bottom:8px;">
                 <div>
                     <div style="color:white; font-size:13px; font-weight:bold;">${escapeHTML(f.name)}</div>
                     <div style="color:var(--muted); font-size:11px;">Radius: ${f.radius}m</div>
@@ -492,46 +453,63 @@ function renderGeofenceList() {
             </div>`;
         });
     }
-    $("geofence-list-modal").style.display = "flex";
+    const modal = $("geofence-list-modal");
+    if(modal) modal.style.display = "flex";
 }
-if($("geofence-list-close")) $("geofence-list-close").onclick = () => $("geofence-list-modal").style.display = "none";
+$("geofence-list-close")?.addEventListener("click", () => safeHide("geofence-list-modal"));
 
 function setupAdvancedTools() {
-    $("measure-btn").onclick = () => {
+    const mb = $("measure-btn");
+    if(mb) mb.onclick = () => {
         mapActionMode = mapActionMode === 'measure' ? null : 'measure';
-        $("measure-btn").classList.toggle("active-tool", mapActionMode === 'measure');
-        $("geofence-btn").classList.remove("active-tool"); $("trip-btn").classList.remove("active-tool"); $("group-nav-btn").classList.remove("active-tool");
+        mb.classList.toggle("active-tool", mapActionMode === 'measure');
+        if($("geofence-btn")) $("geofence-btn").classList.remove("active-tool"); 
+        if($("trip-btn")) $("trip-btn").classList.remove("active-tool"); 
+        if($("group-nav-btn")) $("group-nav-btn").classList.remove("active-tool");
         if(mapActionMode !== 'measure') { measureLayer.clearLayers(); measurePoints = []; }
         else showToast("📍 Tap two points on the map to measure road distance");
     };
 
-    $("geofence-btn").onclick = () => {
+    const gb = $("geofence-btn");
+    if(gb) gb.onclick = () => {
         geoClickCount++;
         if (geoClickCount === 3) {
-            clearTimeout(geoClickTimer); geoClickCount = 0; renderGeofenceList(); return;
+            clearTimeout(geoClickTimer);
+            geoClickCount = 0;
+            renderGeofenceList(); 
+            return;
         }
         clearTimeout(geoClickTimer);
         geoClickTimer = setTimeout(() => {
-            geoClickCount = 0; mapActionMode = mapActionMode === 'geofence' ? null : 'geofence';
-            $("geofence-btn").classList.toggle("active-tool", mapActionMode === 'geofence');
-            $("measure-btn").classList.remove("active-tool"); $("trip-btn").classList.remove("active-tool"); $("group-nav-btn").classList.remove("active-tool");
+            geoClickCount = 0;
+            mapActionMode = mapActionMode === 'geofence' ? null : 'geofence';
+            gb.classList.toggle("active-tool", mapActionMode === 'geofence');
+            if($("measure-btn")) $("measure-btn").classList.remove("active-tool"); 
+            if($("trip-btn")) $("trip-btn").classList.remove("active-tool"); 
+            if($("group-nav-btn")) $("group-nav-btn").classList.remove("active-tool");
             if(mapActionMode === 'geofence') showToast("⭕ Tap map to set Geofence. (Tap button 3 times to view/delete)");
-        }, 300);
+        }, 900); // 900ms allows for natural triple-tapping on mobile
     };
 
-    $("trip-btn").onclick = () => {
+    const tb = $("trip-btn");
+    if(tb) tb.onclick = () => {
         mapActionMode = mapActionMode === 'trip' ? null : 'trip';
-        $("trip-btn").classList.toggle("active-tool", mapActionMode === 'trip');
-        $("measure-btn").classList.remove("active-tool"); $("geofence-btn").classList.remove("active-tool"); $("group-nav-btn").classList.remove("active-tool");
+        tb.classList.toggle("active-tool", mapActionMode === 'trip');
+        if($("measure-btn")) $("measure-btn").classList.remove("active-tool"); 
+        if($("geofence-btn")) $("geofence-btn").classList.remove("active-tool"); 
+        if($("group-nav-btn")) $("group-nav-btn").classList.remove("active-tool");
         if(mapActionMode === 'trip') showToast("🚗 Tap the map to set Group Trip Destination");
     };
 
-    $("group-nav-btn").onclick = () => {
+    const gnb = $("group-nav-btn");
+    if(gnb) gnb.onclick = () => {
         mapActionMode = mapActionMode === 'group-nav' ? null : 'group-nav';
-        $("group-nav-btn").classList.toggle("active-tool", mapActionMode === 'group-nav');
-        $("measure-btn").classList.remove("active-tool"); $("geofence-btn").classList.remove("active-tool"); $("trip-btn").classList.remove("active-tool");
+        gnb.classList.toggle("active-tool", mapActionMode === 'group-nav');
+        if($("measure-btn")) $("measure-btn").classList.remove("active-tool"); 
+        if($("geofence-btn")) $("geofence-btn").classList.remove("active-tool"); 
+        if($("trip-btn")) $("trip-btn").classList.remove("active-tool");
         if(mapActionMode === 'group-nav') GroupNavigation.openSetup();
-        else $("group-nav-setup").style.display = "none";
+        else safeHide("group-nav-setup");
     };
 
     map.on('click', (e) => {
@@ -557,11 +535,11 @@ function setupAdvancedTools() {
                     } else {
                         showToast("❌ Road route unavailable. Try again.");
                     }
-                    setTimeout(() => { measureLayer.clearLayers(); measurePoints = []; mapActionMode = null; $("measure-btn").classList.remove("active-tool"); }, 6000);
+                    setTimeout(() => { measureLayer.clearLayers(); measurePoints = []; mapActionMode = null; if($("measure-btn")) $("measure-btn").classList.remove("active-tool"); }, 6000);
                 }).catch(() => {
                     measureLayer.clearLayers();
                     showToast("❌ Road route unavailable. Try again.");
-                    setTimeout(() => { measureLayer.clearLayers(); measurePoints = []; mapActionMode = null; $("measure-btn").classList.remove("active-tool"); }, 6000);
+                    setTimeout(() => { measureLayer.clearLayers(); measurePoints = []; mapActionMode = null; if($("measure-btn")) $("measure-btn").classList.remove("active-tool"); }, 6000);
                 });
             }
         } 
@@ -577,7 +555,7 @@ function setupAdvancedTools() {
                     showToast("❌ Invalid radius! Must be between 10 and 50000 meters.");
                 }
             }
-            mapActionMode = null; $("geofence-btn").classList.remove("active-tool");
+            mapActionMode = null; if($("geofence-btn")) $("geofence-btn").classList.remove("active-tool");
         }
         else if (mapActionMode === 'trip') {
             const name = prompt("Enter Trip Destination Name:");
@@ -585,7 +563,7 @@ function setupAdvancedTools() {
                 socket.emit("startTrip", { name: name.trim(), lat: e.latlng.lat, lng: e.latlng.lng });
                 showToast(`🚗 Trip started to ${name}!`);
             }
-            mapActionMode = null; $("trip-btn").classList.remove("active-tool");
+            mapActionMode = null; if($("trip-btn")) $("trip-btn").classList.remove("active-tool");
         }
         else if (mapActionMode === 'memory') {
             if (pendingMemoryImage) {
@@ -609,15 +587,16 @@ function setupAdvancedTools() {
             L.circle([f.lat, f.lng], { radius: f.radius, color: "#8b5cf6", weight: 2, fillOpacity: 0.1, isGeofence: true }).addTo(p4LayerGroup);
             L.marker([f.lat, f.lng], { icon: L.divIcon({className: 'geofence-marker', html: '📍'}), isGeofence: true }).bindTooltip(f.name, {permanent: true, direction: "top", className: "weather-badge"}).addTo(p4LayerGroup);
         });
-        if($("geofence-list-modal").style.display === "flex") renderGeofenceList();
+        const geoModal = $("geofence-list-modal");
+        if (geoModal && geoModal.style.display === "flex") renderGeofenceList();
     });
 
     socket.on("tripData", trip => {
         currentTrip = trip;
         if(tripMarker) { map.removeLayer(tripMarker); tripMarker = null; }
         if(trip) {
-            $("trip-panel").style.display = "flex";
-            $("trip-title").textContent = `Trip to ${trip.name}`;
+            safeShow("trip-panel", "flex");
+            if($("trip-title")) $("trip-title").textContent = `Trip to ${trip.name}`;
             tripMarker = L.marker([trip.lat, trip.lng], { icon: L.divIcon({className: 'geofence-marker', html: '🏁'}) }).addTo(map);
 
             const isMember = trip.members.some(m => m.id === socket.id);
@@ -647,7 +626,7 @@ function setupAdvancedTools() {
             if(window.renderTripChecklist) window.renderTripChecklist();
         } else {
             tripRoutesLayer.clearLayers(); tripRoadStats = {};
-            if($("trip-panel")) $("trip-panel").style.display = "none";
+            safeHide("trip-panel");
         }
     });
 }
@@ -720,18 +699,18 @@ function updateTripPanel() {
 }
 
 function setupBasicControls(){
-    $("my-location-btn").onclick = () => { if(myCoords) map.flyTo([myCoords.lat,myCoords.lng], 16); };
-    $("compass-btn").onclick = () => { map.setView(map.getCenter(), map.getZoom(), {animate:true}); $("compass-icon").style.transform="rotate(0deg)"; };
-    $("map-style-btn").onclick = (e) => { e.stopPropagation(); $("map-style-menu").style.display = $("map-style-menu").style.display==="flex"?"none":"flex"; };
-    $("map-style-menu").onclick = (e) => {
+    $("my-location-btn")?.addEventListener("click", () => { if(myCoords) map.flyTo([myCoords.lat,myCoords.lng], 16); });
+    $("compass-btn")?.addEventListener("click", () => { map.setView(map.getCenter(), map.getZoom(), {animate:true}); const ci=$("compass-icon"); if(ci) ci.style.transform="rotate(0deg)"; });
+    $("map-style-btn")?.addEventListener("click", (e) => { e.stopPropagation(); const sm=$("map-style-menu"); if(sm) sm.style.display = sm.style.display==="flex"?"none":"flex"; });
+    $("map-style-menu")?.addEventListener("click", (e) => {
         const b=e.target.closest("[data-style]"); if(!b) return; const s=b.dataset.style;
         [satelliteLayer,streetLayer,darkLayer].forEach(l=>map.removeLayer(l));
         ({satellite:satelliteLayer,street:streetLayer,dark:darkLayer})[s].addTo(map);
         document.querySelectorAll("#map-style-menu button").forEach(x=>x.classList.toggle("active",x.dataset.style===s));
-        $("map-style-menu").style.display="none";
-    };
+        safeHide("map-style-menu");
+    });
     if (window.DeviceOrientationEvent) window.addEventListener("deviceorientation", e => { const icon = $("compass-icon"); if (icon) icon.style.transform = `rotate(${e.webkitCompassHeading ? -e.webkitCompassHeading : e.alpha}deg)`; }, true);
-
+    
     // Online/Offline status listeners
     window.addEventListener('offline', () => showToast("📶 You are offline. Data saved locally."));
     window.addEventListener('online', () => {
@@ -739,10 +718,6 @@ function setupBasicControls(){
         if(offlineMessageQueue.length > 0) {
             offlineMessageQueue.forEach(msg => socket.emit("chatMessage", msg));
             offlineMessageQueue = [];
-        }
-        if(offlineMemoryQueue.length > 0) {
-            offlineMemoryQueue.forEach(mem => socket.emit("uploadMemoryPhoto", mem));
-            offlineMemoryQueue = [];
         }
     });
 }
@@ -752,42 +727,52 @@ function setupChat(){
     let unread=0, typingTimer=null, replyTo=null, reactingId=null;
     const msgStore=new Map(), emojis=["👍","❤️","😂","😮","😢","🔥"];
 
-    function updateUnreadBadge(){ const b=$("chat-unread-badge"); if(!b) return; b.textContent=unread>99?"99+":unread; b.style.display=unread>0?"flex":"none"; }
+    function updateUnreadBadge(){ const b=$("chat-unread-badge"); if(b){ b.textContent=unread>99?"99+":unread; b.style.display=unread>0?"flex":"none"; } }
 
-    $("chat-toggle-btn").onclick = () => { cc.style.display = "flex"; $("chat-toggle-btn").style.display = "none"; unread=0; updateUnreadBadge(); inp.focus(); };
-    $("chat-minimize-btn").onclick = () => { cc.style.display = "none"; $("chat-toggle-btn").style.display = "flex"; };
-    $("online-btn").onclick = (e) => { e.stopPropagation(); const l=$("online-list"); l.style.display = l.style.display === "block" ? "none" : "block"; updateOnlineUI(); };
-    document.addEventListener("click", e => { if ($("online-list") && !$("online-list").contains(e.target) && e.target !== $("online-btn")) $("online-list").style.display = "none"; });
+    $("chat-toggle-btn")?.addEventListener("click", () => { safeShow("chat-container", "flex"); safeHide("chat-toggle-btn"); unread=0; updateUnreadBadge(); if(inp) inp.focus(); });
+    $("chat-minimize-btn")?.addEventListener("click", () => { safeHide("chat-container"); safeShow("chat-toggle-btn", "flex"); });
+    $("online-btn")?.addEventListener("click", (e) => { e.stopPropagation(); const l=$("online-list"); if(l) l.style.display = l.style.display === "block" ? "none" : "block"; updateOnlineUI(); });
+    document.addEventListener("click", e => { if ($("online-list") && !$("online-list").contains(e.target) && e.target !== $("online-btn")) safeHide("online-list"); });
 
-    inp.oninput=()=>{ socket.emit("typing",true); clearTimeout(typingTimer); typingTimer=setTimeout(()=>socket.emit("typing",false), 1200); send.style.display=inp.value.trim()?"flex":"none"; vb.style.display=inp.value.trim()?"none":"flex"; };
-    socket.on("typing", d=>{ const t=$("typing-indicator"); if(d.id!==socket.id && d.isTyping){t.textContent=`${escapeHTML(d.name)} is typing…`; t.style.display="block";}else t.style.display="none"; });
+    if(inp) {
+        inp.oninput=()=>{ socket.emit("typing",true); clearTimeout(typingTimer); typingTimer=setTimeout(()=>socket.emit("typing",false), 1200); if(send && vb) { send.style.display=inp.value.trim()?"flex":"none"; vb.style.display=inp.value.trim()?"none":"flex"; } };
+    }
+    socket.on("typing", d=>{ const t=$("typing-indicator"); if(t) { if(d.id!==socket.id && d.isTyping){t.textContent=`${escapeHTML(d.name)} is typing…`; t.style.display="block";}else t.style.display="none"; } });
 
-    $("reply-cancel").onclick=()=>{replyTo=null; $("reply-bar").style.display="none";};
-    $("emojiButton").onclick=(e)=>{e.stopPropagation(); $("attachment-menu").style.display="none"; $("emoji-picker-container").style.display=$("emoji-picker-container").style.display==="block"?"none":"block";};
-    $("emojiPicker").addEventListener("emoji-click",e=>{ const em=e.detail.unicode; if(reactingId){socket.emit("messageReaction",{messageId:reactingId,emoji:em});$("emoji-picker-container").style.display="none";reactingId=null;}else{inp.value+=em;inp.focus();send.style.display="flex";vb.style.display="none";} });
+    $("reply-cancel")?.addEventListener("click", ()=>{replyTo=null; safeHide("reply-bar");});
+    $("emojiButton")?.addEventListener("click", (e)=>{e.stopPropagation(); safeHide("attachment-menu"); const ec=$("emoji-picker-container"); if(ec) ec.style.display=ec.style.display==="block"?"none":"block";});
     
-    $("chat-attach-btn").onclick=(e)=>{e.stopPropagation(); $("emoji-picker-container").style.display="none"; $("attachment-menu").style.display=$("attachment-menu").style.display==="flex"?"none":"flex";};
+    const emojiPicker = $("emojiPicker");
+    if(emojiPicker) {
+        emojiPicker.addEventListener("emoji-click",e=>{ const em=e.detail.unicode; if(reactingId){socket.emit("messageReaction",{messageId:reactingId,emoji:em});safeHide("emoji-picker-container");reactingId=null;}else if(inp){inp.value+=em;inp.focus();if(send) send.style.display="flex";if(vb) vb.style.display="none";} });
+    }
+    
+    $("chat-attach-btn")?.addEventListener("click", (e)=>{e.stopPropagation(); safeHide("emoji-picker-container"); const am=$("attachment-menu"); if(am) am.style.display=am.style.display==="flex"?"none":"flex";});
     const fInp=$("chatFileInput");
-    $("att-media").onclick=()=>{fInp.accept="image/*,video/*";fInp.click();$("attachment-menu").style.display="none";};
-    $("att-doc").onclick=()=>{fInp.accept=".pdf,.doc,.txt,.zip";fInp.click();$("attachment-menu").style.display="none";};
-    $("att-audio").onclick=()=>{fInp.accept="audio/*";fInp.click();$("attachment-menu").style.display="none";};
-    fInp.onchange=()=>{ 
-        const f=fInp.files?.[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ 
-        const payload = {name:currentUser.name, type:f.type.split('/')[0]==="image"?"image":f.type.split('/')[0]==="video"?"video":f.type.split('/')[0]==="audio"?"audio":"document", data:r.result, replyTo};
-        if(navigator.onLine) socket.emit("chatMessage", payload); 
-        else { offlineMessageQueue.push(payload); showToast("📶 Offline: Message queued"); }
-        $("reply-cancel").click();}; r.readAsDataURL(f); fInp.value="";
-    };
+    $("att-media")?.addEventListener("click", ()=>{if(fInp){fInp.accept="image/*,video/*";fInp.click();safeHide("attachment-menu");}});
+    $("att-doc")?.addEventListener("click", ()=>{if(fInp){fInp.accept=".pdf,.doc,.txt,.zip";fInp.click();safeHide("attachment-menu");}});
+    $("att-audio")?.addEventListener("click", ()=>{if(fInp){fInp.accept="audio/*";fInp.click();safeHide("attachment-menu");}});
+    if(fInp) {
+        fInp.onchange=()=>{ 
+            const f=fInp.files?.[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ 
+            const payload = {name:currentUser.name, type:f.type.split('/')[0]==="image"?"image":f.type.split('/')[0]==="video"?"video":f.type.split('/')[0]==="audio"?"audio":"document", data:r.result, replyTo};
+            if(navigator.onLine) socket.emit("chatMessage", payload); 
+            else { offlineMessageQueue.push(payload); showToast("📶 Offline: Message queued"); }
+            if($("reply-cancel")) $("reply-cancel").click();}; r.readAsDataURL(f); fInp.value="";
+        };
+    }
 
-    $("chatForm").onsubmit=e=>{ 
-        e.preventDefault(); const t=inp.value.trim(); 
+    $("chatForm")?.addEventListener("submit", e=>{ 
+        e.preventDefault(); 
+        if(!inp) return;
+        const t=inp.value.trim(); 
         if(t){
             const payload = {name:currentUser.name,type:"text",data:t,replyTo};
             if(navigator.onLine) socket.emit("chatMessage",payload);
             else { offlineMessageQueue.push(payload); showToast("📶 Offline: Message queued"); }
-            inp.value=""; $("reply-cancel").click(); send.style.display="none"; vb.style.display="flex"; inp.focus();
+            inp.value=""; if($("reply-cancel")) $("reply-cancel").click(); if(send) send.style.display="none"; if(vb) vb.style.display="flex"; inp.focus();
         } 
-    };
+    });
 
     function renderMsg(m){
         if(msgStore.has(m.id)) return;
@@ -806,28 +791,30 @@ function setupChat(){
         
         const a=document.createElement("div"); a.className="message-actions";
         emojis.forEach(e=>{const btn=document.createElement("button"); btn.className="action-btn"; btn.textContent=e; btn.onclick=()=>socket.emit("messageReaction",{messageId:m.id,emoji:e}); a.appendChild(btn);});
-        const rep=document.createElement("button"); rep.className="action-btn"; rep.textContent="↩ Reply"; rep.onclick=()=>{replyTo={id:m.id,name:m.name,type:m.type,preview:m.type==="text"?m.data.slice(0,50):"Attachment"}; $("reply-preview").textContent=`↩ ${m.name}`; $("reply-bar").style.display="flex"; inp.focus();}; a.appendChild(rep);
-        b.appendChild(a); const rr=document.createElement("div"); rr.className="reaction-row"; b.appendChild(rr); w.appendChild(b); $("chat-messages").appendChild(w);
+        const rep=document.createElement("button"); rep.className="action-btn"; rep.textContent="↩ Reply"; rep.onclick=()=>{replyTo={id:m.id,name:m.name,type:m.type,preview:m.type==="text"?m.data.slice(0,50):"Attachment"}; if($("reply-preview")) $("reply-preview").textContent=`↩ ${m.name}`; safeShow("reply-bar", "flex"); if(inp) inp.focus();}; a.appendChild(rep);
+        b.appendChild(a); const rr=document.createElement("div"); rr.className="reaction-row"; b.appendChild(rr); w.appendChild(b); 
+        const chatMessages = $("chat-messages");
+        if(chatMessages) chatMessages.appendChild(w);
         
         msgStore.set(m.id,{msg:m,el:w});
-        if(m.senderId!==socket.id && cc.style.display!=="flex"){unread++; updateUnreadBadge();}
-        $("chat-messages").scrollTop=$("chat-messages").scrollHeight;
+        if(m.senderId!==socket.id && cc && cc.style.display!=="flex"){unread++; updateUnreadBadge();}
+        if(chatMessages) chatMessages.scrollTop=chatMessages.scrollHeight;
     }
 
     socket.on("chatHistory", l=>l.forEach(renderMsg)); socket.on("chatMessage", renderMsg);
-    socket.on("messageReaction", d=>{ const s=msgStore.get(d.messageId); if(s){ const c=s.el.querySelector(".reaction-row"); c.innerHTML=""; Object.keys(d.reactions).forEach(e=>{ if(d.reactions[e].length){ const b=document.createElement("button"); b.className="reaction-chip"; b.textContent=`${e} ${d.reactions[e].length}`; b.onclick=()=>socket.emit("messageReaction",{messageId:d.messageId,emoji:e}); c.appendChild(b);} }); }});
+    socket.on("messageReaction", d=>{ const s=msgStore.get(d.messageId); if(s){ const c=s.el.querySelector(".reaction-row"); if(c) { c.innerHTML=""; Object.keys(d.reactions).forEach(e=>{ if(d.reactions[e].length){ const b=document.createElement("button"); b.className="reaction-chip"; b.textContent=`${e} ${d.reactions[e].length}`; b.onclick=()=>socket.emit("messageReaction",{messageId:d.messageId,emoji:e}); c.appendChild(b);} }); } }});
 }
 
 function setupMemories(){
-    $("phase3-gallery-btn").onclick = () => { $("phase3-memory-overlay").style.display="block"; renderMemGallery(); };
-    $("phase3-memory-close").onclick = () => $("phase3-memory-overlay").style.display="none";
-    $("p3-view-close").onclick = () => $("phase3-photo-viewer").style.display="none";
+    $("phase3-gallery-btn")?.addEventListener("click", () => { safeShow("phase3-memory-overlay", "block"); renderMemGallery(); });
+    $("phase3-memory-close")?.addEventListener("click", () => safeHide("phase3-memory-overlay"));
+    $("p3-view-close")?.addEventListener("click", () => safeHide("phase3-photo-viewer"));
     
     document.querySelectorAll(".phase3-filter").forEach(b => {
         b.onclick = () => { document.querySelectorAll(".phase3-filter").forEach(x=>x.classList.remove("active")); b.classList.add("active"); currentGalleryFilter=b.dataset.filter; renderMemGallery(); };
     });
-    $("phase3-memory-search").oninput = e => { currentGallerySearch=e.target.value.toLowerCase(); renderMemGallery(); };
-    $("p3-view-focus").onclick = () => { const m=memories.get(selectedMemoryId); if(m) map.flyTo([m.lat,m.lng],17); $("phase3-photo-viewer").style.display="none"; $("phase3-memory-overlay").style.display="none"; };
+    $("phase3-memory-search")?.addEventListener("input", e => { currentGallerySearch=e.target.value.toLowerCase(); renderMemGallery(); });
+    $("p3-view-focus")?.addEventListener("click", () => { const m=memories.get(selectedMemoryId); if(m) map.flyTo([m.lat,m.lng],17); safeHide("phase3-photo-viewer"); safeHide("phase3-memory-overlay"); });
 
     function renderMemGallery(){
         let arr = Array.from(memories.values());
@@ -836,18 +823,25 @@ function setupMemories(){
         if(currentGallerySearch) arr=arr.filter(m=>cleanName(m.name).toLowerCase().includes(currentGallerySearch));
         arr.sort((a,b) => new Date(b.time) - new Date(a.time));
 
-        $("phase3-memory-count").textContent = `${arr.length} memories`;
+        if($("phase3-memory-count")) $("phase3-memory-count").textContent = `${arr.length} memories`;
         const grid=$("phase3-memory-grid"), time=$("phase3-timeline-list"), emp=$("phase3-memory-empty");
-        grid.innerHTML=""; time.innerHTML=""; emp.style.display=arr.length?"none":"block";
+        if(grid) grid.innerHTML=""; 
+        if(time) time.innerHTML=""; 
+        if(emp) emp.style.display=arr.length?"none":"block";
 
         arr.forEach(m=>{
-            const c=document.createElement("div"); c.className="p3-card";
-            c.innerHTML=`<img src="${escapeHTML(m.image)}" loading="lazy"><div class="p3-card-info"><b>${escapeHTML(m.name)}</b><span>${new Date(m.time).toLocaleDateString()}</span></div>`;
-            c.onclick=()=>{selectedMemoryId=m.id; $("p3-view-image").src=m.image; $("p3-view-name").textContent=m.name; $("p3-view-date").textContent=new Date(m.time).toLocaleString(); $("phase3-photo-viewer").style.display="flex";}; grid.appendChild(c);
-            
-            const t=document.createElement("div"); t.className="p3-time-item";
-            t.innerHTML=`<div class="p3-time-thumb"><img src="${escapeHTML(m.image)}" loading="lazy"></div><div class="p3-time-info"><b>${escapeHTML(m.name)}</b><span>${new Date(m.time).toLocaleString()}</span></div>`;
-            t.onclick=c.onclick; time.appendChild(t);
+            if(grid) {
+                const c=document.createElement("div"); c.className="p3-card";
+                c.innerHTML=`<img src="${escapeHTML(m.image)}" loading="lazy"><div class="p3-card-info"><b>${escapeHTML(m.name)}</b><span>${new Date(m.time).toLocaleDateString()}</span></div>`;
+                c.onclick=()=>{selectedMemoryId=m.id; if($("p3-view-image")) $("p3-view-image").src=m.image; if($("p3-view-name")) $("p3-view-name").textContent=m.name; if($("p3-view-date")) $("p3-view-date").textContent=new Date(m.time).toLocaleString(); safeShow("phase3-photo-viewer", "flex");}; 
+                grid.appendChild(c);
+            }
+            if(time) {
+                const t=document.createElement("div"); t.className="p3-time-item";
+                t.innerHTML=`<div class="p3-time-thumb"><img src="${escapeHTML(m.image)}" loading="lazy"></div><div class="p3-time-info"><b>${escapeHTML(m.name)}</b><span>${new Date(m.time).toLocaleString()}</span></div>`;
+                t.onclick=()=>{selectedMemoryId=m.id; if($("p3-view-image")) $("p3-view-image").src=m.image; if($("p3-view-name")) $("p3-view-name").textContent=m.name; if($("p3-view-date")) $("p3-view-date").textContent=new Date(m.time).toLocaleString(); safeShow("phase3-photo-viewer", "flex");}; 
+                time.appendChild(t);
+            }
         });
     }
 
@@ -857,46 +851,54 @@ function setupMemories(){
             const icon = L.divIcon({ className:"p3-memory-marker", html:`<div style="width:46px;height:46px;border-radius:50%;overflow:hidden;border:2px solid #fff;background:#071018;box-shadow:0 4px 15px rgba(0,0,0,.65)"><img src="${escapeHTML(m.image)}" style="width:100%;height:100%;object-fit:cover;"></div>`, iconSize:[46,46], iconAnchor:[23,23]});
             const marker = L.marker([m.lat,m.lng],{icon}).addTo(memoryLayer);
             marker.bindPopup(`<div class="p3-map-popup"><img src="${escapeHTML(m.image)}"><b>📸 ${escapeHTML(m.name)}</b><button class="p3-open-map-memory">View</button></div>`);
-            marker.on("popupopen",e=>{ const b=e.popup.getElement()?.querySelector(".p3-open-map-memory"); if(b) b.onclick=()=>{selectedMemoryId=m.id; $("p3-view-image").src=m.image; $("p3-view-name").textContent=m.name; $("p3-view-date").textContent=new Date(m.time).toLocaleString(); $("phase3-photo-viewer").style.display="flex";}; });
+            marker.on("popupopen",e=>{ const b=e.popup.getElement()?.querySelector(".p3-open-map-memory"); if(b) b.onclick=()=>{selectedMemoryId=m.id; if($("p3-view-image")) $("p3-view-image").src=m.image; if($("p3-view-name")) $("p3-view-name").textContent=m.name; if($("p3-view-date")) $("p3-view-date").textContent=new Date(m.time).toLocaleString(); safeShow("phase3-photo-viewer", "flex");}; });
         });
     }
 
     socket.on("loadMemoryPhotos", l=>{ memories.clear(); l.forEach(m=>memories.set(m.id,m)); renderPins(); });
-    socket.on("newMemoryPin", m=>{ memories.set(m.id,m); renderPins(); if($("phase3-memory-overlay").style.display==="block") renderMemGallery(); });
+    socket.on("newMemoryPin", m=>{ memories.set(m.id,m); renderPins(); const overlay=$("phase3-memory-overlay"); if(overlay && overlay.style.display==="block") renderMemGallery(); });
 
     const mInp=$("memoryPhotoInput");
-    $("memoryButton").onclick=()=>{ if(!currentUser.name) return alert("Join map first."); mInp.click(); };
+    $("memoryButton")?.addEventListener("click", () => { if(!currentUser.name) return alert("Join map first."); if(mInp) mInp.click(); });
     
-    const addMemBtn = $("p3-add-memory-btn");
-    if(addMemBtn) addMemBtn.onclick = () => { $("phase3-memory-overlay").style.display="none"; $("memoryButton").click(); };
+    $("p3-add-memory-btn")?.addEventListener("click", () => { safeHide("phase3-memory-overlay"); if(mInp) mInp.click(); });
     
-    mInp.onchange=()=>{
-        const f=mInp.files?.[0]; if(!f) return;
-        if(!IMAGE_TYPES.includes(f.type)||f.size>MAX_MEMORY_FILE){alert("Invalid image or >8MB."); mInp.value=""; return;}
-        const r=new FileReader(); 
-        r.onload=()=>{
-            if(validImageData(r.result)){ 
-                pendingMemoryImage = r.result;
-                // FIX FOR BUG 2: Delay setting the map mode to prevent instant pin on alert dismissal
-                showToast("📸 Photo Selected! Tap ANYWHERE on the map to pin it.", 5000);
-                setTimeout(() => { mapActionMode = 'memory'; }, 300);
-            }
-        }; 
-        r.readAsDataURL(f); mInp.value="";
-    };
+    if(mInp) {
+        mInp.onchange=()=>{
+            const f=mInp.files?.[0]; if(!f) return;
+            if(!IMAGE_TYPES.includes(f.type)||f.size>MAX_MEMORY_FILE){alert("Invalid image or >8MB."); mInp.value=""; return;}
+            const r=new FileReader(); 
+            r.onload=()=>{
+                if(validImageData(r.result)){ 
+                    pendingMemoryImage = r.result;
+                    showToast("📸 Photo Selected! Tap ANYWHERE on the map to pin it.", 5000);
+                    setTimeout(() => { mapActionMode = 'memory'; }, 300);
+                }
+            }; 
+            r.readAsDataURL(f); mInp.value="";
+        };
+    }
 }
 
 function setupJoin(){
-    if(currentUser.name){ $("join-screen").style.display="none"; $("header-avatar").style.display="block"; $("header-avatar").src=currentUser.avatar; socket.emit("profileReady",currentUser); }
-    $("join-form").onsubmit=e=>{ e.preventDefault(); currentUser.name=cleanName($("nameInput").value); localStorage.setItem("koraput_name",currentUser.name);
-        const f=$("avatarInput").files?.[0];
-        if(f){const r=new FileReader(); r.onload=()=>{currentUser.avatar=r.result; localStorage.setItem("koraput_avatar",r.result); done();}; r.readAsDataURL(f);} else done();
-        function done(){$("join-screen").style.display="none"; $("header-avatar").style.display="block"; $("header-avatar").src=currentUser.avatar; socket.emit("profileReady",currentUser); updateOnlineUI();}
-    };
+    if(currentUser.name){ safeHide("join-screen"); const avatar=$("header-avatar"); if(avatar) { avatar.style.display="block"; avatar.src=currentUser.avatar; } socket.emit("profileReady",currentUser); }
+    const jf = $("join-form");
+    if(jf) {
+        jf.onsubmit=e=>{ 
+            e.preventDefault(); 
+            const nInp = $("nameInput");
+            if(nInp) currentUser.name=cleanName(nInp.value); 
+            localStorage.setItem("koraput_name",currentUser.name);
+            const aInp = $("avatarInput");
+            const f=aInp ? aInp.files?.[0] : null;
+            if(f){const r=new FileReader(); r.onload=()=>{currentUser.avatar=r.result; localStorage.setItem("koraput_avatar",r.result); done();}; r.readAsDataURL(f);} else done();
+            function done(){ safeHide("join-screen"); const ha = $("header-avatar"); if(ha) { ha.style.display="block"; ha.src=currentUser.avatar; } socket.emit("profileReady",currentUser); updateOnlineUI();}
+        };
+    }
 }
 
 // ==========================================
-// GOOGLE DIRECTIONS & SEARCH
+// GOOGLE DIRECTIONS & SEARCH (Fixed by Claude)
 // ==========================================
 function setupGoogleSearch() {
     const searchInput = $("location-search-input");
@@ -906,11 +908,11 @@ function setupGoogleSearch() {
     if (clearBtn) {
         clearBtn.onclick = () => {
             searchInput.value = "";
-            clearBtn.style.display = "none";
+            safeHide("location-search-clear");
             if (searchMarker) { map.removeLayer(searchMarker); searchMarker = null; }
             navigationLayer.clearLayers();
-            if($("nav-panel")) $("nav-panel").style.display = "none";
-            if($("nav-bottom-sheet")) $("nav-bottom-sheet").style.display = "none";
+            safeHide("nav-panel");
+            safeHide("nav-bottom-sheet");
             if (myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
         };
     }
@@ -946,7 +948,7 @@ function setupGoogleSearch() {
                 
                 if (searchMarker) map.removeLayer(searchMarker);
                 navigationLayer.clearLayers();
-                if($("nav-panel")) $("nav-panel").style.display = "none";
+                safeHide("nav-panel");
                 
                 map.flyTo([destLat, destLng], 15);
                 
@@ -967,8 +969,9 @@ function setupGoogleSearch() {
                 }).addTo(map);
                 
                 searchMarker.bindPopup(popupContent).openPopup();
-                if (clearBtn) clearBtn.style.display = "block";
+                if (clearBtn) safeShow("location-search-clear", "block");
 
+                // ASLI JUGAD: Using Google Directions API instead of OSRM
                 if(myCoords && window.google) {
                     const ds = new google.maps.DirectionsService();
                     ds.route({
@@ -983,6 +986,7 @@ function setupGoogleSearch() {
                             const route = res.routes[0];
                             const leg = route.legs[0];
                             
+                            // Preview Line
                             const coords = route.overview_path.map(p => [p.lat(), p.lng()]);
                             L.polyline(coords, { color: '#60a5fa', weight: 4, opacity: 0.5, dashArray: '6, 8' }).addTo(navigationLayer);
 
@@ -1016,17 +1020,15 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
     if(navWatchId) navigator.geolocation.clearWatch(navWatchId);
     
     // Hide regular UI elements
-    if($("map-tools")) $("map-tools").style.display = "none";
-    if($("search-container")) $("search-container").style.display = "none";
-    if($("top-header")) $("top-header").style.display = "none";
-    if($("bottom-info")) $("bottom-info").style.display = "none";
-    if($("chat-toggle-btn")) $("chat-toggle-btn").style.display = "none";
+    safeHide("map-tools");
+    safeHide("search-container");
+    safeHide("top-header");
+    safeHide("bottom-info");
+    safeHide("chat-toggle-btn");
     
-    const ui = $("premium-nav-ui");
-    if(ui) ui.style.display = "block";
-
-    if($("nav-bottom-sheet")) $("nav-bottom-sheet").style.display = "flex";
-    if($("turn-banner")) $("turn-banner").style.display = "flex";
+    safeShow("premium-nav-ui", "block");
+    safeShow("nav-bottom-sheet", "flex");
+    safeShow("turn-banner", "flex");
 
     const leg = routeData.legs[0];
     const fullPath = routeData.overview_path.map(p => [p.lat(), p.lng()]);
@@ -1045,7 +1047,6 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
     const userMarker = L.marker(startPos, {icon: userIcon, zIndexOffset: 1000}).addTo(navigationLayer);
     L.marker([destLat, destLng], { icon: L.divIcon({className: 'geofence-marker', html: '📍'}) }).addTo(navigationLayer);
 
-    // FIX 1: Map IDs exactly matching user's HTML elements so it actually updates
     if($("stat-dist")) $("stat-dist").innerHTML = leg.distance.text.replace(" km", "<small style='font-size:12px;color:#9ca3af;'> km</small>");
     if($("stat-eta")) $("stat-eta").innerHTML = leg.duration.text.replace(" mins", "<small> min</small>");
     if($("turn-name")) $("turn-name").textContent = leg.steps[0].instructions.replace(/<[^>]*>?/gm, ''); 
@@ -1053,7 +1054,6 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
 
     map.fitBounds(dottedPath.getBounds(), { paddingBottomRight: [0, 350], paddingTopLeft: [50, 150] });
 
-    // Buttons matched to HTML IDs
     const startBtn = $("btn-start-nav");
     const resetBtn = $("btn-reset-nav");
     const exitBtn = $("btn-exit-nav");
@@ -1069,7 +1069,6 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
     if($("stat-status")) $("stat-status").textContent = "Ready";
     if($("speed-n")) $("speed-n").textContent = "0";
 
-    // Protective check so it doesn't crash if startBtn is somehow null
     if(startBtn) {
         startBtn.onclick = () => {
             startBtn.style.display = "none";
@@ -1131,16 +1130,16 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
 function stopDrive(cancelled = false) {
     if(navWatchId) navigator.geolocation.clearWatch(navWatchId);
     navigationLayer.clearLayers();
-    if($("premium-nav-ui")) $("premium-nav-ui").style.display = "none";
-    if($("nav-bottom-sheet")) $("nav-bottom-sheet").style.display = "none";
-    if($("turn-banner")) $("turn-banner").style.display = "none";
-    if($("speed-dial")) $("speed-dial").style.display = "none";
+    safeHide("premium-nav-ui");
+    safeHide("nav-bottom-sheet");
+    safeHide("turn-banner");
+    safeHide("speed-dial");
     
-    if($("map-tools")) $("map-tools").style.display = "flex";
-    if($("search-container")) $("search-container").style.display = "flex";
-    if($("top-header")) $("top-header").style.display = "flex";
-    if($("bottom-info")) $("bottom-info").style.display = "flex";
-    if($("chat-toggle-btn")) $("chat-toggle-btn").style.display = "flex";
+    safeShow("map-tools", "flex");
+    safeShow("search-container", "flex");
+    safeShow("top-header", "flex");
+    safeShow("bottom-info", "flex");
+    safeShow("chat-toggle-btn", "flex");
     
     if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
     
@@ -1152,7 +1151,12 @@ function stopDrive(cancelled = false) {
 // ==========================================
 // VOICE CALLING (ONLINE WEBRTC & OFFLINE GSM)
 // ==========================================
-let peerConnection = null, localStream = null, incomingIceCandidates = [], callDialog = null, activeCallBtn = null;
+let peerConnection = null;
+let localStream = null;
+let incomingIceCandidates = [];
+let callDialog = null;
+let activeCallBtn = null;
+
 const rtcConfig = { 
     iceServers: [
         { urls: "stun:stun.l.google.com:19302" },
@@ -1167,7 +1171,10 @@ function attachAudioTrack(event) {
     let audio = document.getElementById("remote-audio");
     if(!audio) {
         audio = document.createElement("audio");
-        audio.id = "remote-audio"; audio.autoplay = true; audio.playsInline = true; audio.hidden = true;
+        audio.id = "remote-audio";
+        audio.autoplay = true;
+        audio.playsInline = true;
+        audio.hidden = true;
         document.body.appendChild(audio);
     }
     
@@ -1197,14 +1204,23 @@ function initCallButton(u) {
             return;
         }
 
+        // NEW: Check if browser supports mic
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            showToast("❌ Microphone is not available in this browser.");
+            return;
+        }
+
         try {
             localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
             peerConnection = new RTCPeerConnection(rtcConfig);
             localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
             peerConnection.ontrack = attachAudioTrack; 
+
             peerConnection.onicecandidate = (event) => {
-                if (event.candidate) socket.emit("call-user", { to: u.id, signal: { type: "ice", candidate: event.candidate }, name: currentUser.name });
+                if (event.candidate) {
+                    socket.emit("call-user", { to: u.id, signal: { type: "ice", candidate: event.candidate }, name: currentUser.name });
+                }
             };
 
             const offer = await peerConnection.createOffer();
@@ -1215,14 +1231,19 @@ function initCallButton(u) {
             showActiveCallUI(() => socket.emit("end-call", { to: u.id }));
             
         } catch (err) {
-            showToast("❌ Microphone permission denied.");
+            console.error("CALL MIC ERROR:", err);
+            showToast(`❌ Mic Error: ${err.name || "Unknown"}`);
+            endLocalCall();
         }
     };
 }
 
 socket.on("incoming-call", async (data) => {
     if (data.signal.type === "offer") {
-        if (peerConnection) { socket.emit("end-call", { to: data.from }); return; }
+        if (peerConnection) {
+            socket.emit("end-call", { to: data.from });
+            return;
+        }
         
         incomingIceCandidates = [];
         if (callDialog) callDialog.remove();
@@ -1240,44 +1261,55 @@ socket.on("incoming-call", async (data) => {
         `;
         document.body.appendChild(callDialog);
 
-        document.getElementById("accept-call-btn").onclick = async () => {
-            if (callDialog) callDialog.remove(); callDialog = null;
-            
-            try {
-                localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-                peerConnection = new RTCPeerConnection(rtcConfig);
-                localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-
-                peerConnection.ontrack = attachAudioTrack; 
-                peerConnection.onicecandidate = (event) => {
-                    if (event.candidate) socket.emit("answer-call", { to: data.from, signal: { type: "ice", candidate: event.candidate } });
-                };
-
-                await peerConnection.setRemoteDescription(new RTCSessionDescription(data.signal.sdp));
-                const answer = await peerConnection.createAnswer();
-                await peerConnection.setLocalDescription(answer);
-
-                socket.emit("answer-call", { to: data.from, signal: { type: "answer", sdp: answer } });
-                showToast(`🎙️ Call Connected with ${data.name}`);
+        const acceptBtn = document.getElementById("accept-call-btn");
+        if(acceptBtn) {
+            acceptBtn.onclick = async () => {
+                if (callDialog) callDialog.remove();
+                callDialog = null;
                 
-                showActiveCallUI(() => socket.emit("end-call", { to: data.from }));
+                try {
+                    localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                    peerConnection = new RTCPeerConnection(rtcConfig);
+                    localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
-                incomingIceCandidates.forEach(async (c) => {
-                    try { await peerConnection.addIceCandidate(new RTCIceCandidate(c)); } catch(e){}
-                });
-                incomingIceCandidates = [];
-                
-            } catch (e) {
-                showToast("❌ Mic error.");
+                    peerConnection.ontrack = attachAudioTrack;
+
+                    peerConnection.onicecandidate = (event) => {
+                        if (event.candidate) {
+                            socket.emit("answer-call", { to: data.from, signal: { type: "ice", candidate: event.candidate } });
+                        }
+                    };
+
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(data.signal.sdp));
+                    const answer = await peerConnection.createAnswer();
+                    await peerConnection.setLocalDescription(answer);
+
+                    socket.emit("answer-call", { to: data.from, signal: { type: "answer", sdp: answer } });
+                    showToast(`🎙️ Call Connected with ${data.name}`);
+                    
+                    showActiveCallUI(() => socket.emit("end-call", { to: data.from }));
+
+                    incomingIceCandidates.forEach(async (c) => {
+                        try { await peerConnection.addIceCandidate(new RTCIceCandidate(c)); } catch(e){}
+                    });
+                    incomingIceCandidates = [];
+                    
+                } catch (e) {
+                    showToast("❌ Mic error.");
+                    socket.emit("end-call", { to: data.from });
+                    endLocalCall();
+                }
+            };
+        }
+
+        const rejectBtn = document.getElementById("reject-call-btn");
+        if(rejectBtn) {
+            rejectBtn.onclick = () => {
+                if (callDialog) callDialog.remove();
+                callDialog = null;
                 socket.emit("end-call", { to: data.from });
-                endLocalCall();
-            }
-        };
-
-        document.getElementById("reject-call-btn").onclick = () => {
-            if (callDialog) callDialog.remove(); callDialog = null;
-            socket.emit("end-call", { to: data.from });
-        };
+            };
+        }
 
     } else if (data.signal.type === "ice") {
         if (peerConnection && peerConnection.remoteDescription) {
@@ -1321,6 +1353,41 @@ function endLocalCall() {
     if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
     incomingIceCandidates = [];
 }
+
+// ==========================================
+// PWA APP INSTALL BUTTON LOGIC
+// ==========================================
+let deferredPrompt;
+window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    const installBtn = $("install-app-btn");
+    if (installBtn) installBtn.style.display = 'flex';
+});
+
+window.addEventListener('DOMContentLoaded', () => {
+    const installBtn = $("install-app-btn");
+    if (installBtn) {
+        installBtn.onclick = async () => {
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                const { outcome } = await deferredPrompt.userChoice;
+                if (outcome === 'accepted') {
+                    installBtn.style.display = 'none'; 
+                }
+                deferredPrompt = null;
+            }
+        };
+    }
+    if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true) {
+        if (installBtn) installBtn.style.display = 'none';
+    }
+});
+
+window.addEventListener('appinstalled', () => {
+    const installBtn = $("install-app-btn");
+    if (installBtn) installBtn.style.display = 'none';
+});
 
 // ==========================================
 // KORAPUT GEAR CHECKLIST & SOS FEATURE
