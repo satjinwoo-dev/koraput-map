@@ -1114,7 +1114,7 @@ function setupJoin(){
 }
 
 // ==========================================
-// FIX 5: SEARCH BAR NAVIGATION & ANIMATION 
+// FIX 5: SEARCH BAR NAVIGATION (WITH LOCAL BIAS) 
 // ==========================================
 function setupGoogleSearch() {
     const input = $("location-search-input");
@@ -1150,12 +1150,27 @@ function setupGoogleSearch() {
         const id=++requestId;
         timer=setTimeout(async()=>{
             try{
-                const url=`https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=6&countrycodes=in&q=${encodeURIComponent(q)}`;
+                // 🔥 LOCAL BIAS LOGIC: Search near the current map view first!
+                let viewBoxStr = "";
+                if (map) {
+                    const center = map.getCenter();
+                    // Creates a ~30km radius box around your current location
+                    const x1 = center.lng - 0.3; // min lon
+                    const y1 = center.lat + 0.3; // max lat
+                    const x2 = center.lng + 0.3; // max lon
+                    const y2 = center.lat - 0.3; // min lat
+                    // bounded=0 means it strongly prefers this area, but will search outside if not found
+                    viewBoxStr = `&viewbox=${x1},${y1},${x2},${y2}&bounded=0`;
+                }
+
+                const url=`https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=6&countrycodes=in${viewBoxStr}&q=${encodeURIComponent(q)}`;
                 const res=await fetch(url,{headers:{"Accept-Language":"en"}});
                 const data=await res.json();
+                
                 if(id!==requestId) return;
                 resultBox.innerHTML="";
                 if(!Array.isArray(data)||!data.length){ resultBox.innerHTML='<div style="padding:14px;color:#8b9bab">No location found.</div>'; showResults(); return; }
+                
                 data.forEach(item=>{
                     const lat=Number(item.lat),lng=Number(item.lon); if(!validCoord(lat,lng)) return;
                     const name=item.name || item.display_name.split(",")[0];
@@ -1164,7 +1179,7 @@ function setupGoogleSearch() {
                     b.style.cssText="width:100%;text-align:left;padding:12px;border-radius:12px;color:#fff;background:transparent;border:0;display:flex;flex-direction:column;gap:3px;cursor:pointer;";
                     b.onmouseenter=()=>b.style.background="rgba(52,224,180,.10)";
                     b.onmouseleave=()=>b.style.background="transparent";
-                    b.innerHTML=`<strong>${escapeHTML(name)}</strong><span style="font-size:11px;color:#8b9bab">${escapeHTML(item.display_name)}</span>`;
+                    b.innerHTML=`<strong style="color:#fff;">${escapeHTML(name)}</strong><span style="font-size:11px;color:#8b9bab">${escapeHTML(item.display_name)}</span>`;
                     b.onclick=()=>selectSearchPlace({lat,lng,name,address:item.display_name});
                     resultBox.appendChild(b);
                 });
@@ -1185,7 +1200,7 @@ function setupGoogleSearch() {
         searchPlace=place; hideResults(); input.value=place.name;
         if(clearBtn) clearBtn.style.display="block";
         searchLayer.clearLayers(); navigationLayer.clearLayers();
-        const marker=L.marker([place.lat,place.lng],{icon:L.divIcon({className:'search-destination-marker',html:'📍',iconSize:[34,34],iconAnchor:[17,34]})}).addTo(searchLayer);
+        const marker=L.marker([place.lat,place.lng],{icon:L.divIcon({className:'geofence-marker',html:'📍',iconSize:[34,34],iconAnchor:[17,34]})}).addTo(searchLayer);
         marker.bindTooltip(place.name,{direction:'top',offset:[0,-28],className:'weather-badge'}).openTooltip();
         map.flyTo([place.lat,place.lng],16,{duration:.8});
 
@@ -1211,7 +1226,7 @@ function setupGoogleSearch() {
             setTimeout(()=>{
                 const el=marker.getPopup()?.getElement(); if(!el)return;
                 const d=el.querySelector("#popup-directions"), st=el.querySelector("#popup-start");
-                if(d)d.onclick=()=>{map.fitBounds(line.getBounds(),{padding:[70,220]});showToast(`🗺️ Shortest route: ${dist} km • ⏱️ ${mins} min`,5000);};
+                if(d)d.onclick=()=>{map.fitBounds(line.getBounds(),{padding:[70,220]});showToast(\`🗺️ Shortest route: \${dist} km • ⏱️ \${mins} min\`,5000);};
                 if(st)st.onclick=()=>{marker.closePopup();startSearchNavigation(place.lat,place.lng,place.name,route);};
             },50);
         }else{
