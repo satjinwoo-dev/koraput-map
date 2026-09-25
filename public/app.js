@@ -1132,112 +1132,157 @@ function setupGoogleSearch() {
     const input = $("location-search-input");
     if (!input) return;
     const clearBtn = $("location-search-clear");
-    let timer = null, requestId = 0;
+    
+    // Injecting CSS to make Google's native dropdown match your dark theme
+    const style = document.createElement('style');
+    style.innerHTML = `
+        .pac-container { background-color: rgba(10,17,28,0.98); border: 1px solid rgba(255,255,255,0.14); border-radius: 16px; box-shadow: 0 20px 50px rgba(0,0,0,0.5); margin-top: 10px; padding: 6px; font-family: 'Inter', sans-serif; z-index: 9999 !important; }
+        .pac-item { color: #8b9bab; padding: 10px; border-top: 1px solid rgba(255,255,255,0.05); cursor: pointer; transition: 0.2s; }
+        .pac-item:hover { background: rgba(52,224,180,0.1); }
+        .pac-item-query { font-size: 15px; color: #fff; font-weight: 600; padding-right: 5px; }
+        .pac-icon { display: none; }
+        .pac-matched { color: #34e0b4; }
+        .hdpi.pac-logo:after { display: none; }
+    `;
+    document.head.appendChild(style);
 
     const clearSearch = () => {
         input.value = "";
         if (clearBtn) clearBtn.style.display = "none";
-        searchPlace = null;
+        if (searchMarker) { map.removeLayer(searchMarker); searchMarker = null; }
         if (typeof searchLayer !== "undefined") searchLayer.clearLayers();
         if (typeof navigationLayer !== "undefined") navigationLayer.clearLayers();
         safeHide("premium-nav-ui");
         safeHide("nav-bottom-sheet");
-        if (myCoords) map.flyTo([myCoords.lat,myCoords.lng],16);
+        if (myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
     };
     if (clearBtn) clearBtn.onclick = clearSearch;
 
-    const resultBox = document.createElement("div");
-    resultBox.id = "search-results-box";
-    resultBox.style.cssText = "position:fixed;top:130px;left:50%;transform:translateX(-50%);width:min(90vw,420px);max-height:300px;overflow:auto;z-index:3500;background:rgba(10,17,28,.97);border:1px solid rgba(255,255,255,.14);border-radius:16px;box-shadow:0 20px 50px rgba(0,0,0,.5);display:none;padding:6px;";
-    document.body.appendChild(resultBox);
-
-    function hideResults(){ resultBox.style.display="none"; }
-    function showResults(){ resultBox.style.display="block"; }
-
-    input.addEventListener("input", () => {
-        if (clearBtn) clearBtn.style.display = input.value.trim() ? "block" : "none";
-        clearTimeout(timer);
-        const q=input.value.trim();
-        if(!q){ hideResults(); return; }
-        const id=++requestId;
-        timer=setTimeout(async()=>{
-            try{
-                let viewBoxStr = "";
-                if (map) {
-                    const center = map.getCenter();
-                    const x1 = center.lng - 0.3, y1 = center.lat + 0.3;
-                    const x2 = center.lng + 0.3, y2 = center.lat - 0.3;
-                    viewBoxStr = `&viewbox=${x1},${y1},${x2},${y2}&bounded=0`;
-                }
-
-                const url=`https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=6&countrycodes=in${viewBoxStr}&q=${encodeURIComponent(q)}`;
-                const res=await fetch(url,{headers:{"Accept-Language":"en"}});
-                const data=await res.json();
-                if(id!==requestId) return;
-                resultBox.innerHTML="";
-                if(!Array.isArray(data)||!data.length){ resultBox.innerHTML='<div style="padding:14px;color:#8b9bab">No location found.</div>'; showResults(); return; }
-                data.forEach(item=>{
-                    const lat=Number(item.lat),lng=Number(item.lon); if(!validCoord(lat,lng)) return;
-                    const name=item.name || item.display_name.split(",")[0];
-                    const b=document.createElement("button");
-                    b.type="button";
-                    b.style.cssText="width:100%;text-align:left;padding:12px;border-radius:12px;color:#fff;background:transparent;border:0;display:flex;flex-direction:column;gap:3px;cursor:pointer;";
-                    b.onmouseenter=()=>b.style.background="rgba(52,224,180,.10)";
-                    b.onmouseleave=()=>b.style.background="transparent";
-                    b.innerHTML=`<strong style="color:#fff;">${escapeHTML(name)}</strong><span style="font-size:11px;color:#8b9bab">${escapeHTML(item.display_name)}</span>`;
-                    b.onclick=()=>selectSearchPlace({lat,lng,name,address:item.display_name});
-                    resultBox.appendChild(b);
-                });
-                showResults();
-            }catch(e){ resultBox.innerHTML='<div style="padding:14px;color:#ff6b6b">Search unavailable. Try again.</div>'; showResults(); }
-        },350);
+    input.addEventListener('input', () => {
+        if (clearBtn) clearBtn.style.display = input.value.length > 0 ? "block" : "none";
     });
-
-    input.addEventListener("keydown",e=>{
-        if(e.key==="Escape"){hideResults();input.blur();}
-        if(e.key==="Enter"){const first=resultBox.querySelector("button");if(first)first.click();}
-    });
-    document.addEventListener("click",e=>{ if(e.target!==input && !resultBox.contains(e.target)) hideResults(); });
 
     let searchLayer = L.layerGroup().addTo(map);
 
-    window.selectSearchPlace = async place => {
-        searchPlace=place; hideResults(); input.value=place.name;
-        if(clearBtn) clearBtn.style.display="block";
-        searchLayer.clearLayers(); navigationLayer.clearLayers();
-        const marker=L.marker([place.lat,place.lng],{icon:L.divIcon({className:'search-destination-marker',html:'📍',iconSize:[34,34],iconAnchor:[17,34]})}).addTo(searchLayer);
-        marker.bindTooltip(place.name,{direction:'top',offset:[0,-28],className:'weather-badge'}).openTooltip();
-        map.flyTo([place.lat,place.lng],16,{duration:.8});
+    const checkGoogle = setInterval(() => {
+        if (window.google && window.google.maps && window.google.maps.places) {
+            clearInterval(checkGoogle);
+            
+            // Remove any old manual result boxes if they exist
+            const oldResultBox = document.getElementById("search-results-box");
+            if (oldResultBox) oldResultBox.remove();
+            
+            // 1. Initialize Pure Google Autocomplete
+            const autocomplete = new google.maps.places.Autocomplete(input, {
+                componentRestrictions: { country: "in" },
+                fields: ["geometry", "name", "formatted_address"]
+            });
 
-        let route=null;
-        if(myCoords){
-            try{
-                const url=`https://router.project-osrm.org/route/v1/driving/${myCoords.lng},${myCoords.lat};${place.lng},${place.lat}?steps=true&overview=full&geometries=geojson&alternatives=true`;
-                const res=await fetch(url); const data=await res.json();
-                if(data.routes?.length) route=data.routes.reduce((a,b)=>b.distance<a.distance?b:a,data.routes[0]);
-            }catch(e){ route=null; }
+            // 2. 🔥 STRICT LIVE LOCATION BIAS
+            function updateSearchBounds() {
+                const centerLat = myCoords ? myCoords.lat : map.getCenter().lat;
+                const centerLng = myCoords ? myCoords.lng : map.getCenter().lng;
+                const circle = new google.maps.Circle({ 
+                    center: new google.maps.LatLng(centerLat, centerLng), 
+                    radius: 50000 // 50 KM radius around your LIVE location
+                });
+                autocomplete.setBounds(circle.getBounds());
+                autocomplete.setOptions({ strictBounds: false }); // Prefers local, but allows outside if exact match
+            }
+            
+            input.addEventListener('focus', updateSearchBounds);
+            map.on('moveend', updateSearchBounds);
+
+            // 3. Handle User Selection
+            autocomplete.addListener("place_changed", () => {
+                const place = autocomplete.getPlace();
+                if (!place.geometry || !place.geometry.location) {
+                    showToast("❌ Please select a location from the dropdown list.");
+                    return;
+                }
+                
+                const destLat = place.geometry.location.lat();
+                const destLng = place.geometry.location.lng();
+                const placeName = place.name;
+                
+                searchLayer.clearLayers();
+                if (typeof navigationLayer !== "undefined") navigationLayer.clearLayers();
+                safeHide("nav-panel");
+                safeHide("nav-bottom-sheet");
+                safeHide("premium-nav-ui");
+                
+                map.flyTo([destLat, destLng], 15);
+                
+                const popupContent = `
+                    <div style="text-align:center; padding:6px; min-width:180px;">
+                        <strong style="color:var(--mint); font-size:15px; display:block; margin-bottom:8px;">📍 ${escapeHTML(placeName)}</strong>
+                        <div id="search-route-info" style="font-size:12px; color:var(--muted); margin-bottom:12px; background:rgba(255,255,255,0.05); padding:8px; border-radius:10px; border: 1px solid rgba(255,255,255,0.1);">
+                            <i>Calculating route... ⏳</i>
+                        </div>
+                        <button id="search-nav-btn" style="width:100%; padding:10px; border:none; border-radius:10px; background:var(--mint); color:#000; font-weight:800; font-size:13px; cursor:pointer; opacity:0.5; transition:0.3s;" disabled>
+                            ▶ Start Navigation
+                        </button>
+                    </div>
+                `;
+                
+                searchMarker = L.marker([destLat, destLng], {
+                    icon: L.divIcon({ className: 'geofence-marker', html: '📍', iconSize: [30, 30], iconAnchor: [15, 30] })
+                }).addTo(searchLayer);
+                
+                searchMarker.bindPopup(popupContent).openPopup();
+                if (clearBtn) safeShow("location-search-clear", "block");
+
+                // 4. Pure Google Directions API for Path & ETA
+                if(myCoords && window.google) {
+                    const ds = new google.maps.DirectionsService();
+                    ds.route({
+                        origin: new google.maps.LatLng(myCoords.lat, myCoords.lng),
+                        destination: new google.maps.LatLng(destLat, destLng),
+                        travelMode: 'DRIVING'
+                    }, (res, status) => {
+                        const infoDiv = document.getElementById("search-route-info");
+                        const navBtn = document.getElementById("search-nav-btn");
+                        
+                        if(status === 'OK' && res.routes.length > 0 && infoDiv && navBtn) {
+                            const route = res.routes[0];
+                            const leg = route.legs[0];
+                            
+                            // Draw animated path
+                            const coords = route.overview_path.map(p => [p.lat(), p.lng()]);
+                            L.polyline(coords, { color: '#34e0b4', weight: 6, opacity: 0.8, className: 'nav-path-animated' }).addTo(navigationLayer);
+                            map.fitBounds(L.polyline(coords).getBounds(), {padding: [50, 50]});
+
+                            infoDiv.innerHTML = `<span style="color:white; font-size:14px; font-weight:800;">🚗 ${leg.distance.text}</span> <br> <span style="color:white; font-size:14px; font-weight:800;">⏱️ ${leg.duration.text}</span>`;
+                            navBtn.style.opacity = "1";
+                            navBtn.disabled = false;
+                            
+                            navBtn.onclick = () => {
+                                searchMarker.closePopup();
+                                
+                                // Format Google data so your premium UI reads it perfectly
+                                const mockRouteData = {
+                                    geometry: { coordinates: coords.map(c => [c[1], c[0]]) },
+                                    distance: leg.distance.value,
+                                    duration: leg.duration.value,
+                                    legs: [{
+                                        steps: leg.steps.map(s => ({
+                                            maneuver: { type: s.instructions.replace(/<[^>]*>?/gm, ''), modifier: '' },
+                                            distance: s.distance.text
+                                        }))
+                                    }]
+                                };
+                                startSearchNavigation(destLat, destLng, placeName, mockRouteData);
+                            };
+                        } else if (infoDiv) {
+                            infoDiv.innerHTML = "<span style='color:#ef4444;'>No driving route found.</span>";
+                        }
+                    });
+                } else {
+                    if(document.getElementById("search-route-info")) document.getElementById("search-route-info").innerHTML = "<span style='color:#f59e0b;'>GPS required.</span>";
+                }
+            });
         }
-
-        const popup=document.createElement("div");
-        popup.style.cssText="min-width:220px;text-align:center;";
-        const dist=route ? (route.distance/1000).toFixed(1) : "--";
-        const mins=route ? Math.max(1,Math.round(route.duration/60)) : "--";
-        popup.innerHTML=`<b style="color:var(--mint);font-size:15px">📍 ${escapeHTML(place.name)}</b><div style="margin:8px 0;color:#fff">🚗 ${dist} km &nbsp;•&nbsp; ⏱️ ${mins} min</div><div style="display:flex;gap:8px"><button id="popup-directions" style="flex:1;padding:9px;border:0;border-radius:10px;background:#2563eb;color:#fff;font-weight:800;cursor:pointer;">🗺️ Directions</button><button id="popup-start" style="flex:1;padding:9px;border:0;border-radius:10px;background:#34e0b4;color:#062112;font-weight:800;cursor:pointer;">▶ Start</button></div>`;
-        marker.bindPopup(popup).openPopup();
-
-        if(route){
-            const line=L.polyline(route.geometry.coordinates.map(c=>[c[1],c[0]]),{color:'#34e0b4',weight:6,opacity:.9,className:'nav-path-animated'}).addTo(navigationLayer);
-            map.fitBounds(line.getBounds(),{padding:[70,220]});
-            setTimeout(()=>{
-                const el=marker.getPopup()?.getElement(); if(!el)return;
-                const d=el.querySelector("#popup-directions"), st=el.querySelector("#popup-start");
-                if(d)d.onclick=()=>{map.fitBounds(line.getBounds(),{padding:[70,220]});showToast(`🗺️ Shortest route: ${dist} km • ⏱️ ${mins} min`,5000);};
-                if(st)st.onclick=()=>{marker.closePopup();startSearchNavigation(place.lat,place.lng,place.name,route);};
-            },50);
-        }else{
-            setTimeout(()=>{const el=marker.getPopup()?.getElement();if(el){const d=el.querySelector("#popup-directions"),st=el.querySelector("#popup-start");if(d)d.onclick=()=>showToast("⚠️ GPS required for route preview.");if(st)st.onclick=()=>showToast("⚠️ GPS required for navigation.");}},50);
-        }
-    };
+    }, 500); 
 }
 
 let navWatchId = null;
