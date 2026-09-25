@@ -1,25 +1,15 @@
 "use strict";
 
-console.log("🔥 KORAPUT MAP APP JS VERSION: 2026-09-25-FINAL");
-
-if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.getRegistrations().then(function(registrations) {
-        for(let registration of registrations) {
-            registration.unregister();
-        }
-    });
-}
-
 const socket = io({ transports: ["websocket", "polling"] });
-const DEFAULT_CENTER = [22.2475, 84.8828]; // FIX: Rourkela Default Center
+const DEFAULT_CENTER = [18.8136, 82.7153];
 const DEFAULT_AVATAR = "satyam.png";
 const MAX_NAME = 40;
 const MAX_CHAT_FILE = 5 * 1024 * 1024;
 const MAX_MEMORY_FILE = 8 * 1024 * 1024;
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
-const map = L.map("map", { 
-    zoomControl: false, preferCanvas: false, minZoom: 3, maxBounds: [[-90, -180], [90, 180]], maxBoundsViscosity: 1.0
+const map = L.map("map", { 
+    zoomControl: false, preferCanvas: false, minZoom: 3, maxBounds: [[-90, -180], [90, 180]], maxBoundsViscosity: 1.0
 }).setView(DEFAULT_CENTER, 13);
 
 const satelliteLayer = L.tileLayer("https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}", { maxZoom: 20, subdomains: ["mt0","mt1","mt2","mt3"] });
@@ -33,12 +23,12 @@ let lastWeatherFetch = 0;
 const friendMarkers = Object.create(null);
 const friendData = Object.create(null);
 
-let lastFixCoords = null, lastFixTime = 0; 
+let lastFixCoords = null, lastFixTime = 0; 
 let locationHistory = [];
 try {
-    const stored = localStorage.getItem("koraput_history");
-    if (stored) locationHistory = JSON.parse(stored);
-    if (!Array.isArray(locationHistory)) locationHistory = [];
+    const stored = localStorage.getItem("koraput_history");
+    if (stored) locationHistory = JSON.parse(stored);
+    if (!Array.isArray(locationHistory)) locationHistory = [];
 } catch(e) { locationHistory = []; }
 
 const p4LayerGroup = L.layerGroup().addTo(map);
@@ -48,23 +38,24 @@ const navigationLayer = L.layerGroup().addTo(map);
 const tripRoutesLayer = L.layerGroup().addTo(map);
 const memoryLayer = L.layerGroup().addTo(map);
 
-const tripLastFetchedCoords = {}; 
-let tripRoadStats = {}; 
-const routeColors = ['#18d6a3', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6']; 
+const tripLastFetchedCoords = {}; 
+let tripRoadStats = {}; 
+const routeColors = ['#18d6a3', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6']; 
 
-let mapActionMode = null; 
-let pendingMemoryImage = null; 
+let mapActionMode = null; 
+let pendingMemoryImage = null; 
 let measurePoints = [];
 let currentTrip = null;
 let tripMarker = null;
 
 let geoClickCount = 0, geoClickTimer = null;
-let currentGeofences = []; 
+let currentGeofences = []; 
 const memories = new Map();
 let currentGalleryFilter = "all", currentGallerySearch = "", selectedMemoryId = null;
 
 let searchMarker = null;
 let offlineMessageQueue = [];
+let isNetworkOnline = navigator.onLine;
 
 const $ = id => document.getElementById(id);
 const safeShow = (id, displayStyle = "flex") => { const el = $(id); if (el) el.style.display = displayStyle; };
@@ -74,243 +65,303 @@ const validCoord = (lat,lng) => Number.isFinite(lat) && Number.isFinite(lng) && 
 const validImageData = v => typeof v === "string" && v.startsWith("data:image/");
 
 function distanceKm(a,b,c,d){
-    if(!validCoord(a,b) || !validCoord(c,d)) return "";
-    const p = Math.PI/180, a1 = 0.5 - Math.cos((c-a)*p)/2 + Math.cos(a*p)*Math.cos(c*p)*Math.sin((d-b)*p/2)**2;
-    return (12742 * Math.asin(Math.sqrt(a1))).toFixed(2);
+    if(!validCoord(a,b) || !validCoord(c,d)) return "";
+    const p = Math.PI/180, a1 = 0.5 - Math.cos((c-a)*p)/2 + Math.cos(a*p)*Math.cos(c*p)*Math.sin((d-b)*p/2)**2;
+    return (12742 * Math.asin(Math.sqrt(a1))).toFixed(2);
 }
 function escapeHTML(v) { return String(v ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;"); }
 
-function ownIcon() { 
-    return L.divIcon({ 
-        className: "custom-own-icon", 
-        html: `<div style="width:100%; height:100%; border-radius:50%; border:2.5px solid #18d6a3; overflow:hidden; background:#071018; box-sizing:border-box; box-shadow:0 0 10px rgba(24,214,163,0.5);"><img src="${escapeHTML(currentUser.avatar)}" style="width:100%; height:100%; object-fit:cover; display:block;"></div>`,
-        iconSize: [38, 38], iconAnchor: [19, 19] 
-    }); 
+function ownIcon() { 
+    return L.divIcon({ 
+        className: "custom-own-icon", 
+        html: `<div style="width:100%; height:100%; border-radius:50%; border:2.5px solid #18d6a3; overflow:hidden; background:#071018; box-sizing:border-box; box-shadow:0 0 10px rgba(24,214,163,0.5);"><img src="${escapeHTML(currentUser.avatar)}" style="width:100%; height:100%; object-fit:cover; display:block;"></div>`,
+        iconSize: [38, 38], iconAnchor: [19, 19] 
+    }); 
 }
 
-function friendIcon(avatar) { 
-    return L.divIcon({ 
-        className: "custom-friend-icon", 
-        html: `<div style="width:100%; height:100%; border-radius:50%; border:2px solid #60a5fa; overflow:hidden; background:#071018; box-sizing:border-box;"><img src="${escapeHTML(avatar)}" style="width:100%; height:100%; object-fit:cover; display:block;"></div>`,
-        iconSize: [36, 36], iconAnchor: [18, 18] 
-    }); 
+function friendIcon(avatar) { 
+    return L.divIcon({ 
+        className: "custom-friend-icon", 
+        html: `<div style="width:100%; height:100%; border-radius:50%; border:2px solid #60a5fa; overflow:hidden; background:#071018; box-sizing:border-box;"><img src="${escapeHTML(avatar)}" style="width:100%; height:100%; object-fit:cover; display:block;"></div>`,
+        iconSize: [36, 36], iconAnchor: [18, 18] 
+    }); 
 }
 
 function weatherEmoji(code){
-    if(code===0) return "☀️"; if([1,2,3].includes(code)) return "⛅"; if([45,48].includes(code)) return "🌫️";
-    if([51,53,55,56,57,61,63,65,66,67].includes(code)) return "🌧️"; if([71,73,75,77,85,86].includes(code)) return "❄️";
-    if([80,81,82].includes(code)) return "🌦️"; if([95,96,99].includes(code)) return "⛈️"; return "🌤️";
+    if(code===0) return "☀️"; if([1,2,3].includes(code)) return "⛅"; if([45,48].includes(code)) return "🌫️";
+    if([51,53,55,56,57,61,63,65,66,67].includes(code)) return "🌧️"; if([71,73,75,77,85,86].includes(code)) return "❄️";
+    if([80,81,82].includes(code)) return "🌦️"; if([95,96,99].includes(code)) return "⛈️"; return "🌤️";
 }
 
 async function fetchWeather(lat,lng){
-    try {
-        const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lng)}&current=temperature_2m,weather_code`);
-        if(!r.ok) return ""; const d = await r.json();
-        const t = Number(d?.current?.temperature_2m), code = Number(d?.current?.weather_code);
-        return Number.isFinite(t) ? `${weatherEmoji(code)} ${Math.round(t)}°C` : "";
-    } catch { return ""; }
+    try {
+        const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lng)}&current=temperature_2m,weather_code`);
+        if(!r.ok) return ""; const d = await r.json();
+        const t = Number(d?.current?.temperature_2m), code = Number(d?.current?.weather_code);
+        return Number.isFinite(t) ? `${weatherEmoji(code)} ${Math.round(t)}°C` : "";
+    } catch { return ""; }
 }
 
 async function fetchCity(lat,lng){
-    try {
-        const r = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=en`);
-        if (r.ok) { const d = await r.json(); const c = d.city || d.locality || d.principalSubdivision; if (c) return c; }
-    } catch (e) {}
-    try {
-        const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}&zoom=10`);
-        if (r.ok) { const d = await r.json(); return d.address?.city || d.address?.town || d.address?.county || "Local Area"; }
-    } catch { return "Local Area"; }
+    try {
+        const r = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=en`);
+        if (r.ok) { const d = await r.json(); const c = d.city || d.locality || d.principalSubdivision; if (c) return c; }
+    } catch (e) {}
+    try {
+        const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}&zoom=10`);
+        if (r.ok) { const d = await r.json(); return d.address?.city || d.address?.town || d.address?.county || "Local Area"; }
+    } catch { return "Local Area"; }
 }
 
 // ==========================================
-// 2. SMART DRIVE ENGINE
+// 2. SMART DRIVE ENGINE (Fix 4: Trip Calculation)
 // ==========================================
 const SmartDrive = {
-    isRecording: false,
-    baseMileage: 18,
-    speedHistory: [],
-    trip: { active: false, startTime: 0, totalDist: 0, actualFuel: 0, maxSpeed: 0, sumSpeed: 0, ticks: 0, ranges: { efficient: 0, moderate: 0, inefficient: 0 } },
-    audioCtx: null, lastAlertTime: 0, overlayTimer: null,
+    isRecording: false,
+    baseMileage: 18,
+    speedHistory: [],
+    
+    trip: {
+        active: false, startTime: 0, totalDist: 0, actualFuel: 0, maxSpeed: 0, sumSpeed: 0, ticks: 0, ranges: { efficient: 0, moderate: 0, inefficient: 0 } 
+    },
 
-    init() {
-        const savedMil = localStorage.getItem("sd_mileage");
-        if(savedMil) this.baseMileage = parseFloat(savedMil);
-        const fiv = $("fuel-input-val");
-        if(fiv) fiv.value = this.baseMileage;
-        
-        const savedRec = localStorage.getItem("sd_record");
-        this.isRecording = savedRec === "1";
-        const srt = $("speed-record-toggle");
-        if(srt) srt.checked = this.isRecording;
-        
-        const sgc = $("speed-graph-canvas");
-        if(sgc) sgc.style.display = this.isRecording ? "block" : "none";
+    audioCtx: null, lastAlertTime: 0, overlayTimer: null,
 
-        if(fiv) fiv.addEventListener("change", (e) => { this.baseMileage = parseFloat(e.target.value) || 18; localStorage.setItem("sd_mileage", this.baseMileage); });
-        if(srt) srt.addEventListener("change", (e) => { this.isRecording = e.target.checked; localStorage.setItem("sd_record", this.isRecording ? "1" : "0"); const sgc2 = $("speed-graph-canvas"); if(sgc2) sgc2.style.display = this.isRecording ? "block" : "none"; if(!this.isRecording) this.speedHistory = []; });
+    init() {
+        const savedMil = localStorage.getItem("sd_mileage");
+        if(savedMil) this.baseMileage = parseFloat(savedMil);
+        if($("fuel-input-val")) $("fuel-input-val").value = this.baseMileage;
+        
+        const savedRec = localStorage.getItem("sd_record");
+        this.isRecording = savedRec === "1";
+        if($("speed-record-toggle")) $("speed-record-toggle").checked = this.isRecording;
+        if($("speed-graph-canvas")) $("speed-graph-canvas").style.display = this.isRecording ? "block" : "none";
 
-        const pob = $("profile-open-btn");
-        if(pob) pob.addEventListener("click", () => safeShow("profile-settings-modal", "flex"));
-        const csb = $("close-settings-btn");
-        if(csb) csb.addEventListener("click", () => safeHide("profile-settings-modal"));
-        const crb = $("close-results-btn");
-        if(crb) crb.addEventListener("click", () => safeHide("results-panel"));
-        
-        document.addEventListener("click", () => {
-            if(!this.audioCtx) { const AudioContext = window.AudioContext || window.webkitAudioContext; if(AudioContext) this.audioCtx = new AudioContext(); }
-            if(this.audioCtx && this.audioCtx.state === "suspended") this.audioCtx.resume();
-        }, {passive:true});
-    },
+        $("fuel-input-val")?.addEventListener("change", (e) => {
+            this.baseMileage = parseFloat(e.target.value) || 18;
+            localStorage.setItem("sd_mileage", this.baseMileage);
+        });
+        
+        $("speed-record-toggle")?.addEventListener("change", (e) => {
+            this.isRecording = e.target.checked;
+            localStorage.setItem("sd_record", this.isRecording ? "1" : "0");
+            if($("speed-graph-canvas")) $("speed-graph-canvas").style.display = this.isRecording ? "block" : "none";
+            if(!this.isRecording) this.speedHistory = [];
+        });
 
-    beep(freq, ms) {
-        if(!this.audioCtx) return;
-        try {
-            if (this.audioCtx.state === "suspended") this.audioCtx.resume();
-            const osc = this.audioCtx.createOscillator(), gain = this.audioCtx.createGain();
-            osc.type = "square"; osc.frequency.value = freq; gain.gain.value = 0.15;
-            osc.connect(gain); gain.connect(this.audioCtx.destination);
-            osc.start(); osc.stop(this.audioCtx.currentTime + ms/1000);
-        } catch(e) {}
-    },
+        $("profile-open-btn")?.addEventListener("click", () => {
+            if($("profile-settings-modal")) $("profile-settings-modal").style.display = "flex";
+        });
+        
+        $("close-settings-btn")?.addEventListener("click", () => {
+            if($("profile-settings-modal")) $("profile-settings-modal").style.display = "none";
+        });
+        
+        $("close-results-btn")?.addEventListener("click", () => {
+            if($("results-panel")) $("results-panel").style.display = "none";
+        });
+        
+        document.addEventListener("click", () => {
+            if(!this.audioCtx) {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                if(AudioContext) this.audioCtx = new AudioContext();
+            }
+            if(this.audioCtx && this.audioCtx.state === "suspended") this.audioCtx.resume();
+        }, {passive:true});
+    },
 
-    triggerRedMap() {
-        const overlay = $("speed-danger-overlay") || $("speed-alert-overlay");
-        if(overlay) {
-            overlay.classList.add("active"); clearTimeout(this.overlayTimer);
-            this.overlayTimer = setTimeout(() => overlay.classList.remove("active"), 10000);
-        }
-    },
+    beep(freq, ms) {
+        if(!this.audioCtx) return;
+        try {
+            if (this.audioCtx.state === "suspended") this.audioCtx.resume();
+            const osc = this.audioCtx.createOscillator(), gain = this.audioCtx.createGain();
+            osc.type = "square"; osc.frequency.value = freq;
+            gain.gain.value = 0.15;
+            osc.connect(gain); gain.connect(this.audioCtx.destination);
+            osc.start(); osc.stop(this.audioCtx.currentTime + ms/1000);
+        } catch(e) {}
+    },
 
-    checkSafetyLimits(speed) {
-        const now = Date.now();
-        const dial = $("speed-dial");
-        if(dial) {
-            if(speed > 3) {
-                dial.style.display = "flex";
-                const sn = $("speed-n"); if(sn) sn.textContent = Math.round(speed);
-                dial.className = "speed-dial " + (speed >= 100 ? "danger" : (speed >= 80 ? "warn" : ""));
-            } else { dial.style.display = "none"; }
-        }
+    triggerRedMap() {
+        const overlay = $("speed-danger-overlay") || $("speed-alert-overlay");
+        if(overlay) {
+            overlay.classList.add("active");
+            clearTimeout(this.overlayTimer);
+            this.overlayTimer = setTimeout(() => overlay.classList.remove("active"), 10000);
+        }
+    },
 
-        if (now - this.lastAlertTime < 15000) return; 
+    checkSafetyLimits(speed) {
+        const now = Date.now();
+        const dial = $("speed-dial");
+        if(dial) {
+            if(speed > 3) {
+                dial.style.display = "flex";
+                if($("speed-n")) $("speed-n").textContent = Math.round(speed);
+                dial.className = "speed-dial " + (speed >= 100 ? "danger" : (speed >= 80 ? "warn" : ""));
+            } else {
+                dial.style.display = "none";
+            }
+        }
 
-        if (speed >= 100) { showToast("🚨 DANGER: Speed 100+ km/h! Slow Down!", 5000); this.triggerRedMap(); this.beep(800, 3000); this.lastAlertTime = now; } 
-        else if (speed >= 80) { showToast("⚠️ WARNING: Crossing 80 km/h.", 4000); this.beep(600, 400); this.lastAlertTime = now; } 
-        else if (speed >= 60) { showToast("🟢 Alert: Speed above 60 km/h.", 3000); this.lastAlertTime = now; }
-    },
+        if (now - this.lastAlertTime < 15000) return; 
 
-    tick(speedKmh, distKm) {
-        this.checkSafetyLimits(speedKmh);
-        if (!this.trip.active && !this.isRecording) return;
-        this.speedHistory.push(speedKmh);
-        if(this.speedHistory.length > 50) this.speedHistory.shift();
-        this.drawGraph();
+        if (speed >= 100) {
+            showToast("🚨 DANGER: Speed 100+ km/h! Slow Down!", 5000);
+            this.triggerRedMap();
+            this.beep(800, 3000); 
+            this.lastAlertTime = now;
+        } else if (speed >= 80) {
+            showToast("⚠️ WARNING: Crossing 80 km/h.", 4000);
+            this.beep(600, 400); 
+            this.lastAlertTime = now;
+        } else if (speed >= 60) {
+            showToast("🟢 Alert: Speed above 60 km/h.", 3000);
+            this.lastAlertTime = now;
+        }
+    },
 
-        if (this.trip.active && distKm > 0) {
-            this.trip.totalDist += distKm; this.trip.ticks += 1; this.trip.sumSpeed += speedKmh;
-            if(speedKmh > this.trip.maxSpeed) this.trip.maxSpeed = speedKmh;
-            if(speedKmh >= 40 && speedKmh <= 60) this.trip.ranges.efficient++;
-            else if (speedKmh > 80) this.trip.ranges.inefficient++;
-            else this.trip.ranges.moderate++;
+    tick(speedKmh, distKm) {
+        this.checkSafetyLimits(speedKmh);
 
-            let currentEff = this.baseMileage;
-            if (speedKmh > 60) currentEff -= (speedKmh - 60) * 0.005 * this.baseMileage; 
-            else if (speedKmh < 40) currentEff -= (40 - speedKmh) * 0.004 * this.baseMileage; 
-            currentEff = Math.max(2, currentEff); 
-            this.trip.actualFuel += (distKm / currentEff);
-        }
-    },
+        // Fix 4: Always record trip data if active
+        if (!this.trip.active && !this.isRecording) return;
 
-    drawGraph() {
-        const cvs = $("speed-graph-canvas"); if(!cvs || !this.isRecording) return;
-        const ctx = cvs.getContext("2d"); const w = cvs.width = cvs.offsetWidth, h = cvs.height = cvs.offsetHeight;
-        ctx.clearRect(0,0,w,h);
-        if(this.speedHistory.length < 2) return;
-        const max = Math.max(60, ...this.speedHistory);
-        ctx.beginPath(); ctx.strokeStyle = "#3b82f6"; ctx.lineWidth = 2;
-        this.speedHistory.forEach((v, i) => {
-            const x = (i / (this.speedHistory.length - 1)) * w; const y = h - (v / max) * h * 0.8;
-            if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
-        });
-        ctx.stroke();
-    },
+        if (this.isRecording) {
+            this.speedHistory.push(speedKmh);
+            if(this.speedHistory.length > 50) this.speedHistory.shift();
+            this.drawGraph();
+        }
 
-    startTrip() { this.trip = { active: true, startTime: Date.now(), totalDist: 0, actualFuel: 0, maxSpeed: 0, sumSpeed: 0, ticks: 0, ranges: {efficient:0, moderate:0, inefficient:0} }; },
-    
-    endTrip() {
-        if(!this.trip.active || this.trip.ticks === 0) return;
-        this.trip.active = false;
-        const avg = this.trip.sumSpeed / this.trip.ticks;
-        const rd = $("res-dist"); if(rd) rd.textContent = this.trip.totalDist.toFixed(2) + " km";
-        const ras = $("res-avg-speed"); if(ras) ras.textContent = Math.round(avg) + " km/h";
-        const rms = $("res-max-speed"); if(rms) rms.textContent = Math.round(this.trip.maxSpeed) + " km/h";
-        const ret = $("res-eff-time"); if(ret) ret.textContent = Math.round(this.trip.ranges.efficient / 60) + " min";
-        const rit = $("res-ineff-time"); if(rit) rit.textContent = Math.round(this.trip.ranges.inefficient / 60) + " min";
-        const rbm = $("res-base-mlg"); if(rbm) rbm.textContent = this.baseMileage + " km/L";
-        const raf = $("res-actual-fuel"); if(raf) raf.textContent = this.trip.actualFuel.toFixed(2) + " L";
-        safeShow("results-panel", "flex");
-    }
+        if (this.trip.active && distKm > 0) {
+            this.trip.totalDist += distKm;
+            this.trip.ticks += 1;
+            this.trip.sumSpeed += speedKmh;
+            if(speedKmh > this.trip.maxSpeed) this.trip.maxSpeed = speedKmh;
+
+            if(speedKmh >= 40 && speedKmh <= 60) this.trip.ranges.efficient++;
+            else if (speedKmh > 80) this.trip.ranges.inefficient++;
+            else this.trip.ranges.moderate++;
+
+            let currentEff = this.baseMileage;
+            if (speedKmh > 60) {
+                currentEff -= (speedKmh - 60) * 0.005 * this.baseMileage; 
+            } else if (speedKmh < 40) {
+                currentEff -= (40 - speedKmh) * 0.004 * this.baseMileage; 
+            }
+            currentEff = Math.max(2, currentEff); 
+            this.trip.actualFuel += (distKm / currentEff);
+        }
+    },
+
+    drawGraph() {
+        const cvs = $("speed-graph-canvas");
+        if(!cvs || !this.isRecording) return;
+        const ctx = cvs.getContext("2d");
+        const w = cvs.width = cvs.offsetWidth, h = cvs.height = cvs.offsetHeight;
+        
+        ctx.clearRect(0,0,w,h);
+        if(this.speedHistory.length < 2) return;
+        
+        const max = Math.max(60, ...this.speedHistory);
+        ctx.beginPath();
+        ctx.strokeStyle = "#3b82f6";
+        ctx.lineWidth = 2;
+        this.speedHistory.forEach((v, i) => {
+            const x = (i / (this.speedHistory.length - 1)) * w;
+            const y = h - (v / max) * h * 0.8;
+            if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+        });
+        ctx.stroke();
+    },
+
+    startTrip() {
+        this.trip = { active: true, startTime: Date.now(), totalDist: 0, actualFuel: 0, maxSpeed: 0, sumSpeed: 0, ticks: 0, ranges: {efficient:0, moderate:0, inefficient:0} };
+    },
+    
+    endTrip() {
+        if(!this.trip.active) return;
+        
+        // Calculate even if ticks are low
+        const avg = this.trip.ticks > 0 ? this.trip.sumSpeed / this.trip.ticks : 0;
+        
+        if($("res-dist")) $("res-dist").textContent = this.trip.totalDist.toFixed(2) + " km";
+        if($("res-avg-speed")) $("res-avg-speed").textContent = Math.round(avg) + " km/h";
+        if($("res-max-speed")) $("res-max-speed").textContent = Math.round(this.trip.maxSpeed) + " km/h";
+        
+        // Convert seconds to minutes for time
+        const effMin = Math.round(this.trip.ranges.efficient / 60) || 0;
+        const ineffMin = Math.round(this.trip.ranges.inefficient / 60) || 0;
+        
+        if($("res-eff-time")) $("res-eff-time").textContent = effMin + " min";
+        if($("res-ineff-time")) $("res-ineff-time").textContent = ineffMin + " min";
+        if($("res-base-mlg")) $("res-base-mlg").textContent = this.baseMileage + " km/L";
+        if($("res-actual-fuel")) $("res-actual-fuel").textContent = this.trip.actualFuel.toFixed(2) + " L";
+
+        this.trip.active = false;
+        if($("results-panel")) $("results-panel").style.display = "flex";
+    }
 };
 
 const Navigation = {
-    active: false, targetId: null, targetCoords: null,
-    async start(friendId) {
-        const f = friendData[friendId];
-        if(!f || !validCoord(f.lat, f.lng) || !myCoords) return showToast("❌ Location not available for routing.");
-        this.active = true; this.targetId = friendId; this.targetCoords = { lat: f.lat, lng: f.lng };
-        
-        safeHide("profile-popup");
-        const ntn = $("nav-title-name"); if(ntn) ntn.textContent = f.name;
-        safeShow("nav-panel", "flex");
-        await this.calculate();
-    },
-    async calculate() {
-        if(!this.active || !myCoords || !this.targetCoords) return;
-        navigationLayer.clearLayers();
-        const ni = $("nav-instructions"); if(ni) ni.innerHTML = "<i>Analyzing roads & finding optimal route...</i>";
-        try {
-            const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${myCoords.lng},${myCoords.lat};${this.targetCoords.lng},${this.targetCoords.lat}?steps=true&geometries=geojson&overview=full`);
-            if(!res.ok) throw new Error("Route failed");
-            const data = await res.json();
-            
-            if(data.routes && data.routes.length > 0) {
-                const r = data.routes[0];
-                const coords = r.geometry.coordinates.map(c => [c[1], c[0]]); 
-                const path = L.polyline(coords, { color: '#18d6a3', weight: 5, opacity: 0.8, className: 'nav-path-animated' }).addTo(navigationLayer);
-                map.fitBounds(path.getBounds(), { padding: [50, 50] });
+    active: false, targetId: null, targetCoords: null,
+    async start(friendId) {
+        const f = friendData[friendId];
+        if(!f || !validCoord(f.lat, f.lng) || !myCoords) return showToast("❌ Location not available for routing.");
+        this.active = true; this.targetId = friendId; this.targetCoords = { lat: f.lat, lng: f.lng };
+        
+        safeHide("profile-popup");
+        if($("nav-title-name")) $("nav-title-name").textContent = f.name;
+        safeShow("nav-panel", "flex");
+        await this.calculate();
+    },
+    async calculate() {
+        if(!this.active || !myCoords || !this.targetCoords) return;
+        navigationLayer.clearLayers();
+        if($("nav-instructions")) $("nav-instructions").innerHTML = "<i>Analyzing roads & finding optimal route...</i>";
+        try {
+            const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${myCoords.lng},${myCoords.lat};${this.targetCoords.lng},${this.targetCoords.lat}?steps=true&geometries=geojson&overview=full`);
+            if(!res.ok) throw new Error("Route failed");
+            const data = await res.json();
+            
+            if(data.routes && data.routes.length > 0) {
+                const r = data.routes[0];
+                const coords = r.geometry.coordinates.map(c => [c[1], c[0]]); 
+                const path = L.polyline(coords, { color: '#18d6a3', weight: 5, opacity: 0.8, className: 'nav-path-animated' }).addTo(navigationLayer);
+                map.fitBounds(path.getBounds(), { padding: [50, 50] });
 
-                const distKm = (r.distance / 1000).toFixed(1);
-                const timeMin = Math.round(r.duration / 60);
-                showToast(`🚗 Best Route: ${distKm} km • ⏱️ ${timeMin} mins`, 6000);
-                const ns = $("nav-stats"); if(ns) ns.innerHTML = `🚗 ${distKm} km &nbsp; ⏱️ ${timeMin} min`;
-                
-                let instHTML = "";
-                if(r.legs[0] && r.legs[0].steps) {
-                    r.legs[0].steps.slice(0, 4).forEach(s => {
-                        let arrow = "↑";
-                        if(s.maneuver.modifier) { if(s.maneuver.modifier.includes('right')) arrow = "↱"; if(s.maneuver.modifier.includes('left')) arrow = "↰"; }
-                        instHTML += `<div style="padding:4px 0;">${arrow} ${s.maneuver.instruction}</div>`;
-                    });
-                }
-                const ni2 = $("nav-instructions"); if(ni2) ni2.innerHTML = instHTML || "Follow the highlighted route on the map.";
-            } else { const ni3 = $("nav-instructions"); if(ni3) ni3.innerHTML = "<i>No viable road route found.</i>"; }
-        } catch (e) { const ni4 = $("nav-instructions"); if(ni4) ni4.innerHTML = "<i>Navigation error. Try again later.</i>"; }
-    },
-    stop() {
-        this.active = false; this.targetId = null; this.targetCoords = null;
-        navigationLayer.clearLayers();
-        safeHide("nav-panel");
-        if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
-    },
-    onLiveUpdate() {
-        if(!this.active) return;
-        if(this.targetId && friendData[this.targetId]) {
-            const f = friendData[this.targetId];
-            if(!this.targetCoords) return;
-            const dist = distanceKm(this.targetCoords.lat, this.targetCoords.lng, f.lat, f.lng);
-            if(Number(dist) > 0.1) { this.targetCoords = { lat: f.lat, lng: f.lng }; this.calculate(); }
-        }
-    }
+                const distKm = (r.distance / 1000).toFixed(1);
+                const timeMin = Math.round(r.duration / 60);
+                showToast(`🚗 Best Route: ${distKm} km • ⏱️ ${timeMin} mins`, 6000);
+                if($("nav-stats")) $("nav-stats").innerHTML = `🚗 ${distKm} km &nbsp; ⏱️ ${timeMin} min`;
+                
+                let instHTML = "";
+                if(r.legs[0] && r.legs[0].steps) {
+                    r.legs[0].steps.slice(0, 4).forEach(s => {
+                        let arrow = "↑";
+                        if(s.maneuver.modifier) { if(s.maneuver.modifier.includes('right')) arrow = "↱"; if(s.maneuver.modifier.includes('left')) arrow = "↰"; }
+                        instHTML += `<div style="padding:4px 0;">${arrow} ${s.maneuver.instruction}</div>`;
+                    });
+                }
+                if($("nav-instructions")) $("nav-instructions").innerHTML = instHTML || "Follow the highlighted route on the map.";
+            } else { if($("nav-instructions")) $("nav-instructions").innerHTML = "<i>No viable road route found.</i>"; }
+        } catch (e) { if($("nav-instructions")) $("nav-instructions").innerHTML = "<i>Navigation error. Try again later.</i>"; }
+    },
+    stop() {
+        this.active = false; this.targetId = null; this.targetCoords = null;
+        navigationLayer.clearLayers();
+        safeHide("nav-panel");
+        if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
+    },
+    onLiveUpdate() {
+        if(!this.active) return;
+        if(this.targetId && friendData[this.targetId]) {
+            const f = friendData[this.targetId];
+            if(!this.targetCoords) return;
+            const dist = distanceKm(this.targetCoords.lat, this.targetCoords.lng, f.lat, f.lng);
+            if(Number(dist) > 0.1) { this.targetCoords = { lat: f.lat, lng: f.lng }; this.calculate(); }
+        }
+    }
 };
 
 const navRecalcBtn = $("nav-recalc-btn");
@@ -318,76 +369,128 @@ if(navRecalcBtn) navRecalcBtn.onclick = () => Navigation.calculate();
 const navPanelExit = $("nav-panel-exit");
 if(navPanelExit) navPanelExit.onclick = () => Navigation.stop();
 
+// ==========================================
+// GROUP NAVIGATION (Fix 2: Meet Up Feature)
+// ==========================================
 const GroupNavigation = {
-    active: false, destination: null, selectedMembers: [], layerGroup: L.layerGroup().addTo(map),
-    lastFetchedCoords: {}, colors: ['#18d6a3', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6'], recalcTimer: null,
+    active: false, destination: null, selectedMembers: [], layerGroup: L.layerGroup().addTo(map),
+    lastFetchedCoords: {}, colors: ['#18d6a3', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6'], recalcTimer: null,
 
-    openSetup() {
-        const list = $("group-nav-friend-list"); if(!list) return; list.innerHTML = "";
-        const activeFriends = Object.values(friendData).filter(f => f.online !== false);
-        if(activeFriends.length === 0) list.innerHTML = `<div style="color:var(--muted); font-size:11px;">No friends online.</div>`;
-        else activeFriends.forEach(f => {
-            list.innerHTML += `<label style="display:flex; align-items:center; gap:8px; font-size:13px; color:white; cursor:pointer;"><input type="checkbox" value="${f.id}" class="group-nav-cb"><img src="${escapeHTML(f.avatar)}" style="width:28px; height:28px; border-radius:50%; object-fit:cover;">${escapeHTML(f.name)}</label>`;
-        });
-        safeShow("group-nav-setup", "flex");
-    },
-    startSelection() {
-        const cbs = document.querySelectorAll(".group-nav-cb:checked");
-        if(cbs.length === 0) return showToast("Select at least 1 friend.");
-        if(cbs.length > 3) return showToast("Select up to 3 friends only.");
-        this.selectedMembers = ["me", ...Array.from(cbs).map(cb => cb.value)];
-        safeHide("group-nav-setup");
-        mapActionMode = 'group-nav';
-        showToast("📍 Tap the map to set the common destination!", 5000);
-    },
-    async setDestination(latlng) {
-        this.active = true; this.destination = latlng; this.layerGroup.clearLayers(); this.lastFetchedCoords = {};
-        L.marker(latlng, { icon: L.divIcon({className: 'geofence-marker', html: '🎯'}) }).bindTooltip("Group Destination", {permanent:true, direction:"top", className:"weather-badge"}).addTo(this.layerGroup);
-        safeShow("group-nav-active", "flex");
-        await this.calculateAll();
-    },
-    async calculateAll() {
-        if(!this.active || !this.destination) return;
-        const statsList = $("group-nav-stats-list");
-        if(statsList) statsList.innerHTML = "<div style='color:var(--muted); font-size:11px; text-align:center;'>Calculating road paths...</div>";
+    openSetup() {
+        const list = $("group-nav-friend-list"); 
+        if(!list) return;
+        list.innerHTML = "";
+        const activeFriends = Object.values(friendData).filter(f => f.online !== false);
+        if(activeFriends.length === 0) list.innerHTML = `<div style="color:var(--muted); font-size:11px;">No friends online.</div>`;
+        else activeFriends.forEach(f => {
+            list.innerHTML += `<label style="display:flex; align-items:center; gap:8px; font-size:13px; color:white; cursor:pointer;"><input type="checkbox" value="${f.id}" class="group-nav-cb"><img src="${escapeHTML(f.avatar)}" style="width:28px; height:28px; border-radius:50%; object-fit:cover;">${escapeHTML(f.name)}</label>`;
+        });
+        safeShow("group-nav-setup", "flex");
+    },
+    startSelection() {
+        const cbs = document.querySelectorAll(".group-nav-cb:checked");
+        if(cbs.length === 0) return showToast("Select at least 1 friend.");
+        if(cbs.length > 3) return showToast("Select up to 3 friends only.");
+        this.selectedMembers = ["me", ...Array.from(cbs).map(cb => cb.value)];
+        safeHide("group-nav-setup");
+        mapActionMode = 'group-nav';
+        showToast("📍 Tap the map to set the common destination!", 5000);
+    },
+    async setDestination(latlng) {
+        this.active = true; this.destination = latlng; this.layerGroup.clearLayers(); this.lastFetchedCoords = {};
+        L.marker(latlng, { icon: L.divIcon({className: 'geofence-marker', html: '🎯'}) }).bindTooltip("Group Destination", {permanent:true, direction:"top", className:"weather-badge"}).addTo(this.layerGroup);
+        safeShow("group-nav-active", "flex");
+        await this.calculateAll();
+    },
+    async calculateAll() {
+        if(!this.active || !this.destination) return;
+        const statsList = $("group-nav-stats-list");
+        if(statsList) statsList.innerHTML = "<div style='color:var(--muted); font-size:11px; text-align:center;'>Calculating road paths...</div>";
 
-        let statsHTML = "", validPaths = [];
+        let statsHTML = "", validPaths = [];
 
-        for(let i = 0; i < this.selectedMembers.length; i++) {
-            const memberId = this.selectedMembers[i];
-            const color = this.colors[i % this.colors.length];
-            let name = "User", avatar = DEFAULT_AVATAR, coords = null;
+        // Fix 2: Loop through each member and calculate individual route
+        for(let i = 0; i < this.selectedMembers.length; i++) {
+            const memberId = this.selectedMembers[i];
+            const color = this.colors[i % this.colors.length];
+            let name = "User", avatar = DEFAULT_AVATAR, coords = null;
 
-            if (memberId === "me") { if (!myCoords) continue; name = "You"; avatar = currentUser.avatar; coords = myCoords; } 
-            else { const f = friendData[memberId]; if (!f || f.online === false || !validCoord(f.lat, f.lng)) continue; name = f.name; avatar = f.avatar; coords = { lat: f.lat, lng: f.lng }; }
+            if (memberId === "me") { 
+                if (!myCoords) continue; 
+                name = "You"; avatar = currentUser.avatar; coords = myCoords; 
+            } 
+            else { 
+                const f = friendData[memberId]; 
+                if (!f || f.online === false || !validCoord(f.lat, f.lng)) continue; 
+                name = f.name; avatar = f.avatar; coords = { lat: f.lat, lng: f.lng }; 
+            }
 
-            try {
-                const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${coords.lng},${coords.lat};${this.destination.lng},${this.destination.lat}?overview=full&geometries=geojson`);
-                const data = await res.json();
-                if(data.routes && data.routes.length > 0) {
-                    const r = data.routes[0];
-                    const pathCoords = r.geometry.coordinates.map(c => [c[1], c[0]]);
-                    this.layerGroup.eachLayer(l => { if(l.memberId === memberId) this.layerGroup.removeLayer(l); });
-                    const poly = L.polyline(pathCoords, { color: color, weight: 5, opacity: 0.8, className: 'nav-path-animated' });
-                    poly.memberId = memberId; poly.addTo(this.layerGroup); validPaths.push(poly);
+            try {
+                const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${coords.lng},${coords.lat};${this.destination.lng},${this.destination.lat}?overview=full&geometries=geojson`);
+                const data = await res.json();
+                if(data.routes && data.routes.length > 0) {
+                    const r = data.routes[0];
+                    const pathCoords = r.geometry.coordinates.map(c => [c[1], c[0]]);
+                    
+                    // Remove old path for this member
+                    this.layerGroup.eachLayer(l => { if(l.memberId === memberId) this.layerGroup.removeLayer(l); });
+                    
+                    // Draw new path
+                    const poly = L.polyline(pathCoords, { color: color, weight: 5, opacity: 0.8, className: 'nav-path-animated' });
+                    poly.memberId = memberId; 
+                    poly.addTo(this.layerGroup); 
+                    validPaths.push(poly);
 
-                    const distKm = (r.distance / 1000).toFixed(1); const timeMin = Math.round(r.duration / 60);
-                    statsHTML += `<div style="display:flex; justify-content:space-between; align-items:center; padding:10px; background:rgba(255,255,255,0.05); border-radius:10px; border-left:4px solid ${color};"><div style="display:flex; align-items:center; gap:10px;"><img src="${escapeHTML(avatar)}" style="width:30px; height:30px; border-radius:50%; object-fit:cover;"><span style="color:white; font-size:13px; font-weight:bold;">${escapeHTML(name)}</span></div><div style="text-align:right;"><div style="color:white; font-size:13px; font-weight:bold;">${distKm} km</div><div style="color:var(--muted); font-size:11px;">${timeMin} min</div></div></div>`;
-                    this.lastFetchedCoords[memberId] = { lat: coords.lat, lng: coords.lng };
-                } else statsHTML += `<div style="color:#ef4444; font-size:11px; padding:10px;">No road route for ${escapeHTML(name)}</div>`;
-            } catch(e) {}
-        }
-        if(statsList) statsList.innerHTML = statsHTML;
-        if(validPaths.length > 0) map.fitBounds(L.featureGroup(validPaths).getBounds(), { padding: [40, 40] });
-    },
-    onLiveUpdate() {
-        if(!this.active || !this.destination) return;
-        let needsRecalc = false;
-        if (this.selectedMembers.includes("me") && myCoords) { const last = this.lastFetchedCoords["me"]; if(!last || distanceKm(last.lat, last.lng, myCoords.lat, myCoords.lng) > 0.1) needsRecalc = true; }
-        this.selectedMembers.forEach(id => { if(id !== "me" && friendData[id]) { const f = friendData[id]; const last = this.lastFetchedCoords[id]; if(validCoord(f.lat, f.lng) && (!last || distanceKm(last.lat, last.lng, f.lat, f.lng) > 0.1)) needsRecalc = true; }});
-        if (needsRecalc) { clearTimeout(this.recalcTimer); this.recalcTimer = setTimeout(() => this.calculateAll(), 3000); }
-    },
-    stop() { this.active = false; this.destination = null; this.selectedMembers = []; this.layerGroup.clearLayers(); safeHide("group-nav-active"); if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16); }
+                    const distKm = (r.distance / 1000).toFixed(1); 
+                    const timeMin = Math.round(r.duration / 60);
+                    
+                    // Build HTML for each member
+                    statsHTML += `
+                    <div style="display:flex; justify-content:space-between; align-items:center; padding:10px; background:rgba(255,255,255,0.05); border-radius:10px; border-left:4px solid ${color};">
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <img src="${escapeHTML(avatar)}" style="width:30px; height:30px; border-radius:50%; object-fit:cover;">
+                            <span style="color:white; font-size:13px; font-weight:bold;">${escapeHTML(name)}</span>
+                        </div>
+                        <div style="text-align:right;">
+                            <div style="color:white; font-size:13px; font-weight:bold;">${distKm} km</div>
+                            <div style="color:var(--muted); font-size:11px;">${timeMin} min</div>
+                        </div>
+                    </div>`;
+                    
+                    this.lastFetchedCoords[memberId] = { lat: coords.lat, lng: coords.lng };
+                } else {
+                    statsHTML += `<div style="color:#ef4444; font-size:11px; padding:10px;">No road route for ${escapeHTML(name)}</div>`;
+                }
+            } catch(e) {
+                console.error("Meetup Route Error:", e);
+            }
+        }
+        if(statsList) statsList.innerHTML = statsHTML;
+        if(validPaths.length > 0) map.fitBounds(L.featureGroup(validPaths).getBounds(), { padding: [40, 40] });
+    },
+    onLiveUpdate() {
+        if(!this.active || !this.destination) return;
+        let needsRecalc = false;
+        if (this.selectedMembers.includes("me") && myCoords) { 
+            const last = this.lastFetchedCoords["me"]; 
+            if(!last || distanceKm(last.lat, last.lng, myCoords.lat, myCoords.lng) > 0.1) needsRecalc = true; 
+        }
+        this.selectedMembers.forEach(id => { 
+            if(id !== "me" && friendData[id]) { 
+                const f = friendData[id]; const last = this.lastFetchedCoords[id]; 
+                if(validCoord(f.lat, f.lng) && (!last || distanceKm(last.lat, last.lng, f.lat, f.lng) > 0.1)) needsRecalc = true; 
+            }
+        });
+        if (needsRecalc) { 
+            clearTimeout(this.recalcTimer); 
+            this.recalcTimer = setTimeout(() => this.calculateAll(), 3000); 
+        }
+    },
+    stop() { 
+        this.active = false; this.destination = null; this.selectedMembers = []; 
+        this.layerGroup.clearLayers(); safeHide("group-nav-active"); 
+        if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16); 
+    }
 };
 
 const gNCB = $("group-nav-close-btn");
@@ -397,120 +500,137 @@ if(gNNB) gNNB.onclick = () => GroupNavigation.startSelection();
 const gNSB = $("group-nav-stop-btn");
 if(gNSB) gNSB.onclick = () => GroupNavigation.stop();
 
+
 // ==========================================
-// 3. CORE GPS
+// 3. CORE GPS: FAST FALLBACK + WATCH
 // ==========================================
-socket.on("connect", () => { 
-    if (currentUser.name) socket.emit("profileReady", currentUser); 
-    if(offlineMessageQueue.length > 0) {
-        offlineMessageQueue.forEach(msg => socket.emit("chatMessage", msg));
-        offlineMessageQueue = [];
-        showToast("📶 Back online! Sent queued messages.");
-    }
+socket.on("connect", () => { 
+    if (currentUser.name) socket.emit("profileReady", currentUser); 
+    
+    if(offlineMessageQueue.length > 0) {
+        offlineMessageQueue.forEach(msg => socket.emit("chatMessage", msg));
+        offlineMessageQueue = [];
+        showToast("📶 Back online! Sent queued messages.");
+    }
+    if(offlineMemoryQueue.length > 0) {
+        offlineMemoryQueue.forEach(mem => socket.emit("uploadMemoryPhoto", mem));
+        offlineMemoryQueue = [];
+        showToast("📶 Back online! Pinned queued memories.");
+    }
 });
 
 function showToast(message, duration = 4000) {
-    const container = $("toast-container"); if(!container) return;
-    const toast = document.createElement("div"); toast.className = "toast"; toast.textContent = message;
-    container.appendChild(toast);
-    setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, duration);
+    const container = $("toast-container"); if(!container) return;
+    const toast = document.createElement("div"); toast.className = "toast"; toast.textContent = message;
+    container.appendChild(toast);
+    setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, duration);
 }
 
 socket.on("geofenceAlert", (data) => {
-    const action = data.type === "enter" ? "entered" : "left";
-    showToast(`🔔 ${data.user} has ${action} ${data.fence}!`);
+    const action = data.type === "enter" ? "entered" : "left";
+    showToast(`🔔 ${data.user} has ${action} ${data.fence}!`);
 });
 
 function startGPS() {
-    if(!navigator.geolocation) {
-        showToast("❌ Browser does not support GPS");
-        return;
-    }
+    if(!navigator.geolocation) {
+        showToast("❌ Browser does not support GPS");
+        return;
+    }
 
-    const processLocation = async (p) => {
-        const lat = Number(p.coords.latitude), lng = Number(p.coords.longitude), acc = Number(p.coords.accuracy);
-        const alt = p.coords.altitude ? Math.round(p.coords.altitude) : null;
-        let speedKmh = 0; let dist = 0;
-        if (p.coords.speed != null && p.coords.speed >= 0) speedKmh = p.coords.speed * 3.6;
-        if (lastFixCoords && lastFixTime) {
-            dist = Number(distanceKm(lastFixCoords.lat, lastFixCoords.lng, lat, lng)) || 0;
-            const dtSec = (Date.now() - lastFixTime) / 1000;
-            if (!p.coords.speed && dtSec > 0.5) speedKmh = (dist / dtSec) * 3600;
-        }
-        speedKmh = Math.min(speedKmh, 300); 
-        
-        if(!validCoord(lat,lng)) return;
-        myCoords = {lat, lng, alt, speedKmh};
+    const processLocation = async (p) => {
+        const lat = Number(p.coords.latitude), lng = Number(p.coords.longitude), acc = Number(p.coords.accuracy);
+        const alt = p.coords.altitude ? Math.round(p.coords.altitude) : null;
+        let speedKmh = 0;
+        let dist = 0;
+        if (p.coords.speed != null && p.coords.speed >= 0) {
+            speedKmh = p.coords.speed * 3.6;
+        } 
+        if (lastFixCoords && lastFixTime) {
+            dist = Number(distanceKm(lastFixCoords.lat, lastFixCoords.lng, lat, lng)) || 0;
+            const dtSec = (Date.now() - lastFixTime) / 1000;
+            if (!p.coords.speed && dtSec > 0.5) {
+                speedKmh = (dist / dtSec) * 3600;
+            }
+        }
+        speedKmh = Math.min(speedKmh, 300); 
+        
+        if(!validCoord(lat,lng)) return;
+        myCoords = {lat, lng, alt, speedKmh};
 
-        locationHistory.push([lat, lng]);
-        if(locationHistory.length > 1000) locationHistory.shift(); 
-        historyPolyline.setLatLngs(locationHistory);
-        localStorage.setItem("koraput_history", JSON.stringify(locationHistory));
+        locationHistory.push([lat, lng]);
+        if(locationHistory.length > 1000) locationHistory.shift(); 
+        historyPolyline.setLatLngs(locationHistory);
+        localStorage.setItem("koraput_history", JSON.stringify(locationHistory));
 
-        if(!ownMarker){
-            ownMarker = L.marker([lat,lng],{icon:ownIcon(), zIndexOffset:1000}).addTo(map);
-            map.flyTo([lat,lng], 16, {animate: true, duration: 1.5}); 
-        } else {
-            ownMarker.setLatLng([lat,lng]);
-        }
+        if(!ownMarker){
+            ownMarker = L.marker([lat,lng],{icon:ownIcon(), zIndexOffset:1000}).addTo(map);
+            map.flyTo([lat,lng], 16, {animate: true, duration: 1.5}); 
+        } else {
+            ownMarker.setLatLng([lat,lng]);
+        }
 
-        if(acc > 0 && acc < 100000){
-            if(!accuracyCircle) accuracyCircle=L.circle([lat,lng],{radius:acc, color:"#10b981", weight:2, fillOpacity:.15}).addTo(map);
-            else {accuracyCircle.setLatLng([lat,lng]); accuracyCircle.setRadius(acc);}
-        }
+        if(acc > 0 && acc < 100000){
+            if(!accuracyCircle) accuracyCircle=L.circle([lat,lng],{radius:acc, color:"#10b981", weight:2, fillOpacity:.15}).addTo(map);
+            else {accuracyCircle.setLatLng([lat,lng]); accuracyCircle.setRadius(acc);}
+        }
 
-        if (!cityName) {
-            fetchCity(lat, lng).then(c => {
-                if (c) {
-                    cityName = c;
-                    const hat = $("header-app-title"); if (hat) hat.textContent = `${cityName} Tracker`;
-                    const cnt = $("city-name-text"); if (cnt) cnt.textContent = cityName;
-                    else { const pc = $("pill-city"); if (pc) pc.innerHTML = `<svg class="i"><use href="#i-pin"/></svg><span>${cityName}</span>`; }
-                }
-            });
-        }
+        if (!cityName) {
+            fetchCity(lat, lng).then(c => {
+                if (c) {
+                    cityName = c;
+                    if ($("header-app-title")) $("header-app-title").textContent = `${cityName} Tracker`;
+                    if ($("city-name-text")) $("city-name-text").textContent = cityName;
+                    else if ($("pill-city")) $("pill-city").innerHTML = `<svg class="i"><use href="#i-pin"/></svg><span>${cityName}</span>`;
+                }
+            });
+        }
 
-        if (!myWeather || Date.now() - lastWeatherFetch > 180000) {
-            fetchWeather(lat, lng).then(w => {
-                if (w) {
-                    myWeather = w;
-                    lastWeatherFetch = Date.now();
-                    const mtd = $("map-temp-display"); if (mtd) mtd.textContent = w;
-                    const tw = $("top-weather"); if (tw) { safeShow("top-weather", "flex"); tw.textContent = w; }
-                    
-                    const badgeText = alt !== null ? `${w} | ⛰️${alt}m` : w;
-                    if (ownMarker) ownMarker.unbindTooltip().bindTooltip(badgeText, { permanent: true, direction: "right", className: "weather-badge", offset: [15, 0] });
-                }
-            });
-        }
+        if (!myWeather || Date.now() - lastWeatherFetch > 180000) {
+            fetchWeather(lat, lng).then(w => {
+                if (w) {
+                    myWeather = w;
+                    lastWeatherFetch = Date.now();
+                    if ($("map-temp-display")) $("map-temp-display").textContent = w;
+                    if ($("top-weather")) { safeShow("top-weather", "flex"); $("top-weather").textContent = w; }
+                    
+                    const badgeText = alt !== null ? `${w} | ⛰️${alt}m` : w;
+                    if (ownMarker) ownMarker.unbindTooltip().bindTooltip(badgeText, { permanent: true, direction: "right", className: "weather-badge", offset: [15, 0] });
+                }
+            });
+        }
 
-        lastFixCoords = { lat, lng }; lastFixTime = Date.now();
+        lastFixCoords = { lat, lng }; lastFixTime = Date.now();
 
-        if (typeof SmartDrive !== 'undefined') SmartDrive.tick(speedKmh, dist);
+        if (typeof SmartDrive !== 'undefined') SmartDrive.tick(speedKmh, dist);
 
-        socket.emit("updateLocation",{name:currentUser.name, avatar:currentUser.avatar, lat, lng, alt, speedKmh, weather:myWeather});
-        updateFriendBadges(); 
-        if(typeof triggerGroupRouteUpdate === 'function') triggerGroupRouteUpdate(); 
-    };
+        socket.emit("updateLocation",{name:currentUser.name, avatar:currentUser.avatar, lat, lng, alt, speedKmh, weather:myWeather});
+        updateFriendBadges(); 
+        if(typeof triggerGroupRouteUpdate === 'function') triggerGroupRouteUpdate(); 
+        if(typeof Navigation.onLiveUpdate === 'function') Navigation.onLiveUpdate();
+        if(typeof GroupNavigation.onLiveUpdate === 'function') GroupNavigation.onLiveUpdate();
+    };
 
-    const handleGpsError = (e) => {
-        console.warn("GPS error", e);
-        if(e.code === 1) showToast("⚠️ GPS Permission Denied! Please enable location.", 6000);
-        else showToast("⚠️ GPS Signal Lost or Weak. Trying again...", 4000);
-    };
+    const handleGpsError = (e) => {
+        console.warn("GPS error", e);
+        if(e.code === 1) showToast("⚠️ GPS Permission Denied! Please enable location.", 6000);
+        else showToast("⚠️ GPS Signal Lost or Weak. Trying again...", 4000);
+    };
 
-    navigator.geolocation.getCurrentPosition(processLocation, (e) => { console.warn("Fast GPS fetch failed", e); }, { enableHighAccuracy: false, timeout: 7000, maximumAge: Infinity });
-    navigator.geolocation.watchPosition(processLocation, handleGpsError, { enableHighAccuracy: true, timeout: 15000, maximumAge: 2000 });
+    navigator.geolocation.getCurrentPosition(processLocation, (e) => {
+        console.warn("Fast GPS fetch failed", e);
+    }, { enableHighAccuracy: false, timeout: 7000, maximumAge: Infinity });
+
+    navigator.geolocation.watchPosition(processLocation, handleGpsError, { enableHighAccuracy: true, timeout: 15000, maximumAge: 2000 });
 }
 
 function updateFriendBadges(){
-    Object.keys(friendMarkers).forEach(id=>{
-        const f=friendData[id], m=friendMarkers[id]; if(!f||!m) return;
-        let text = f.online===false ? "Offline" : f.weather;
-        if(f.alt) text += ` | ⛰️${f.alt}m`;
-        if(myCoords && validCoord(f.lat,f.lng)) text += ` | 📍 ${distanceKm(myCoords.lat,myCoords.lng,f.lat,f.lng)} km away`;
-        m.unbindTooltip(); if(text) m.bindTooltip(text,{permanent:true,direction:"right",className:"weather-badge",offset:[15,0]});
-    });
+    Object.keys(friendMarkers).forEach(id=>{
+        const f=friendData[id], m=friendMarkers[id]; if(!f||!m) return;
+        let text = f.online===false ? "Offline" : f.weather;
+        if(f.alt) text += ` | ⛰️${f.alt}m`;
+        if(myCoords && validCoord(f.lat,f.lng)) text += ` | 📍 ${distanceKm(myCoords.lat,myCoords.lng,f.lat,f.lng)} km away`;
+        m.unbindTooltip(); if(text) m.bindTooltip(text,{permanent:true,direction:"right",className:"weather-badge",offset:[15,0]});
+    });
 }
 
 socket.on("onlineUsers", list=>{ if(Array.isArray(list)) list.forEach(u=>{ if(u.id!==socket.id){ friendData[u.id]={...(friendData[u.id]||{}),...u,online:true}; createOrUpdateFriendMarker(u);} }); updateOnlineUI(); });
@@ -520,726 +640,747 @@ socket.on("friendMoved", u=>{ if(u?.id) { createOrUpdateFriendMarker({...u,onlin
 socket.on("friendDisconnected", id=>{ if(friendMarkers[id]){map.removeLayer(friendMarkers[id]); delete friendMarkers[id];} delete friendData[id]; updateOnlineUI(); });
 
 function createOrUpdateFriendMarker(u){
-    if(!u?.id || !validCoord(u.lat,u.lng)) return;
-    friendData[u.id] = { id:u.id, name:u.name||"Friend", avatar:u.avatar||DEFAULT_AVATAR, lat:u.lat, lng:u.lng, alt:u.alt, speedKmh:u.speedKmh, weather:u.weather||"", online:u.online!==false };
-    let m = friendMarkers[u.id];
-    if(!m){ m=L.marker([u.lat,u.lng],{icon:friendIcon(u.avatar)}).addTo(map); m.on("click",()=>showProfilePopup(u)); friendMarkers[u.id]=m; }
-    else { m.setLatLng([u.lat,u.lng]); m.setOpacity(u.online===false?0.45:1); }
-    updateFriendBadges();
+    if(!u?.id || !validCoord(u.lat,u.lng)) return;
+    friendData[u.id] = { id:u.id, name:u.name||"Friend", avatar:u.avatar||DEFAULT_AVATAR, lat:u.lat, lng:u.lng, alt:u.alt, speedKmh:u.speedKmh, weather:u.weather||"", online:u.online!==false };
+    let m = friendMarkers[u.id];
+    if(!m){ m=L.marker([u.lat,u.lng],{icon:friendIcon(u.avatar)}).addTo(map); m.on("click",()=>showProfilePopup(u)); friendMarkers[u.id]=m; }
+    else { m.setLatLng([u.lat,u.lng]); m.setOpacity(u.online===false?0.45:1); }
+    updateFriendBadges();
 }
 
 function updateOnlineUI(){
-    const cs = $("chat-subtitle"); if(cs) cs.textContent = `${currentUser.name ? 1 : 0} online`;
-    const box=$("online-list"); if(!box) return; box.innerHTML="";
-    Object.values(friendData).filter(f=>f.online!==false).forEach(u=>{
-        const btn=document.createElement("button"); btn.className="online-friend";
-        btn.innerHTML=`<img src="${escapeHTML(u.avatar)}"><span><b>${escapeHTML(u.name)}</b></span><div class="status-dot"></div>`;
-        btn.onclick=()=>{ map.flyTo([u.lat,u.lng],16); showProfilePopup(u); }; box.appendChild(btn);
-    });
+    if($("chat-subtitle")) $("chat-subtitle").textContent = `${currentUser.name ? 1 : 0} online`;
+    const box=$("online-list"); if(!box) return; box.innerHTML="";
+    Object.values(friendData).filter(f=>f.online!==false).forEach(u=>{
+        const btn=document.createElement("button"); btn.className="online-friend";
+        btn.innerHTML=`<img src="${escapeHTML(u.avatar)}"><span><b>${escapeHTML(u.name)}</b></span><div class="status-dot"></div>`;
+        btn.onclick=()=>{ map.flyTo([u.lat,u.lng],16); showProfilePopup(u); }; box.appendChild(btn);
+    });
 }
 
 function showProfilePopup(u) {
-    const ppa = $("profile-popup-avatar"); if(ppa) ppa.src=u.avatar; 
-    const ppn = $("profile-popup-name"); if(ppn) ppn.textContent=u.name;
-    const st = $("profile-popup-status");
-    if(st) { st.textContent = u.online!==false ? "● Online" : "● Offline"; st.style.color = u.online!==false ? "#18d6a3" : "#8fa1aa"; }
-    const ppd = $("profile-popup-distance");
-    if(ppd) ppd.textContent = myCoords ? `${distanceKm(myCoords.lat,myCoords.lng,u.lat,u.lng)} km away` : "--";
-    const ppw = $("profile-popup-weather");
-    if(ppw) ppw.textContent = u.weather || "--";
-    
-    const pnb = $("profile-nav-btn");
-    if(pnb) { pnb.onclick = () => { if(validCoord(u.lat, u.lng)) Navigation.start(u.id); }; }
-    
-    if (typeof initCallButton === "function") initCallButton(u);
-    
-    safeShow("profile-popup", "flex");
-    const fb = $("profile-focus-btn");
-    if(fb) fb.onclick=()=>{ map.flyTo([u.lat,u.lng],16); safeHide("profile-popup"); };
+    if($("profile-popup-avatar")) $("profile-popup-avatar").src=u.avatar; 
+    if($("profile-popup-name")) $("profile-popup-name").textContent=u.name;
+    const st = $("profile-popup-status");
+    if(st) { st.textContent = u.online!==false ? "● Online" : "● Offline"; st.style.color = u.online!==false ? "#18d6a3" : "#8fa1aa"; }
+    if($("profile-popup-distance")) $("profile-popup-distance").textContent = myCoords ? `${distanceKm(myCoords.lat,myCoords.lng,u.lat,u.lng)} km away` : "--";
+    if($("profile-popup-weather")) $("profile-popup-weather").textContent = u.weather || "--";
+    
+    if($("profile-nav-btn")) {
+        $("profile-nav-btn").onclick = () => {
+            if(validCoord(u.lat, u.lng)) Navigation.start(u.id);
+        };
+    }
+    
+    if (typeof initCallButton === "function") initCallButton(u);
+    
+    safeShow("profile-popup", "flex");
+    const fb = $("profile-focus-btn");
+    if(fb) fb.onclick=()=>{ map.flyTo([u.lat,u.lng],16); safeHide("profile-popup"); };
 }
-const ppc = $("profile-popup-close");
-if(ppc) ppc.addEventListener("click",()=>safeHide("profile-popup"));
+$("profile-popup-close")?.addEventListener("click",()=>safeHide("profile-popup"));
 
 function renderGeofenceList() {
-    const list = $("geofence-items"); if(!list) return; list.innerHTML = "";
-    if(currentGeofences.length === 0) {
-        list.innerHTML = "<div style='color:var(--muted); font-size:12px; text-align:center;'>No active geofences.</div>";
-    } else {
-        currentGeofences.forEach(f => {
-            const isOwner = f.ownerId === socket.id;
-            const actionBtn = isOwner 
-                ? `<button onclick="removeGeofence('${f.id}')" style="background:rgba(239, 68, 68, 0.2); color:#ef4444; border:none; padding:6px 12px; border-radius:8px; font-weight:bold; font-size:11px; cursor:pointer;">Remove</button>`
-                : `<span style="font-size:10px; color:var(--muted); font-weight:bold;">Owner: ${escapeHTML(f.ownerName)}</span>`;
+    const list = $("geofence-items");
+    if(!list) return;
+    list.innerHTML = "";
+    if(currentGeofences.length === 0) {
+        list.innerHTML = "<div style='color:var(--muted); font-size:12px; text-align:center;'>No active geofences.</div>";
+    } else {
+        currentGeofences.forEach(f => {
+            const isOwner = f.ownerId === socket.id;
+            const actionBtn = isOwner 
+                ? `<button onclick="removeGeofence('${f.id}')" style="background:rgba(239, 68, 68, 0.2); color:#ef4444; border:none; padding:6px 12px; border-radius:8px; font-weight:bold; font-size:11px; cursor:pointer;">Remove</button>`
+                : `<span style="font-size:10px; color:var(--muted); font-weight:bold;">Owner: ${escapeHTML(f.ownerName)}</span>`;
 
-            list.innerHTML += `
-            <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.05); padding:10px; border-radius:10px; margin-bottom:8px;">
-                <div><div style="color:white; font-size:13px; font-weight:bold;">${escapeHTML(f.name)}</div><div style="color:var(--muted); font-size:11px;">Radius: ${f.radius}m</div></div>${actionBtn}
-            </div>`;
-        });
-    }
-    const modal = $("geofence-list-modal"); if(modal) modal.style.display = "flex";
+            list.innerHTML += `
+            <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.05); padding:10px; border-radius:10px; margin-bottom:8px;">
+                <div>
+                    <div style="color:white; font-size:13px; font-weight:bold;">${escapeHTML(f.name)}</div>
+                    <div style="color:var(--muted); font-size:11px;">Radius: ${f.radius}m</div>
+                </div>
+                ${actionBtn}
+            </div>`;
+        });
+    }
+    const modal = $("geofence-list-modal");
+    if(modal) modal.style.display = "flex";
 }
-const gflc = $("geofence-list-close");
-if(gflc) gflc.addEventListener("click", () => safeHide("geofence-list-modal"));
+$("geofence-list-close")?.addEventListener("click", () => safeHide("geofence-list-modal"));
 
 // ==========================================
-// 4. SETUP FUNCTIONS (NULL-SAFE)
+// 4. SETUP FUNCTIONS
 // ==========================================
-function setupAdvancedToolsSafe() {
-    const mb = $("measure-btn");
-    if(mb) mb.onclick = () => {
-        mapActionMode = mapActionMode === 'measure' ? null : 'measure';
-        mb.classList.toggle("active-tool", mapActionMode === 'measure');
-        const gb = $("geofence-btn"); if(gb) gb.classList.remove("active-tool"); 
-        const tb = $("trip-btn"); if(tb) tb.classList.remove("active-tool"); 
-        const gnb = $("group-nav-btn"); if(gnb) gnb.classList.remove("active-tool");
-        if(mapActionMode !== 'measure') { measureLayer.clearLayers(); measurePoints = []; }
-        else showToast("📍 Tap two points on the map to measure road distance");
-    };
+function setupAdvancedTools() {
+    $("measure-btn").onclick = () => {
+        mapActionMode = mapActionMode === 'measure' ? null : 'measure';
+        $("measure-btn").classList.toggle("active-tool", mapActionMode === 'measure');
+        $("geofence-btn").classList.remove("active-tool"); $("trip-btn").classList.remove("active-tool"); $("group-nav-btn").classList.remove("active-tool");
+        if(mapActionMode !== 'measure') { measureLayer.clearLayers(); measurePoints = []; }
+        else showToast("📍 Tap two points on the map to measure road distance");
+    };
 
-    const gb = $("geofence-btn");
-    if(gb) gb.onclick = () => {
-        geoClickCount++;
-        if (geoClickCount === 3) {
-            clearTimeout(geoClickTimer); geoClickCount = 0; renderGeofenceList(); return;
-        }
-        clearTimeout(geoClickTimer);
-        geoClickTimer = setTimeout(() => {
-            geoClickCount = 0; mapActionMode = mapActionMode === 'geofence' ? null : 'geofence';
-            gb.classList.toggle("active-tool", mapActionMode === 'geofence');
-            const mb = $("measure-btn"); if(mb) mb.classList.remove("active-tool"); 
-            const tb = $("trip-btn"); if(tb) tb.classList.remove("active-tool"); 
-            const gnb = $("group-nav-btn"); if(gnb) gnb.classList.remove("active-tool");
-            if(mapActionMode === 'geofence') showToast("⭕ Tap map to set Geofence. (Tap button 3 times to view/delete)");
-        }, 900);
-    };
+    $("geofence-btn").onclick = () => {
+        geoClickCount++;
+        if (geoClickCount === 3) {
+            clearTimeout(geoClickTimer); geoClickCount = 0; renderGeofenceList(); return;
+        }
+        clearTimeout(geoClickTimer);
+        geoClickTimer = setTimeout(() => {
+            geoClickCount = 0; mapActionMode = mapActionMode === 'geofence' ? null : 'geofence';
+            $("geofence-btn").classList.toggle("active-tool", mapActionMode === 'geofence');
+            $("measure-btn").classList.remove("active-tool"); $("trip-btn").classList.remove("active-tool"); $("group-nav-btn").classList.remove("active-tool");
+            if(mapActionMode === 'geofence') showToast("⭕ Tap map to set Geofence. (Tap button 3 times to view/delete)");
+        }, 900);
+    };
 
-    const tb = $("trip-btn");
-    if(tb) tb.onclick = () => {
-        mapActionMode = mapActionMode === 'trip' ? null : 'trip';
-        tb.classList.toggle("active-tool", mapActionMode === 'trip');
-        const mb = $("measure-btn"); if(mb) mb.classList.remove("active-tool"); 
-        const gb = $("geofence-btn"); if(gb) gb.classList.remove("active-tool"); 
-        const gnb = $("group-nav-btn"); if(gnb) gnb.classList.remove("active-tool");
-        if(mapActionMode === 'trip') showToast("🚗 Tap the map to set Group Trip Destination");
-    };
+    $("trip-btn").onclick = () => {
+        mapActionMode = mapActionMode === 'trip' ? null : 'trip';
+        $("trip-btn").classList.toggle("active-tool", mapActionMode === 'trip');
+        $("measure-btn").classList.remove("active-tool"); $("geofence-btn").classList.remove("active-tool"); $("group-nav-btn").classList.remove("active-tool");
+        if(mapActionMode === 'trip') showToast("🚗 Tap the map to set Group Trip Destination");
+    };
 
-    const gnb = $("group-nav-btn");
-    if(gnb) gnb.onclick = () => {
-        mapActionMode = mapActionMode === 'group-nav' ? null : 'group-nav';
-        gnb.classList.toggle("active-tool", mapActionMode === 'group-nav');
-        const mb = $("measure-btn"); if(mb) mb.classList.remove("active-tool"); 
-        const gb = $("geofence-btn"); if(gb) gb.classList.remove("active-tool"); 
-        const tb = $("trip-btn"); if(tb) tb.classList.remove("active-tool");
-        if(mapActionMode === 'group-nav') { if(typeof GroupNavigation !== 'undefined') GroupNavigation.openSetup(); }
-        else safeHide("group-nav-setup");
-    };
+    $("group-nav-btn").onclick = () => {
+        mapActionMode = mapActionMode === 'group-nav' ? null : 'group-nav';
+        $("group-nav-btn").classList.toggle("active-tool", mapActionMode === 'group-nav');
+        $("measure-btn").classList.remove("active-tool"); $("geofence-btn").classList.remove("active-tool"); $("trip-btn").classList.remove("active-tool");
+        if(mapActionMode === 'group-nav') { if(typeof GroupNavigation !== 'undefined') GroupNavigation.openSetup(); }
+        else safeHide("group-nav-setup");
+    };
 
-    map.on('click', (e) => {
-        if (mapActionMode === 'measure') {
-            measurePoints.push(e.latlng);
-            L.circleMarker(e.latlng, {color: '#f59e0b', radius: 5, fillOpacity: 1}).addTo(measureLayer);
-            if (measurePoints.length === 2) {
-                const p1 = measurePoints[0], p2 = measurePoints[1];
-                showToast("📏 Calculating road distance...", 2000);
-                fetch(`https://router.project-osrm.org/route/v1/driving/${p1.lng},${p1.lat};${p2.lng},${p2.lat}?overview=full&geometries=geojson`)
-                .then(r => r.json()).then(data => {
-                    measureLayer.clearLayers();
-                    if(data.routes && data.routes.length > 0) {
-                        const r = data.routes[0];
-                        const coords = r.geometry.coordinates.map(c => [c[1], c[0]]);
-                        L.polyline(coords, {color: '#f59e0b', weight: 4, dashArray: '5, 10', className: 'nav-path-animated'}).addTo(measureLayer);
-                        const distKm = (r.distance / 1000).toFixed(2);
-                        const timeMin = Math.round(r.duration / 60);
-                        showToast(`📏 Road Distance: ${distKm} km • ⏱️ ETA: ${timeMin} mins`, 6000);
-                    } else {
-                        showToast("❌ Road route unavailable. Try again.");
-                    }
-                    setTimeout(() => { measureLayer.clearLayers(); measurePoints = []; mapActionMode = null; const mb = $("measure-btn"); if(mb) mb.classList.remove("active-tool"); }, 6000);
-                }).catch(() => {
-                    measureLayer.clearLayers(); showToast("❌ Road route unavailable. Try again.");
-                    setTimeout(() => { measureLayer.clearLayers(); measurePoints = []; mapActionMode = null; const mb = $("measure-btn"); if(mb) mb.classList.remove("active-tool"); }, 6000);
-                });
-            }
-        } 
-        else if (mapActionMode === 'geofence') {
-            const name = prompt("Enter Geofence Name:");
-            if (name && name.trim()) {
-                const radius = Number(prompt("Enter Radius in meters (10 to 50000):", "500"));
-                if (Number.isFinite(radius) && radius >= 10 && radius <= 50000) { socket.emit("addGeofence", { name: name.trim(), lat: e.latlng.lat, lng: e.latlng.lng, radius: radius }); showToast(`⭕ Geofence created!`); }
-            }
-            mapActionMode = null; const gb = $("geofence-btn"); if(gb) gb.classList.remove("active-tool");
-        }
-        else if (mapActionMode === 'trip') {
-            const name = prompt("Enter Trip Destination Name:");
-            if (name && name.trim()) { socket.emit("startTrip", { name: name.trim(), lat: e.latlng.lat, lng: e.latlng.lng }); showToast(`🚗 Trip started!`); }
-            mapActionMode = null; const tb = $("trip-btn"); if(tb) tb.classList.remove("active-tool");
-        }
-        else if (mapActionMode === 'memory') {
-            if (pendingMemoryImage) {
-                const payload = { name: currentUser.name, lat: e.latlng.lat, lng: e.latlng.lng, image: pendingMemoryImage };
-                if (navigator.onLine) { socket.emit("uploadMemoryPhoto", payload); showToast("✅ Memory pinned successfully!"); } 
-                else { offlineMemoryQueue.push(payload); showToast("📶 Offline: Memory saved. Will sync when reconnected."); }
-            }
-            mapActionMode = null; pendingMemoryImage = null;
-        }
-    });
+    map.on('click', (e) => {
+        if (mapActionMode === 'measure') {
+            measurePoints.push(e.latlng);
+            L.circleMarker(e.latlng, {color: '#f59e0b', radius: 5, fillOpacity: 1}).addTo(measureLayer);
+            
+            // Fix 3: Measure showing shortest path, distance and time
+            if (measurePoints.length === 2) {
+                const p1 = measurePoints[0], p2 = measurePoints[1];
+                showToast("📏 Calculating road distance...", 2000);
+                
+                fetch(`https://router.project-osrm.org/route/v1/driving/${p1.lng},${p1.lat};${p2.lng},${p2.lat}?overview=full&geometries=geojson`)
+                .then(r => r.json())
+                .then(data => {
+                    measureLayer.clearLayers();
+                    if(data.routes && data.routes.length > 0) {
+                        const r = data.routes[0];
+                        const coords = r.geometry.coordinates.map(c => [c[1], c[0]]);
+                        L.polyline(coords, {color: '#f59e0b', weight: 4, dashArray: '5, 10', className: 'nav-path-animated'}).addTo(measureLayer);
+                        const distKm = (r.distance / 1000).toFixed(2);
+                        const timeMin = Math.round(r.duration / 60);
+                        showToast(`📏 Road Distance: ${distKm} km • ⏱️ ETA: ${timeMin} mins`, 6000);
+                    } else {
+                        showToast("❌ Road route unavailable. Try again.");
+                    }
+                    setTimeout(() => { measureLayer.clearLayers(); measurePoints = []; mapActionMode = null; if($("measure-btn")) $("measure-btn").classList.remove("active-tool"); }, 6000);
+                }).catch(() => {
+                    measureLayer.clearLayers();
+                    showToast("❌ Road route unavailable. Try again.");
+                    setTimeout(() => { measureLayer.clearLayers(); measurePoints = []; mapActionMode = null; if($("measure-btn")) $("measure-btn").classList.remove("active-tool"); }, 6000);
+                });
+            }
+        } 
+        else if (mapActionMode === 'geofence') {
+            const name = prompt("Enter Geofence Name (e.g., Home, College):");
+            if (name && name.trim()) {
+                const radInput = prompt("Enter Geofence Radius in meters (10 to 50000):", "500");
+                const radius = Number(radInput);
+                if (Number.isFinite(radius) && radius >= 10 && radius <= 50000) {
+                    socket.emit("addGeofence", { name: name.trim(), lat: e.latlng.lat, lng: e.latlng.lng, radius: radius });
+                    showToast(`⭕ Geofence '${name}' created with ${radius}m radius!`);
+                } else {
+                    showToast("❌ Invalid radius! Must be between 10 and 50000 meters.");
+                }
+            }
+            mapActionMode = null; if($("geofence-btn")) $("geofence-btn").classList.remove("active-tool");
+        }
+        else if (mapActionMode === 'trip') {
+            const name = prompt("Enter Trip Destination Name:");
+            if (name && name.trim()) {
+                socket.emit("startTrip", { name: name.trim(), lat: e.latlng.lat, lng: e.latlng.lng });
+                showToast(`🚗 Trip started to ${name}!`);
+            }
+            mapActionMode = null; if($("trip-btn")) $("trip-btn").classList.remove("active-tool");
+        }
+        else if (mapActionMode === 'memory') {
+            if (pendingMemoryImage) {
+                const payload = { name: currentUser.name, lat: e.latlng.lat, lng: e.latlng.lng, image: pendingMemoryImage };
+                if (navigator.onLine) {
+                    socket.emit("uploadMemoryPhoto", payload);
+                    showToast("✅ Memory pinned successfully!");
+                } else {
+                    offlineMemoryQueue.push(payload);
+                    showToast("📶 Offline: Memory saved. Will sync when reconnected.");
+                }
+            }
+            mapActionMode = null; pendingMemoryImage = null;
+        }
+    });
 
-    socket.on("loadGeofences", fences => {
-        currentGeofences = fences;
-        p4LayerGroup.eachLayer(l => { if(l.options?.isGeofence) map.removeLayer(l); });
-        fences.forEach(f => {
-            L.circle([f.lat, f.lng], { radius: f.radius, color: "#8b5cf6", weight: 2, fillOpacity: 0.1, isGeofence: true }).addTo(p4LayerGroup);
-            L.marker([f.lat, f.lng], { icon: L.divIcon({className: 'geofence-marker', html: '📍'}), isGeofence: true }).bindTooltip(f.name, {permanent: true, direction: "top", className: "weather-badge"}).addTo(p4LayerGroup);
-        });
-        const geoModal = $("geofence-list-modal"); if (geoModal && geoModal.style.display === "flex") renderGeofenceList();
-    });
+    socket.on("loadGeofences", fences => {
+        currentGeofences = fences;
+        p4LayerGroup.eachLayer(l => { if(l.options?.isGeofence) map.removeLayer(l); });
+        fences.forEach(f => {
+            L.circle([f.lat, f.lng], { radius: f.radius, color: "#8b5cf6", weight: 2, fillOpacity: 0.1, isGeofence: true }).addTo(p4LayerGroup);
+            L.marker([f.lat, f.lng], { icon: L.divIcon({className: 'geofence-marker', html: '📍'}), isGeofence: true }).bindTooltip(f.name, {permanent: true, direction: "top", className: "weather-badge"}).addTo(p4LayerGroup);
+        });
+        const geoModal = $("geofence-list-modal");
+        if (geoModal && geoModal.style.display === "flex") renderGeofenceList();
+    });
 
-    socket.on("tripData", trip => {
-        currentTrip = trip;
-        if(tripMarker) { map.removeLayer(tripMarker); tripMarker = null; }
-        if(trip) {
-            safeShow("trip-panel", "flex");
-            const tt = $("trip-title"); if(tt) tt.textContent = `Trip to ${trip.name}`;
-            tripMarker = L.marker([trip.lat, trip.lng], { icon: L.divIcon({className: 'geofence-marker', html: '🏁'}) }).addTo(map);
+    socket.on("tripData", trip => {
+        currentTrip = trip;
+        if(tripMarker) { map.removeLayer(tripMarker); tripMarker = null; }
+        if(trip) {
+            safeShow("trip-panel", "flex");
+            if($("trip-title")) $("trip-title").textContent = `Trip to ${trip.name}`;
+            tripMarker = L.marker([trip.lat, trip.lng], { icon: L.divIcon({className: 'geofence-marker', html: '🏁'}) }).addTo(map);
 
-            const isMember = trip.members.some(m => m.id === socket.id);
-            const isHost = trip.hostId === socket.id;
-            const actionBtn = $("trip-action-btn");
-            
-            if (actionBtn) {
-                if (isHost) {
-                    actionBtn.textContent = "End Trip"; actionBtn.style.color = "#ef4444"; actionBtn.style.background = "rgba(239, 68, 68, 0.2)"; actionBtn.onclick = () => socket.emit("leaveTrip");
-                } else if (isMember) {
-                    actionBtn.textContent = "Leave Trip"; actionBtn.style.color = "#f59e0b"; actionBtn.style.background = "rgba(245, 158, 11, 0.2)"; actionBtn.onclick = () => socket.emit("leaveTrip");
-                } else {
-                    actionBtn.textContent = "Join Trip"; actionBtn.style.color = "#10b981"; actionBtn.style.background = "rgba(16, 185, 129, 0.2)"; actionBtn.onclick = () => socket.emit("joinTrip");
-                }
-            }
-            if(typeof triggerGroupRouteUpdate === 'function') triggerGroupRouteUpdate(); 
-            if(window.renderTripChecklist) window.renderTripChecklist();
-        } else {
-            tripRoutesLayer.clearLayers(); tripRoadStats = {}; safeHide("trip-panel");
-        }
-    });
+            const isMember = trip.members.some(m => m.id === socket.id);
+            const isHost = trip.hostId === socket.id;
+            const actionBtn = $("trip-action-btn");
+            
+            if (actionBtn) {
+                if (isHost) {
+                    actionBtn.textContent = "End Trip";
+                    actionBtn.style.color = "#ef4444";
+                    actionBtn.style.background = "rgba(239, 68, 68, 0.2)";
+                    actionBtn.onclick = () => socket.emit("leaveTrip");
+                } else if (isMember) {
+                    actionBtn.textContent = "Leave Trip";
+                    actionBtn.style.color = "#f59e0b";
+                    actionBtn.style.background = "rgba(245, 158, 11, 0.2)";
+                    actionBtn.onclick = () => socket.emit("leaveTrip");
+                } else {
+                    actionBtn.textContent = "Join Trip";
+                    actionBtn.style.color = "#10b981";
+                    actionBtn.style.background = "rgba(16, 185, 129, 0.2)";
+                    actionBtn.onclick = () => socket.emit("joinTrip");
+                }
+            }
+            if(typeof triggerGroupRouteUpdate === 'function') triggerGroupRouteUpdate(); 
+            if(window.renderTripChecklist) window.renderTripChecklist();
+        } else {
+            tripRoutesLayer.clearLayers(); tripRoadStats = {};
+            safeHide("trip-panel");
+        }
+    });
 }
 
-function setupBasicControlsSafe() {
-    const locationBtn = $("my-location-btn");
-    if (locationBtn) {
-        locationBtn.onclick = () => {
-            if (!myCoords) { showToast("📍 Waiting for GPS location..."); return; }
-            map.flyTo([myCoords.lat, myCoords.lng], 16, { animate: true, duration: 0.8 });
-        };
-    }
+function setupBasicControls(){
+    $("my-location-btn").onclick = () => { if(myCoords) map.flyTo([myCoords.lat,myCoords.lng], 16); };
+    $("compass-btn").onclick = () => { map.setView(map.getCenter(), map.getZoom(), {animate:true}); const ci=$("compass-icon"); if(ci) ci.style.transform="rotate(0deg)"; };
+    $("map-style-btn").onclick = (e) => { e.stopPropagation(); const sm=$("map-style-menu"); if(sm) sm.style.display = sm.style.display==="flex"?"none":"flex"; };
+    $("map-style-menu").onclick = (e) => {
+        const b=e.target.closest("[data-style]"); if(!b) return; const s=b.dataset.style;
+        [satelliteLayer,streetLayer,darkLayer].forEach(l=>map.removeLayer(l));
+        ({satellite:satelliteLayer,street:streetLayer,dark:darkLayer})[s].addTo(map);
+        document.querySelectorAll("#map-style-menu button").forEach(x=>x.classList.toggle("active",x.dataset.style===s));
+        safeHide("map-style-menu");
+    };
+    if (window.DeviceOrientationEvent) window.addEventListener("deviceorientation", e => { const icon = $("compass-icon"); if (icon) icon.style.transform = `rotate(${e.webkitCompassHeading ? -e.webkitCompassHeading : e.alpha}deg)`; }, true);
 
-    const compassBtn = $("compass-btn");
-    const compassIcon = $("compass-icon");
-    if (compassBtn) {
-        compassBtn.onclick = () => {
-            map.setView(map.getCenter(), map.getZoom(), { animate: true });
-            if (compassIcon) compassIcon.style.transform = "rotate(0deg)";
-        };
-    }
-
-    const styleBtn = $("map-style-btn");
-    const styleMenu = $("map-style-menu");
-    if (styleBtn && styleMenu) {
-        styleBtn.onclick = (e) => { e.stopPropagation(); styleMenu.style.display = styleMenu.style.display === "flex" ? "none" : "flex"; };
-
-        styleMenu.onclick = (e) => {
-            const button = e.target.closest("[data-style]");
-            if (!button) return;
-            const style = button.dataset.style;
-            [satelliteLayer, streetLayer, darkLayer].forEach(layer => { if (map.hasLayer(layer)) map.removeLayer(layer); });
-            const layers = { satellite: satelliteLayer, street: streetLayer, dark: darkLayer };
-            if (layers[style]) layers[style].addTo(map);
-            document.querySelectorAll("#map-style-menu button").forEach(button => { button.classList.toggle("active", button.dataset.style === style); });
-            styleMenu.style.display = "none";
-        };
-    }
-
-    if (window.DeviceOrientationEvent) {
-        window.addEventListener("deviceorientation", (e) => {
-            const icon = $("compass-icon"); if (!icon) return;
-            if (typeof e.webkitCompassHeading === "number" && Number.isFinite(e.webkitCompassHeading)) { icon.style.transform = `rotate(${-e.webkitCompassHeading}deg)`; } 
-            else if (typeof e.alpha === "number" && Number.isFinite(e.alpha)) { icon.style.transform = `rotate(${e.alpha}deg)`; }
-        }, true);
-    }
+    window.addEventListener('offline', () => showToast("📶 You are offline. Data saved locally."));
+    window.addEventListener('online', () => {
+        showToast("📶 Back online!");
+        if(offlineMessageQueue.length > 0) {
+            offlineMessageQueue.forEach(msg => socket.emit("chatMessage", msg));
+            offlineMessageQueue = [];
+        }
+        if(offlineMemoryQueue.length > 0) {
+            offlineMemoryQueue.forEach(mem => socket.emit("uploadMemoryPhoto", mem));
+            offlineMemoryQueue = [];
+        }
+    });
 }
 
-function setupChatSafe() {
-    const cc=$("chat-container"), inp=$("chatInput"), send=$("chat-send"), vb=$("voiceButton");
-    let unread=0, typingTimer=null, replyTo=null, reactingId=null;
-    const msgStore=new Map(), emojis=["👍","❤️","😂","😮","😢","🔥"];
+function setupChat(){
+    const cc=$("chat-container"), inp=$("chatInput"), send=$("chat-send"), vb=$("voiceButton");
+    let unread=0, typingTimer=null, replyTo=null, reactingId=null;
+    const msgStore=new Map(), emojis=["👍","❤️","😂","😮","😢","🔥"];
 
-    function updateUnreadBadge(){ const b=$("chat-unread-badge"); if(b){ b.textContent=unread>99?"99+":unread; b.style.display=unread>0?"flex":"none"; } }
+    function updateUnreadBadge(){ const b=$("chat-unread-badge"); if(b){ b.textContent=unread>99?"99+":unread; b.style.display=unread>0?"flex":"none"; } }
 
-    const ctb = $("chat-toggle-btn");
-    if(ctb) ctb.onclick = () => { safeShow("chat-container", "flex"); safeHide("chat-toggle-btn"); unread=0; updateUnreadBadge(); if(inp) inp.focus(); };
-    
-    const cmb = $("chat-minimize-btn");
-    if(cmb) cmb.onclick = () => { safeHide("chat-container"); safeShow("chat-toggle-btn", "flex"); };
-    
-    const ob = $("online-btn");
-    if(ob) ob.onclick = (e) => { e.stopPropagation(); const l=$("online-list"); if(l) l.style.display = l.style.display === "block" ? "none" : "block"; updateOnlineUI(); };
-    
-    document.addEventListener("click", e => { const ol = $("online-list"); const obtn = $("online-btn"); if (ol && obtn && !ol.contains(e.target) && e.target !== obtn) safeHide("online-list"); });
+    const chatTglBtn = $("chat-toggle-btn");
+    if(chatTglBtn) {
+        chatTglBtn.onclick = () => { safeShow("chat-container", "flex"); safeHide("chat-toggle-btn"); unread=0; updateUnreadBadge(); if(inp) inp.focus(); };
+    }
+    const chatMinBtn = $("chat-minimize-btn");
+    if(chatMinBtn) {
+        chatMinBtn.onclick = () => { safeHide("chat-container"); safeShow("chat-toggle-btn", "flex"); };
+    }
+    const onlineBtn = $("online-btn");
+    if(onlineBtn) {
+        onlineBtn.onclick = (e) => { e.stopPropagation(); const l=$("online-list"); if(l) l.style.display = l.style.display === "block" ? "none" : "block"; updateOnlineUI(); };
+    }
+    document.addEventListener("click", e => { if ($("online-list") && !$("online-list").contains(e.target) && e.target !== $("online-btn")) safeHide("online-list"); });
 
-    if(inp) {
-        inp.oninput=()=>{ socket.emit("typing",true); clearTimeout(typingTimer); typingTimer=setTimeout(()=>socket.emit("typing",false), 1200); if(send && vb) { send.style.display=inp.value.trim()?"flex":"none"; vb.style.display=inp.value.trim()?"none":"flex"; } };
-    }
-    socket.on("typing", d=>{ const t=$("typing-indicator"); if(t) { if(d.id!==socket.id && d.isTyping){t.textContent=`${escapeHTML(d.name)} is typing…`; t.style.display="block";}else t.style.display="none"; } });
+    if(inp) {
+        inp.oninput=()=>{ socket.emit("typing",true); clearTimeout(typingTimer); typingTimer=setTimeout(()=>socket.emit("typing",false), 1200); if(send && vb) { send.style.display=inp.value.trim()?"flex":"none"; vb.style.display=inp.value.trim()?"none":"flex"; } };
+    }
+    socket.on("typing", d=>{ const t=$("typing-indicator"); if(t) { if(d.id!==socket.id && d.isTyping){t.textContent=`${escapeHTML(d.name)} is typing…`; t.style.display="block";}else t.style.display="none"; } });
 
-    const rc = $("reply-cancel"); if(rc) rc.onclick=()=>{replyTo=null; safeHide("reply-bar");};
-    
-    const eb = $("emojiButton"); if(eb) eb.onclick=(e)=>{e.stopPropagation(); safeHide("attachment-menu"); const ec=$("emoji-picker-container"); if(ec) ec.style.display=ec.style.display==="block"?"none":"block";};
-    
-    const ep = $("emojiPicker");
-    if(ep) { ep.addEventListener("emoji-click",e=>{ const em=e.detail.unicode; if(reactingId){socket.emit("messageReaction",{messageId:reactingId,emoji:em});safeHide("emoji-picker-container");reactingId=null;}else if(inp){inp.value+=em;inp.focus();if(send) send.style.display="flex";if(vb) vb.style.display="none";} }); }
-    
-    const cab = $("chat-attach-btn"); if(cab) cab.onclick=(e)=>{e.stopPropagation(); safeHide("emoji-picker-container"); const am=$("attachment-menu"); if(am) am.style.display=am.style.display==="flex"?"none":"flex";};
-    
-    const fInp=$("chatFileInput");
-    const atm = $("att-media"); if(atm) atm.onclick=()=>{if(fInp){fInp.accept="image/*,video/*";fInp.click();safeHide("attachment-menu");}};
-    const atd = $("att-doc"); if(atd) atd.onclick=()=>{if(fInp){fInp.accept=".pdf,.doc,.txt,.zip";fInp.click();safeHide("attachment-menu");}};
-    const ata = $("att-audio"); if(ata) ata.onclick=()=>{if(fInp){fInp.accept="audio/*";fInp.click();safeHide("attachment-menu");}};
-    
-    if(fInp) {
-        fInp.onchange=()=>{ 
-            const f=fInp.files?.[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ 
-            const payload = {name:currentUser.name, type:f.type.split('/')[0]==="image"?"image":f.type.split('/')[0]==="video"?"video":f.type.split('/')[0]==="audio"?"audio":"document", data:r.result, replyTo};
-            if(navigator.onLine) socket.emit("chatMessage", payload); 
-            else { offlineMessageQueue.push(payload); showToast("📶 Offline: Message queued"); }
-            const rcb = $("reply-cancel"); if(rcb) rcb.click();}; r.readAsDataURL(f); fInp.value="";
-        };
-    }
+    const replyCancel = $("reply-cancel");
+    if(replyCancel) replyCancel.onclick=()=>{replyTo=null; safeHide("reply-bar");};
+    
+    const emojiBtn = $("emojiButton");
+    if(emojiBtn) emojiBtn.onclick=(e)=>{e.stopPropagation(); safeHide("attachment-menu"); const ec=$("emoji-picker-container"); if(ec) ec.style.display=ec.style.display==="block"?"none":"block";};
+    
+    const emojiPicker = $("emojiPicker");
+    if(emojiPicker) {
+        emojiPicker.addEventListener("emoji-click",e=>{ const em=e.detail.unicode; if(reactingId){socket.emit("messageReaction",{messageId:reactingId,emoji:em});safeHide("emoji-picker-container");reactingId=null;}else if(inp){inp.value+=em;inp.focus();if(send) send.style.display="flex";if(vb) vb.style.display="none";} });
+    }
+    
+    const attBtn = $("chat-attach-btn");
+    if(attBtn) attBtn.onclick=(e)=>{e.stopPropagation(); safeHide("emoji-picker-container"); const am=$("attachment-menu"); if(am) am.style.display=am.style.display==="flex"?"none":"flex";};
+    
+    const fInp=$("chatFileInput");
+    const attMedia = $("att-media"); if(attMedia) attMedia.onclick=()=>{if(fInp){fInp.accept="image/*,video/*";fInp.click();safeHide("attachment-menu");}};
+    const attDoc = $("att-doc"); if(attDoc) attDoc.onclick=()=>{if(fInp){fInp.accept=".pdf,.doc,.txt,.zip";fInp.click();safeHide("attachment-menu");}};
+    const attAudio = $("att-audio"); if(attAudio) attAudio.onclick=()=>{if(fInp){fInp.accept="audio/*";fInp.click();safeHide("attachment-menu");}};
+    
+    if(fInp) {
+        fInp.onchange=()=>{ 
+            const f=fInp.files?.[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ 
+            const payload = {name:currentUser.name, type:f.type.split('/')[0]==="image"?"image":f.type.split('/')[0]==="video"?"video":f.type.split('/')[0]==="audio"?"audio":"document", data:r.result, replyTo};
+            if(navigator.onLine) socket.emit("chatMessage", payload); 
+            else { offlineMessageQueue.push(payload); showToast("📶 Offline: Message queued"); }
+            if($("reply-cancel")) $("reply-cancel").click();}; r.readAsDataURL(f); fInp.value="";
+        };
+    }
 
-    const cForm = $("chatForm");
-    if(cForm) {
-        cForm.onsubmit=e=>{ 
-            e.preventDefault(); if(!inp) return;
-            const t=inp.value.trim(); 
-            if(t){
-                const payload = {name:currentUser.name,type:"text",data:t,replyTo};
-                if(navigator.onLine) socket.emit("chatMessage",payload);
-                else { offlineMessageQueue.push(payload); showToast("📶 Offline: Message queued"); }
-                inp.value=""; const rcb = $("reply-cancel"); if(rcb) rcb.click(); if(send) send.style.display="none"; if(vb) vb.style.display="flex"; inp.focus();
-            } 
-        };
-    }
+    const cForm = $("chatForm");
+    if(cForm) {
+        cForm.onsubmit=e=>{ 
+            e.preventDefault(); 
+            if(!inp) return;
+            const t=inp.value.trim(); 
+            if(t){
+                const payload = {name:currentUser.name,type:"text",data:t,replyTo};
+                if(navigator.onLine) socket.emit("chatMessage",payload);
+                else { offlineMessageQueue.push(payload); showToast("📶 Offline: Message queued"); }
+                inp.value=""; if($("reply-cancel")) $("reply-cancel").click(); if(send) send.style.display="none"; if(vb) vb.style.display="flex"; inp.focus();
+            } 
+        };
+    }
 
-    function renderMsg(m){
-        if(msgStore.has(m.id)) return;
-        const w=document.createElement("div"); w.className="chat-row "+(m.senderId===socket.id?"mine":"");
-        const b=document.createElement("div"); b.className="chat-message "+(m.senderId===socket.id?"msg-mine":"msg-theirs");
-        if(m.senderId!==socket.id) b.innerHTML+=`<div class="msg-sender">${escapeHTML(m.name)}</div>`;
-        if(m.replyTo) b.innerHTML+=`<div class="reply-quote"><b>${escapeHTML(m.replyTo.name)}</b><br>${escapeHTML(m.replyTo.preview)}</div>`;
-        
-        if(m.type==="text") b.innerHTML+=`<div style="word-wrap:break-word;word-break:break-word;">${escapeHTML(m.data)}</div>`;
-        else if(m.type==="image") b.innerHTML+=`<img class="chat-media" src="${m.data}">`;
-        
-        const a=document.createElement("div"); a.className="message-actions";
-        emojis.forEach(e=>{const btn=document.createElement("button"); btn.className="action-btn"; btn.textContent=e; btn.onclick=()=>socket.emit("messageReaction",{messageId:m.id,emoji:e}); a.appendChild(btn);});
-        const rep=document.createElement("button"); rep.className="action-btn"; rep.textContent="↩ Reply"; rep.onclick=()=>{replyTo={id:m.id,name:m.name,type:m.type,preview:m.type==="text"?m.data.slice(0,50):"Attachment"}; const rp=$("reply-preview"); if(rp) rp.textContent=`↩ ${m.name}`; safeShow("reply-bar", "flex"); if(inp) inp.focus();}; a.appendChild(rep);
-        b.appendChild(a); const rr=document.createElement("div"); rr.className="reaction-row"; b.appendChild(rr); w.appendChild(b); 
-        
-        const chatMsgs = $("chat-messages");
-        if(chatMsgs) { chatMsgs.appendChild(w); chatMsgs.scrollTop=chatMsgs.scrollHeight; }
-        msgStore.set(m.id,{msg:m,el:w});
-        if(m.senderId!==socket.id && cc && cc.style.display!=="flex"){unread++; updateUnreadBadge();}
-    }
-    socket.on("chatHistory", l=>l.forEach(renderMsg)); socket.on("chatMessage", renderMsg);
+    function renderMsg(m){
+        if(msgStore.has(m.id)) return;
+        const w=document.createElement("div"); w.className="chat-row "+(m.senderId===socket.id?"mine":"");
+        const b=document.createElement("div"); b.className="chat-message "+(m.senderId===socket.id?"msg-mine":"msg-theirs");
+        if(m.senderId!==socket.id) b.innerHTML+=`<div class="msg-sender">${escapeHTML(m.name)}</div>`;
+        if(m.replyTo) b.innerHTML+=`<div class="reply-quote"><b>${escapeHTML(m.replyTo.name)}</b><br>${escapeHTML(m.replyTo.preview)}</div>`;
+        
+        if(m.type==="text") b.innerHTML+=`<div style="word-wrap:break-word;word-break:break-word;">${escapeHTML(m.data)}</div>`;
+        else if(m.type==="image") b.innerHTML+=`<img class="chat-media" src="${m.data}">`;
+        else if(m.type==="video") b.innerHTML+=`<video class="chat-media" controls src="${m.data}"></video>`;
+        else if(m.type==="audio") b.innerHTML+=`<audio class="chat-audio" controls src="${m.data}"></audio>`;
+        else if(m.type==="document") b.innerHTML+=`<a class="chat-document" href="${m.data}" download>📄 Download File</a>`;
+        
+        b.innerHTML+=`<div class="message-meta">${new Date(m.time).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</div>`;
+        
+        const a=document.createElement("div"); a.className="message-actions";
+        emojis.forEach(e=>{const btn=document.createElement("button"); btn.className="action-btn"; btn.textContent=e; btn.onclick=()=>socket.emit("messageReaction",{messageId:m.id,emoji:e}); a.appendChild(btn);});
+        const rep=document.createElement("button"); rep.className="action-btn"; rep.textContent="↩ Reply"; rep.onclick=()=>{replyTo={id:m.id,name:m.name,type:m.type,preview:m.type==="text"?m.data.slice(0,50):"Attachment"}; if($("reply-preview")) $("reply-preview").textContent=`↩ ${m.name}`; safeShow("reply-bar", "flex"); if(inp) inp.focus();}; a.appendChild(rep);
+        b.appendChild(a); const rr=document.createElement("div"); rr.className="reaction-row"; b.appendChild(rr); w.appendChild(b); 
+        
+        const chatMsgs = $("chat-messages");
+        if(chatMsgs) {
+            chatMsgs.appendChild(w);
+            chatMsgs.scrollTop=chatMsgs.scrollHeight;
+        }
+        msgStore.set(m.id,{msg:m,el:w});
+        if(m.senderId!==socket.id && cc && cc.style.display!=="flex"){unread++; updateUnreadBadge();}
+    }
+    socket.on("chatHistory", l=>l.forEach(renderMsg)); socket.on("chatMessage", renderMsg);
 }
 
-function setupMemoriesSafe(){
-    const pgb = $("phase3-gallery-btn");
-    if(pgb) pgb.onclick = () => { safeShow("phase3-memory-overlay", "block"); renderMemGallery(); };
-    const pmc = $("phase3-memory-close");
-    if(pmc) pmc.onclick = () => safeHide("phase3-memory-overlay");
-    const pvc = $("p3-view-close");
-    if(pvc) pvc.onclick = () => safeHide("phase3-photo-viewer");
-    
-    document.querySelectorAll(".phase3-filter").forEach(b => {
-        b.onclick = () => { document.querySelectorAll(".phase3-filter").forEach(x=>x.classList.remove("active")); b.classList.add("active"); currentGalleryFilter=b.dataset.filter; renderMemGallery(); };
-    });
-    
-    const pms = $("phase3-memory-search");
-    if(pms) pms.oninput = e => { currentGallerySearch=e.target.value.toLowerCase(); renderMemGallery(); };
-    
-    const pvf = $("p3-view-focus");
-    if(pvf) pvf.onclick = () => { const m=memories.get(selectedMemoryId); if(m) map.flyTo([m.lat,m.lng],17); safeHide("phase3-photo-viewer"); safeHide("phase3-memory-overlay"); };
+// Fix 1: Memories Photo Pinning with Date and Name
+function setupMemories(){
+    const galBtn = $("phase3-gallery-btn");
+    if(galBtn) galBtn.onclick = () => { safeShow("phase3-memory-overlay", "block"); renderMemGallery(); };
+    const closeOverlayBtn = $("phase3-memory-close");
+    if(closeOverlayBtn) closeOverlayBtn.onclick = () => safeHide("phase3-memory-overlay");
+    const closeViewBtn = $("p3-view-close");
+    if(closeViewBtn) closeViewBtn.onclick = () => safeHide("phase3-photo-viewer");
+    
+    document.querySelectorAll(".phase3-filter").forEach(b => {
+        b.onclick = () => { document.querySelectorAll(".phase3-filter").forEach(x=>x.classList.remove("active")); b.classList.add("active"); currentGalleryFilter=b.dataset.filter; renderMemGallery(); };
+    });
+    
+    const searchInp = $("phase3-memory-search");
+    if(searchInp) searchInp.oninput = e => { currentGallerySearch=e.target.value.toLowerCase(); renderMemGallery(); };
+    
+    const focusBtn = $("p3-view-focus");
+    if(focusBtn) focusBtn.onclick = () => { const m=memories.get(selectedMemoryId); if(m) map.flyTo([m.lat,m.lng],17); safeHide("phase3-photo-viewer"); safeHide("phase3-memory-overlay"); };
 
-    function renderMemGallery(){
-        let arr = Array.from(memories.values());
-        if(currentGalleryFilter==="today") arr=arr.filter(m=>new Date(m.time)>=new Date().setHours(0,0,0,0));
-        else if(currentGalleryFilter==="mine") arr=arr.filter(m=>cleanName(m.name)===currentUser.name);
-        if(currentGallerySearch) arr=arr.filter(m=>cleanName(m.name).toLowerCase().includes(currentGallerySearch));
-        arr.sort((a,b) => new Date(b.time) - new Date(a.time));
+    function renderMemGallery(){
+        let arr = Array.from(memories.values());
+        if(currentGalleryFilter==="today") arr=arr.filter(m=>new Date(m.time)>=new Date().setHours(0,0,0,0));
+        else if(currentGalleryFilter==="mine") arr=arr.filter(m=>cleanName(m.name)===currentUser.name);
+        if(currentGallerySearch) arr=arr.filter(m=>cleanName(m.name).toLowerCase().includes(currentGallerySearch));
+        arr.sort((a,b) => new Date(b.time) - new Date(a.time));
 
-        const pmc = $("phase3-memory-count"); if(pmc) pmc.textContent = `${arr.length} memories`;
-        const grid=$("phase3-memory-grid"), time=$("phase3-timeline-list"), emp=$("phase3-memory-empty");
-        if(grid) grid.innerHTML=""; if(time) time.innerHTML=""; if(emp) emp.style.display=arr.length?"none":"block";
+        if($("phase3-memory-count")) $("phase3-memory-count").textContent = `${arr.length} memories`;
+        const grid=$("phase3-memory-grid"), time=$("phase3-timeline-list"), emp=$("phase3-memory-empty");
+        if(grid) grid.innerHTML=""; 
+        if(time) time.innerHTML=""; 
+        if(emp) emp.style.display=arr.length?"none":"block";
 
-        arr.forEach(m=>{
-            if(grid) {
-                const c=document.createElement("div"); c.className="p3-card";
-                c.innerHTML=`<img src="${escapeHTML(m.image)}" loading="lazy"><div class="p3-card-info"><b>${escapeHTML(m.name)}</b><span>${new Date(m.time).toLocaleDateString()}</span></div>`;
-                c.onclick=()=>{selectedMemoryId=m.id; const pvi=$("p3-view-image"); if(pvi) pvi.src=m.image; const pvn=$("p3-view-name"); if(pvn) pvn.textContent=m.name; const pvd=$("p3-view-date"); if(pvd) pvd.textContent=new Date(m.time).toLocaleString(); safeShow("phase3-photo-viewer", "flex");}; 
-                grid.appendChild(c);
-            }
-            if(time) {
-                const t=document.createElement("div"); t.className="p3-time-item";
-                t.innerHTML=`<div class="p3-time-thumb"><img src="${escapeHTML(m.image)}" loading="lazy"></div><div class="p3-time-info"><b>${escapeHTML(m.name)}</b><span>${new Date(m.time).toLocaleString()}</span></div>`;
-                t.onclick=()=>{selectedMemoryId=m.id; const pvi=$("p3-view-image"); if(pvi) pvi.src=m.image; const pvn=$("p3-view-name"); if(pvn) pvn.textContent=m.name; const pvd=$("p3-view-date"); if(pvd) pvd.textContent=new Date(m.time).toLocaleString(); safeShow("phase3-photo-viewer", "flex");}; 
-                time.appendChild(t);
-            }
-        });
-    }
+        arr.forEach(m=>{
+            if(grid) {
+                const c=document.createElement("div"); c.className="p3-card";
+                c.innerHTML=`<img src="${escapeHTML(m.image)}" loading="lazy"><div class="p3-card-info"><b>${escapeHTML(m.name)}</b><span>${new Date(m.time).toLocaleDateString()}</span></div>`;
+                c.onclick=()=>{selectedMemoryId=m.id; if($("p3-view-image")) $("p3-view-image").src=m.image; if($("p3-view-name")) $("p3-view-name").textContent=m.name; if($("p3-view-date")) $("p3-view-date").textContent=new Date(m.time).toLocaleString(); safeShow("phase3-photo-viewer", "flex");}; 
+                grid.appendChild(c);
+            }
+            if(time) {
+                const t=document.createElement("div"); t.className="p3-time-item";
+                t.innerHTML=`<div class="p3-time-thumb"><img src="${escapeHTML(m.image)}" loading="lazy"></div><div class="p3-time-info"><b>${escapeHTML(m.name)}</b><span>${new Date(m.time).toLocaleString()}</span></div>`;
+                t.onclick=()=>{selectedMemoryId=m.id; if($("p3-view-image")) $("p3-view-image").src=m.image; if($("p3-view-name")) $("p3-view-name").textContent=m.name; if($("p3-view-date")) $("p3-view-date").textContent=new Date(m.time).toLocaleString(); safeShow("phase3-photo-viewer", "flex");}; 
+                time.appendChild(t);
+            }
+        });
+    }
 
-    function renderPins(){
-        memoryLayer.clearLayers();
-        memories.forEach(m=>{
-            const icon = L.divIcon({ className:"p3-memory-marker", html:`<div style="width:46px;height:46px;border-radius:50%;overflow:hidden;border:2px solid #fff;background:#071018;box-shadow:0 4px 15px rgba(0,0,0,.65)"><img src="${escapeHTML(m.image)}" style="width:100%;height:100%;object-fit:cover;"></div>`, iconSize:[46,46], iconAnchor:[23,23]});
-            const marker = L.marker([m.lat,m.lng],{icon}).addTo(memoryLayer);
-            marker.bindPopup(`<div class="p3-map-popup"><img src="${escapeHTML(m.image)}"><b>📸 ${escapeHTML(m.name)}</b><button class="p3-open-map-memory">View</button></div>`);
-            marker.on("popupopen",e=>{ const b=e.popup.getElement()?.querySelector(".p3-open-map-memory"); if(b) b.onclick=()=>{selectedMemoryId=m.id; const pvi=$("p3-view-image"); if(pvi) pvi.src=m.image; const pvn=$("p3-view-name"); if(pvn) pvn.textContent=m.name; const pvd=$("p3-view-date"); if(pvd) pvd.textContent=new Date(m.time).toLocaleString(); safeShow("phase3-photo-viewer", "flex");}; });
-        });
-    }
+    function renderPins(){
+        memoryLayer.clearLayers();
+        memories.forEach(m=>{
+            const icon = L.divIcon({ className:"p3-memory-marker", html:`<div style="width:46px;height:46px;border-radius:50%;overflow:hidden;border:2px solid #fff;background:#071018;box-shadow:0 4px 15px rgba(0,0,0,.65)"><img src="${escapeHTML(m.image)}" style="width:100%;height:100%;object-fit:cover;"></div>`, iconSize:[46,46], iconAnchor:[23,23]});
+            const marker = L.marker([m.lat,m.lng],{icon}).addTo(memoryLayer);
+            marker.bindPopup(`<div class="p3-map-popup"><img src="${escapeHTML(m.image)}"><b>📸 ${escapeHTML(m.name)}</b><br><small style="color:#aaa;">${new Date(m.time).toLocaleString()}</small><button class="p3-open-map-memory">View</button></div>`);
+            marker.on("popupopen",e=>{ const b=e.popup.getElement()?.querySelector(".p3-open-map-memory"); if(b) b.onclick=()=>{selectedMemoryId=m.id; if($("p3-view-image")) $("p3-view-image").src=m.image; if($("p3-view-name")) $("p3-view-name").textContent=m.name; if($("p3-view-date")) $("p3-view-date").textContent=new Date(m.time).toLocaleString(); safeShow("phase3-photo-viewer", "flex");}; });
+        });
+    }
 
-    socket.on("loadMemoryPhotos", l=>{ memories.clear(); l.forEach(m=>memories.set(m.id,m)); renderPins(); });
-    socket.on("newMemoryPin", m=>{ memories.set(m.id,m); renderPins(); const pmo=$("phase3-memory-overlay"); if(pmo && pmo.style.display==="block") renderMemGallery(); });
+    socket.on("loadMemoryPhotos", l=>{ memories.clear(); l.forEach(m=>memories.set(m.id,m)); renderPins(); });
+    socket.on("newMemoryPin", m=>{ memories.set(m.id,m); renderPins(); const p3overlay = $("phase3-memory-overlay"); if(p3overlay && p3overlay.style.display==="block") renderMemGallery(); });
 
-    const mInp=$("memoryPhotoInput");
-    const mb = $("memoryButton");
-    if(mb) mb.onclick=()=>{ if(!currentUser.name) return alert("Join map first."); if(mInp) mInp.click(); };
-    
-    const addMemBtn = $("p3-add-memory-btn");
-    if(addMemBtn) addMemBtn.onclick = () => { safeHide("phase3-memory-overlay"); if(mInp) mInp.click(); };
-    
-    if(mInp) {
-        mInp.onchange=()=>{
-            const f=mInp.files?.[0]; if(!f) return;
-            if(!IMAGE_TYPES.includes(f.type)||f.size>MAX_MEMORY_FILE){alert("Invalid image or >8MB."); mInp.value=""; return;}
-            const r=new FileReader(); 
-            r.onload=()=>{
-                if(validImageData(r.result)){ 
-                    pendingMemoryImage = r.result;
-                    showToast("📸 Photo Selected! Tap ANYWHERE on the map to pin it.", 5000);
-                    setTimeout(() => { mapActionMode = 'memory'; }, 300);
-                }
-            }; 
-            r.readAsDataURL(f); mInp.value="";
-        };
-    }
+    const mInp=$("memoryPhotoInput");
+    const mb = $("memoryButton");
+    if(mb) mb.onclick=()=>{ if(!currentUser.name) return alert("Join map first."); if(mInp) mInp.click(); };
+    
+    const addMemBtn = $("p3-add-memory-btn");
+    if(addMemBtn) addMemBtn.onclick = () => { safeHide("phase3-memory-overlay"); if(mInp) mInp.click(); };
+    
+    if(mInp) {
+        mInp.onchange=()=>{
+            const f=mInp.files?.[0]; if(!f) return;
+            if(!IMAGE_TYPES.includes(f.type)||f.size>MAX_MEMORY_FILE){alert("Invalid image or >8MB."); mInp.value=""; return;}
+            const r=new FileReader(); 
+            r.onload=()=>{
+                if(validImageData(r.result)){ 
+                    pendingMemoryImage = r.result;
+                    mapActionMode = 'memory'; 
+                    showToast("📸 Photo Selected! Now TAP ANYWHERE on the map to pin it.", 5000);
+                }
+            }; 
+            r.readAsDataURL(f); mInp.value="";
+        };
+    }
 }
 
 function setupJoin(){
-    if(currentUser.name){ 
-        safeHide("join-screen"); 
-        const hAv = $("header-avatar");
-        if(hAv) { hAv.style.display="block"; hAv.src=currentUser.avatar; } 
-        socket.emit("profileReady",currentUser); 
-    }
-    const jForm = $("join-form") || document.querySelector("form");
-    const joinBtn = $("join-submit") || document.querySelector("button[type='submit']");
-    
-    const handleJoin = (e) => {
-        if(e) e.preventDefault(); 
-        
-        const nInp = $("nameInput") || document.querySelector("input[placeholder*='name' i]") || document.querySelector("input[type='text']");
-        if(nInp && nInp.value.trim()) currentUser.name = cleanName(nInp.value); 
-        else currentUser.name = "Explorer";
-        
-        localStorage.setItem("koraput_name",currentUser.name);
-        
-        const aInp = $("avatarInput") || document.querySelector("input[type='file']");
-        const f = aInp ? aInp.files?.[0] : null;
-        if(f){
-            const r=new FileReader(); 
-            r.onload=()=>{
-                currentUser.avatar=r.result; 
-                localStorage.setItem("koraput_avatar",r.result); 
-                done();
-            }; 
-            r.readAsDataURL(f);
-        } else {
-            done();
-        }
-    };
+    if(currentUser.name){ 
+        safeHide("join-screen"); 
+        const hAv = $("header-avatar");
+        if(hAv) { hAv.style.display="block"; hAv.src=currentUser.avatar; } 
+        socket.emit("profileReady",currentUser); 
+    }
+    const jForm = $("join-form") || document.querySelector("form");
+    const joinBtn = $("join-submit") || document.querySelector("button[type='submit']");
+    
+    const handleJoin = (e) => {
+        if(e) e.preventDefault(); 
+        
+        const nInp = $("nameInput") || document.querySelector("input[placeholder*='name' i]") || document.querySelector("input[type='text']");
+        if(nInp && nInp.value.trim()) currentUser.name = cleanName(nInp.value); 
+        else currentUser.name = "Explorer";
+        
+        localStorage.setItem("koraput_name",currentUser.name);
+        
+        const aInp = $("avatarInput") || document.querySelector("input[type='file']");
+        const f = aInp ? aInp.files?.[0] : null;
+        if(f){
+            const r=new FileReader(); 
+            r.onload=()=>{
+                currentUser.avatar=r.result; 
+                localStorage.setItem("koraput_avatar",r.result); 
+                done();
+            }; 
+            r.readAsDataURL(f);
+        } else {
+            done();
+        }
+    };
 
-    if(jForm) {
-        jForm.onsubmit = handleJoin;
-    } else if (joinBtn) {
-        joinBtn.onclick = handleJoin;
-    }
-    
-    function done(){
-        safeHide("join-screen"); 
-        const hAv2 = $("header-avatar");
-        if(hAv2) { hAv2.style.display="block"; hAv2.src=currentUser.avatar; } 
-        socket.emit("profileReady",currentUser); 
-        if(typeof updateOnlineUI === 'function') updateOnlineUI();
-    }
+    if(jForm) {
+        jForm.onsubmit = handleJoin;
+    } else if (joinBtn) {
+        joinBtn.onclick = handleJoin;
+    }
+    
+    function done(){
+        safeHide("join-screen"); 
+        const hAv2 = $("header-avatar");
+        if(hAv2) { hAv2.style.display="block"; hAv2.src=currentUser.avatar; } 
+        socket.emit("profileReady",currentUser); 
+        if(typeof updateOnlineUI === 'function') updateOnlineUI();
+    }
 }
 
 // ==========================================
-// GOOGLE DIRECTIONS & SEARCH (Fixed by Claude)
+// Fix 5: GOOGLE DIRECTIONS & SEARCH NAVIGATION
 // ==========================================
 function setupGoogleSearch() {
-    const searchInput = $("location-search-input");
-    if (!searchInput) return;
+    const searchInput = $("location-search-input");
+    if (!searchInput) return;
 
-    const clearBtn = $("location-search-clear");
-    if (clearBtn) {
-        clearBtn.onclick = () => {
-            searchInput.value = "";
-            safeHide("location-search-clear");
-            if (searchMarker) { map.removeLayer(searchMarker); searchMarker = null; }
-            navigationLayer.clearLayers();
-            safeHide("nav-panel");
-            safeHide("nav-bottom-sheet");
-            if (myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
-        };
-    }
+    const clearBtn = $("location-search-clear");
+    if (clearBtn) {
+        clearBtn.onclick = () => {
+            searchInput.value = "";
+            safeHide("location-search-clear");
+            if (searchMarker) { map.removeLayer(searchMarker); searchMarker = null; }
+            navigationLayer.clearLayers();
+            safeHide("nav-panel");
+            safeHide("nav-bottom-sheet");
+            if (myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
+        };
+    }
 
-    searchInput.addEventListener('input', () => {
-        if (clearBtn) clearBtn.style.display = searchInput.value.length > 0 ? "block" : "none";
-    });
+    searchInput.addEventListener('input', () => {
+        if (clearBtn) clearBtn.style.display = searchInput.value.length > 0 ? "block" : "none";
+    });
 
-    const checkGoogle = setInterval(() => {
-        if (window.google && window.google.maps && window.google.maps.places) {
-            clearInterval(checkGoogle);
-            
-            const autocomplete = new google.maps.places.Autocomplete(searchInput, {
-                componentRestrictions: { country: "in" }
-            });
+    const checkGoogle = setInterval(() => {
+        if (window.google && window.google.maps && window.google.maps.places) {
+            clearInterval(checkGoogle);
+            
+            const autocomplete = new google.maps.places.Autocomplete(searchInput, {
+                componentRestrictions: { country: "in" }
+            });
 
-            function updateSearchBounds() {
-                if(!map) return;
-                const center = map.getCenter();
-                const circle = new google.maps.Circle({ center: new google.maps.LatLng(center.lat, center.lng), radius: 50000 });
-                autocomplete.setBounds(circle.getBounds());
-            }
-            updateSearchBounds();
-            map.on('moveend', updateSearchBounds);
+            function updateSearchBounds() {
+                if(!map) return;
+                const center = map.getCenter();
+                const circle = new google.maps.Circle({ center: new google.maps.LatLng(center.lat, center.lng), radius: 50000 });
+                autocomplete.setBounds(circle.getBounds());
+            }
+            updateSearchBounds();
+            map.on('moveend', updateSearchBounds);
 
-            autocomplete.addListener("place_changed", () => {
-                const place = autocomplete.getPlace();
-                if (!place.geometry || !place.geometry.location) return showToast("❌ Location not found.");
-                
-                const destLat = place.geometry.location.lat();
-                const destLng = place.geometry.location.lng();
-                const placeName = place.name;
-                
-                if (searchMarker) map.removeLayer(searchMarker);
-                navigationLayer.clearLayers();
-                safeHide("nav-panel");
-                
-                map.flyTo([destLat, destLng], 15);
-                
-                const popupContent = `
-                    <div style="text-align:center; padding:6px; min-width:180px;">
-                        <strong style="color:var(--green-bright); font-size:15px; display:block; margin-bottom:8px;">📍 ${escapeHTML(placeName)}</strong>
-                        <div id="search-route-info" style="font-size:12px; color:var(--muted); margin-bottom:12px; background:rgba(255,255,255,0.05); padding:8px; border-radius:10px; border: 1px solid rgba(255,255,255,0.1);">
-                            <i>Calculating route... ⏳</i>
-                        </div>
-                        <button id="search-nav-btn" style="width:100%; padding:10px; border:none; border-radius:10px; background:var(--green); color:white; font-weight:800; font-size:13px; cursor:pointer; opacity:0.5; transition:0.3s;" disabled>
-                            ▶ Start Navigation
-                        </button>
-                    </div>
-                `;
-                
-                searchMarker = L.marker([destLat, destLng], {
-                    icon: L.divIcon({ className: 'geofence-marker', html: '📍', iconSize: [30, 30], iconAnchor: [15, 30] })
-                }).addTo(map);
-                
-                searchMarker.bindPopup(popupContent).openPopup();
-                if (clearBtn) safeShow("location-search-clear", "block");
+            autocomplete.addListener("place_changed", () => {
+                const place = autocomplete.getPlace();
+                if (!place.geometry || !place.geometry.location) return showToast("❌ Location not found.");
+                
+                const destLat = place.geometry.location.lat();
+                const destLng = place.geometry.location.lng();
+                const placeName = place.name;
+                
+                if (searchMarker) map.removeLayer(searchMarker);
+                navigationLayer.clearLayers();
+                safeHide("nav-panel");
+                
+                map.flyTo([destLat, destLng], 15);
+                
+                const popupContent = `
+                    <div style="text-align:center; padding:6px; min-width:180px;">
+                        <strong style="color:var(--green-bright); font-size:15px; display:block; margin-bottom:8px;">📍 ${escapeHTML(placeName)}</strong>
+                        <div id="search-route-info" style="font-size:12px; color:var(--muted); margin-bottom:12px; background:rgba(255,255,255,0.05); padding:8px; border-radius:10px; border: 1px solid rgba(255,255,255,0.1);">
+                            <i>Calculating route... ⏳</i>
+                        </div>
+                        <button id="search-nav-btn" style="width:100%; padding:10px; border:none; border-radius:10px; background:var(--green); color:white; font-weight:800; font-size:13px; cursor:pointer; opacity:0.5; transition:0.3s;" disabled>
+                            ▶ Start Navigation
+                        </button>
+                    </div>
+                `;
+                
+                searchMarker = L.marker([destLat, destLng], {
+                    icon: L.divIcon({ className: 'geofence-marker', html: '📍', iconSize: [30, 30], iconAnchor: [15, 30] })
+                }).addTo(map);
+                
+                searchMarker.bindPopup(popupContent).openPopup();
+                if (clearBtn) safeShow("location-search-clear", "block");
 
-                // ASLI JUGAD: Using Google Directions API instead of OSRM
-                if(myCoords && window.google) {
-                    const ds = new google.maps.DirectionsService();
-                    ds.route({
-                        origin: new google.maps.LatLng(myCoords.lat, myCoords.lng),
-                        destination: new google.maps.LatLng(destLat, destLng),
-                        travelMode: 'DRIVING'
-                    }, (res, status) => {
-                        const infoDiv = document.getElementById("search-route-info");
-                        const navBtn = document.getElementById("search-nav-btn");
-                        
-                        if(status === 'OK' && res.routes.length > 0 && infoDiv && navBtn) {
-                            const route = res.routes[0];
-                            const leg = route.legs[0];
-                            
-                            // Preview Line
-                            const coords = route.overview_path.map(p => [p.lat(), p.lng()]);
-                            L.polyline(coords, { color: '#60a5fa', weight: 4, opacity: 0.5, dashArray: '6, 8' }).addTo(navigationLayer);
+                if(myCoords && window.google) {
+                    const ds = new google.maps.DirectionsService();
+                    ds.route({
+                        origin: new google.maps.LatLng(myCoords.lat, myCoords.lng),
+                        destination: new google.maps.LatLng(destLat, destLng),
+                        travelMode: 'DRIVING'
+                    }, (res, status) => {
+                        const infoDiv = document.getElementById("search-route-info");
+                        const navBtn = document.getElementById("search-nav-btn");
+                        
+                        if(status === 'OK' && res.routes.length > 0 && infoDiv && navBtn) {
+                            const route = res.routes[0];
+                            const leg = route.legs[0];
+                            
+                            const coords = route.overview_path.map(p => [p.lat(), p.lng()]);
+                            L.polyline(coords, { color: '#60a5fa', weight: 4, opacity: 0.5, dashArray: '6, 8' }).addTo(navigationLayer);
 
-                            infoDiv.innerHTML = `<span style="color:white; font-size:14px; font-weight:800;">🚗 ${leg.distance.text}</span> <br> <span style="color:white; font-size:14px; font-weight:800;">⏱️ ${leg.duration.text}</span>`;
-                            navBtn.style.opacity = "1";
-                            navBtn.disabled = false;
-                            
-                            navBtn.onclick = () => {
-                                searchMarker.closePopup();
-                                startSearchNavigation(destLat, destLng, placeName, route);
-                            };
-                        } else if (infoDiv) {
-                            infoDiv.innerHTML = "<span style='color:#ef4444;'>No driving route found.</span>";
-                        }
-                    });
-                } else {
-                    if(document.getElementById("search-route-info")) document.getElementById("search-route-info").innerHTML = "<span style='color:#f59e0b;'>GPS required.</span>";
-                }
-            });
-        }
-    }, 500); 
+                            infoDiv.innerHTML = `<span style="color:white; font-size:14px; font-weight:800;">🚗 ${leg.distance.text}</span> <br> <span style="color:white; font-size:14px; font-weight:800;">⏱️ ${leg.duration.text}</span>`;
+                            navBtn.style.opacity = "1";
+                            navBtn.disabled = false;
+                            
+                            navBtn.onclick = () => {
+                                searchMarker.closePopup();
+                                startSearchNavigation(destLat, destLng, placeName, route);
+                            };
+                        } else if (infoDiv) {
+                            infoDiv.innerHTML = "<span style='color:#ef4444;'>No driving route found.</span>";
+                        }
+                    });
+                } else {
+                    if(document.getElementById("search-route-info")) document.getElementById("search-route-info").innerHTML = "<span style='color:#f59e0b;'>GPS required.</span>";
+                }
+            });
+        }
+    }, 500); 
 }
 
-// ==========================================
-// REAL GPS PREMIUM NAVIGATION (NO SIMULATION)
-// ==========================================
 let navWatchId = null;
 
 function startSearchNavigation(destLat, destLng, destName, routeData) {
-    navigationLayer.clearLayers();
-    if(navWatchId) navigator.geolocation.clearWatch(navWatchId);
-    
-    // Hide regular UI elements
-    safeHide("map-tools");
-    safeHide("search-container");
-    safeHide("top-header");
-    safeHide("bottom-info");
-    safeHide("chat-toggle-btn");
-    
-    safeShow("premium-nav-ui", "block");
-    safeShow("nav-bottom-sheet", "flex");
-    safeShow("turn-banner", "flex");
+    navigationLayer.clearLayers();
+    if(navWatchId) navigator.geolocation.clearWatch(navWatchId);
+    
+    safeHide("map-tools");
+    safeHide("search-container");
+    safeHide("top-header");
+    safeHide("bottom-info");
+    safeHide("chat-toggle-btn");
+    
+    safeShow("premium-nav-ui", "block");
+    safeShow("nav-bottom-sheet", "flex");
+    safeShow("turn-banner", "flex");
 
-    const leg = routeData.legs[0];
-    const fullPath = routeData.overview_path.map(p => [p.lat(), p.lng()]);
-    
-    const dottedPath = L.polyline(fullPath, { color: '#4f46e5', weight: 8, opacity: 0.7, className: 'anim-dash' }).addTo(navigationLayer);
-    const solidPath = L.polyline([], { color: '#10b981', weight: 8, opacity: 1, className: 'solid-trail' }).addTo(navigationLayer);
+    const leg = routeData.legs[0];
+    const fullPath = routeData.overview_path.map(p => [p.lat(), p.lng()]);
+    
+    const dottedPath = L.polyline(fullPath, { color: '#4f46e5', weight: 8, opacity: 0.7, className: 'anim-dash' }).addTo(navigationLayer);
+    const solidPath = L.polyline([], { color: '#10b981', weight: 8, opacity: 1, className: 'solid-trail' }).addTo(navigationLayer);
 
-    const userIcon = L.divIcon({
-        className: 'nav-avatar-marker',
-        html: `<img src="${escapeHTML(currentUser.avatar)}" style="width:100%;height:100%;object-fit:cover; border-radius:50%; border:2px solid #10b981;">`,
-        iconSize: [40, 40],
-        iconAnchor: [20, 20]
-    });
-    
-    const startPos = myCoords ? [myCoords.lat, myCoords.lng] : fullPath[0];
-    const userMarker = L.marker(startPos, {icon: userIcon, zIndexOffset: 1000}).addTo(navigationLayer);
-    L.marker([destLat, destLng], { icon: L.divIcon({className: 'geofence-marker', html: '📍'}) }).addTo(navigationLayer);
+    const userIcon = L.divIcon({
+        className: 'nav-avatar-marker',
+        html: `<img src="${escapeHTML(currentUser.avatar)}" style="width:100%;height:100%;object-fit:cover; border-radius:50%; border:2px solid #10b981;">`,
+        iconSize: [40, 40],
+        iconAnchor: [20, 20]
+    });
+    
+    const startPos = myCoords ? [myCoords.lat, myCoords.lng] : fullPath[0];
+    const userMarker = L.marker(startPos, {icon: userIcon, zIndexOffset: 1000}).addTo(navigationLayer);
+    L.marker([destLat, destLng], { icon: L.divIcon({className: 'geofence-marker', html: '📍'}) }).addTo(navigationLayer);
 
-    if($("stat-dist")) $("stat-dist").innerHTML = leg.distance.text.replace(" km", "<small style='font-size:12px;color:#9ca3af;'> km</small>");
-    if($("stat-eta")) $("stat-eta").innerHTML = leg.duration.text.replace(" mins", "<small> min</small>");
-    
-    const arrivalTime = new Date(Date.now() + leg.duration.value * 1000);
-    if($("nav-arrival-time")) $("nav-arrival-time").innerHTML = arrivalTime.toLocaleTimeString([], {hour: 'numeric', minute:'2-digit', hour12: true});
-    
-    if($("nav-step-text")) $("nav-step-text").textContent = leg.steps[0].instructions.replace(/<[^>]*>?/gm, ''); 
-    if($("nav-step-dist")) $("nav-step-dist").textContent = leg.steps[0].distance.text;
+    if($("stat-dist")) $("stat-dist").innerHTML = leg.distance.text.replace(" km", "<small style='font-size:12px;color:#9ca3af;'> km</small>");
+    if($("stat-eta")) $("stat-eta").innerHTML = leg.duration.text.replace(" mins", "<small> min</small>");
+    
+    const arrivalTime = new Date(Date.now() + leg.duration.value * 1000);
+    if($("nav-arrival-time")) $("nav-arrival-time").innerHTML = arrivalTime.toLocaleTimeString([], {hour: 'numeric', minute:'2-digit', hour12: true});
+    
+    if($("nav-step-text")) $("nav-step-text").textContent = leg.steps[0].instructions.replace(/<[^>]*>?/gm, ''); 
+    if($("nav-step-dist")) $("nav-step-dist").textContent = leg.steps[0].distance.text;
 
-    map.fitBounds(dottedPath.getBounds(), { paddingBottomRight: [0, 350], paddingTopLeft: [50, 150] });
+    map.fitBounds(dottedPath.getBounds(), { paddingBottomRight: [0, 350], paddingTopLeft: [50, 150] });
 
-    const startBtn = $("btn-start-nav");
-    const resetBtn = $("btn-reset-nav");
-    const exitBtn = $("btn-exit-nav");
-    
-    if(startBtn) {
-        startBtn.style.display = "block";
-        startBtn.textContent = "Start Navigation";
-        startBtn.style.background = "linear-gradient(135deg, #34d399, #22c55e)";
-        startBtn.style.color = "#062112";
-    }
-    if(resetBtn) resetBtn.style.display = "block";
-    if(exitBtn) exitBtn.style.display = "none";
-    if($("stat-status")) $("stat-status").textContent = "Ready";
-    if($("speed-n")) $("speed-n").textContent = "0";
+    const startBtn = $("btn-start-nav");
+    const resetBtn = $("btn-reset-nav");
+    const exitBtn = $("btn-exit-nav");
+    
+    if(startBtn) {
+        startBtn.style.display = "block";
+        startBtn.textContent = "Start Navigation";
+        startBtn.style.background = "linear-gradient(135deg, #34d399, #22c55e)";
+        startBtn.style.color = "#062112";
+    }
+    if(resetBtn) resetBtn.style.display = "block";
+    if(exitBtn) exitBtn.style.display = "none";
+    if($("stat-status")) $("stat-status").textContent = "Ready";
+    if($("speed-n")) $("speed-n").textContent = "0";
 
-    if(startBtn) {
-        startBtn.onclick = () => {
-            startBtn.style.display = "none";
-            if(resetBtn) resetBtn.style.display = "none";
-            if(exitBtn) exitBtn.style.display = "block";
-            
-            if($("stat-status")) {
-                $("stat-status").textContent = "En route";
-                $("stat-status").style.color = "#f5a524";
-            }
-            
-            if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 18, {animate: true, duration: 1.5});
-            
-            SmartDrive.startTrip();
-            
-            if (navigator.geolocation) {
-                let traveledCoords = [];
-                navWatchId = navigator.geolocation.watchPosition((pos) => {
-                    const currentLat = pos.coords.latitude;
-                    const currentLng = pos.coords.longitude;
-                    const currentPos = [currentLat, currentLng];
-                    
-                    const speedMps = pos.coords.speed || 0; 
-                    const speedKmh = Math.round(speedMps * 3.6);
-                    if($("speed-n")) $("speed-n").textContent = speedKmh;
+    if(startBtn) {
+        startBtn.onclick = () => {
+            startBtn.style.display = "none";
+            if(resetBtn) resetBtn.style.display = "none";
+            if(exitBtn) exitBtn.style.display = "block";
+            
+            if($("stat-status")) {
+                $("stat-status").textContent = "En route";
+                $("stat-status").style.color = "#f5a524";
+            }
+            
+            if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 18, {animate: true, duration: 1.5});
+            
+            SmartDrive.startTrip();
+            
+            if (navigator.geolocation) {
+                let traveledCoords = [];
+                navWatchId = navigator.geolocation.watchPosition((pos) => {
+                    const currentLat = pos.coords.latitude;
+                    const currentLng = pos.coords.longitude;
+                    const currentPos = [currentLat, currentLng];
+                    
+                    const speedMps = pos.coords.speed || 0; 
+                    const speedKmh = Math.round(speedMps * 3.6);
+                    if($("speed-n")) $("speed-n").textContent = speedKmh;
 
-                    userMarker.setLatLng(currentPos);
-                    map.panTo(currentPos);
+                    userMarker.setLatLng(currentPos);
+                    map.panTo(currentPos);
 
-                    traveledCoords.push(L.latLng(currentLat, currentLng));
-                    solidPath.setLatLngs(traveledCoords);
+                    traveledCoords.push(L.latLng(currentLat, currentLng));
+                    solidPath.setLatLngs(traveledCoords);
 
-                    const remainingMeters = map.distance(currentPos, [destLat, destLng]);
-                    const remainingKm = (remainingMeters / 1000).toFixed(1);
-                    if($("stat-dist")) $("stat-dist").innerHTML = remainingKm + "<small style='font-size:12px;color:#9ca3af;'> km</small>";
+                    const remainingMeters = map.distance(currentPos, [destLat, destLng]);
+                    const remainingKm = (remainingMeters / 1000).toFixed(1);
+                    if($("stat-dist")) $("stat-dist").innerHTML = remainingKm + "<small style='font-size:12px;color:#9ca3af;'> km</small>";
 
-                    if(remainingMeters < 30) {
-                        navigator.geolocation.clearWatch(navWatchId);
-                        if(exitBtn) {
-                            exitBtn.textContent = "Arrived";
-                            exitBtn.style.background = "#3b82f6";
-                            exitBtn.style.color = "white";
-                        }
-                        if($("stat-status")) {
-                            $("stat-status").textContent = "Arrived";
-                            $("stat-status").style.color = "var(--mint)";
-                        }
-                        if($("turn-name")) $("turn-name").textContent = "Destination reached!";
-                        
-                        setTimeout(() => stopDrive(), 3000);
-                    }
-                }, (err) => {
-                    console.error("GPS Error during nav:", err);
-                }, { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 });
-            }
-        };
-    }
-    
-    if(resetBtn) resetBtn.onclick = () => stopDrive(true);
-    if(exitBtn) exitBtn.onclick = () => stopDrive();
+                    if(remainingMeters < 30) {
+                        navigator.geolocation.clearWatch(navWatchId);
+                        if(exitBtn) {
+                            exitBtn.textContent = "Arrived";
+                            exitBtn.style.background = "#3b82f6";
+                            exitBtn.style.color = "white";
+                        }
+                        if($("stat-status")) {
+                            $("stat-status").textContent = "Arrived";
+                            $("stat-status").style.color = "var(--mint)";
+                        }
+                        if($("turn-name")) $("turn-name").textContent = "Destination reached!";
+                        
+                        setTimeout(() => stopDrive(), 3000);
+                    }
+                }, (err) => {
+                    console.error("GPS Error during nav:", err);
+                }, { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 });
+            }
+        };
+    }
+    
+    if(resetBtn) resetBtn.onclick = () => stopDrive(true);
+    if(exitBtn) exitBtn.onclick = () => stopDrive();
 }
 
 function stopDrive(cancelled = false) {
-    if(navWatchId) navigator.geolocation.clearWatch(navWatchId);
-    navigationLayer.clearLayers();
-    safeHide("premium-nav-ui");
-    safeHide("nav-bottom-sheet");
-    safeHide("turn-banner");
-    safeHide("speed-dial");
-    
-    safeShow("map-tools", "flex");
-    safeShow("search-container", "flex");
-    safeShow("top-header", "flex");
-    safeShow("bottom-info", "flex");
-    safeShow("chat-toggle-btn", "flex");
-    
-    if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
-    
-    if(!cancelled) {
-        SmartDrive.endTrip();
-    }
+    if(navWatchId) navigator.geolocation.clearWatch(navWatchId);
+    navigationLayer.clearLayers();
+    safeHide("premium-nav-ui");
+    safeHide("nav-bottom-sheet");
+    safeHide("turn-banner");
+    safeHide("speed-dial");
+    
+    safeShow("map-tools", "flex");
+    safeShow("search-container", "flex");
+    safeShow("top-header", "flex");
+    safeShow("bottom-info", "flex");
+    safeShow("chat-toggle-btn", "flex");
+    
+    if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
+    
+    if(!cancelled) {
+        SmartDrive.endTrip();
+    }
 }
 
 // ==========================================
@@ -1251,200 +1392,200 @@ let incomingIceCandidates = [];
 let callDialog = null;
 let activeCallBtn = null;
 
-const rtcConfig = { 
-    iceServers: [
-        { urls: "stun:stun.l.google.com:19302" },
-        { urls: "stun:stun.cloudflare.com:3478" },
-        { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
-        { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" },
-        { urls: "turn:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" }
-    ] 
+const rtcConfig = { 
+    iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun.cloudflare.com:3478" },
+        { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
+        { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" },
+        { urls: "turn:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" }
+    ] 
 };
 
 function attachAudioTrack(event) {
-    let audio = document.getElementById("remote-audio");
-    if(!audio) {
-        audio = document.createElement("audio");
-        audio.id = "remote-audio";
-        audio.autoplay = true;
-        audio.playsInline = true;
-        audio.hidden = true;
-        document.body.appendChild(audio);
-    }
-    
-    if (event.streams && event.streams[0]) {
-        audio.srcObject = event.streams[0];
-    } else {
-        audio.srcObject = new MediaStream([event.track]);
-    }
-    
-    audio.play().catch(e => {
-        console.log("Audio play error, forcing play:", e);
-        document.body.addEventListener('click', () => { audio.play(); }, { once: true });
-    });
+    let audio = document.getElementById("remote-audio");
+    if(!audio) {
+        audio = document.createElement("audio");
+        audio.id = "remote-audio";
+        audio.autoplay = true;
+        audio.playsInline = true;
+        audio.hidden = true;
+        document.body.appendChild(audio);
+    }
+    
+    if (event.streams && event.streams[0]) {
+        audio.srcObject = event.streams[0];
+    } else {
+        audio.srcObject = new MediaStream([event.track]);
+    }
+    
+    audio.play().catch(e => {
+        console.log("Audio play error, forcing play:", e);
+        document.body.addEventListener('click', () => { audio.play(); }, { once: true });
+    });
 }
 
 function initCallButton(u) {
-    const callBtn = $("profile-call-btn");
-    if (!callBtn) return;
-    
-    const newBtn = callBtn.cloneNode(true);
-    callBtn.parentNode.replaceChild(newBtn, callBtn);
-    
-    newBtn.onclick = async () => {
-        if (!navigator.onLine || u.online === false) {
-            const phone = prompt(`No Internet or Friend is offline.\nEnter mobile number to dial via SIM:`);
-            if (phone) window.location.href = `tel:${phone.trim()}`;
-            return;
-        }
+    const callBtn = $("profile-call-btn");
+    if (!callBtn) return;
+    
+    const newBtn = callBtn.cloneNode(true);
+    callBtn.parentNode.replaceChild(newBtn, callBtn);
+    
+    newBtn.onclick = async () => {
+        if (!navigator.onLine || u.online === false) {
+            const phone = prompt(`No Internet or Friend is offline.\nEnter mobile number to dial via SIM:`);
+            if (phone) window.location.href = `tel:${phone.trim()}`;
+            return;
+        }
 
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            showToast("❌ Microphone is not available in this browser.");
-            return;
-        }
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            showToast("❌ Microphone is not available in this browser.");
+            return;
+        }
 
-        try {
-            localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-            peerConnection = new RTCPeerConnection(rtcConfig);
-            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+        try {
+            localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+            peerConnection = new RTCPeerConnection(rtcConfig);
+            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
-            peerConnection.ontrack = attachAudioTrack; 
+            peerConnection.ontrack = attachAudioTrack; 
 
-            peerConnection.onicecandidate = (event) => {
-                if (event.candidate) {
-                    socket.emit("call-user", { to: u.id, signal: { type: "ice", candidate: event.candidate }, name: currentUser.name });
-                }
-            };
+            peerConnection.onicecandidate = (event) => {
+                if (event.candidate) {
+                    socket.emit("call-user", { to: u.id, signal: { type: "ice", candidate: event.candidate }, name: currentUser.name });
+                }
+            };
 
-            const offer = await peerConnection.createOffer();
-            await peerConnection.setLocalDescription(offer);
-            socket.emit("call-user", { to: u.id, signal: { type: "offer", sdp: offer }, name: currentUser.name });
-            
-            showToast(`📞 Calling ${u.name}...`, 5000);
-            showActiveCallUI(() => socket.emit("end-call", { to: u.id }));
-            
-        } catch (err) {
-            console.error("CALL MIC ERROR:", err);
-            showToast(`❌ Mic Error: ${err.name || "Unknown"}`);
-            endLocalCall();
-        }
-    };
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
+            socket.emit("call-user", { to: u.id, signal: { type: "offer", sdp: offer }, name: currentUser.name });
+            
+            showToast(`📞 Calling ${u.name}...`, 5000);
+            showActiveCallUI(() => socket.emit("end-call", { to: u.id }));
+            
+        } catch (err) {
+            console.error("CALL MIC ERROR:", err);
+            showToast(`❌ Mic Error: ${err.name || "Unknown"}`);
+            endLocalCall();
+        }
+    };
 }
 
 socket.on("incoming-call", async (data) => {
-    if (data.signal.type === "offer") {
-        if (peerConnection) {
-            socket.emit("end-call", { to: data.from });
-            return;
-        }
-        
-        incomingIceCandidates = [];
-        if (callDialog) callDialog.remove();
-        
-        callDialog = document.createElement('div');
-        callDialog.style.cssText = "position:fixed;top:70px;left:50%;transform:translateX(-50%);background:rgba(15,23,42,0.98);padding:24px;border:1px solid #18d6a3;border-radius:20px;z-index:9999;box-shadow:0 15px 40px rgba(0,0,0,0.7);color:white;text-align:center;backdrop-filter:blur(10px);min-width:280px;";
-        callDialog.innerHTML = `
-            <div style="font-size:32px;margin-bottom:10px;">📞</div>
-            <strong style="font-size:18px;display:block;">${escapeHTML(data.name)}</strong>
-            <div style="font-size:13px;color:#94a3b8;margin-top:6px;margin-bottom:20px;">Incoming Voice Call...</div>
-            <div style="display:flex;gap:12px;justify-content:center;">
-                <button id="accept-call-btn" style="flex:1;background:#10b981;border:none;padding:12px;border-radius:12px;color:#064e3b;font-weight:800;cursor:pointer;font-size:15px;box-shadow:0 4px 10px rgba(16,185,129,0.3);">Accept</button>
-                <button id="reject-call-btn" style="flex:1;background:#ef4444;border:none;padding:12px;border-radius:12px;color:white;font-weight:700;cursor:pointer;font-size:15px;box-shadow:0 4px 10px rgba(239,68,68,0.3);">Decline</button>
-            </div>
-        `;
-        document.body.appendChild(callDialog);
+    if (data.signal.type === "offer") {
+        if (peerConnection) {
+            socket.emit("end-call", { to: data.from });
+            return;
+        }
+        
+        incomingIceCandidates = [];
+        if (callDialog) callDialog.remove();
+        
+        callDialog = document.createElement('div');
+        callDialog.style.cssText = "position:fixed;top:70px;left:50%;transform:translateX(-50%);background:rgba(15,23,42,0.98);padding:24px;border:1px solid #18d6a3;border-radius:20px;z-index:9999;box-shadow:0 15px 40px rgba(0,0,0,0.7);color:white;text-align:center;backdrop-filter:blur(10px);min-width:280px;";
+        callDialog.innerHTML = `
+            <div style="font-size:32px;margin-bottom:10px;">📞</div>
+            <strong style="font-size:18px;display:block;">${escapeHTML(data.name)}</strong>
+            <div style="font-size:13px;color:#94a3b8;margin-top:6px;margin-bottom:20px;">Incoming Voice Call...</div>
+            <div style="display:flex;gap:12px;justify-content:center;">
+                <button id="accept-call-btn" style="flex:1;background:#10b981;border:none;padding:12px;border-radius:12px;color:#064e3b;font-weight:800;cursor:pointer;font-size:15px;box-shadow:0 4px 10px rgba(16,185,129,0.3);">Accept</button>
+                <button id="reject-call-btn" style="flex:1;background:#ef4444;border:none;padding:12px;border-radius:12px;color:white;font-weight:700;cursor:pointer;font-size:15px;box-shadow:0 4px 10px rgba(239,68,68,0.3);">Decline</button>
+            </div>
+        `;
+        document.body.appendChild(callDialog);
 
-        const acceptBtn = document.getElementById("accept-call-btn");
-        if(acceptBtn) {
-            acceptBtn.onclick = async () => {
-                if (callDialog) callDialog.remove();
-                callDialog = null;
-                
-                try {
-                    localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-                    peerConnection = new RTCPeerConnection(rtcConfig);
-                    localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+        const acceptBtn = document.getElementById("accept-call-btn");
+        if(acceptBtn) {
+            acceptBtn.onclick = async () => {
+                if (callDialog) callDialog.remove();
+                callDialog = null;
+                
+                try {
+                    localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                    peerConnection = new RTCPeerConnection(rtcConfig);
+                    localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
-                    peerConnection.ontrack = attachAudioTrack; 
+                    peerConnection.ontrack = attachAudioTrack; 
 
-                    peerConnection.onicecandidate = (event) => {
-                        if (event.candidate) {
-                            socket.emit("answer-call", { to: data.from, signal: { type: "ice", candidate: event.candidate } });
-                        }
-                    };
+                    peerConnection.onicecandidate = (event) => {
+                        if (event.candidate) {
+                            socket.emit("answer-call", { to: data.from, signal: { type: "ice", candidate: event.candidate } });
+                        }
+                    };
 
-                    await peerConnection.setRemoteDescription(new RTCSessionDescription(data.signal.sdp));
-                    const answer = await peerConnection.createAnswer();
-                    await peerConnection.setLocalDescription(answer);
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(data.signal.sdp));
+                    const answer = await peerConnection.createAnswer();
+                    await peerConnection.setLocalDescription(answer);
 
-                    socket.emit("answer-call", { to: data.from, signal: { type: "answer", sdp: answer } });
-                    showToast(`🎙️ Call Connected with ${data.name}`);
-                    
-                    showActiveCallUI(() => socket.emit("end-call", { to: data.from }));
+                    socket.emit("answer-call", { to: data.from, signal: { type: "answer", sdp: answer } });
+                    showToast(`🎙️ Call Connected with ${data.name}`);
+                    
+                    showActiveCallUI(() => socket.emit("end-call", { to: data.from }));
 
-                    incomingIceCandidates.forEach(async (c) => {
-                        try { await peerConnection.addIceCandidate(new RTCIceCandidate(c)); } catch(e){}
-                    });
-                    incomingIceCandidates = [];
-                    
-                } catch (e) {
-                    showToast("❌ Mic error.");
-                    socket.emit("end-call", { to: data.from });
-                    endLocalCall();
-                }
-            };
-        }
+                    incomingIceCandidates.forEach(async (c) => {
+                        try { await peerConnection.addIceCandidate(new RTCIceCandidate(c)); } catch(e){}
+                    });
+                    incomingIceCandidates = [];
+                    
+                } catch (e) {
+                    showToast("❌ Mic error.");
+                    socket.emit("end-call", { to: data.from });
+                    endLocalCall();
+                }
+            };
+        }
 
-        const rejectBtn = document.getElementById("reject-call-btn");
-        if(rejectBtn) {
-            rejectBtn.onclick = () => {
-                if (callDialog) callDialog.remove();
-                callDialog = null;
-                socket.emit("end-call", { to: data.from });
-            };
-        }
+        const rejectBtn = document.getElementById("reject-call-btn");
+        if(rejectBtn) {
+            rejectBtn.onclick = () => {
+                if (callDialog) callDialog.remove();
+                callDialog = null;
+                socket.emit("end-call", { to: data.from });
+            };
+        }
 
-    } else if (data.signal.type === "ice") {
-        if (peerConnection && peerConnection.remoteDescription) {
-            try { await peerConnection.addIceCandidate(new RTCIceCandidate(data.signal.candidate)); } catch(e){}
-        } else {
-            incomingIceCandidates.push(data.signal.candidate);
-        }
-    }
+    } else if (data.signal.type === "ice") {
+        if (peerConnection && peerConnection.remoteDescription) {
+            try { await peerConnection.addIceCandidate(new RTCIceCandidate(data.signal.candidate)); } catch(e){}
+        } else {
+            incomingIceCandidates.push(data.signal.candidate);
+        }
+    }
 });
 
 socket.on("call-accepted", async (signal) => {
-    if (signal.type === "answer" && peerConnection) {
-        await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.sdp));
-        showToast("🎙️ Call Connected!");
-    } else if (signal.type === "ice" && peerConnection && peerConnection.remoteDescription) {
-        try { await peerConnection.addIceCandidate(new RTCIceCandidate(signal.candidate)); } catch(e){}
-    }
+    if (signal.type === "answer" && peerConnection) {
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+        showToast("🎙️ Call Connected!");
+    } else if (signal.type === "ice" && peerConnection && peerConnection.remoteDescription) {
+        try { await peerConnection.addIceCandidate(new RTCIceCandidate(signal.candidate)); } catch(e){}
+    }
 });
 
 socket.on("call-ended", () => {
-    endLocalCall();
-    showToast("📴 Call Ended.");
+    endLocalCall();
+    showToast("📴 Call Ended.");
 });
 
 function showActiveCallUI(endFn) {
-    if (activeCallBtn) return;
-    activeCallBtn = document.createElement("button");
-    activeCallBtn.innerHTML = "📴 End Call";
-    activeCallBtn.style.cssText = "position:fixed;top:80px;left:50%;transform:translateX(-50%);z-index:9999;background:#ef4444;color:white;border:none;padding:12px 24px;border-radius:30px;font-weight:bold;box-shadow:0 10px 25px rgba(239,68,68,0.5);cursor:pointer;font-size:14px;";
-    document.body.appendChild(activeCallBtn);
-    activeCallBtn.onclick = () => {
-        endFn();
-        endLocalCall();
-    };
+    if (activeCallBtn) return;
+    activeCallBtn = document.createElement("button");
+    activeCallBtn.innerHTML = "📴 End Call";
+    activeCallBtn.style.cssText = "position:fixed;top:80px;left:50%;transform:translateX(-50%);z-index:9999;background:#ef4444;color:white;border:none;padding:12px 24px;border-radius:30px;font-weight:bold;box-shadow:0 10px 25px rgba(239,68,68,0.5);cursor:pointer;font-size:14px;";
+    document.body.appendChild(activeCallBtn);
+    activeCallBtn.onclick = () => {
+        endFn();
+        endLocalCall();
+    };
 }
 
 function endLocalCall() {
-    if (activeCallBtn) { activeCallBtn.remove(); activeCallBtn = null; }
-    if (callDialog) { callDialog.remove(); callDialog = null; }
-    if (peerConnection) { peerConnection.close(); peerConnection = null; }
-    if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
-    incomingIceCandidates = [];
+    if (activeCallBtn) { activeCallBtn.remove(); activeCallBtn = null; }
+    if (callDialog) { callDialog.remove(); callDialog = null; }
+    if (peerConnection) { peerConnection.close(); peerConnection = null; }
+    if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+    incomingIceCandidates = [];
 }
 
 // ==========================================
@@ -1452,141 +1593,138 @@ function endLocalCall() {
 // ==========================================
 let deferredPrompt;
 window.addEventListener('beforeinstallprompt', (e) => {
-    e.preventDefault();
-    deferredPrompt = e;
-    const installBtn = $("install-app-btn");
-    if (installBtn) installBtn.style.display = 'flex';
+    e.preventDefault();
+    deferredPrompt = e;
+    const installBtn = $("install-app-btn");
+    if (installBtn) installBtn.style.display = 'flex';
 });
 
 window.addEventListener('DOMContentLoaded', () => {
-    const installBtn = $("install-app-btn");
-    if (installBtn) {
-        installBtn.onclick = async () => {
-            if (deferredPrompt) {
-                deferredPrompt.prompt();
-                const { outcome } = await deferredPrompt.userChoice;
-                if (outcome === 'accepted') {
-                    installBtn.style.display = 'none'; 
-                }
-                deferredPrompt = null;
-            }
-        };
-    }
-    if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true) {
-        if (installBtn) installBtn.style.display = 'none';
-    }
+    const installBtn = $("install-app-btn");
+    if (installBtn) {
+        installBtn.onclick = async () => {
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                const { outcome } = await deferredPrompt.userChoice;
+                if (outcome === 'accepted') {
+                    installBtn.style.display = 'none'; 
+                }
+                deferredPrompt = null;
+            }
+        };
+    }
+    if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true) {
+        if (installBtn) installBtn.style.display = 'none';
+    }
 });
 
 window.addEventListener('appinstalled', () => {
-    const installBtn = $("install-app-btn");
-    if (installBtn) installBtn.style.display = 'none';
+    const installBtn = $("install-app-btn");
+    if (installBtn) installBtn.style.display = 'none';
 });
 
 // ==========================================
 // KORAPUT GEAR CHECKLIST & SOS FEATURE
 // ==========================================
 const TripChecklist = {
-    items: JSON.parse(localStorage.getItem("koraput_gear")) || {
-        "Action Camera & V50X Mounts": false,
-        "Powerbanks & Extra Batteries": false,
-        "Motorcycle & ID Documents": false,
-        "Deomali Trekking Shoes": false,
-        "First Aid & Meds": false
-    },
-    toggle(key) {
-        this.items[key] = !this.items[key];
-        localStorage.setItem("koraput_gear", JSON.stringify(this.items));
-        this.render();
-    },
-    render() {
-        const container = $("trip-checklist-container");
-        if(!container) return; 
-        container.innerHTML = `<h4 style="margin:5px 0; color:#18d6a3; font-size:13px;">🎒 Trip Gear Checklist</h4>`;
-        Object.keys(this.items).forEach(item => {
-            container.innerHTML += `
-            <label style="display:flex; align-items:center; gap:8px; font-size:12px; color:white; cursor:pointer; margin-bottom:4px;">
-                <input type="checkbox" ${this.items[item] ? "checked" : ""} onchange="TripChecklist.toggle('${item}')" style="accent-color:#18d6a3;">
-                <span style="${this.items[item] ? 'text-decoration:line-through; color:#94a3b8;' : ''}">${item}</span>
-            </label>`;
-        });
-    }
+    items: JSON.parse(localStorage.getItem("koraput_gear")) || {
+        "Action Camera & V50X Mounts": false,
+        "Powerbanks & Extra Batteries": false,
+        "Motorcycle & ID Documents": false,
+        "Deomali Trekking Shoes": false,
+        "First Aid & Meds": false
+    },
+    toggle(key) {
+        this.items[key] = !this.items[key];
+        localStorage.setItem("koraput_gear", JSON.stringify(this.items));
+        this.render();
+    },
+    render() {
+        const container = $("trip-checklist-container");
+        if(!container) return; 
+        container.innerHTML = `<h4 style="margin:5px 0; color:#18d6a3; font-size:13px;">🎒 Trip Gear Checklist</h4>`;
+        Object.keys(this.items).forEach(item => {
+            container.innerHTML += `
+            <label style="display:flex; align-items:center; gap:8px; font-size:12px; color:white; cursor:pointer; margin-bottom:4px;">
+                <input type="checkbox" ${this.items[item] ? "checked" : ""} onchange="TripChecklist.toggle('${item}')" style="accent-color:#18d6a3;">
+                <span style="${this.items[item] ? 'text-decoration:line-through; color:#94a3b8;' : ''}">${item}</span>
+            </label>`;
+        });
+    }
 };
 window.TripChecklist = TripChecklist;
 
 function setupSOS() {
-    let sosBtn = $("sos-btn");
-    if (!sosBtn) {
-        sosBtn = document.createElement("button");
-        sosBtn.id = "sos-btn";
-        sosBtn.innerHTML = "🚨 SOS";
-        sosBtn.style.cssText = "position:fixed;bottom:90px;right:20px;z-index:9998;background:#ef4444;color:white;border:none;border-radius:50%;width:55px;height:55px;font-weight:900;font-size:12px;box-shadow:0 0 15px rgba(239,68,68,0.7);cursor:pointer;animation:dangerPulse 1s infinite alternate;";
-        document.body.appendChild(sosBtn);
-    }
-    
-    sosBtn.onclick = () => {
-        if(!myCoords) return showToast("❌ Waiting for GPS...");
-        if(confirm("🚨 SEND EMERGENCY SOS? This will alert all friends with your exact coordinates!")) {
-            socket.emit("sos-alert", { 
-                name: currentUser.name, 
-                lat: myCoords.lat, 
-                lng: myCoords.lng, 
-                alt: myCoords.alt || "Unknown" 
-            });
-            showToast("🚨 SOS BROADCASTED TO ALL FRIENDS!", 8000);
-        }
-    };
+    let sosBtn = $("sos-btn");
+    if (!sosBtn) {
+        sosBtn = document.createElement("button");
+        sosBtn.id = "sos-btn";
+        sosBtn.innerHTML = "🚨 SOS";
+        sosBtn.style.cssText = "position:fixed;bottom:90px;right:20px;z-index:9998;background:#ef4444;color:white;border:none;border-radius:50%;width:55px;height:55px;font-weight:900;font-size:12px;box-shadow:0 0 15px rgba(239,68,68,0.7);cursor:pointer;animation:dangerPulse 1s infinite alternate;";
+        document.body.appendChild(sosBtn);
+    }
+    
+    sosBtn.onclick = () => {
+        if(!myCoords) return showToast("❌ Waiting for GPS...");
+        if(confirm("🚨 SEND EMERGENCY SOS? This will alert all friends with your exact coordinates!")) {
+            socket.emit("sos-alert", { 
+                name: currentUser.name, 
+                lat: myCoords.lat, 
+                lng: myCoords.lng, 
+                alt: myCoords.alt || "Unknown" 
+            });
+            showToast("🚨 SOS BROADCASTED TO ALL FRIENDS!", 8000);
+        }
+    };
 
-    socket.on("sos-alert", (data) => {
-        const div = document.createElement("div");
-        div.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(239,68,68,0.3);border:10px solid #ef4444;z-index:99999;pointer-events:none;animation:dangerPulse 1s infinite alternate;";
-        document.body.appendChild(div);
-        
-        showToast(`🚨 URGENT SOS FROM ${data.name.toUpperCase()}! Check Map!`, 15000);
-        
-        L.marker([data.lat, data.lng], {
-            icon: L.divIcon({className: 'sos-marker', html: '<div style="font-size:30px;animation:dangerPulse 1s infinite alternate;">🚨</div>'})
-        }).bindPopup(`<b style="color:red;">EMERGENCY SOS: ${data.name}</b>`).addTo(map).openPopup();
-        
-        map.flyTo([data.lat, data.lng], 16, {animate:true, duration: 2});
-        setTimeout(() => div.remove(), 10000);
-    });
+    socket.on("sos-alert", (data) => {
+        const div = document.createElement("div");
+        div.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(239,68,68,0.3);border:10px solid #ef4444;z-index:99999;pointer-events:none;animation:dangerPulse 1s infinite alternate;";
+        document.body.appendChild(div);
+        
+        showToast(`🚨 URGENT SOS FROM ${data.name.toUpperCase()}! Check Map!`, 15000);
+        
+        L.marker([data.lat, data.lng], {
+            icon: L.divIcon({className: 'sos-marker', html: '<div style="font-size:30px;animation:dangerPulse 1s infinite alternate;">🚨</div>'})
+        }).bindPopup(`<b style="color:red;">EMERGENCY SOS: ${data.name}</b>`).addTo(map).openPopup();
+        
+        map.flyTo([data.lat, data.lng], 16, {animate:true, duration: 2});
+        setTimeout(() => div.remove(), 10000);
+    });
 }
 
-// ==========================================
-// BULLETPROOF INITIALIZATION
-// ==========================================
-function initApp(){ 
-    const tasks = [
-        { name: "Join Setup", fn: setupJoin },
-        { name: "Controls", fn: setupBasicControlsSafe },
-        { name: "Advanced Tools", fn: setupAdvancedToolsSafe },
-        { name: "Chat UI", fn: setupChatSafe },
-        { name: "Memories", fn: setupMemoriesSafe },
-        { name: "SmartDrive", fn: () => SmartDrive.init() },
-        { name: "GPS System", fn: startGPS },
-        { name: "Google Search", fn: setupGoogleSearch },
-        { name: "Emergency SOS", fn: setupSOS }
-    ];
+function initApp(){ 
+    const tasks = [
+        { name: "Join Setup", fn: setupJoin },
+        { name: "Controls", fn: setupBasicControls },
+        { name: "Advanced Tools", fn: setupAdvancedTools },
+        { name: "Chat UI", fn: setupChat },
+        { name: "Memories", fn: setupMemories },
+        { name: "SmartDrive", fn: () => SmartDrive.init() },
+        { name: "GPS System", fn: startGPS },
+        { name: "Google Search", fn: setupGoogleSearch },
+        { name: "Emergency SOS", fn: setupSOS }
+    ];
 
-    tasks.forEach(task => {
-        try {
-            task.fn();
-        } catch(e) {
-            console.error(`[INIT ERROR] Failed to load ${task.name}:`, e);
-        }
-    });
-    
-    setTimeout(() => {
-        try {
-            if($("trip-panel") && !$("trip-checklist-container")) {
-                const listDiv = document.createElement("div");
-                listDiv.id = "trip-checklist-container";
-                listDiv.style.cssText = "background:rgba(255,255,255,0.05); padding:10px; border-radius:10px; margin-top:10px;";
-                $("trip-panel").insertBefore(listDiv, $("trip-action-btn"));
-                TripChecklist.render();
-            }
-        } catch(e) { console.error(e); }
-    }, 1000);
+    tasks.forEach(task => {
+        try {
+            task.fn();
+        } catch(e) {
+            console.error(`[INIT ERROR] Failed to load ${task.name}:`, e);
+        }
+    });
+    
+    setTimeout(() => {
+        try {
+            if($("trip-panel") && !$("trip-checklist-container")) {
+                const listDiv = document.createElement("div");
+                listDiv.id = "trip-checklist-container";
+                listDiv.style.cssText = "background:rgba(255,255,255,0.05); padding:10px; border-radius:10px; margin-top:10px;";
+                $("trip-panel").insertBefore(listDiv, $("trip-action-btn"));
+                TripChecklist.render();
+            }
+        } catch(e) { console.error(e); }
+    }, 1000);
 }
 
 if(document.readyState==="loading") document.addEventListener("DOMContentLoaded", initApp); else initApp();
