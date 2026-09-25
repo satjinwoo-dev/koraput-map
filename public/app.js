@@ -114,17 +114,13 @@ async function fetchCity(lat,lng){
 }
 
 // ==========================================
-// 2. SMART DRIVE ENGINE (Fix 4: Trip Calculation)
+// FIX 4: SMART DRIVE ENGINE & GROUP TRIP LOGIC
 // ==========================================
 const SmartDrive = {
     isRecording: false,
     baseMileage: 18,
     speedHistory: [],
-    
-    trip: {
-        active: false, startTime: 0, totalDist: 0, actualFuel: 0, maxSpeed: 0, sumSpeed: 0, ticks: 0, ranges: { efficient: 0, moderate: 0, inefficient: 0 } 
-    },
-
+    trip: { active: false, startTime: 0, totalDist: 0, actualFuel: 0, maxSpeed: 0, sumSpeed: 0, ticks: 0, ranges: { efficient: 0, moderate: 0, inefficient: 0 } },
     audioCtx: null, lastAlertTime: 0, overlayTimer: null,
 
     init() {
@@ -150,15 +146,15 @@ const SmartDrive = {
         });
 
         $("profile-open-btn")?.addEventListener("click", () => {
-            if($("profile-settings-modal")) $("profile-settings-modal").style.display = "flex";
+            safeShow("profile-settings-modal", "flex");
         });
         
         $("close-settings-btn")?.addEventListener("click", () => {
-            if($("profile-settings-modal")) $("profile-settings-modal").style.display = "none";
+            safeHide("profile-settings-modal");
         });
         
         $("close-results-btn")?.addEventListener("click", () => {
-            if($("results-panel")) $("results-panel").style.display = "none";
+            safeHide("results-panel");
         });
         
         document.addEventListener("click", () => {
@@ -224,7 +220,6 @@ const SmartDrive = {
     tick(speedKmh, distKm) {
         this.checkSafetyLimits(speedKmh);
 
-        // Fix 4: Always record trip data if active
         if (!this.trip.active && !this.isRecording) return;
 
         if (this.isRecording) {
@@ -233,6 +228,7 @@ const SmartDrive = {
             this.drawGraph();
         }
 
+        // Tracking Group Trip Data
         if (this.trip.active && distKm > 0) {
             this.trip.totalDist += distKm;
             this.trip.ticks += 1;
@@ -282,14 +278,12 @@ const SmartDrive = {
     endTrip() {
         if(!this.trip.active) return;
         
-        // Calculate even if ticks are low
         const avg = this.trip.ticks > 0 ? this.trip.sumSpeed / this.trip.ticks : 0;
         
         if($("res-dist")) $("res-dist").textContent = this.trip.totalDist.toFixed(2) + " km";
         if($("res-avg-speed")) $("res-avg-speed").textContent = Math.round(avg) + " km/h";
         if($("res-max-speed")) $("res-max-speed").textContent = Math.round(this.trip.maxSpeed) + " km/h";
         
-        // Convert seconds to minutes for time
         const effMin = Math.round(this.trip.ranges.efficient / 60) || 0;
         const ineffMin = Math.round(this.trip.ranges.inefficient / 60) || 0;
         
@@ -299,78 +293,12 @@ const SmartDrive = {
         if($("res-actual-fuel")) $("res-actual-fuel").textContent = this.trip.actualFuel.toFixed(2) + " L";
 
         this.trip.active = false;
-        if($("results-panel")) $("results-panel").style.display = "flex";
+        safeShow("results-panel", "flex");
     }
 };
-
-const Navigation = {
-    active: false, targetId: null, targetCoords: null,
-    async start(friendId) {
-        const f = friendData[friendId];
-        if(!f || !validCoord(f.lat, f.lng) || !myCoords) return showToast("❌ Location not available for routing.");
-        this.active = true; this.targetId = friendId; this.targetCoords = { lat: f.lat, lng: f.lng };
-        
-        safeHide("profile-popup");
-        if($("nav-title-name")) $("nav-title-name").textContent = f.name;
-        safeShow("nav-panel", "flex");
-        await this.calculate();
-    },
-    async calculate() {
-        if(!this.active || !myCoords || !this.targetCoords) return;
-        navigationLayer.clearLayers();
-        if($("nav-instructions")) $("nav-instructions").innerHTML = "<i>Analyzing roads & finding optimal route...</i>";
-        try {
-            const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${myCoords.lng},${myCoords.lat};${this.targetCoords.lng},${this.targetCoords.lat}?steps=true&geometries=geojson&overview=full`);
-            if(!res.ok) throw new Error("Route failed");
-            const data = await res.json();
-            
-            if(data.routes && data.routes.length > 0) {
-                const r = data.routes[0];
-                const coords = r.geometry.coordinates.map(c => [c[1], c[0]]); 
-                const path = L.polyline(coords, { color: '#18d6a3', weight: 5, opacity: 0.8, className: 'nav-path-animated' }).addTo(navigationLayer);
-                map.fitBounds(path.getBounds(), { padding: [50, 50] });
-
-                const distKm = (r.distance / 1000).toFixed(1);
-                const timeMin = Math.round(r.duration / 60);
-                showToast(`🚗 Best Route: ${distKm} km • ⏱️ ${timeMin} mins`, 6000);
-                if($("nav-stats")) $("nav-stats").innerHTML = `🚗 ${distKm} km &nbsp; ⏱️ ${timeMin} min`;
-                
-                let instHTML = "";
-                if(r.legs[0] && r.legs[0].steps) {
-                    r.legs[0].steps.slice(0, 4).forEach(s => {
-                        let arrow = "↑";
-                        if(s.maneuver.modifier) { if(s.maneuver.modifier.includes('right')) arrow = "↱"; if(s.maneuver.modifier.includes('left')) arrow = "↰"; }
-                        instHTML += `<div style="padding:4px 0;">${arrow} ${s.maneuver.instruction}</div>`;
-                    });
-                }
-                if($("nav-instructions")) $("nav-instructions").innerHTML = instHTML || "Follow the highlighted route on the map.";
-            } else { if($("nav-instructions")) $("nav-instructions").innerHTML = "<i>No viable road route found.</i>"; }
-        } catch (e) { if($("nav-instructions")) $("nav-instructions").innerHTML = "<i>Navigation error. Try again later.</i>"; }
-    },
-    stop() {
-        this.active = false; this.targetId = null; this.targetCoords = null;
-        navigationLayer.clearLayers();
-        safeHide("nav-panel");
-        if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
-    },
-    onLiveUpdate() {
-        if(!this.active) return;
-        if(this.targetId && friendData[this.targetId]) {
-            const f = friendData[this.targetId];
-            if(!this.targetCoords) return;
-            const dist = distanceKm(this.targetCoords.lat, this.targetCoords.lng, f.lat, f.lng);
-            if(Number(dist) > 0.1) { this.targetCoords = { lat: f.lat, lng: f.lng }; this.calculate(); }
-        }
-    }
-};
-
-const navRecalcBtn = $("nav-recalc-btn");
-if(navRecalcBtn) navRecalcBtn.onclick = () => Navigation.calculate();
-const navPanelExit = $("nav-panel-exit");
-if(navPanelExit) navPanelExit.onclick = () => Navigation.stop();
 
 // ==========================================
-// GROUP NAVIGATION (Fix 2: Meet Up Feature)
+// FIX 2: MEET UP FEATURE (Shortest Path for everyone)
 // ==========================================
 const GroupNavigation = {
     active: false, destination: null, selectedMembers: [], layerGroup: L.layerGroup().addTo(map),
@@ -409,7 +337,7 @@ const GroupNavigation = {
 
         let statsHTML = "", validPaths = [];
 
-        // Fix 2: Loop through each member and calculate individual route
+        // OSRM Routing for every single member to the meet up point
         for(let i = 0; i < this.selectedMembers.length; i++) {
             const memberId = this.selectedMembers[i];
             const color = this.colors[i % this.colors.length];
@@ -432,10 +360,8 @@ const GroupNavigation = {
                     const r = data.routes[0];
                     const pathCoords = r.geometry.coordinates.map(c => [c[1], c[0]]);
                     
-                    // Remove old path for this member
                     this.layerGroup.eachLayer(l => { if(l.memberId === memberId) this.layerGroup.removeLayer(l); });
                     
-                    // Draw new path
                     const poly = L.polyline(pathCoords, { color: color, weight: 5, opacity: 0.8, className: 'nav-path-animated' });
                     poly.memberId = memberId; 
                     poly.addTo(this.layerGroup); 
@@ -444,7 +370,6 @@ const GroupNavigation = {
                     const distKm = (r.distance / 1000).toFixed(1); 
                     const timeMin = Math.round(r.duration / 60);
                     
-                    // Build HTML for each member
                     statsHTML += `
                     <div style="display:flex; justify-content:space-between; align-items:center; padding:10px; background:rgba(255,255,255,0.05); border-radius:10px; border-left:4px solid ${color};">
                         <div style="display:flex; align-items:center; gap:10px;">
@@ -502,20 +427,14 @@ if(gNSB) gNSB.onclick = () => GroupNavigation.stop();
 
 
 // ==========================================
-// 3. CORE GPS: FAST FALLBACK + WATCH
+// CORE GPS
 // ==========================================
 socket.on("connect", () => { 
     if (currentUser.name) socket.emit("profileReady", currentUser); 
-    
     if(offlineMessageQueue.length > 0) {
         offlineMessageQueue.forEach(msg => socket.emit("chatMessage", msg));
         offlineMessageQueue = [];
         showToast("📶 Back online! Sent queued messages.");
-    }
-    if(offlineMemoryQueue.length > 0) {
-        offlineMemoryQueue.forEach(mem => socket.emit("uploadMemoryPhoto", mem));
-        offlineMemoryQueue = [];
-        showToast("📶 Back online! Pinned queued memories.");
     }
 });
 
@@ -540,17 +459,12 @@ function startGPS() {
     const processLocation = async (p) => {
         const lat = Number(p.coords.latitude), lng = Number(p.coords.longitude), acc = Number(p.coords.accuracy);
         const alt = p.coords.altitude ? Math.round(p.coords.altitude) : null;
-        let speedKmh = 0;
-        let dist = 0;
-        if (p.coords.speed != null && p.coords.speed >= 0) {
-            speedKmh = p.coords.speed * 3.6;
-        } 
+        let speedKmh = 0; let dist = 0;
+        if (p.coords.speed != null && p.coords.speed >= 0) speedKmh = p.coords.speed * 3.6;
         if (lastFixCoords && lastFixTime) {
             dist = Number(distanceKm(lastFixCoords.lat, lastFixCoords.lng, lat, lng)) || 0;
             const dtSec = (Date.now() - lastFixTime) / 1000;
-            if (!p.coords.speed && dtSec > 0.5) {
-                speedKmh = (dist / dtSec) * 3600;
-            }
+            if (!p.coords.speed && dtSec > 0.5) speedKmh = (dist / dtSec) * 3600;
         }
         speedKmh = Math.min(speedKmh, 300); 
         
@@ -578,9 +492,9 @@ function startGPS() {
             fetchCity(lat, lng).then(c => {
                 if (c) {
                     cityName = c;
-                    if ($("header-app-title")) $("header-app-title").textContent = `${cityName} Tracker`;
-                    if ($("city-name-text")) $("city-name-text").textContent = cityName;
-                    else if ($("pill-city")) $("pill-city").innerHTML = `<svg class="i"><use href="#i-pin"/></svg><span>${cityName}</span>`;
+                    const hat = $("header-app-title"); if (hat) hat.textContent = `${cityName} Tracker`;
+                    const cnt = $("city-name-text"); if (cnt) cnt.textContent = cityName;
+                    else { const pc = $("pill-city"); if (pc) pc.innerHTML = `<svg class="i"><use href="#i-pin"/></svg><span>${cityName}</span>`; }
                 }
             });
         }
@@ -590,8 +504,8 @@ function startGPS() {
                 if (w) {
                     myWeather = w;
                     lastWeatherFetch = Date.now();
-                    if ($("map-temp-display")) $("map-temp-display").textContent = w;
-                    if ($("top-weather")) { safeShow("top-weather", "flex"); $("top-weather").textContent = w; }
+                    const mtd = $("map-temp-display"); if (mtd) mtd.textContent = w;
+                    const tw = $("top-weather"); if (tw) { safeShow("top-weather", "flex"); tw.textContent = w; }
                     
                     const badgeText = alt !== null ? `${w} | ⛰️${alt}m` : w;
                     if (ownMarker) ownMarker.unbindTooltip().bindTooltip(badgeText, { permanent: true, direction: "right", className: "weather-badge", offset: [15, 0] });
@@ -605,8 +519,9 @@ function startGPS() {
 
         socket.emit("updateLocation",{name:currentUser.name, avatar:currentUser.avatar, lat, lng, alt, speedKmh, weather:myWeather});
         updateFriendBadges(); 
+        
+        // Group Trip Live Update Fix
         if(typeof triggerGroupRouteUpdate === 'function') triggerGroupRouteUpdate(); 
-        if(typeof Navigation.onLiveUpdate === 'function') Navigation.onLiveUpdate();
         if(typeof GroupNavigation.onLiveUpdate === 'function') GroupNavigation.onLiveUpdate();
     };
 
@@ -616,10 +531,7 @@ function startGPS() {
         else showToast("⚠️ GPS Signal Lost or Weak. Trying again...", 4000);
     };
 
-    navigator.geolocation.getCurrentPosition(processLocation, (e) => {
-        console.warn("Fast GPS fetch failed", e);
-    }, { enableHighAccuracy: false, timeout: 7000, maximumAge: Infinity });
-
+    navigator.geolocation.getCurrentPosition(processLocation, (e) => { console.warn("Fast GPS fetch failed", e); }, { enableHighAccuracy: false, timeout: 7000, maximumAge: Infinity });
     navigator.geolocation.watchPosition(processLocation, handleGpsError, { enableHighAccuracy: true, timeout: 15000, maximumAge: 2000 });
 }
 
@@ -649,7 +561,7 @@ function createOrUpdateFriendMarker(u){
 }
 
 function updateOnlineUI(){
-    if($("chat-subtitle")) $("chat-subtitle").textContent = `${currentUser.name ? 1 : 0} online`;
+    const cs = $("chat-subtitle"); if(cs) cs.textContent = `${currentUser.name ? 1 : 0} online`;
     const box=$("online-list"); if(!box) return; box.innerHTML="";
     Object.values(friendData).filter(f=>f.online!==false).forEach(u=>{
         const btn=document.createElement("button"); btn.className="online-friend";
@@ -659,17 +571,30 @@ function updateOnlineUI(){
 }
 
 function showProfilePopup(u) {
-    if($("profile-popup-avatar")) $("profile-popup-avatar").src=u.avatar; 
-    if($("profile-popup-name")) $("profile-popup-name").textContent=u.name;
+    const ppa = $("profile-popup-avatar"); if(ppa) ppa.src=u.avatar; 
+    const ppn = $("profile-popup-name"); if(ppn) ppn.textContent=u.name;
     const st = $("profile-popup-status");
     if(st) { st.textContent = u.online!==false ? "● Online" : "● Offline"; st.style.color = u.online!==false ? "#18d6a3" : "#8fa1aa"; }
-    if($("profile-popup-distance")) $("profile-popup-distance").textContent = myCoords ? `${distanceKm(myCoords.lat,myCoords.lng,u.lat,u.lng)} km away` : "--";
-    if($("profile-popup-weather")) $("profile-popup-weather").textContent = u.weather || "--";
+    const ppd = $("profile-popup-distance");
+    if(ppd) ppd.textContent = myCoords ? `${distanceKm(myCoords.lat,myCoords.lng,u.lat,u.lng)} km away` : "--";
+    const ppw = $("profile-popup-weather");
+    if(ppw) ppw.textContent = u.weather || "--";
     
-    if($("profile-nav-btn")) {
-        $("profile-nav-btn").onclick = () => {
-            if(validCoord(u.lat, u.lng)) Navigation.start(u.id);
-        };
+    // Fallback to OSRM if Google is not working for friend routing
+    const pnb = $("profile-nav-btn");
+    if(pnb) { 
+        pnb.onclick = () => { 
+            if(validCoord(u.lat, u.lng)) {
+                safeHide("profile-popup");
+                fetch(`https://router.project-osrm.org/route/v1/driving/${myCoords.lng},${myCoords.lat};${u.lng},${u.lat}?steps=true&geometries=geojson&overview=full`)
+                .then(res => res.json())
+                .then(data => {
+                    if(data.routes && data.routes.length > 0) {
+                        startSearchNavigation(u.lat, u.lng, u.name, data.routes[0], true);
+                    }
+                });
+            }
+        }; 
     }
     
     if (typeof initCallButton === "function") initCallButton(u);
@@ -678,12 +603,11 @@ function showProfilePopup(u) {
     const fb = $("profile-focus-btn");
     if(fb) fb.onclick=()=>{ map.flyTo([u.lat,u.lng],16); safeHide("profile-popup"); };
 }
-$("profile-popup-close")?.addEventListener("click",()=>safeHide("profile-popup"));
+const ppc = $("profile-popup-close");
+if(ppc) ppc.addEventListener("click",()=>safeHide("profile-popup"));
 
 function renderGeofenceList() {
-    const list = $("geofence-items");
-    if(!list) return;
-    list.innerHTML = "";
+    const list = $("geofence-items"); if(!list) return; list.innerHTML = "";
     if(currentGeofences.length === 0) {
         list.innerHTML = "<div style='color:var(--muted); font-size:12px; text-align:center;'>No active geofences.</div>";
     } else {
@@ -695,22 +619,63 @@ function renderGeofenceList() {
 
             list.innerHTML += `
             <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.05); padding:10px; border-radius:10px; margin-bottom:8px;">
-                <div>
-                    <div style="color:white; font-size:13px; font-weight:bold;">${escapeHTML(f.name)}</div>
-                    <div style="color:var(--muted); font-size:11px;">Radius: ${f.radius}m</div>
-                </div>
-                ${actionBtn}
+                <div><div style="color:white; font-size:13px; font-weight:bold;">${escapeHTML(f.name)}</div><div style="color:var(--muted); font-size:11px;">Radius: ${f.radius}m</div></div>${actionBtn}
             </div>`;
         });
     }
-    const modal = $("geofence-list-modal");
-    if(modal) modal.style.display = "flex";
+    const modal = $("geofence-list-modal"); if(modal) modal.style.display = "flex";
 }
-$("geofence-list-close")?.addEventListener("click", () => safeHide("geofence-list-modal"));
+const gflc = $("geofence-list-close");
+if(gflc) gflc.addEventListener("click", () => safeHide("geofence-list-modal"));
 
 // ==========================================
-// 4. SETUP FUNCTIONS
+// 4. SETUP FUNCTIONS 
 // ==========================================
+function setupBasicControls() {
+    $("my-location-btn").onclick = () => {
+        if(myCoords) map.flyTo([myCoords.lat,myCoords.lng], 16); 
+    };
+
+    $("compass-btn").onclick = () => {
+        map.setView(map.getCenter(), map.getZoom(), {animate:true}); 
+        const ci = $("compass-icon"); if(ci) ci.style.transform="rotate(0deg)"; 
+    };
+
+    $("map-style-btn").onclick = (e) => { 
+        e.stopPropagation(); 
+        const sm = $("map-style-menu"); 
+        if(sm) sm.style.display = sm.style.display==="flex"?"none":"flex"; 
+    };
+
+    const sm = $("map-style-menu");
+    if(sm) {
+        sm.onclick = (e) => {
+            const b=e.target.closest("[data-style]"); if(!b) return; const s=b.dataset.style;
+            [satelliteLayer,streetLayer,darkLayer].forEach(l=>map.removeLayer(l));
+            ({satellite:satelliteLayer,street:streetLayer,dark:darkLayer})[s].addTo(map);
+            document.querySelectorAll("#map-style-menu button").forEach(x=>x.classList.toggle("active",x.dataset.style===s));
+            safeHide("map-style-menu");
+        };
+    }
+
+    if (window.DeviceOrientationEvent) {
+        window.addEventListener("deviceorientation", e => { 
+            const icon = $("compass-icon"); 
+            if (icon && typeof e.webkitCompassHeading === "number") icon.style.transform = `rotate(${-e.webkitCompassHeading}deg)`; 
+            else if (icon && typeof e.alpha === "number") icon.style.transform = `rotate(${e.alpha}deg)`; 
+        }, true);
+    }
+
+    window.addEventListener('offline', () => showToast("📶 You are offline. Data saved locally."));
+    window.addEventListener('online', () => {
+        showToast("📶 Back online!");
+        if(offlineMessageQueue.length > 0) {
+            offlineMessageQueue.forEach(msg => socket.emit("chatMessage", msg));
+            offlineMessageQueue = [];
+        }
+    });
+}
+
 function setupAdvancedTools() {
     $("measure-btn").onclick = () => {
         mapActionMode = mapActionMode === 'measure' ? null : 'measure';
@@ -750,11 +715,11 @@ function setupAdvancedTools() {
     };
 
     map.on('click', (e) => {
+        // Fix 3: Measure Shortest Path Road Integration
         if (mapActionMode === 'measure') {
             measurePoints.push(e.latlng);
             L.circleMarker(e.latlng, {color: '#f59e0b', radius: 5, fillOpacity: 1}).addTo(measureLayer);
             
-            // Fix 3: Measure showing shortest path, distance and time
             if (measurePoints.length === 2) {
                 const p1 = measurePoints[0], p2 = measurePoints[1];
                 showToast("📏 Calculating road distance...", 2000);
@@ -767,17 +732,18 @@ function setupAdvancedTools() {
                         const r = data.routes[0];
                         const coords = r.geometry.coordinates.map(c => [c[1], c[0]]);
                         L.polyline(coords, {color: '#f59e0b', weight: 4, dashArray: '5, 10', className: 'nav-path-animated'}).addTo(measureLayer);
+                        
                         const distKm = (r.distance / 1000).toFixed(2);
                         const timeMin = Math.round(r.duration / 60);
                         showToast(`📏 Road Distance: ${distKm} km • ⏱️ ETA: ${timeMin} mins`, 6000);
                     } else {
                         showToast("❌ Road route unavailable. Try again.");
                     }
-                    setTimeout(() => { measureLayer.clearLayers(); measurePoints = []; mapActionMode = null; if($("measure-btn")) $("measure-btn").classList.remove("active-tool"); }, 6000);
+                    setTimeout(() => { measureLayer.clearLayers(); measurePoints = []; mapActionMode = null; $("measure-btn").classList.remove("active-tool"); }, 6000);
                 }).catch(() => {
                     measureLayer.clearLayers();
                     showToast("❌ Road route unavailable. Try again.");
-                    setTimeout(() => { measureLayer.clearLayers(); measurePoints = []; mapActionMode = null; if($("measure-btn")) $("measure-btn").classList.remove("active-tool"); }, 6000);
+                    setTimeout(() => { measureLayer.clearLayers(); measurePoints = []; mapActionMode = null; $("measure-btn").classList.remove("active-tool"); }, 6000);
                 });
             }
         } 
@@ -793,7 +759,7 @@ function setupAdvancedTools() {
                     showToast("❌ Invalid radius! Must be between 10 and 50000 meters.");
                 }
             }
-            mapActionMode = null; if($("geofence-btn")) $("geofence-btn").classList.remove("active-tool");
+            mapActionMode = null; $("geofence-btn").classList.remove("active-tool");
         }
         else if (mapActionMode === 'trip') {
             const name = prompt("Enter Trip Destination Name:");
@@ -801,7 +767,7 @@ function setupAdvancedTools() {
                 socket.emit("startTrip", { name: name.trim(), lat: e.latlng.lat, lng: e.latlng.lng });
                 showToast(`🚗 Trip started to ${name}!`);
             }
-            mapActionMode = null; if($("trip-btn")) $("trip-btn").classList.remove("active-tool");
+            mapActionMode = null; $("trip-btn").classList.remove("active-tool");
         }
         else if (mapActionMode === 'memory') {
             if (pendingMemoryImage) {
@@ -864,33 +830,6 @@ function setupAdvancedTools() {
         } else {
             tripRoutesLayer.clearLayers(); tripRoadStats = {};
             safeHide("trip-panel");
-        }
-    });
-}
-
-function setupBasicControls(){
-    $("my-location-btn").onclick = () => { if(myCoords) map.flyTo([myCoords.lat,myCoords.lng], 16); };
-    $("compass-btn").onclick = () => { map.setView(map.getCenter(), map.getZoom(), {animate:true}); const ci=$("compass-icon"); if(ci) ci.style.transform="rotate(0deg)"; };
-    $("map-style-btn").onclick = (e) => { e.stopPropagation(); const sm=$("map-style-menu"); if(sm) sm.style.display = sm.style.display==="flex"?"none":"flex"; };
-    $("map-style-menu").onclick = (e) => {
-        const b=e.target.closest("[data-style]"); if(!b) return; const s=b.dataset.style;
-        [satelliteLayer,streetLayer,darkLayer].forEach(l=>map.removeLayer(l));
-        ({satellite:satelliteLayer,street:streetLayer,dark:darkLayer})[s].addTo(map);
-        document.querySelectorAll("#map-style-menu button").forEach(x=>x.classList.toggle("active",x.dataset.style===s));
-        safeHide("map-style-menu");
-    };
-    if (window.DeviceOrientationEvent) window.addEventListener("deviceorientation", e => { const icon = $("compass-icon"); if (icon) icon.style.transform = `rotate(${e.webkitCompassHeading ? -e.webkitCompassHeading : e.alpha}deg)`; }, true);
-
-    window.addEventListener('offline', () => showToast("📶 You are offline. Data saved locally."));
-    window.addEventListener('online', () => {
-        showToast("📶 Back online!");
-        if(offlineMessageQueue.length > 0) {
-            offlineMessageQueue.forEach(msg => socket.emit("chatMessage", msg));
-            offlineMessageQueue = [];
-        }
-        if(offlineMemoryQueue.length > 0) {
-            offlineMemoryQueue.forEach(mem => socket.emit("uploadMemoryPhoto", mem));
-            offlineMemoryQueue = [];
         }
     });
 }
@@ -996,7 +935,9 @@ function setupChat(){
     socket.on("chatHistory", l=>l.forEach(renderMsg)); socket.on("chatMessage", renderMsg);
 }
 
-// Fix 1: Memories Photo Pinning with Date and Name
+// ==========================================
+// FIX 1: MEMORIES (Pin with Date & Name)
+// ==========================================
 function setupMemories(){
     const galBtn = $("phase3-gallery-btn");
     if(galBtn) galBtn.onclick = () => { safeShow("phase3-memory-overlay", "block"); renderMemGallery(); };
@@ -1049,13 +990,16 @@ function setupMemories(){
         memories.forEach(m=>{
             const icon = L.divIcon({ className:"p3-memory-marker", html:`<div style="width:46px;height:46px;border-radius:50%;overflow:hidden;border:2px solid #fff;background:#071018;box-shadow:0 4px 15px rgba(0,0,0,.65)"><img src="${escapeHTML(m.image)}" style="width:100%;height:100%;object-fit:cover;"></div>`, iconSize:[46,46], iconAnchor:[23,23]});
             const marker = L.marker([m.lat,m.lng],{icon}).addTo(memoryLayer);
-            marker.bindPopup(`<div class="p3-map-popup"><img src="${escapeHTML(m.image)}"><b>📸 ${escapeHTML(m.name)}</b><br><small style="color:#aaa;">${new Date(m.time).toLocaleString()}</small><button class="p3-open-map-memory">View</button></div>`);
+            
+            // Name and Date strictly added to Popup
+            marker.bindPopup(`<div class="p3-map-popup"><img src="${escapeHTML(m.image)}"><b style="color:var(--mint);">📸 ${escapeHTML(m.name)}</b><br><small style="color:#aaa;">${new Date(m.time).toLocaleString()}</small><br><button class="p3-open-map-memory">View Detail</button></div>`);
+            
             marker.on("popupopen",e=>{ const b=e.popup.getElement()?.querySelector(".p3-open-map-memory"); if(b) b.onclick=()=>{selectedMemoryId=m.id; if($("p3-view-image")) $("p3-view-image").src=m.image; if($("p3-view-name")) $("p3-view-name").textContent=m.name; if($("p3-view-date")) $("p3-view-date").textContent=new Date(m.time).toLocaleString(); safeShow("phase3-photo-viewer", "flex");}; });
         });
     }
 
     socket.on("loadMemoryPhotos", l=>{ memories.clear(); l.forEach(m=>memories.set(m.id,m)); renderPins(); });
-    socket.on("newMemoryPin", m=>{ memories.set(m.id,m); renderPins(); const p3overlay = $("phase3-memory-overlay"); if(p3overlay && p3overlay.style.display==="block") renderMemGallery(); });
+    socket.on("newMemoryPin", m=>{ memories.set(m.id,m); renderPins(); const pmo=$("phase3-memory-overlay"); if(pmo && pmo.style.display==="block") renderMemGallery(); });
 
     const mInp=$("memoryPhotoInput");
     const mb = $("memoryButton");
@@ -1067,7 +1011,11 @@ function setupMemories(){
     if(mInp) {
         mInp.onchange=()=>{
             const f=mInp.files?.[0]; if(!f) return;
-            if(!IMAGE_TYPES.includes(f.type)||f.size>MAX_MEMORY_FILE){alert("Invalid image or >8MB."); mInp.value=""; return;}
+            if(!IMAGE_TYPES.includes(f.type)||f.size>MAX_MEMORY_FILE){
+                alert("Invalid image or >8MB."); 
+                mInp.value=""; 
+                return;
+            }
             const r=new FileReader(); 
             r.onload=()=>{
                 if(validImageData(r.result)){ 
@@ -1076,7 +1024,8 @@ function setupMemories(){
                     showToast("📸 Photo Selected! Now TAP ANYWHERE on the map to pin it.", 5000);
                 }
             }; 
-            r.readAsDataURL(f); mInp.value="";
+            r.readAsDataURL(f); 
+            mInp.value="";
         };
     }
 }
@@ -1131,7 +1080,7 @@ function setupJoin(){
 }
 
 // ==========================================
-// Fix 5: GOOGLE DIRECTIONS & SEARCH NAVIGATION
+// FIX 5: SEARCH BAR NAVIGATION & ANIMATION 
 // ==========================================
 function setupGoogleSearch() {
     const searchInput = $("location-search-input");
@@ -1146,6 +1095,7 @@ function setupGoogleSearch() {
             navigationLayer.clearLayers();
             safeHide("nav-panel");
             safeHide("nav-bottom-sheet");
+            safeHide("premium-nav-ui");
             if (myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
         };
     }
@@ -1182,16 +1132,18 @@ function setupGoogleSearch() {
                 if (searchMarker) map.removeLayer(searchMarker);
                 navigationLayer.clearLayers();
                 safeHide("nav-panel");
+                safeHide("nav-bottom-sheet");
+                safeHide("premium-nav-ui");
                 
                 map.flyTo([destLat, destLng], 15);
                 
                 const popupContent = `
                     <div style="text-align:center; padding:6px; min-width:180px;">
-                        <strong style="color:var(--green-bright); font-size:15px; display:block; margin-bottom:8px;">📍 ${escapeHTML(placeName)}</strong>
+                        <strong style="color:var(--mint); font-size:15px; display:block; margin-bottom:8px;">📍 ${escapeHTML(placeName)}</strong>
                         <div id="search-route-info" style="font-size:12px; color:var(--muted); margin-bottom:12px; background:rgba(255,255,255,0.05); padding:8px; border-radius:10px; border: 1px solid rgba(255,255,255,0.1);">
                             <i>Calculating route... ⏳</i>
                         </div>
-                        <button id="search-nav-btn" style="width:100%; padding:10px; border:none; border-radius:10px; background:var(--green); color:white; font-weight:800; font-size:13px; cursor:pointer; opacity:0.5; transition:0.3s;" disabled>
+                        <button id="search-nav-btn" style="width:100%; padding:10px; border:none; border-radius:10px; background:var(--mint); color:#000; font-weight:800; font-size:13px; cursor:pointer; opacity:0.5; transition:0.3s;" disabled>
                             ▶ Start Navigation
                         </button>
                     </div>
@@ -1204,24 +1156,24 @@ function setupGoogleSearch() {
                 searchMarker.bindPopup(popupContent).openPopup();
                 if (clearBtn) safeShow("location-search-clear", "block");
 
-                if(myCoords && window.google) {
-                    const ds = new google.maps.DirectionsService();
-                    ds.route({
-                        origin: new google.maps.LatLng(myCoords.lat, myCoords.lng),
-                        destination: new google.maps.LatLng(destLat, destLng),
-                        travelMode: 'DRIVING'
-                    }, (res, status) => {
+                // Use OSRM to guarantee route path calculation even without Google billing
+                if(myCoords) {
+                    fetch(`https://router.project-osrm.org/route/v1/driving/${myCoords.lng},${myCoords.lat};${destLng},${destLat}?steps=true&geometries=geojson&overview=full`)
+                    .then(res => res.json())
+                    .then(data => {
                         const infoDiv = document.getElementById("search-route-info");
                         const navBtn = document.getElementById("search-nav-btn");
                         
-                        if(status === 'OK' && res.routes.length > 0 && infoDiv && navBtn) {
-                            const route = res.routes[0];
-                            const leg = route.legs[0];
+                        if(data.routes && data.routes.length > 0 && infoDiv && navBtn) {
+                            const route = data.routes[0];
+                            const coords = route.geometry.coordinates.map(c => [c[1], c[0]]);
                             
-                            const coords = route.overview_path.map(p => [p.lat(), p.lng()]);
-                            L.polyline(coords, { color: '#60a5fa', weight: 4, opacity: 0.5, dashArray: '6, 8' }).addTo(navigationLayer);
+                            L.polyline(coords, { color: '#34e0b4', weight: 5, opacity: 0.8, className: 'nav-path-animated' }).addTo(navigationLayer);
+                            
+                            const distKm = (route.distance / 1000).toFixed(1);
+                            const timeMin = Math.round(route.duration / 60);
 
-                            infoDiv.innerHTML = `<span style="color:white; font-size:14px; font-weight:800;">🚗 ${leg.distance.text}</span> <br> <span style="color:white; font-size:14px; font-weight:800;">⏱️ ${leg.duration.text}</span>`;
+                            infoDiv.innerHTML = `<span style="color:white; font-size:14px; font-weight:800;">🚗 ${distKm} km</span> <br> <span style="color:white; font-size:14px; font-weight:800;">⏱️ ${timeMin} min</span>`;
                             navBtn.style.opacity = "1";
                             navBtn.disabled = false;
                             
@@ -1232,6 +1184,8 @@ function setupGoogleSearch() {
                         } else if (infoDiv) {
                             infoDiv.innerHTML = "<span style='color:#ef4444;'>No driving route found.</span>";
                         }
+                    }).catch(err => {
+                        if(document.getElementById("search-route-info")) document.getElementById("search-route-info").innerHTML = "<span style='color:#f59e0b;'>Routing failed.</span>";
                     });
                 } else {
                     if(document.getElementById("search-route-info")) document.getElementById("search-route-info").innerHTML = "<span style='color:#f59e0b;'>GPS required.</span>";
@@ -1247,25 +1201,26 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
     navigationLayer.clearLayers();
     if(navWatchId) navigator.geolocation.clearWatch(navWatchId);
     
+    // Hide regular UI elements
     safeHide("map-tools");
     safeHide("search-container");
     safeHide("top-header");
     safeHide("bottom-info");
     safeHide("chat-toggle-btn");
+    safeHide("memoryButton");
     
     safeShow("premium-nav-ui", "block");
     safeShow("nav-bottom-sheet", "flex");
     safeShow("turn-banner", "flex");
 
-    const leg = routeData.legs[0];
-    const fullPath = routeData.overview_path.map(p => [p.lat(), p.lng()]);
+    const fullPath = routeData.geometry.coordinates.map(c => [c[1], c[0]]);
     
     const dottedPath = L.polyline(fullPath, { color: '#4f46e5', weight: 8, opacity: 0.7, className: 'anim-dash' }).addTo(navigationLayer);
-    const solidPath = L.polyline([], { color: '#10b981', weight: 8, opacity: 1, className: 'solid-trail' }).addTo(navigationLayer);
+    const solidPath = L.polyline([], { color: '#34e0b4', weight: 8, opacity: 1, className: 'solid-trail' }).addTo(navigationLayer);
 
     const userIcon = L.divIcon({
         className: 'nav-avatar-marker',
-        html: `<img src="${escapeHTML(currentUser.avatar)}" style="width:100%;height:100%;object-fit:cover; border-radius:50%; border:2px solid #10b981;">`,
+        html: `<img src="${escapeHTML(currentUser.avatar)}" style="width:100%;height:100%;object-fit:cover; border-radius:50%; border:2px solid #34e0b4;">`,
         iconSize: [40, 40],
         iconAnchor: [20, 20]
     });
@@ -1274,14 +1229,18 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
     const userMarker = L.marker(startPos, {icon: userIcon, zIndexOffset: 1000}).addTo(navigationLayer);
     L.marker([destLat, destLng], { icon: L.divIcon({className: 'geofence-marker', html: '📍'}) }).addTo(navigationLayer);
 
-    if($("stat-dist")) $("stat-dist").innerHTML = leg.distance.text.replace(" km", "<small style='font-size:12px;color:#9ca3af;'> km</small>");
-    if($("stat-eta")) $("stat-eta").innerHTML = leg.duration.text.replace(" mins", "<small> min</small>");
+    if($("stat-dist")) $("stat-dist").innerHTML = (routeData.distance / 1000).toFixed(1) + "<small> km</small>";
+    if($("stat-eta")) $("stat-eta").innerHTML = Math.round(routeData.duration / 60) + "<small> min</small>";
     
-    const arrivalTime = new Date(Date.now() + leg.duration.value * 1000);
+    const arrivalTime = new Date(Date.now() + routeData.duration * 1000);
     if($("nav-arrival-time")) $("nav-arrival-time").innerHTML = arrivalTime.toLocaleTimeString([], {hour: 'numeric', minute:'2-digit', hour12: true});
     
-    if($("nav-step-text")) $("nav-step-text").textContent = leg.steps[0].instructions.replace(/<[^>]*>?/gm, ''); 
-    if($("nav-step-dist")) $("nav-step-dist").textContent = leg.steps[0].distance.text;
+    if(routeData.legs && routeData.legs[0] && routeData.legs[0].steps && routeData.legs[0].steps.length > 0) {
+        if($("nav-step-text")) $("nav-step-text").textContent = routeData.legs[0].steps[0].maneuver.type + " " + (routeData.legs[0].steps[0].maneuver.modifier || ""); 
+        if($("nav-step-dist")) $("nav-step-dist").textContent = routeData.legs[0].steps[0].distance + "m";
+    }
+    
+    if($("turn-name")) $("turn-name").textContent = "Heading to " + destName;
 
     map.fitBounds(dottedPath.getBounds(), { paddingBottomRight: [0, 350], paddingTopLeft: [50, 150] });
 
@@ -1334,7 +1293,7 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
 
                     const remainingMeters = map.distance(currentPos, [destLat, destLng]);
                     const remainingKm = (remainingMeters / 1000).toFixed(1);
-                    if($("stat-dist")) $("stat-dist").innerHTML = remainingKm + "<small style='font-size:12px;color:#9ca3af;'> km</small>";
+                    if($("stat-dist")) $("stat-dist").innerHTML = remainingKm + "<small> km</small>";
 
                     if(remainingMeters < 30) {
                         navigator.geolocation.clearWatch(navWatchId);
@@ -1375,217 +1334,13 @@ function stopDrive(cancelled = false) {
     safeShow("top-header", "flex");
     safeShow("bottom-info", "flex");
     safeShow("chat-toggle-btn", "flex");
+    safeShow("memoryButton", "flex");
     
     if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
     
     if(!cancelled) {
         SmartDrive.endTrip();
     }
-}
-
-// ==========================================
-// VOICE CALLING (ONLINE WEBRTC & OFFLINE GSM)
-// ==========================================
-let peerConnection = null;
-let localStream = null;
-let incomingIceCandidates = [];
-let callDialog = null;
-let activeCallBtn = null;
-
-const rtcConfig = { 
-    iceServers: [
-        { urls: "stun:stun.l.google.com:19302" },
-        { urls: "stun:stun.cloudflare.com:3478" },
-        { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
-        { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" },
-        { urls: "turn:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" }
-    ] 
-};
-
-function attachAudioTrack(event) {
-    let audio = document.getElementById("remote-audio");
-    if(!audio) {
-        audio = document.createElement("audio");
-        audio.id = "remote-audio";
-        audio.autoplay = true;
-        audio.playsInline = true;
-        audio.hidden = true;
-        document.body.appendChild(audio);
-    }
-    
-    if (event.streams && event.streams[0]) {
-        audio.srcObject = event.streams[0];
-    } else {
-        audio.srcObject = new MediaStream([event.track]);
-    }
-    
-    audio.play().catch(e => {
-        console.log("Audio play error, forcing play:", e);
-        document.body.addEventListener('click', () => { audio.play(); }, { once: true });
-    });
-}
-
-function initCallButton(u) {
-    const callBtn = $("profile-call-btn");
-    if (!callBtn) return;
-    
-    const newBtn = callBtn.cloneNode(true);
-    callBtn.parentNode.replaceChild(newBtn, callBtn);
-    
-    newBtn.onclick = async () => {
-        if (!navigator.onLine || u.online === false) {
-            const phone = prompt(`No Internet or Friend is offline.\nEnter mobile number to dial via SIM:`);
-            if (phone) window.location.href = `tel:${phone.trim()}`;
-            return;
-        }
-
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            showToast("❌ Microphone is not available in this browser.");
-            return;
-        }
-
-        try {
-            localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-            peerConnection = new RTCPeerConnection(rtcConfig);
-            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-
-            peerConnection.ontrack = attachAudioTrack; 
-
-            peerConnection.onicecandidate = (event) => {
-                if (event.candidate) {
-                    socket.emit("call-user", { to: u.id, signal: { type: "ice", candidate: event.candidate }, name: currentUser.name });
-                }
-            };
-
-            const offer = await peerConnection.createOffer();
-            await peerConnection.setLocalDescription(offer);
-            socket.emit("call-user", { to: u.id, signal: { type: "offer", sdp: offer }, name: currentUser.name });
-            
-            showToast(`📞 Calling ${u.name}...`, 5000);
-            showActiveCallUI(() => socket.emit("end-call", { to: u.id }));
-            
-        } catch (err) {
-            console.error("CALL MIC ERROR:", err);
-            showToast(`❌ Mic Error: ${err.name || "Unknown"}`);
-            endLocalCall();
-        }
-    };
-}
-
-socket.on("incoming-call", async (data) => {
-    if (data.signal.type === "offer") {
-        if (peerConnection) {
-            socket.emit("end-call", { to: data.from });
-            return;
-        }
-        
-        incomingIceCandidates = [];
-        if (callDialog) callDialog.remove();
-        
-        callDialog = document.createElement('div');
-        callDialog.style.cssText = "position:fixed;top:70px;left:50%;transform:translateX(-50%);background:rgba(15,23,42,0.98);padding:24px;border:1px solid #18d6a3;border-radius:20px;z-index:9999;box-shadow:0 15px 40px rgba(0,0,0,0.7);color:white;text-align:center;backdrop-filter:blur(10px);min-width:280px;";
-        callDialog.innerHTML = `
-            <div style="font-size:32px;margin-bottom:10px;">📞</div>
-            <strong style="font-size:18px;display:block;">${escapeHTML(data.name)}</strong>
-            <div style="font-size:13px;color:#94a3b8;margin-top:6px;margin-bottom:20px;">Incoming Voice Call...</div>
-            <div style="display:flex;gap:12px;justify-content:center;">
-                <button id="accept-call-btn" style="flex:1;background:#10b981;border:none;padding:12px;border-radius:12px;color:#064e3b;font-weight:800;cursor:pointer;font-size:15px;box-shadow:0 4px 10px rgba(16,185,129,0.3);">Accept</button>
-                <button id="reject-call-btn" style="flex:1;background:#ef4444;border:none;padding:12px;border-radius:12px;color:white;font-weight:700;cursor:pointer;font-size:15px;box-shadow:0 4px 10px rgba(239,68,68,0.3);">Decline</button>
-            </div>
-        `;
-        document.body.appendChild(callDialog);
-
-        const acceptBtn = document.getElementById("accept-call-btn");
-        if(acceptBtn) {
-            acceptBtn.onclick = async () => {
-                if (callDialog) callDialog.remove();
-                callDialog = null;
-                
-                try {
-                    localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-                    peerConnection = new RTCPeerConnection(rtcConfig);
-                    localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-
-                    peerConnection.ontrack = attachAudioTrack; 
-
-                    peerConnection.onicecandidate = (event) => {
-                        if (event.candidate) {
-                            socket.emit("answer-call", { to: data.from, signal: { type: "ice", candidate: event.candidate } });
-                        }
-                    };
-
-                    await peerConnection.setRemoteDescription(new RTCSessionDescription(data.signal.sdp));
-                    const answer = await peerConnection.createAnswer();
-                    await peerConnection.setLocalDescription(answer);
-
-                    socket.emit("answer-call", { to: data.from, signal: { type: "answer", sdp: answer } });
-                    showToast(`🎙️ Call Connected with ${data.name}`);
-                    
-                    showActiveCallUI(() => socket.emit("end-call", { to: data.from }));
-
-                    incomingIceCandidates.forEach(async (c) => {
-                        try { await peerConnection.addIceCandidate(new RTCIceCandidate(c)); } catch(e){}
-                    });
-                    incomingIceCandidates = [];
-                    
-                } catch (e) {
-                    showToast("❌ Mic error.");
-                    socket.emit("end-call", { to: data.from });
-                    endLocalCall();
-                }
-            };
-        }
-
-        const rejectBtn = document.getElementById("reject-call-btn");
-        if(rejectBtn) {
-            rejectBtn.onclick = () => {
-                if (callDialog) callDialog.remove();
-                callDialog = null;
-                socket.emit("end-call", { to: data.from });
-            };
-        }
-
-    } else if (data.signal.type === "ice") {
-        if (peerConnection && peerConnection.remoteDescription) {
-            try { await peerConnection.addIceCandidate(new RTCIceCandidate(data.signal.candidate)); } catch(e){}
-        } else {
-            incomingIceCandidates.push(data.signal.candidate);
-        }
-    }
-});
-
-socket.on("call-accepted", async (signal) => {
-    if (signal.type === "answer" && peerConnection) {
-        await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.sdp));
-        showToast("🎙️ Call Connected!");
-    } else if (signal.type === "ice" && peerConnection && peerConnection.remoteDescription) {
-        try { await peerConnection.addIceCandidate(new RTCIceCandidate(signal.candidate)); } catch(e){}
-    }
-});
-
-socket.on("call-ended", () => {
-    endLocalCall();
-    showToast("📴 Call Ended.");
-});
-
-function showActiveCallUI(endFn) {
-    if (activeCallBtn) return;
-    activeCallBtn = document.createElement("button");
-    activeCallBtn.innerHTML = "📴 End Call";
-    activeCallBtn.style.cssText = "position:fixed;top:80px;left:50%;transform:translateX(-50%);z-index:9999;background:#ef4444;color:white;border:none;padding:12px 24px;border-radius:30px;font-weight:bold;box-shadow:0 10px 25px rgba(239,68,68,0.5);cursor:pointer;font-size:14px;";
-    document.body.appendChild(activeCallBtn);
-    activeCallBtn.onclick = () => {
-        endFn();
-        endLocalCall();
-    };
-}
-
-function endLocalCall() {
-    if (activeCallBtn) { activeCallBtn.remove(); activeCallBtn = null; }
-    if (callDialog) { callDialog.remove(); callDialog = null; }
-    if (peerConnection) { peerConnection.close(); peerConnection = null; }
-    if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
-    incomingIceCandidates = [];
 }
 
 // ==========================================
@@ -1723,7 +1478,7 @@ function initApp(){
                 $("trip-panel").insertBefore(listDiv, $("trip-action-btn"));
                 TripChecklist.render();
             }
-        } catch(e) { console.error(e); }
+        } catch(e) {}
     }, 1000);
 }
 
