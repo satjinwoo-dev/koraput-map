@@ -1,7 +1,10 @@
 "use strict";
 
-console.log("🔥 KORAPUT MAP APP JS VERSION: 2026-09-25-GOOGLE-API-RESTORED");
+console.log("🔥 KORAPUT MAP APP JS VERSION: 2026-09-25-ULTIMATE-FIX");
 
+// ==========================================
+// CACHE KILLER
+// ==========================================
 if ('serviceWorker' in navigator) {
     navigator.serviceWorker.getRegistrations().then(function(registrations) {
         for(let registration of registrations) {
@@ -10,8 +13,11 @@ if ('serviceWorker' in navigator) {
     });
 }
 
+// ==========================================
+// 1. SETUP & LEAFLET MAP
+// ==========================================
 const socket = io({ transports: ["websocket", "polling"] });
-const DEFAULT_CENTER = [22.2475, 84.8828]; // Rourkela Default Center
+const DEFAULT_CENTER = [22.2475, 84.8828]; // Rourkela Center
 const DEFAULT_AVATAR = "satyam.png";
 const MAX_NAME = 40;
 const MAX_CHAT_FILE = 5 * 1024 * 1024;
@@ -57,6 +63,7 @@ let pendingMemoryImage = null;
 let measurePoints = [];
 let currentTrip = null;
 let tripMarker = null;
+let searchPlace = null; // 🔥 FIX: Declared globally to prevent Strict Mode ReferenceError
 
 let geoClickCount = 0, geoClickTimer = null;
 let currentGeofences = []; 
@@ -125,7 +132,7 @@ async function fetchCity(lat,lng){
 }
 
 // ==========================================
-// SMART DRIVE ENGINE
+// 2. SMART DRIVE ENGINE (Fix 4: Trip Calculation)
 // ==========================================
 const SmartDrive = {
     isRecording: false,
@@ -459,7 +466,7 @@ function updateTripPanel() {
 }
 
 // ==========================================
-// CORE GPS
+// CORE GPS: FAST FALLBACK + WATCH
 // ==========================================
 socket.on("connect", () => { 
     if (currentUser.name) socket.emit("profileReady", currentUser); 
@@ -782,6 +789,7 @@ function setupAdvancedToolsSafe() {
     if(gNSB) gNSB.onclick = () => { if(typeof GroupNavigation !== 'undefined') GroupNavigation.stop(); };
 
     map.on('click', (e) => {
+        // FIX 3: Measure Shortest Path Road Integration
         if (mapActionMode === 'measure') {
             measurePoints.push(e.latlng);
             L.circleMarker(e.latlng, {color: '#f59e0b', radius: 5, fillOpacity: 1}).addTo(measureLayer);
