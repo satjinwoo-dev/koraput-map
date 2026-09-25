@@ -744,8 +744,18 @@ function setupAdvancedToolsSafe() {
         else safeHide("group-nav-setup");
     };
 
+    // MEET UP BUTTONS (Fixing the Choose Point issue)
+    const gNCB = $("group-nav-close-btn");
+    if(gNCB) gNCB.onclick = () => { safeHide("group-nav-setup"); mapActionMode = null; const btn = $("group-nav-btn"); if(btn) btn.classList.remove("active-tool"); };
+    
+    const gNNB = $("group-nav-next-btn");
+    if(gNNB) gNNB.onclick = () => { if(typeof GroupNavigation !== 'undefined') GroupNavigation.startSelection(); };
+    
+    const gNSB = $("group-nav-stop-btn");
+    if(gNSB) gNSB.onclick = () => { if(typeof GroupNavigation !== 'undefined') GroupNavigation.stop(); };
+
     map.on('click', (e) => {
-        // FIX 3: Measure Shortest Path Road Integration
+        // FEATURE 3: Measure Shortest Path Road Integration
         if (mapActionMode === 'measure') {
             measurePoints.push(e.latlng);
             L.circleMarker(e.latlng, {color: '#f59e0b', radius: 5, fillOpacity: 1}).addTo(measureLayer);
@@ -803,6 +813,12 @@ function setupAdvancedToolsSafe() {
             }
             mapActionMode = null; pendingMemoryImage = null;
         }
+        else if (mapActionMode === 'group-nav') {
+            if(typeof GroupNavigation !== 'undefined') {
+                GroupNavigation.setDestination(e.latlng);
+                mapActionMode = null;
+            }
+        }
     });
 
     socket.on("loadGeofences", fences => {
@@ -812,8 +828,7 @@ function setupAdvancedToolsSafe() {
             L.circle([f.lat, f.lng], { radius: f.radius, color: "#8b5cf6", weight: 2, fillOpacity: 0.1, isGeofence: true }).addTo(p4LayerGroup);
             L.marker([f.lat, f.lng], { icon: L.divIcon({className: 'geofence-marker', html: '📍'}), isGeofence: true }).bindTooltip(f.name, {permanent: true, direction: "top", className: "weather-badge"}).addTo(p4LayerGroup);
         });
-        const geoModal = $("geofence-list-modal");
-        if (geoModal && geoModal.style.display === "flex") renderGeofenceList();
+        const geoModal = $("geofence-list-modal"); if (geoModal && geoModal.style.display === "flex") renderGeofenceList();
     });
 
     socket.on("tripData", trip => {
@@ -830,20 +845,13 @@ function setupAdvancedToolsSafe() {
             
             if (actionBtn) {
                 if (isHost) {
-                    actionBtn.textContent = "End Trip";
-                    actionBtn.style.color = "#ef4444";
-                    actionBtn.style.background = "rgba(239, 68, 68, 0.2)";
+                    actionBtn.textContent = "End Trip"; actionBtn.style.color = "#ef4444"; actionBtn.style.background = "rgba(239, 68, 68, 0.2)"; 
                     actionBtn.onclick = () => { if(typeof SmartDrive!="undefined" && SmartDrive.trip.active) SmartDrive.endTrip(); socket.emit("leaveTrip"); };
                 } else if (isMember) {
-                    actionBtn.textContent = "Leave Trip";
-                    actionBtn.style.color = "#f59e0b";
-                    actionBtn.style.background = "rgba(245, 158, 11, 0.2)";
+                    actionBtn.textContent = "Leave Trip"; actionBtn.style.color = "#f59e0b"; actionBtn.style.background = "rgba(245, 158, 11, 0.2)"; 
                     actionBtn.onclick = () => { if(typeof SmartDrive!="undefined" && SmartDrive.trip.active) SmartDrive.endTrip(); socket.emit("leaveTrip"); };
                 } else {
-                    actionBtn.textContent = "Join Trip";
-                    actionBtn.style.color = "#10b981";
-                    actionBtn.style.background = "rgba(16, 185, 129, 0.2)";
-                    actionBtn.onclick = () => socket.emit("joinTrip");
+                    actionBtn.textContent = "Join Trip"; actionBtn.style.color = "#10b981"; actionBtn.style.background = "rgba(16, 185, 129, 0.2)"; actionBtn.onclick = () => socket.emit("joinTrip");
                 }
             }
             if(typeof SmartDrive !== "undefined" && isMember && !SmartDrive.trip.active) SmartDrive.startTrip();
@@ -851,8 +859,7 @@ function setupAdvancedToolsSafe() {
             if(window.renderTripChecklist) window.renderTripChecklist();
         } else {
             if(typeof SmartDrive !== "undefined" && SmartDrive.trip.active) SmartDrive.endTrip();
-            tripRoutesLayer.clearLayers(); tripRoadStats = {};
-            safeHide("trip-panel");
+            tripRoutesLayer.clearLayers(); tripRoadStats = {}; safeHide("trip-panel");
         }
     });
 }
