@@ -129,6 +129,7 @@ button:active{transform:scale(.94)}
 .results-panel h3 { font-family: var(--font-display); font-size: 18px; margin: 0; color: var(--mint); display: flex; align-items: center; gap: 8px; }
 .r-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-top: 1px solid rgba(255,255,255,0.04); }
 .r-row:first-of-type { border-top: none; }
+.r-label { font-size: 13px; color: var(--text-lo); font-weight: 500; }
 .r-val { font-family: var(--font-display); font-weight: 700; font-size: 15px; }
 .r-val.good { color: var(--done-b); } .r-val.bad { color: var(--danger); }
 .ts-subtitle { font-size: 12px; color: var(--text-lo); text-transform: uppercase; font-weight: 700; margin-top: 8px; }
@@ -139,7 +140,7 @@ button:active{transform:scale(.94)}
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 .modal-card { width: 100%; max-width: 360px; background: var(--ink-2); border: 1px solid var(--card-border); border-radius: 24px; padding: 24px; box-shadow: var(--shadow); position: relative; }
 .modal-card h2 { margin: 0 0 20px; font-family: var(--font-display); font-size: 20px; }
-.close-modal { position: absolute; top: 16px; right: 16px; width: 32px; height: 32px; border-radius: 50%; background: rgba(255,255,255,0.08); display: flex; align-items: center; justify-content: center; color: var(--text-hi); border:none; cursor:pointer;}
+.close-modal { position: absolute; top: 16px; right: 16px; width: 32px; height: 32px; border-radius: 50%; background: rgba(255,255,255,0.08); display: flex; align-items: center; justify-content: center; color: var(--text-hi); }
 .setting-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; font-size: 14px; font-weight: 500; }
 .setting-input { background: rgba(255,255,255,0.05); border: 1px solid var(--card-border); color: #fff; padding: 8px 12px; border-radius: 10px; width: 100px; text-align: right; font-family: var(--font-display); font-weight: 700; }
 .switch { position: relative; display: inline-block; width: 46px; height: 26px; }
@@ -189,7 +190,7 @@ input:checked + .slider { background: var(--mint); } input:checked + .slider:bef
     <symbol id="i-chat" viewBox="0 0 24 24"><path d="M20.5 12a8 8 0 0 1-11.6 7.1L3.5 20.5l1.5-4.6A8 8 0 1 1 20.5 12z"/></symbol>
     <symbol id="i-camera" viewBox="0 0 24 24"><path d="M3.5 8.5a2 2 0 0 1 2-2h2l1.6-2.5h5.8l1.6 2.5h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="3.6"/></symbol>
     <symbol id="i-turn" viewBox="0 0 24 24"><path d="M12 19V5M12 5l-6 6M12 5l6 6"/></symbol>
-    <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></symbol>
     <symbol id="i-converge" viewBox="0 0 24 24"><circle cx="6" cy="5.5" r="2.5"/><circle cx="18" cy="5.5" r="2.5"/><circle cx="12" cy="19" r="2.5"/><path d="M6 8c0 5 6 4.5 6 8.5M18 8c0 5-6 4.5-6 8.5"/></symbol>
     <symbol id="i-ruler" viewBox="0 0 24 24"><path d="M3.5 16.5 16.5 3.5l4 4-13 13z"/><path d="m8 12 2 2M11 9l2 2M14 6l2 2"/></symbol>
     <symbol id="i-fence" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5" stroke-dasharray="3.2 3.2"/><circle cx="12" cy="12" r="2.6"/></symbol>
@@ -235,7 +236,6 @@ input:checked + .slider { background: var(--mint); } input:checked + .slider:bef
 <!-- MAP TOOLS -->
 <div id="map-tools">
   <button id="my-location-btn" class="tool-btn" title="My Location"><svg class="i"><use href="#i-locate"/></svg></button>
-  <button id="compass-btn" class="tool-btn" title="Compass"><span id="compass-icon"><svg class="i"><use href="#i-locate"/></svg></span></button>
   <button id="map-style-btn" class="tool-btn" title="Layers"><svg class="i"><use href="#i-layers"/></svg></button>
   <button id="phase3-gallery-btn" class="tool-btn" title="Memories"><svg class="i"><use href="#i-camera"/></svg></button>
   <button id="group-nav-btn" class="tool-btn" title="Meet up"><svg class="i"><use href="#i-converge"/></svg></button>
@@ -474,7 +474,6 @@ input:checked + .slider { background: var(--mint); } input:checked + .slider:bef
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <!-- API KEY -->
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCGv2XX9FHRYXmsKbqQh_nXEBS6bBXCQCU&libraries=places"></script>
-<!-- CACHE BUSTER ADDED HERE -->
 <script src="app.js?v=20260925final"></script>
 
 </body>
