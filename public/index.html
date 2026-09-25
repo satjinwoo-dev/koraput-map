@@ -115,9 +115,9 @@ button:active{transform:scale(.94)}
 .n-stat .l { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; }
 .n-stat .v { font-family: var(--font-display); font-size: 22px; font-weight: 700; }
 .controls-row { display: flex; gap: 12px; }
-.btn-primary-nav { flex: 2; height: 50px; border-radius: 14px; background: linear-gradient(135deg, #34d399, #22c55e); color: #062112; font-family: var(--font-display); font-weight: 800; }
-.btn-secondary-nav { flex: 1; height: 50px; border-radius: 14px; background: rgba(255,255,255,0.08); font-weight: 700; }
-.btn-danger-nav { flex: 1; height: 50px; border-radius: 14px; background: rgba(239,68,68,0.15); color: var(--danger); font-weight: 700; }
+.btn-primary-nav { flex: 2; height: 50px; border-radius: 14px; background: linear-gradient(135deg, #34d399, #22c55e); color: #062112; font-family: var(--font-display); font-weight: 800; border:none; cursor:pointer;}
+.btn-secondary-nav { flex: 1; height: 50px; border-radius: 14px; background: rgba(255,255,255,0.08); color: var(--text-hi); font-family: var(--font-display); font-size: 15px; font-weight: 700; border:none; cursor:pointer;}
+.btn-danger-nav { flex: 1; height: 50px; border-radius: 14px; background: rgba(239,68,68,0.15); color: var(--danger); font-family: var(--font-display); font-size: 15px; font-weight: 700; border:none; cursor:pointer;}
 
 .speed-dial { position: fixed; left: 14px; bottom: calc(85px + var(--safe-b)); width: 70px; height: 70px; border-radius: 50%; z-index: 3000; background: var(--glass-solid); border: 2px solid var(--line-strong); display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: var(--shadow); }
 .speed-dial .n { font-family: var(--font-display); font-size: 24px; font-weight: 800; line-height: 1; }
@@ -140,7 +140,7 @@ button:active{transform:scale(.94)}
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 .modal-card { width: 100%; max-width: 360px; background: var(--ink-2); border: 1px solid var(--card-border); border-radius: 24px; padding: 24px; box-shadow: var(--shadow); position: relative; }
 .modal-card h2 { margin: 0 0 20px; font-family: var(--font-display); font-size: 20px; }
-.close-modal { position: absolute; top: 16px; right: 16px; width: 32px; height: 32px; border-radius: 50%; background: rgba(255,255,255,0.08); display: flex; align-items: center; justify-content: center; color: var(--text-hi); }
+.close-modal { position: absolute; top: 16px; right: 16px; width: 32px; height: 32px; border-radius: 50%; background: rgba(255,255,255,0.08); display: flex; align-items: center; justify-content: center; color: var(--text-hi); border:none; cursor:pointer;}
 .setting-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; font-size: 14px; font-weight: 500; }
 .setting-input { background: rgba(255,255,255,0.05); border: 1px solid var(--card-border); color: #fff; padding: 8px 12px; border-radius: 10px; width: 100px; text-align: right; font-family: var(--font-display); font-weight: 700; }
 .switch { position: relative; display: inline-block; width: 46px; height: 26px; }
@@ -148,7 +148,7 @@ button:active{transform:scale(.94)}
 .slider { position: absolute; cursor: pointer; inset: 0; background: rgba(255,255,255,0.1); border-radius: 26px; transition: .3s; }
 .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 4px; bottom: 4px; background: var(--text-lo); border-radius: 50%; transition: .3s; }
 input:checked + .slider { background: var(--mint); } input:checked + .slider:before { transform: translateX(20px); background: #062112; }
-#speed-graph-canvas { width: 100%; height: 80px; background: rgba(255,255,255,0.02); border-radius: 12px; border: 1px solid var(--card-border); margin-top: 10px; display: none; }
+#speed-graph-canvas { width: 100%; height: 80px; background: rgba(0,0,0,0.5); border-radius: 12px; border: 1px solid var(--card-border); margin-top: 10px; display: none; }
 
 /* CHAT, PROFILE & MEMORIES */
 #chat-container{position:fixed;right:18px;bottom:calc(18px + var(--safe-b));z-index:5000;width:min(400px,calc(100vw - 28px));height:min(620px,calc(100vh - 36px));display:none;flex-direction:column;overflow:hidden;border:1px solid var(--line-strong);border-radius:28px;background:var(--glass-solid);box-shadow:var(--shadow);backdrop-filter:blur(24px);}
@@ -175,6 +175,8 @@ input:checked + .slider { background: var(--mint); } input:checked + .slider:bef
 #phase3-memory-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
 .p3-card{position:relative;width:100%;padding-top:100%;border-radius:20px;overflow:hidden;cursor:pointer;}
 .p3-card img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}
+
+#profile-popup { display:none; }
 </style>
 </head>
 <body>
@@ -236,6 +238,7 @@ input:checked + .slider { background: var(--mint); } input:checked + .slider:bef
 <!-- MAP TOOLS -->
 <div id="map-tools">
   <button id="my-location-btn" class="tool-btn" title="My Location"><svg class="i"><use href="#i-locate"/></svg></button>
+  <button id="compass-btn" class="tool-btn" title="Compass"><span id="compass-icon"><svg class="i"><use href="#i-locate"/></svg></span></button>
   <button id="map-style-btn" class="tool-btn" title="Layers"><svg class="i"><use href="#i-layers"/></svg></button>
   <button id="phase3-gallery-btn" class="tool-btn" title="Memories"><svg class="i"><use href="#i-camera"/></svg></button>
   <button id="group-nav-btn" class="tool-btn" title="Meet up"><svg class="i"><use href="#i-converge"/></svg></button>
@@ -474,7 +477,7 @@ input:checked + .slider { background: var(--mint); } input:checked + .slider:bef
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <!-- API KEY -->
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCGv2XX9FHRYXmsKbqQh_nXEBS6bBXCQCU&libraries=places"></script>
-<script src="app.js?v=20260925final"></script>
+<script src="app.js?v=final999"></script>
 
 </body>
 </html>
