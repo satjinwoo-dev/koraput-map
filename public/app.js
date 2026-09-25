@@ -697,8 +697,20 @@ function setupBasicControlsSafe() {
         sm.onclick = e => {
             const b = e.target.closest("[data-style]"); if (!b) return;
             const s = b.dataset.style;
-            [satelliteLayer, streetLayer, darkLayer].forEach(l => { if (map.hasLayer(l)) map.removeLayer(l); });
-            const layers = {satellite:satelliteLayer, street:streetLayer, dark:darkLayer};
+            
+            // Yahan terrainLayer add kiya gaya hai remove karne ke list me
+            [satelliteLayer, streetLayer, darkLayer, terrainLayer].forEach(l => { 
+                if (map.hasLayer(l)) map.removeLayer(l); 
+            });
+            
+            // Yahan terrainLayer add kiya gaya hai layers object me
+            const layers = {
+                satellite: satelliteLayer, 
+                street: streetLayer, 
+                dark: darkLayer, 
+                terrain: terrainLayer
+            };
+            
             if (layers[s]) layers[s].addTo(map);
             document.querySelectorAll("#map-style-menu button").forEach(x => x.classList.toggle("active", x.dataset.style === s));
             safeHide("map-style-menu");
