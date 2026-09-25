@@ -1,10 +1,7 @@
 "use strict";
 
-console.log("🔥 KORAPUT MAP APP JS VERSION: 2026-09-25-FINAL-FIXED");
+console.log("🔥 KORAPUT MAP APP JS VERSION: 2026-09-25-GOOGLE-API-RESTORED");
 
-// ==========================================
-// CACHE KILLER
-// ==========================================
 if ('serviceWorker' in navigator) {
     navigator.serviceWorker.getRegistrations().then(function(registrations) {
         for(let registration of registrations) {
@@ -13,9 +10,6 @@ if ('serviceWorker' in navigator) {
     });
 }
 
-// ==========================================
-// 1. SETUP & LEAFLET MAP
-// ==========================================
 const socket = io({ transports: ["websocket", "polling"] });
 const DEFAULT_CENTER = [22.2475, 84.8828]; // Rourkela Default Center
 const DEFAULT_AVATAR = "satyam.png";
@@ -131,7 +125,7 @@ async function fetchCity(lat,lng){
 }
 
 // ==========================================
-// 2. SMART DRIVE ENGINE (Includes Fix 4: Trip Calculation)
+// SMART DRIVE ENGINE
 // ==========================================
 const SmartDrive = {
     isRecording: false,
@@ -252,8 +246,8 @@ const SmartDrive = {
     endTrip() {
         if(!this.trip.active) return;
         this.trip.active = false;
-        
         const avg = this.trip.ticks > 0 ? this.trip.sumSpeed / this.trip.ticks : 0;
+        
         const rd = $("res-dist"); if(rd) rd.textContent = this.trip.totalDist.toFixed(2) + " km";
         const ras = $("res-avg-speed"); if(ras) ras.textContent = Math.round(avg) + " km/h";
         const rms = $("res-max-speed"); if(rms) rms.textContent = Math.round(this.trip.maxSpeed) + " km/h";
@@ -266,7 +260,7 @@ const SmartDrive = {
 };
 
 // ==========================================
-// FIX 2: MEET UP ROUTING (Shortest Path & Total Time)
+// MEET UP FEATURE
 // ==========================================
 const GroupNavigation = {
     active: false, destination: null, selectedMembers: [], layerGroup: L.layerGroup().addTo(map),
@@ -313,7 +307,8 @@ const GroupNavigation = {
             if (memberId === "me") { 
                 if (!myCoords) continue; 
                 name = "You"; avatar = currentUser.avatar; coords = myCoords; 
-            } else { 
+            } 
+            else { 
                 const f = friendData[memberId]; 
                 if (!f || f.online === false || !validCoord(f.lat, f.lng)) continue; 
                 name = f.name; avatar = f.avatar; coords = { lat: f.lat, lng: f.lng }; 
@@ -352,7 +347,7 @@ const GroupNavigation = {
                 } else {
                     statsHTML += `<div style="color:#ef4444; font-size:11px; padding:10px;">No road route for ${escapeHTML(name)}</div>`;
                 }
-            } catch(e) { console.error("Meetup Route Error:", e); }
+            } catch(e) {}
         }
         if(statsList) statsList.innerHTML = statsHTML;
         if(validPaths.length > 0) map.fitBounds(L.featureGroup(validPaths).getBounds(), { padding: [40, 40] });
@@ -370,77 +365,101 @@ const GroupNavigation = {
                 if(validCoord(f.lat, f.lng) && (!last || distanceKm(last.lat, last.lng, f.lat, f.lng) > 0.1)) needsRecalc = true; 
             }
         });
-        if (needsRecalc) { clearTimeout(this.recalcTimer); this.recalcTimer = setTimeout(() => this.calculateAll(), 3000); }
+        if (needsRecalc) { 
+            clearTimeout(this.recalcTimer); 
+            this.recalcTimer = setTimeout(() => this.calculateAll(), 3000); 
+        }
     },
-    stop() { this.active = false; this.destination = null; this.selectedMembers = []; this.layerGroup.clearLayers(); safeHide("group-nav-active"); if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16); }
+    stop() { 
+        this.active = false; this.destination = null; this.selectedMembers = []; 
+        this.layerGroup.clearLayers(); safeHide("group-nav-active"); 
+        if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16); 
+    }
 };
 
 let groupRouteUpdateTimer = null;
 let isFetchingGroupRoutes = false;
 
-function triggerGroupRouteUpdate(){
+function triggerGroupRouteUpdate() {
     clearTimeout(groupRouteUpdateTimer);
-    groupRouteUpdateTimer = setTimeout(()=>updateGroupTripRoutes(),700);
+    groupRouteUpdateTimer = setTimeout(() => updateGroupTripRoutes(), 1000);
 }
 
 // ==========================================
-// FIX 4: GROUP TRIP LOGIC (Distance, Time, Fuel calculations)
+// GROUP TRIP LOGIC (Distance, Time, Fuel calculations)
 // ==========================================
-async function updateGroupTripRoutes(){
-    if(!currentTrip || isFetchingGroupRoutes) return;
-    isFetchingGroupRoutes=true;
-    const trip=currentTrip;
-    tripRoutesLayer.clearLayers();
-    tripRoadStats={};
-    const paths=[];
-    try {
-        await Promise.all((trip.members||[]).map(async (member,index)=>{
-            let coords=null;
-            if(member.id===socket.id && myCoords) coords=myCoords;
-            else if(friendData[member.id] && friendData[member.id].online!==false) coords=friendData[member.id];
-            if(!coords || !validCoord(coords.lat,coords.lng)) return;
+async function updateGroupTripRoutes() {
+    if (!currentTrip || isFetchingGroupRoutes) return;
+    isFetchingGroupRoutes = true;
+
+    const promises = currentTrip.members.map(async (member, index) => {
+        const color = routeColors[index % routeColors.length];
+        let coords = null;
+        
+        if (member.id === socket.id && myCoords) coords = myCoords;
+        else if (friendData[member.id] && friendData[member.id].online !== false) coords = friendData[member.id];
+        
+        if (coords) {
+            const last = tripLastFetchedCoords[member.id];
+            if (last && distanceKm(last.lat, last.lng, coords.lat, coords.lng) < 0.1) return;
+
             try {
-                const url=`https://router.project-osrm.org/route/v1/driving/${coords.lng},${coords.lat};${trip.lng},${trip.lat}?overview=full&geometries=geojson&alternatives=true`;
-                const res=await fetch(url); const data=await res.json();
-                if(!data.routes?.length) return;
-                const route=data.routes.reduce((a,b)=>b.distance<a.distance?b:a,data.routes[0]);
-                const color=routeColors[index%routeColors.length];
-                const line=L.polyline(route.geometry.coordinates.map(c=>[c[1],c[0]]),{color,weight:6,opacity:.88,className:'nav-path-animated'}).addTo(tripRoutesLayer);
-                line.memberId=member.id; paths.push(line);
+                const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${coords.lng},${coords.lat};${currentTrip.lng},${currentTrip.lat}?geometries=geojson&alternatives=true`);
+                const data = await res.json();
                 
-                const dist=(route.distance/1000); 
-                const mins=Math.max(1,Math.round(route.duration/60));
-                const mileage=Number(SmartDrive?.baseMileage)||18; 
-                const fuel=dist/mileage;
-                
-                tripRoadStats[member.id]={dist:dist.toFixed(2),time:mins,fuel:fuel.toFixed(2),routeDistance:route.distance,routeTime:route.duration};
-                line.bindTooltip(`${escapeHTML(member.name||'Member')} • ${dist.toFixed(1)} km • ${mins} min • ⛽ ${fuel.toFixed(2)} L`,{sticky:true});
-            } catch(e){ console.warn('Group trip route failed',member.name,e); }
-        }));
-        updateTripPanel();
-        if(paths.length) map.fitBounds(L.featureGroup(paths).getBounds(),{padding:[50,50],maxZoom:16});
-    } finally { isFetchingGroupRoutes=false; }
-}
+                if (data.routes && data.routes.length > 0) {
+                    const r = data.routes.reduce((a,b)=>b.distance<a.distance?b:a, data.routes[0]);
+                    const pathCoords = r.geometry.coordinates.map(c => [c[1], c[0]]);
+                    
+                    tripRoutesLayer.eachLayer(l => { if(l.memberId === member.id) tripRoutesLayer.removeLayer(l); });
 
-function updateTripPanel(){
-    if(!currentTrip) return;
-    const list=$("trip-members-list"); if(!list) return;
-    list.innerHTML="";
-    let totalFuel=0;
-    (currentTrip.members||[]).forEach(member=>{
-        const f=member.id===socket.id?{...currentUser,...myCoords}:friendData[member.id];
-        const st=tripRoadStats[member.id];
-        if(!st) return;
-        totalFuel+=Number(st.fuel)||0;
-        const avatar=f?.avatar||DEFAULT_AVATAR;
-        list.innerHTML+=`<div class="trip-member" style="display:flex;justify-content:space-between;gap:8px;align-items:center;"><div style="display:flex;gap:7px;align-items:center;"><img src="${escapeHTML(avatar)}" style="width:26px;height:26px;border-radius:50%;object-fit:cover;"><span>${escapeHTML(member.name||'Member')}</span></div><span style="text-align:right;font-size:11px;">${st.dist} km<br>${st.time} min • ⛽ ${st.fuel} L</span></div>`;
+                    const poly = L.polyline(pathCoords, { color: color, weight: 5, opacity: 0.8, className: 'nav-path-animated' });
+                    poly.memberId = member.id;
+                    poly.addTo(tripRoutesLayer);
+                    
+                    tripLastFetchedCoords[member.id] = { lat: coords.lat, lng: coords.lng };
+                    
+                    const distKm = r.distance / 1000;
+                    const timeMin = Math.max(1, Math.round(r.duration / 60));
+                    const mileage = SmartDrive.baseMileage || 18;
+                    const fuel = distKm / mileage;
+                    
+                    tripRoadStats[member.id] = { dist: distKm.toFixed(1), time: timeMin, fuel: fuel.toFixed(2) };
+                }
+            } catch(e) {}
+        }
     });
-    if(list.innerHTML) list.innerHTML+=`<div style="border-top:1px solid #333;margin-top:6px;padding-top:8px;font-size:12px;color:var(--mint);">Estimated group fuel: ${totalFuel.toFixed(2)} L</div>`;
+
+    await Promise.all(promises);
+    isFetchingGroupRoutes = false;
+    updateTripPanel();
 }
 
+function updateTripPanel() {
+    if(!currentTrip) return;
+    const list = $("trip-members-list"); if(!list) return;
+    list.innerHTML = "";
+    
+    const isMember = currentTrip.members.some(m => m.id === socket.id);
+    let totalGroupFuel = 0;
+
+    if(myCoords && currentUser.name && isMember) {
+        const stats = tripRoadStats[socket.id] || { dist: '--', time: '--', fuel: '--' };
+        if(stats.fuel !== '--') totalGroupFuel += Number(stats.fuel);
+        list.innerHTML += `<div class="trip-member" style="display:flex;justify-content:space-between;gap:8px;align-items:center;"><div><img src="${escapeHTML(currentUser.avatar)}"> You</div> <span style="text-align:right;">${stats.dist} km<br><small style="color:var(--muted)">${stats.time} min • ⛽ ${stats.fuel} L</small></span></div>`;
+    }
+    
+    Object.values(friendData).filter(f => f.online !== false && currentTrip.members.some(m => m.id === f.id)).forEach(f => {
+        const stats = tripRoadStats[f.id] || { dist: '--', time: '--', fuel: '--' };
+        if(stats.fuel !== '--') totalGroupFuel += Number(stats.fuel);
+        list.innerHTML += `<div class="trip-member" style="display:flex;justify-content:space-between;gap:8px;align-items:center;"><div><img src="${escapeHTML(f.avatar)}"> ${escapeHTML(f.name)}</div> <span style="text-align:right;">${stats.dist} km<br><small style="color:var(--muted)">${stats.time} min • ⛽ ${stats.fuel} L</small></span></div>`;
+    });
+    
+    if(list.innerHTML) list.innerHTML+=`<div style="border-top:1px solid #333;margin-top:6px;padding-top:8px;font-size:12px;color:var(--mint);">Estimated group fuel: ${totalGroupFuel.toFixed(2)} L</div>`;
+}
 
 // ==========================================
-// 3. CORE GPS: FAST FALLBACK + WATCH
+// CORE GPS
 // ==========================================
 socket.on("connect", () => { 
     if (currentUser.name) socket.emit("profileReady", currentUser); 
@@ -448,6 +467,11 @@ socket.on("connect", () => {
         offlineMessageQueue.forEach(msg => socket.emit("chatMessage", msg));
         offlineMessageQueue = [];
         showToast("📶 Back online! Sent queued messages.");
+    }
+    if(offlineMemoryQueue.length > 0) {
+        offlineMemoryQueue.forEach(mem => socket.emit("uploadMemoryPhoto", mem));
+        offlineMemoryQueue = [];
+        showToast("📶 Back online! Pinned queued memories.");
     }
 });
 
@@ -464,7 +488,10 @@ socket.on("geofenceAlert", (data) => {
 });
 
 function startGPS() {
-    if(!navigator.geolocation) { showToast("❌ Browser does not support GPS"); return; }
+    if(!navigator.geolocation) {
+        showToast("❌ Browser does not support GPS");
+        return;
+    }
 
     const processLocation = async (p) => {
         const lat = Number(p.coords.latitude), lng = Number(p.coords.longitude), acc = Number(p.coords.accuracy);
@@ -637,7 +664,7 @@ const gflc = $("geofence-list-close");
 if(gflc) gflc.addEventListener("click", () => safeHide("geofence-list-modal"));
 
 // ==========================================
-// 4. SETUP FUNCTIONS (NULL-SAFE CHECKED)
+// SETUP FUNCTIONS (NULL-SAFE CHECKED)
 // ==========================================
 function setupBasicControlsSafe() {
     const locBtn = $("my-location-btn");
@@ -744,7 +771,7 @@ function setupAdvancedToolsSafe() {
         else safeHide("group-nav-setup");
     };
 
-    // MEET UP BUTTONS (Fixing the Choose Point issue)
+    // MEET UP CHOOSE POINT FIX
     const gNCB = $("group-nav-close-btn");
     if(gNCB) gNCB.onclick = () => { safeHide("group-nav-setup"); mapActionMode = null; const btn = $("group-nav-btn"); if(btn) btn.classList.remove("active-tool"); };
     
@@ -755,7 +782,6 @@ function setupAdvancedToolsSafe() {
     if(gNSB) gNSB.onclick = () => { if(typeof GroupNavigation !== 'undefined') GroupNavigation.stop(); };
 
     map.on('click', (e) => {
-        // FEATURE 3: Measure Shortest Path Road Integration
         if (mapActionMode === 'measure') {
             measurePoints.push(e.latlng);
             L.circleMarker(e.latlng, {color: '#f59e0b', radius: 5, fillOpacity: 1}).addTo(measureLayer);
@@ -891,19 +917,14 @@ function setupChatSafe() {
     }
     socket.on("typing", d=>{ const t=$("typing-indicator"); if(t) { if(d.id!==socket.id && d.isTyping){t.textContent=`${escapeHTML(d.name)} is typing…`; t.style.display="block";}else t.style.display="none"; } });
 
-    const rc = $("reply-cancel");
-    if(rc) rc.onclick=()=>{replyTo=null; safeHide("reply-bar");};
+    const rc = $("reply-cancel"); if(rc) rc.onclick=()=>{replyTo=null; safeHide("reply-bar");};
     
-    const eb = $("emojiButton");
-    if(eb) eb.onclick=(e)=>{e.stopPropagation(); safeHide("attachment-menu"); const ec=$("emoji-picker-container"); if(ec) ec.style.display=ec.style.display==="block"?"none":"block";};
+    const eb = $("emojiButton"); if(eb) eb.onclick=(e)=>{e.stopPropagation(); safeHide("attachment-menu"); const ec=$("emoji-picker-container"); if(ec) ec.style.display=ec.style.display==="block"?"none":"block";};
     
     const ep = $("emojiPicker");
-    if(ep) {
-        ep.addEventListener("emoji-click",e=>{ const em=e.detail.unicode; if(reactingId){socket.emit("messageReaction",{messageId:reactingId,emoji:em});safeHide("emoji-picker-container");reactingId=null;}else if(inp){inp.value+=em;inp.focus();if(send) send.style.display="flex";if(vb) vb.style.display="none";} });
-    }
+    if(ep) { ep.addEventListener("emoji-click",e=>{ const em=e.detail.unicode; if(reactingId){socket.emit("messageReaction",{messageId:reactingId,emoji:em});safeHide("emoji-picker-container");reactingId=null;}else if(inp){inp.value+=em;inp.focus();if(send) send.style.display="flex";if(vb) vb.style.display="none";} }); }
     
-    const cab = $("chat-attach-btn");
-    if(cab) cab.onclick=(e)=>{e.stopPropagation(); safeHide("emoji-picker-container"); const am=$("attachment-menu"); if(am) am.style.display=am.style.display==="flex"?"none":"flex";};
+    const cab = $("chat-attach-btn"); if(cab) cab.onclick=(e)=>{e.stopPropagation(); safeHide("emoji-picker-container"); const am=$("attachment-menu"); if(am) am.style.display=am.style.display==="flex"?"none":"flex";};
     
     const fInp=$("chatFileInput");
     const atm = $("att-media"); if(atm) atm.onclick=()=>{if(fInp){fInp.accept="image/*,video/*";fInp.click();safeHide("attachment-menu");}};
@@ -923,8 +944,7 @@ function setupChatSafe() {
     const cForm = $("chatForm");
     if(cForm) {
         cForm.onsubmit=e=>{ 
-            e.preventDefault(); 
-            if(!inp) return;
+            e.preventDefault(); if(!inp) return;
             const t=inp.value.trim(); 
             if(t){
                 const payload = {name:currentUser.name,type:"text",data:t,replyTo};
@@ -956,26 +976,18 @@ function setupChatSafe() {
         b.appendChild(a); const rr=document.createElement("div"); rr.className="reaction-row"; b.appendChild(rr); w.appendChild(b); 
         
         const chatMsgs = $("chat-messages");
-        if(chatMsgs) {
-            chatMsgs.appendChild(w);
-            chatMsgs.scrollTop=chatMsgs.scrollHeight;
-        }
+        if(chatMsgs) { chatMsgs.appendChild(w); chatMsgs.scrollTop=chatMsgs.scrollHeight; }
         msgStore.set(m.id,{msg:m,el:w});
         if(m.senderId!==socket.id && cc && cc.style.display!=="flex"){unread++; updateUnreadBadge();}
     }
     socket.on("chatHistory", l=>l.forEach(renderMsg)); socket.on("chatMessage", renderMsg);
 }
 
-// ==========================================
-// FIX 1: MEMORIES (Date, Name, Details on Pin)
-// ==========================================
 function setupMemoriesSafe(){
     const pgb = $("phase3-gallery-btn");
     if(pgb) pgb.onclick = () => { safeShow("phase3-memory-overlay", "block"); renderMemGallery(); };
-    
     const pmc = $("phase3-memory-close");
     if(pmc) pmc.onclick = () => safeHide("phase3-memory-overlay");
-    
     const pvc = $("p3-view-close");
     if(pvc) pvc.onclick = () => safeHide("phase3-photo-viewer");
     
@@ -996,12 +1008,9 @@ function setupMemoriesSafe(){
         if(currentGallerySearch) arr=arr.filter(m=>cleanName(m.name).toLowerCase().includes(currentGallerySearch));
         arr.sort((a,b) => new Date(b.time) - new Date(a.time));
 
-        const pmc = $("phase3-memory-count");
-        if(pmc) pmc.textContent = `${arr.length} memories`;
+        const pmc = $("phase3-memory-count"); if(pmc) pmc.textContent = `${arr.length} memories`;
         const grid=$("phase3-memory-grid"), time=$("phase3-timeline-list"), emp=$("phase3-memory-empty");
-        if(grid) grid.innerHTML=""; 
-        if(time) time.innerHTML=""; 
-        if(emp) emp.style.display=arr.length?"none":"block";
+        if(grid) grid.innerHTML=""; if(time) time.innerHTML=""; if(emp) emp.style.display=arr.length?"none":"block";
 
         arr.forEach(m=>{
             if(grid) {
@@ -1025,7 +1034,6 @@ function setupMemoriesSafe(){
             const icon = L.divIcon({ className:"p3-memory-marker", html:`<div style="width:46px;height:46px;border-radius:50%;overflow:hidden;border:2px solid #fff;background:#071018;box-shadow:0 4px 15px rgba(0,0,0,.65)"><img src="${escapeHTML(m.image)}" style="width:100%;height:100%;object-fit:cover;"></div>`, iconSize:[46,46], iconAnchor:[23,23]});
             const marker = L.marker([m.lat,m.lng],{icon}).addTo(memoryLayer);
             
-            // Name and Date strictly added to Popup
             marker.bindPopup(`<div class="p3-map-popup"><img src="${escapeHTML(m.image)}"><b style="color:var(--mint);">📸 ${escapeHTML(m.name)}</b><br><small style="color:#aaa;">${new Date(m.time).toLocaleString()}</small><br><button class="p3-open-map-memory" style="margin-top:8px;padding:6px;width:100%;background:#34e0b4;color:#000;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">View Detail</button></div>`);
             
             marker.on("popupopen",e=>{ const b=e.popup.getElement()?.querySelector(".p3-open-map-memory"); if(b) b.onclick=()=>{selectedMemoryId=m.id; const pvi=$("p3-view-image"); if(pvi) pvi.src=m.image; const pvn=$("p3-view-name"); if(pvn) pvn.textContent=m.name; const pvd=$("p3-view-date"); if(pvd) pvd.textContent=new Date(m.time).toLocaleString(); safeShow("phase3-photo-viewer", "flex");}; });
@@ -1071,13 +1079,13 @@ function setupJoin(){
         if(hAv) { hAv.style.display="block"; hAv.src=currentUser.avatar; } 
         socket.emit("profileReady",currentUser); 
     }
+    
     const jForm = $("join-form") || document.querySelector("form");
-    const joinBtn = $("join-submit") || document.querySelector("button[type='submit']");
     
     const handleJoin = (e) => {
         if(e) e.preventDefault(); 
         
-        const nInp = $("nameInput") || document.querySelector("input[placeholder*='name' i]") || document.querySelector("input[type='text']");
+        const nInp = $("nameInput") || document.querySelector("input[type='text']");
         if(nInp && nInp.value.trim()) currentUser.name = cleanName(nInp.value); 
         else currentUser.name = "Explorer";
         
@@ -1085,6 +1093,7 @@ function setupJoin(){
         
         const aInp = $("avatarInput") || document.querySelector("input[type='file']");
         const f = aInp ? aInp.files?.[0] : null;
+        
         if(f){
             const r=new FileReader(); 
             r.onload=()=>{
@@ -1099,9 +1108,7 @@ function setupJoin(){
     };
 
     if(jForm) {
-        jForm.onsubmit = handleJoin;
-    } else if (joinBtn) {
-        joinBtn.onclick = handleJoin;
+        jForm.addEventListener("submit", handleJoin);
     }
     
     function done(){
@@ -1113,9 +1120,6 @@ function setupJoin(){
     }
 }
 
-// ==========================================
-// FIX 5: SEARCH BAR NAVIGATION (WITH LOCAL BIAS) 
-// ==========================================
 function setupGoogleSearch() {
     const input = $("location-search-input");
     if (!input) return;
@@ -1150,27 +1154,20 @@ function setupGoogleSearch() {
         const id=++requestId;
         timer=setTimeout(async()=>{
             try{
-                // 🔥 LOCAL BIAS LOGIC: Search near the current map view first!
                 let viewBoxStr = "";
                 if (map) {
                     const center = map.getCenter();
-                    // Creates a ~30km radius box around your current location
-                    const x1 = center.lng - 0.3; // min lon
-                    const y1 = center.lat + 0.3; // max lat
-                    const x2 = center.lng + 0.3; // max lon
-                    const y2 = center.lat - 0.3; // min lat
-                    // bounded=0 means it strongly prefers this area, but will search outside if not found
+                    const x1 = center.lng - 0.3, y1 = center.lat + 0.3;
+                    const x2 = center.lng + 0.3, y2 = center.lat - 0.3;
                     viewBoxStr = `&viewbox=${x1},${y1},${x2},${y2}&bounded=0`;
                 }
 
                 const url=`https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=6&countrycodes=in${viewBoxStr}&q=${encodeURIComponent(q)}`;
                 const res=await fetch(url,{headers:{"Accept-Language":"en"}});
                 const data=await res.json();
-                
                 if(id!==requestId) return;
                 resultBox.innerHTML="";
                 if(!Array.isArray(data)||!data.length){ resultBox.innerHTML='<div style="padding:14px;color:#8b9bab">No location found.</div>'; showResults(); return; }
-                
                 data.forEach(item=>{
                     const lat=Number(item.lat),lng=Number(item.lon); if(!validCoord(lat,lng)) return;
                     const name=item.name || item.display_name.split(",")[0];
@@ -1200,7 +1197,7 @@ function setupGoogleSearch() {
         searchPlace=place; hideResults(); input.value=place.name;
         if(clearBtn) clearBtn.style.display="block";
         searchLayer.clearLayers(); navigationLayer.clearLayers();
-        const marker=L.marker([place.lat,place.lng],{icon:L.divIcon({className:'geofence-marker',html:'📍',iconSize:[34,34],iconAnchor:[17,34]})}).addTo(searchLayer);
+        const marker=L.marker([place.lat,place.lng],{icon:L.divIcon({className:'search-destination-marker',html:'📍',iconSize:[34,34],iconAnchor:[17,34]})}).addTo(searchLayer);
         marker.bindTooltip(place.name,{direction:'top',offset:[0,-28],className:'weather-badge'}).openTooltip();
         map.flyTo([place.lat,place.lng],16,{duration:.8});
 
@@ -1226,7 +1223,7 @@ function setupGoogleSearch() {
             setTimeout(()=>{
                 const el=marker.getPopup()?.getElement(); if(!el)return;
                 const d=el.querySelector("#popup-directions"), st=el.querySelector("#popup-start");
-                if(d)d.onclick=()=>{map.fitBounds(line.getBounds(),{padding:[70,220]});showToast(\`🗺️ Shortest route: \${dist} km • ⏱️ \${mins} min\`,5000);};
+                if(d)d.onclick=()=>{map.fitBounds(line.getBounds(),{padding:[70,220]});showToast(`🗺️ Shortest route: ${dist} km • ⏱️ ${mins} min`,5000);};
                 if(st)st.onclick=()=>{marker.closePopup();startSearchNavigation(place.lat,place.lng,place.name,route);};
             },50);
         }else{
@@ -1241,7 +1238,6 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
     navigationLayer.clearLayers();
     if(navWatchId) navigator.geolocation.clearWatch(navWatchId);
     
-    // Hide regular UI elements
     safeHide("map-tools");
     safeHide("search-container");
     safeHide("top-header");
