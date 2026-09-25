@@ -1,7 +1,17 @@
 "use strict";
 
+console.log("🔥 KORAPUT MAP APP JS VERSION: 2026-09-25-FINAL");
+
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations().then(function(registrations) {
+        for(let registration of registrations) {
+            registration.unregister();
+        }
+    });
+}
+
 const socket = io({ transports: ["websocket", "polling"] });
-const DEFAULT_CENTER = [18.8136, 82.7153];
+const DEFAULT_CENTER = [22.2475, 84.8828]; 
 const DEFAULT_AVATAR = "satyam.png";
 const MAX_NAME = 40;
 const MAX_CHAT_FILE = 5 * 1024 * 1024;
@@ -55,7 +65,7 @@ let currentGalleryFilter = "all", currentGallerySearch = "", selectedMemoryId = 
 
 let searchMarker = null;
 let offlineMessageQueue = [];
-let isNetworkOnline = navigator.onLine;
+let offlineMemoryQueue = [];
 
 const $ = id => document.getElementById(id);
 const safeShow = (id, displayStyle = "flex") => { const el = $(id); if (el) el.style.display = displayStyle; };
@@ -114,7 +124,7 @@ async function fetchCity(lat,lng){
 }
 
 // ==========================================
-// FIX 4: SMART DRIVE ENGINE & GROUP TRIP LOGIC
+// SMART DRIVE ENGINE
 // ==========================================
 const SmartDrive = {
     isRecording: false,
@@ -126,42 +136,29 @@ const SmartDrive = {
     init() {
         const savedMil = localStorage.getItem("sd_mileage");
         if(savedMil) this.baseMileage = parseFloat(savedMil);
-        if($("fuel-input-val")) $("fuel-input-val").value = this.baseMileage;
+        const fiv = $("fuel-input-val");
+        if(fiv) fiv.value = this.baseMileage;
         
         const savedRec = localStorage.getItem("sd_record");
         this.isRecording = savedRec === "1";
-        if($("speed-record-toggle")) $("speed-record-toggle").checked = this.isRecording;
-        if($("speed-graph-canvas")) $("speed-graph-canvas").style.display = this.isRecording ? "block" : "none";
+        const srt = $("speed-record-toggle");
+        if(srt) srt.checked = this.isRecording;
+        
+        const sgc = $("speed-graph-canvas");
+        if(sgc) sgc.style.display = this.isRecording ? "block" : "none";
 
-        $("fuel-input-val")?.addEventListener("change", (e) => {
-            this.baseMileage = parseFloat(e.target.value) || 18;
-            localStorage.setItem("sd_mileage", this.baseMileage);
-        });
-        
-        $("speed-record-toggle")?.addEventListener("change", (e) => {
-            this.isRecording = e.target.checked;
-            localStorage.setItem("sd_record", this.isRecording ? "1" : "0");
-            if($("speed-graph-canvas")) $("speed-graph-canvas").style.display = this.isRecording ? "block" : "none";
-            if(!this.isRecording) this.speedHistory = [];
-        });
+        if(fiv) fiv.addEventListener("change", (e) => { this.baseMileage = parseFloat(e.target.value) || 18; localStorage.setItem("sd_mileage", this.baseMileage); });
+        if(srt) srt.addEventListener("change", (e) => { this.isRecording = e.target.checked; localStorage.setItem("sd_record", this.isRecording ? "1" : "0"); const sgc2 = $("speed-graph-canvas"); if(sgc2) sgc2.style.display = this.isRecording ? "block" : "none"; if(!this.isRecording) this.speedHistory = []; });
 
-        $("profile-open-btn")?.addEventListener("click", () => {
-            safeShow("profile-settings-modal", "flex");
-        });
-        
-        $("close-settings-btn")?.addEventListener("click", () => {
-            safeHide("profile-settings-modal");
-        });
-        
-        $("close-results-btn")?.addEventListener("click", () => {
-            safeHide("results-panel");
-        });
+        const pob = $("profile-open-btn");
+        if(pob) pob.addEventListener("click", () => safeShow("profile-settings-modal", "flex"));
+        const csb = $("close-settings-btn");
+        if(csb) csb.addEventListener("click", () => safeHide("profile-settings-modal"));
+        const crb = $("close-results-btn");
+        if(crb) crb.addEventListener("click", () => safeHide("results-panel"));
         
         document.addEventListener("click", () => {
-            if(!this.audioCtx) {
-                const AudioContext = window.AudioContext || window.webkitAudioContext;
-                if(AudioContext) this.audioCtx = new AudioContext();
-            }
+            if(!this.audioCtx) { const AudioContext = window.AudioContext || window.webkitAudioContext; if(AudioContext) this.audioCtx = new AudioContext(); }
             if(this.audioCtx && this.audioCtx.state === "suspended") this.audioCtx.resume();
         }, {passive:true});
     },
@@ -171,8 +168,7 @@ const SmartDrive = {
         try {
             if (this.audioCtx.state === "suspended") this.audioCtx.resume();
             const osc = this.audioCtx.createOscillator(), gain = this.audioCtx.createGain();
-            osc.type = "square"; osc.frequency.value = freq;
-            gain.gain.value = 0.15;
+            osc.type = "square"; osc.frequency.value = freq; gain.gain.value = 0.15;
             osc.connect(gain); gain.connect(this.audioCtx.destination);
             osc.start(); osc.stop(this.audioCtx.currentTime + ms/1000);
         } catch(e) {}
@@ -181,8 +177,7 @@ const SmartDrive = {
     triggerRedMap() {
         const overlay = $("speed-danger-overlay") || $("speed-alert-overlay");
         if(overlay) {
-            overlay.classList.add("active");
-            clearTimeout(this.overlayTimer);
+            overlay.classList.add("active"); clearTimeout(this.overlayTimer);
             this.overlayTimer = setTimeout(() => overlay.classList.remove("active"), 10000);
         }
     },
@@ -193,112 +188,73 @@ const SmartDrive = {
         if(dial) {
             if(speed > 3) {
                 dial.style.display = "flex";
-                if($("speed-n")) $("speed-n").textContent = Math.round(speed);
+                const sn = $("speed-n"); if(sn) sn.textContent = Math.round(speed);
                 dial.className = "speed-dial " + (speed >= 100 ? "danger" : (speed >= 80 ? "warn" : ""));
-            } else {
-                dial.style.display = "none";
-            }
+            } else { dial.style.display = "none"; }
         }
 
         if (now - this.lastAlertTime < 15000) return; 
 
-        if (speed >= 100) {
-            showToast("🚨 DANGER: Speed 100+ km/h! Slow Down!", 5000);
-            this.triggerRedMap();
-            this.beep(800, 3000); 
-            this.lastAlertTime = now;
-        } else if (speed >= 80) {
-            showToast("⚠️ WARNING: Crossing 80 km/h.", 4000);
-            this.beep(600, 400); 
-            this.lastAlertTime = now;
-        } else if (speed >= 60) {
-            showToast("🟢 Alert: Speed above 60 km/h.", 3000);
-            this.lastAlertTime = now;
-        }
+        if (speed >= 100) { showToast("🚨 DANGER: Speed 100+ km/h! Slow Down!", 5000); this.triggerRedMap(); this.beep(800, 3000); this.lastAlertTime = now; } 
+        else if (speed >= 80) { showToast("⚠️ WARNING: Crossing 80 km/h.", 4000); this.beep(600, 400); this.lastAlertTime = now; } 
+        else if (speed >= 60) { showToast("🟢 Alert: Speed above 60 km/h.", 3000); this.lastAlertTime = now; }
     },
 
     tick(speedKmh, distKm) {
         this.checkSafetyLimits(speedKmh);
-
         if (!this.trip.active && !this.isRecording) return;
+        this.speedHistory.push(speedKmh);
+        if(this.speedHistory.length > 50) this.speedHistory.shift();
+        this.drawGraph();
 
-        if (this.isRecording) {
-            this.speedHistory.push(speedKmh);
-            if(this.speedHistory.length > 50) this.speedHistory.shift();
-            this.drawGraph();
-        }
-
-        // Tracking Group Trip Data
         if (this.trip.active && distKm > 0) {
-            this.trip.totalDist += distKm;
-            this.trip.ticks += 1;
-            this.trip.sumSpeed += speedKmh;
+            this.trip.totalDist += distKm; this.trip.ticks += 1; this.trip.sumSpeed += speedKmh;
             if(speedKmh > this.trip.maxSpeed) this.trip.maxSpeed = speedKmh;
-
             if(speedKmh >= 40 && speedKmh <= 60) this.trip.ranges.efficient++;
             else if (speedKmh > 80) this.trip.ranges.inefficient++;
             else this.trip.ranges.moderate++;
 
             let currentEff = this.baseMileage;
-            if (speedKmh > 60) {
-                currentEff -= (speedKmh - 60) * 0.005 * this.baseMileage; 
-            } else if (speedKmh < 40) {
-                currentEff -= (40 - speedKmh) * 0.004 * this.baseMileage; 
-            }
+            if (speedKmh > 60) currentEff -= (speedKmh - 60) * 0.005 * this.baseMileage; 
+            else if (speedKmh < 40) currentEff -= (40 - speedKmh) * 0.004 * this.baseMileage; 
             currentEff = Math.max(2, currentEff); 
             this.trip.actualFuel += (distKm / currentEff);
         }
     },
 
     drawGraph() {
-        const cvs = $("speed-graph-canvas");
-        if(!cvs || !this.isRecording) return;
-        const ctx = cvs.getContext("2d");
-        const w = cvs.width = cvs.offsetWidth, h = cvs.height = cvs.offsetHeight;
-        
+        const cvs = $("speed-graph-canvas"); if(!cvs || !this.isRecording) return;
+        const ctx = cvs.getContext("2d"); const w = cvs.width = cvs.offsetWidth, h = cvs.height = cvs.offsetHeight;
         ctx.clearRect(0,0,w,h);
         if(this.speedHistory.length < 2) return;
-        
         const max = Math.max(60, ...this.speedHistory);
-        ctx.beginPath();
-        ctx.strokeStyle = "#3b82f6";
-        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.strokeStyle = "#3b82f6"; ctx.lineWidth = 2;
         this.speedHistory.forEach((v, i) => {
-            const x = (i / (this.speedHistory.length - 1)) * w;
-            const y = h - (v / max) * h * 0.8;
+            const x = (i / (this.speedHistory.length - 1)) * w; const y = h - (v / max) * h * 0.8;
             if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
         });
         ctx.stroke();
     },
 
-    startTrip() {
-        this.trip = { active: true, startTime: Date.now(), totalDist: 0, actualFuel: 0, maxSpeed: 0, sumSpeed: 0, ticks: 0, ranges: {efficient:0, moderate:0, inefficient:0} };
-    },
+    startTrip() { this.trip = { active: true, startTime: Date.now(), totalDist: 0, actualFuel: 0, maxSpeed: 0, sumSpeed: 0, ticks: 0, ranges: {efficient:0, moderate:0, inefficient:0} }; },
     
     endTrip() {
-        if(!this.trip.active) return;
-        
-        const avg = this.trip.ticks > 0 ? this.trip.sumSpeed / this.trip.ticks : 0;
-        
-        if($("res-dist")) $("res-dist").textContent = this.trip.totalDist.toFixed(2) + " km";
-        if($("res-avg-speed")) $("res-avg-speed").textContent = Math.round(avg) + " km/h";
-        if($("res-max-speed")) $("res-max-speed").textContent = Math.round(this.trip.maxSpeed) + " km/h";
-        
-        const effMin = Math.round(this.trip.ranges.efficient / 60) || 0;
-        const ineffMin = Math.round(this.trip.ranges.inefficient / 60) || 0;
-        
-        if($("res-eff-time")) $("res-eff-time").textContent = effMin + " min";
-        if($("res-ineff-time")) $("res-ineff-time").textContent = ineffMin + " min";
-        if($("res-base-mlg")) $("res-base-mlg").textContent = this.baseMileage + " km/L";
-        if($("res-actual-fuel")) $("res-actual-fuel").textContent = this.trip.actualFuel.toFixed(2) + " L";
-
+        if(!this.trip.active || this.trip.ticks === 0) return;
         this.trip.active = false;
+        const avg = this.trip.sumSpeed / this.trip.ticks;
+        const rd = $("res-dist"); if(rd) rd.textContent = this.trip.totalDist.toFixed(2) + " km";
+        const ras = $("res-avg-speed"); if(ras) ras.textContent = Math.round(avg) + " km/h";
+        const rms = $("res-max-speed"); if(rms) rms.textContent = Math.round(this.trip.maxSpeed) + " km/h";
+        const ret = $("res-eff-time"); if(ret) ret.textContent = Math.round(this.trip.ranges.efficient / 60) + " min";
+        const rit = $("res-ineff-time"); if(rit) rit.textContent = Math.round(this.trip.ranges.inefficient / 60) + " min";
+        const rbm = $("res-base-mlg"); if(rbm) rbm.textContent = this.baseMileage + " km/L";
+        const raf = $("res-actual-fuel"); if(raf) raf.textContent = this.trip.actualFuel.toFixed(2) + " L";
         safeShow("results-panel", "flex");
     }
 };
 
 // ==========================================
-// FIX 2: MEET UP FEATURE (Shortest Path for everyone)
+// FEATURE 2: MEET UP (Shortest Path for everyone)
 // ==========================================
 const GroupNavigation = {
     active: false, destination: null, selectedMembers: [], layerGroup: L.layerGroup().addTo(map),
@@ -337,7 +293,6 @@ const GroupNavigation = {
 
         let statsHTML = "", validPaths = [];
 
-        // OSRM Routing for every single member to the meet up point
         for(let i = 0; i < this.selectedMembers.length; i++) {
             const memberId = this.selectedMembers[i];
             const color = this.colors[i % this.colors.length];
@@ -354,10 +309,10 @@ const GroupNavigation = {
             }
 
             try {
-                const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${coords.lng},${coords.lat};${this.destination.lng},${this.destination.lat}?overview=full&geometries=geojson`);
+                const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${coords.lng},${coords.lat};${this.destination.lng},${this.destination.lat}?overview=full&geometries=geojson&alternatives=true`);
                 const data = await res.json();
                 if(data.routes && data.routes.length > 0) {
-                    const r = data.routes[0];
+                    const r = data.routes.reduce((a,b)=>b.distance<a.distance?b:a, data.routes[0]);
                     const pathCoords = r.geometry.coordinates.map(c => [c[1], c[0]]);
                     
                     this.layerGroup.eachLayer(l => { if(l.memberId === memberId) this.layerGroup.removeLayer(l); });
@@ -368,7 +323,7 @@ const GroupNavigation = {
                     validPaths.push(poly);
 
                     const distKm = (r.distance / 1000).toFixed(1); 
-                    const timeMin = Math.round(r.duration / 60);
+                    const timeMin = Math.max(1, Math.round(r.duration / 60));
                     
                     statsHTML += `
                     <div style="display:flex; justify-content:space-between; align-items:center; padding:10px; background:rgba(255,255,255,0.05); border-radius:10px; border-left:4px solid ${color};">
@@ -386,9 +341,7 @@ const GroupNavigation = {
                 } else {
                     statsHTML += `<div style="color:#ef4444; font-size:11px; padding:10px;">No road route for ${escapeHTML(name)}</div>`;
                 }
-            } catch(e) {
-                console.error("Meetup Route Error:", e);
-            }
+            } catch(e) {}
         }
         if(statsList) statsList.innerHTML = statsHTML;
         if(validPaths.length > 0) map.fitBounds(L.featureGroup(validPaths).getBounds(), { padding: [40, 40] });
@@ -418,16 +371,87 @@ const GroupNavigation = {
     }
 };
 
-const gNCB = $("group-nav-close-btn");
-if(gNCB) gNCB.onclick = () => { safeHide("group-nav-setup"); mapActionMode = null; const btn = $("group-nav-btn"); if(btn) btn.classList.remove("active-tool"); };
-const gNNB = $("group-nav-next-btn");
-if(gNNB) gNNB.onclick = () => GroupNavigation.startSelection();
-const gNSB = $("group-nav-stop-btn");
-if(gNSB) gNSB.onclick = () => GroupNavigation.stop();
+let groupRouteUpdateTimer = null;
+let isFetchingGroupRoutes = false;
 
+function triggerGroupRouteUpdate() {
+    clearTimeout(groupRouteUpdateTimer);
+    groupRouteUpdateTimer = setTimeout(() => updateGroupTripRoutes(), 1000);
+}
+
+// FEATURE 4: Group Trip calculation (Distance, Time, Petrol/Fuel)
+async function updateGroupTripRoutes() {
+    if (!currentTrip || isFetchingGroupRoutes) return;
+    isFetchingGroupRoutes = true;
+
+    const promises = currentTrip.members.map(async (member, index) => {
+        const color = routeColors[index % routeColors.length];
+        let coords = null;
+        
+        if (member.id === socket.id && myCoords) coords = myCoords;
+        else if (friendData[member.id] && friendData[member.id].online !== false) coords = friendData[member.id];
+        
+        if (coords) {
+            const last = tripLastFetchedCoords[member.id];
+            if (last && distanceKm(last.lat, last.lng, coords.lat, coords.lng) < 0.1) return;
+
+            try {
+                const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${coords.lng},${coords.lat};${currentTrip.lng},${currentTrip.lat}?geometries=geojson&alternatives=true`);
+                const data = await res.json();
+                
+                if (data.routes && data.routes.length > 0) {
+                    const r = data.routes.reduce((a,b)=>b.distance<a.distance?b:a, data.routes[0]);
+                    const pathCoords = r.geometry.coordinates.map(c => [c[1], c[0]]);
+                    
+                    tripRoutesLayer.eachLayer(l => { if(l.memberId === member.id) tripRoutesLayer.removeLayer(l); });
+
+                    const poly = L.polyline(pathCoords, { color: color, weight: 5, opacity: 0.8, className: 'nav-path-animated' });
+                    poly.memberId = member.id;
+                    poly.addTo(tripRoutesLayer);
+                    
+                    tripLastFetchedCoords[member.id] = { lat: coords.lat, lng: coords.lng };
+                    
+                    const distKm = r.distance / 1000;
+                    const timeMin = Math.max(1, Math.round(r.duration / 60));
+                    const mileage = SmartDrive.baseMileage || 18;
+                    const fuel = distKm / mileage;
+                    
+                    tripRoadStats[member.id] = { dist: distKm.toFixed(1), time: timeMin, fuel: fuel.toFixed(2) };
+                }
+            } catch(e) {}
+        }
+    });
+
+    await Promise.all(promises);
+    isFetchingGroupRoutes = false;
+    updateTripPanel();
+}
+
+function updateTripPanel() {
+    if(!currentTrip) return;
+    const list = $("trip-members-list"); if(!list) return;
+    list.innerHTML = "";
+    
+    const isMember = currentTrip.members.some(m => m.id === socket.id);
+    let totalGroupFuel = 0;
+
+    if(myCoords && currentUser.name && isMember) {
+        const stats = tripRoadStats[socket.id] || { dist: '--', time: '--', fuel: '--' };
+        if(stats.fuel !== '--') totalGroupFuel += Number(stats.fuel);
+        list.innerHTML += `<div class="trip-member" style="display:flex;justify-content:space-between;gap:8px;align-items:center;"><div><img src="${escapeHTML(currentUser.avatar)}"> You</div> <span style="text-align:right;">${stats.dist} km<br><small style="color:var(--muted)">${stats.time} min • ⛽ ${stats.fuel} L</small></span></div>`;
+    }
+    
+    Object.values(friendData).filter(f => f.online !== false && currentTrip.members.some(m => m.id === f.id)).forEach(f => {
+        const stats = tripRoadStats[f.id] || { dist: '--', time: '--', fuel: '--' };
+        if(stats.fuel !== '--') totalGroupFuel += Number(stats.fuel);
+        list.innerHTML += `<div class="trip-member" style="display:flex;justify-content:space-between;gap:8px;align-items:center;"><div><img src="${escapeHTML(f.avatar)}"> ${escapeHTML(f.name)}</div> <span style="text-align:right;">${stats.dist} km<br><small style="color:var(--muted)">${stats.time} min • ⛽ ${stats.fuel} L</small></span></div>`;
+    });
+    
+    if(list.innerHTML) list.innerHTML+=`<div style="border-top:1px solid #333;margin-top:6px;padding-top:8px;font-size:12px;color:var(--mint);">Estimated group fuel: ${totalGroupFuel.toFixed(2)} L</div>`;
+}
 
 // ==========================================
-// CORE GPS
+// CORE GPS: FAST FALLBACK + WATCH
 // ==========================================
 socket.on("connect", () => { 
     if (currentUser.name) socket.emit("profileReady", currentUser); 
@@ -435,6 +459,11 @@ socket.on("connect", () => {
         offlineMessageQueue.forEach(msg => socket.emit("chatMessage", msg));
         offlineMessageQueue = [];
         showToast("📶 Back online! Sent queued messages.");
+    }
+    if(offlineMemoryQueue.length > 0) {
+        offlineMemoryQueue.forEach(mem => socket.emit("uploadMemoryPhoto", mem));
+        offlineMemoryQueue = [];
+        showToast("📶 Back online! Pinned queued memories.");
     }
 });
 
@@ -519,8 +548,6 @@ function startGPS() {
 
         socket.emit("updateLocation",{name:currentUser.name, avatar:currentUser.avatar, lat, lng, alt, speedKmh, weather:myWeather});
         updateFriendBadges(); 
-        
-        // Group Trip Live Update Fix
         if(typeof triggerGroupRouteUpdate === 'function') triggerGroupRouteUpdate(); 
         if(typeof GroupNavigation.onLiveUpdate === 'function') GroupNavigation.onLiveUpdate();
     };
@@ -580,7 +607,7 @@ function showProfilePopup(u) {
     const ppw = $("profile-popup-weather");
     if(ppw) ppw.textContent = u.weather || "--";
     
-    // Fallback to OSRM if Google is not working for friend routing
+    // FEATURE 5: Fallback to OSRM if Google is not working for friend routing
     const pnb = $("profile-nav-btn");
     if(pnb) { 
         pnb.onclick = () => { 
@@ -590,7 +617,7 @@ function showProfilePopup(u) {
                 .then(res => res.json())
                 .then(data => {
                     if(data.routes && data.routes.length > 0) {
-                        startSearchNavigation(u.lat, u.lng, u.name, data.routes[0], true);
+                        startSearchNavigation(u.lat, u.lng, u.name, data.routes[0]);
                     }
                 });
             }
@@ -629,63 +656,77 @@ const gflc = $("geofence-list-close");
 if(gflc) gflc.addEventListener("click", () => safeHide("geofence-list-modal"));
 
 // ==========================================
-// 4. SETUP FUNCTIONS 
+// 4. SETUP FUNCTIONS (NULL-SAFE CHECKED)
 // ==========================================
-function setupBasicControls() {
-    $("my-location-btn").onclick = () => {
-        if(myCoords) map.flyTo([myCoords.lat,myCoords.lng], 16); 
+function setupBasicControlsSafe() {
+    const locBtn = $("my-location-btn");
+    if (locBtn) locBtn.onclick = () => {
+        if (myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16, {animate:true, duration:.8});
+        else showToast("📍 Waiting for GPS location...");
     };
 
-    $("compass-btn").onclick = () => {
-        map.setView(map.getCenter(), map.getZoom(), {animate:true}); 
-        const ci = $("compass-icon"); if(ci) ci.style.transform="rotate(0deg)"; 
+    const compassBtn = $("compass-btn");
+    if (compassBtn) compassBtn.onclick = () => {
+        map.setView(map.getCenter(), map.getZoom(), {animate:true});
+        const ci = $("compass-icon"); if (ci) ci.style.transform = "rotate(0deg)";
     };
 
-    $("map-style-btn").onclick = (e) => { 
-        e.stopPropagation(); 
-        const sm = $("map-style-menu"); 
-        if(sm) sm.style.display = sm.style.display==="flex"?"none":"flex"; 
-    };
-
+    const styleBtn = $("map-style-btn");
     const sm = $("map-style-menu");
-    if(sm) {
-        sm.onclick = (e) => {
-            const b=e.target.closest("[data-style]"); if(!b) return; const s=b.dataset.style;
-            [satelliteLayer,streetLayer,darkLayer].forEach(l=>map.removeLayer(l));
-            ({satellite:satelliteLayer,street:streetLayer,dark:darkLayer})[s].addTo(map);
-            document.querySelectorAll("#map-style-menu button").forEach(x=>x.classList.toggle("active",x.dataset.style===s));
+    if (styleBtn && sm) {
+        styleBtn.onclick = e => {
+            e.stopPropagation();
+            sm.style.display = sm.style.display === "flex" ? "none" : "flex";
+        };
+        sm.onclick = e => {
+            const b = e.target.closest("[data-style]"); if (!b) return;
+            const s = b.dataset.style;
+            [satelliteLayer, streetLayer, darkLayer].forEach(l => { if (map.hasLayer(l)) map.removeLayer(l); });
+            const layers = {satellite:satelliteLayer, street:streetLayer, dark:darkLayer};
+            if (layers[s]) layers[s].addTo(map);
+            document.querySelectorAll("#map-style-menu button").forEach(x => x.classList.toggle("active", x.dataset.style === s));
             safeHide("map-style-menu");
         };
     }
 
-    if (window.DeviceOrientationEvent) {
-        window.addEventListener("deviceorientation", e => { 
-            const icon = $("compass-icon"); 
-            if (icon && typeof e.webkitCompassHeading === "number") icon.style.transform = `rotate(${-e.webkitCompassHeading}deg)`; 
-            else if (icon && typeof e.alpha === "number") icon.style.transform = `rotate(${e.alpha}deg)`; 
-        }, true);
-    }
+    if (window.DeviceOrientationEvent) window.addEventListener("deviceorientation", e => {
+        const icon = $("compass-icon"); if (!icon) return;
+        if (typeof e.webkitCompassHeading === "number") icon.style.transform = `rotate(${-e.webkitCompassHeading}deg)`;
+        else if (typeof e.alpha === "number") icon.style.transform = `rotate(${e.alpha}deg)`;
+    }, true);
 
-    window.addEventListener('offline', () => showToast("📶 You are offline. Data saved locally."));
-    window.addEventListener('online', () => {
+    window.addEventListener("offline", () => showToast("📶 You are offline. Data saved locally."));
+    window.addEventListener("online", () => {
         showToast("📶 Back online!");
-        if(offlineMessageQueue.length > 0) {
+        if (offlineMessageQueue.length) {
             offlineMessageQueue.forEach(msg => socket.emit("chatMessage", msg));
             offlineMessageQueue = [];
+        }
+        if (typeof offlineMemoryQueue !== "undefined" && offlineMemoryQueue.length) {
+            offlineMemoryQueue.forEach(mem => socket.emit("uploadMemoryPhoto", mem));
+            offlineMemoryQueue = [];
         }
     });
 }
 
-function setupAdvancedTools() {
-    $("measure-btn").onclick = () => {
+function setupAdvancedToolsSafe() {
+    const mb = $("measure-btn");
+    if(mb) mb.onclick = () => {
         mapActionMode = mapActionMode === 'measure' ? null : 'measure';
-        $("measure-btn").classList.toggle("active-tool", mapActionMode === 'measure');
-        $("geofence-btn").classList.remove("active-tool"); $("trip-btn").classList.remove("active-tool"); $("group-nav-btn").classList.remove("active-tool");
-        if(mapActionMode !== 'measure') { measureLayer.clearLayers(); measurePoints = []; }
+        mb.classList.toggle("active-tool", mapActionMode === 'measure');
+        const gb = $("geofence-btn"); if(gb) gb.classList.remove("active-tool"); 
+        const tb = $("trip-btn"); if(tb) tb.classList.remove("active-tool"); 
+        const gnb = $("group-nav-btn"); if(gnb) gnb.classList.remove("active-tool");
+        if(mapActionMode !== 'measure') { 
+            measureLayer.clearLayers(); 
+            measurePoints = []; 
+            const mr=$("measure-result-panel"); if(mr) mr.style.display="none"; 
+        }
         else showToast("📍 Tap two points on the map to measure road distance");
     };
 
-    $("geofence-btn").onclick = () => {
+    const gb = $("geofence-btn");
+    if(gb) gb.onclick = () => {
         geoClickCount++;
         if (geoClickCount === 3) {
             clearTimeout(geoClickTimer); geoClickCount = 0; renderGeofenceList(); return;
@@ -693,29 +734,37 @@ function setupAdvancedTools() {
         clearTimeout(geoClickTimer);
         geoClickTimer = setTimeout(() => {
             geoClickCount = 0; mapActionMode = mapActionMode === 'geofence' ? null : 'geofence';
-            $("geofence-btn").classList.toggle("active-tool", mapActionMode === 'geofence');
-            $("measure-btn").classList.remove("active-tool"); $("trip-btn").classList.remove("active-tool"); $("group-nav-btn").classList.remove("active-tool");
+            gb.classList.toggle("active-tool", mapActionMode === 'geofence');
+            const mb = $("measure-btn"); if(mb) mb.classList.remove("active-tool"); 
+            const tb = $("trip-btn"); if(tb) tb.classList.remove("active-tool"); 
+            const gnb = $("group-nav-btn"); if(gnb) gnb.classList.remove("active-tool");
             if(mapActionMode === 'geofence') showToast("⭕ Tap map to set Geofence. (Tap button 3 times to view/delete)");
         }, 900);
     };
 
-    $("trip-btn").onclick = () => {
+    const tb = $("trip-btn");
+    if(tb) tb.onclick = () => {
         mapActionMode = mapActionMode === 'trip' ? null : 'trip';
-        $("trip-btn").classList.toggle("active-tool", mapActionMode === 'trip');
-        $("measure-btn").classList.remove("active-tool"); $("geofence-btn").classList.remove("active-tool"); $("group-nav-btn").classList.remove("active-tool");
+        tb.classList.toggle("active-tool", mapActionMode === 'trip');
+        const mb = $("measure-btn"); if(mb) mb.classList.remove("active-tool"); 
+        const gb = $("geofence-btn"); if(gb) gb.classList.remove("active-tool"); 
+        const gnb = $("group-nav-btn"); if(gnb) gnb.classList.remove("active-tool");
         if(mapActionMode === 'trip') showToast("🚗 Tap the map to set Group Trip Destination");
     };
 
-    $("group-nav-btn").onclick = () => {
+    const gnb = $("group-nav-btn");
+    if(gnb) gnb.onclick = () => {
         mapActionMode = mapActionMode === 'group-nav' ? null : 'group-nav';
-        $("group-nav-btn").classList.toggle("active-tool", mapActionMode === 'group-nav');
-        $("measure-btn").classList.remove("active-tool"); $("geofence-btn").classList.remove("active-tool"); $("trip-btn").classList.remove("active-tool");
+        gnb.classList.toggle("active-tool", mapActionMode === 'group-nav');
+        const mb = $("measure-btn"); if(mb) mb.classList.remove("active-tool"); 
+        const gb = $("geofence-btn"); if(gb) gb.classList.remove("active-tool"); 
+        const tb = $("trip-btn"); if(tb) tb.classList.remove("active-tool");
         if(mapActionMode === 'group-nav') { if(typeof GroupNavigation !== 'undefined') GroupNavigation.openSetup(); }
         else safeHide("group-nav-setup");
     };
 
     map.on('click', (e) => {
-        // Fix 3: Measure Shortest Path Road Integration
+        // FEATURE 3: Measure Shortest Path Road Integration
         if (mapActionMode === 'measure') {
             measurePoints.push(e.latlng);
             L.circleMarker(e.latlng, {color: '#f59e0b', radius: 5, fillOpacity: 1}).addTo(measureLayer);
@@ -724,61 +773,52 @@ function setupAdvancedTools() {
                 const p1 = measurePoints[0], p2 = measurePoints[1];
                 showToast("📏 Calculating road distance...", 2000);
                 
-                fetch(`https://router.project-osrm.org/route/v1/driving/${p1.lng},${p1.lat};${p2.lng},${p2.lat}?overview=full&geometries=geojson`)
+                fetch(`https://router.project-osrm.org/route/v1/driving/${p1.lng},${p1.lat};${p2.lng},${p2.lat}?overview=full&geometries=geojson&alternatives=true`)
                 .then(r => r.json())
                 .then(data => {
                     measureLayer.clearLayers();
                     if(data.routes && data.routes.length > 0) {
-                        const r = data.routes[0];
+                        const r = data.routes.reduce((a,b) => b.distance < a.distance ? b : a, data.routes[0]);
                         const coords = r.geometry.coordinates.map(c => [c[1], c[0]]);
-                        L.polyline(coords, {color: '#f59e0b', weight: 4, dashArray: '5, 10', className: 'nav-path-animated'}).addTo(measureLayer);
+                        L.polyline(coords, {color:'#f59e0b', weight:6, className:'nav-path-animated'}).addTo(measureLayer);
+                        L.marker(p1, {icon:L.divIcon({className:'measure-point',html:'A',iconSize:[24,24],iconAnchor:[12,12]})}).addTo(measureLayer);
+                        L.marker(p2, {icon:L.divIcon({className:'measure-point',html:'B',iconSize:[24,24],iconAnchor:[12,12]})}).addTo(measureLayer);
                         
-                        const distKm = (r.distance / 1000).toFixed(2);
-                        const timeMin = Math.round(r.duration / 60);
-                        showToast(`📏 Road Distance: ${distKm} km • ⏱️ ETA: ${timeMin} mins`, 6000);
-                    } else {
-                        showToast("❌ Road route unavailable. Try again.");
-                    }
-                    setTimeout(() => { measureLayer.clearLayers(); measurePoints = []; mapActionMode = null; $("measure-btn").classList.remove("active-tool"); }, 6000);
-                }).catch(() => {
-                    measureLayer.clearLayers();
-                    showToast("❌ Road route unavailable. Try again.");
-                    setTimeout(() => { measureLayer.clearLayers(); measurePoints = []; mapActionMode = null; $("measure-btn").classList.remove("active-tool"); }, 6000);
-                });
+                        const distKm=(r.distance/1000).toFixed(2);
+                        const timeMin=Math.max(1,Math.round(r.duration/60));
+                        
+                        let panel=$("measure-result-panel");
+                        if(!panel){ 
+                            panel=document.createElement("div"); 
+                            panel.id="measure-result-panel"; 
+                            panel.style.cssText="position:fixed;left:50%;bottom:72px;transform:translateX(-50%);z-index:4500;background:rgba(10,17,28,.96);border:1px solid rgba(255,255,255,.14);border-radius:16px;padding:12px 16px;color:#fff;box-shadow:0 15px 40px rgba(0,0,0,.45);font-size:13px;text-align:center;min-width:220px;"; 
+                            document.body.appendChild(panel); 
+                        }
+                        panel.innerHTML=`<b style="color:#f59e0b">📏 Shortest road route</b><br><strong>${distKm} km</strong> &nbsp;•&nbsp; <strong>${timeMin} min</strong>`;
+                        panel.style.display="block";
+                        showToast(`📏 Shortest: ${distKm} km • ⏱️ ${timeMin} min`,5000);
+                    } else showToast("❌ Road route unavailable. Try again.");
+                }).catch(() => showToast("❌ Road route unavailable. Try again."));
             }
         } 
         else if (mapActionMode === 'geofence') {
-            const name = prompt("Enter Geofence Name (e.g., Home, College):");
+            const name = prompt("Enter Geofence Name:");
             if (name && name.trim()) {
-                const radInput = prompt("Enter Geofence Radius in meters (10 to 50000):", "500");
-                const radius = Number(radInput);
-                if (Number.isFinite(radius) && radius >= 10 && radius <= 50000) {
-                    socket.emit("addGeofence", { name: name.trim(), lat: e.latlng.lat, lng: e.latlng.lng, radius: radius });
-                    showToast(`⭕ Geofence '${name}' created with ${radius}m radius!`);
-                } else {
-                    showToast("❌ Invalid radius! Must be between 10 and 50000 meters.");
-                }
+                const radius = Number(prompt("Enter Radius in meters (10 to 50000):", "500"));
+                if (Number.isFinite(radius) && radius >= 10 && radius <= 50000) { socket.emit("addGeofence", { name: name.trim(), lat: e.latlng.lat, lng: e.latlng.lng, radius: radius }); showToast(`⭕ Geofence created!`); }
             }
-            mapActionMode = null; $("geofence-btn").classList.remove("active-tool");
+            mapActionMode = null; const gb = $("geofence-btn"); if(gb) gb.classList.remove("active-tool");
         }
         else if (mapActionMode === 'trip') {
             const name = prompt("Enter Trip Destination Name:");
-            if (name && name.trim()) {
-                socket.emit("startTrip", { name: name.trim(), lat: e.latlng.lat, lng: e.latlng.lng });
-                showToast(`🚗 Trip started to ${name}!`);
-            }
-            mapActionMode = null; $("trip-btn").classList.remove("active-tool");
+            if (name && name.trim()) { socket.emit("startTrip", { name: name.trim(), lat: e.latlng.lat, lng: e.latlng.lng }); showToast(`🚗 Trip started!`); }
+            mapActionMode = null; const tb = $("trip-btn"); if(tb) tb.classList.remove("active-tool");
         }
         else if (mapActionMode === 'memory') {
             if (pendingMemoryImage) {
-                const payload = { name: currentUser.name, lat: e.latlng.lat, lng: e.latlng.lng, image: pendingMemoryImage };
-                if (navigator.onLine) {
-                    socket.emit("uploadMemoryPhoto", payload);
-                    showToast("✅ Memory pinned successfully!");
-                } else {
-                    offlineMemoryQueue.push(payload);
-                    showToast("📶 Offline: Memory saved. Will sync when reconnected.");
-                }
+                const payload = { name: currentUser.name, lat: e.latlng.lat, lng: e.latlng.lng, image: pendingMemoryImage, time: new Date().toISOString() };
+                if (navigator.onLine) { socket.emit("uploadMemoryPhoto", payload); showToast("✅ Memory pinned successfully!"); } 
+                else { offlineMemoryQueue.push(payload); showToast("📶 Offline: Memory saved. Will sync when reconnected."); }
             }
             mapActionMode = null; pendingMemoryImage = null;
         }
@@ -791,8 +831,7 @@ function setupAdvancedTools() {
             L.circle([f.lat, f.lng], { radius: f.radius, color: "#8b5cf6", weight: 2, fillOpacity: 0.1, isGeofence: true }).addTo(p4LayerGroup);
             L.marker([f.lat, f.lng], { icon: L.divIcon({className: 'geofence-marker', html: '📍'}), isGeofence: true }).bindTooltip(f.name, {permanent: true, direction: "top", className: "weather-badge"}).addTo(p4LayerGroup);
         });
-        const geoModal = $("geofence-list-modal");
-        if (geoModal && geoModal.style.display === "flex") renderGeofenceList();
+        const geoModal = $("geofence-list-modal"); if (geoModal && geoModal.style.display === "flex") renderGeofenceList();
     });
 
     socket.on("tripData", trip => {
@@ -800,7 +839,7 @@ function setupAdvancedTools() {
         if(tripMarker) { map.removeLayer(tripMarker); tripMarker = null; }
         if(trip) {
             safeShow("trip-panel", "flex");
-            if($("trip-title")) $("trip-title").textContent = `Trip to ${trip.name}`;
+            const tt = $("trip-title"); if(tt) tt.textContent = `Trip to ${trip.name}`;
             tripMarker = L.marker([trip.lat, trip.lng], { icon: L.divIcon({className: 'geofence-marker', html: '🏁'}) }).addTo(map);
 
             const isMember = trip.members.some(m => m.id === socket.id);
@@ -809,75 +848,61 @@ function setupAdvancedTools() {
             
             if (actionBtn) {
                 if (isHost) {
-                    actionBtn.textContent = "End Trip";
-                    actionBtn.style.color = "#ef4444";
-                    actionBtn.style.background = "rgba(239, 68, 68, 0.2)";
-                    actionBtn.onclick = () => socket.emit("leaveTrip");
+                    actionBtn.textContent = "End Trip"; actionBtn.style.color = "#ef4444"; actionBtn.style.background = "rgba(239, 68, 68, 0.2)"; 
+                    actionBtn.onclick = () => { if(typeof SmartDrive!="undefined" && SmartDrive.trip.active) SmartDrive.endTrip(); socket.emit("leaveTrip"); };
                 } else if (isMember) {
-                    actionBtn.textContent = "Leave Trip";
-                    actionBtn.style.color = "#f59e0b";
-                    actionBtn.style.background = "rgba(245, 158, 11, 0.2)";
-                    actionBtn.onclick = () => socket.emit("leaveTrip");
+                    actionBtn.textContent = "Leave Trip"; actionBtn.style.color = "#f59e0b"; actionBtn.style.background = "rgba(245, 158, 11, 0.2)"; 
+                    actionBtn.onclick = () => { if(typeof SmartDrive!="undefined" && SmartDrive.trip.active) SmartDrive.endTrip(); socket.emit("leaveTrip"); };
                 } else {
-                    actionBtn.textContent = "Join Trip";
-                    actionBtn.style.color = "#10b981";
-                    actionBtn.style.background = "rgba(16, 185, 129, 0.2)";
-                    actionBtn.onclick = () => socket.emit("joinTrip");
+                    actionBtn.textContent = "Join Trip"; actionBtn.style.color = "#10b981"; actionBtn.style.background = "rgba(16, 185, 129, 0.2)"; actionBtn.onclick = () => socket.emit("joinTrip");
                 }
             }
+            if(typeof SmartDrive !== "undefined" && isMember && !SmartDrive.trip.active) SmartDrive.startTrip();
             if(typeof triggerGroupRouteUpdate === 'function') triggerGroupRouteUpdate(); 
             if(window.renderTripChecklist) window.renderTripChecklist();
         } else {
-            tripRoutesLayer.clearLayers(); tripRoadStats = {};
-            safeHide("trip-panel");
+            if(typeof SmartDrive !== "undefined" && SmartDrive.trip.active) SmartDrive.endTrip();
+            tripRoutesLayer.clearLayers(); tripRoadStats = {}; safeHide("trip-panel");
         }
     });
 }
 
-function setupChat(){
+function setupChatSafe() {
     const cc=$("chat-container"), inp=$("chatInput"), send=$("chat-send"), vb=$("voiceButton");
     let unread=0, typingTimer=null, replyTo=null, reactingId=null;
     const msgStore=new Map(), emojis=["👍","❤️","😂","😮","😢","🔥"];
 
     function updateUnreadBadge(){ const b=$("chat-unread-badge"); if(b){ b.textContent=unread>99?"99+":unread; b.style.display=unread>0?"flex":"none"; } }
 
-    const chatTglBtn = $("chat-toggle-btn");
-    if(chatTglBtn) {
-        chatTglBtn.onclick = () => { safeShow("chat-container", "flex"); safeHide("chat-toggle-btn"); unread=0; updateUnreadBadge(); if(inp) inp.focus(); };
-    }
-    const chatMinBtn = $("chat-minimize-btn");
-    if(chatMinBtn) {
-        chatMinBtn.onclick = () => { safeHide("chat-container"); safeShow("chat-toggle-btn", "flex"); };
-    }
-    const onlineBtn = $("online-btn");
-    if(onlineBtn) {
-        onlineBtn.onclick = (e) => { e.stopPropagation(); const l=$("online-list"); if(l) l.style.display = l.style.display === "block" ? "none" : "block"; updateOnlineUI(); };
-    }
-    document.addEventListener("click", e => { if ($("online-list") && !$("online-list").contains(e.target) && e.target !== $("online-btn")) safeHide("online-list"); });
+    const ctb = $("chat-toggle-btn");
+    if(ctb) ctb.onclick = () => { safeShow("chat-container", "flex"); safeHide("chat-toggle-btn"); unread=0; updateUnreadBadge(); if(inp) inp.focus(); };
+    
+    const cmb = $("chat-minimize-btn");
+    if(cmb) cmb.onclick = () => { safeHide("chat-container"); safeShow("chat-toggle-btn", "flex"); };
+    
+    const ob = $("online-btn");
+    if(ob) ob.onclick = (e) => { e.stopPropagation(); const l=$("online-list"); if(l) l.style.display = l.style.display === "block" ? "none" : "block"; updateOnlineUI(); };
+    
+    document.addEventListener("click", e => { const ol = $("online-list"); const obtn = $("online-btn"); if (ol && obtn && !ol.contains(e.target) && e.target !== obtn) safeHide("online-list"); });
 
     if(inp) {
         inp.oninput=()=>{ socket.emit("typing",true); clearTimeout(typingTimer); typingTimer=setTimeout(()=>socket.emit("typing",false), 1200); if(send && vb) { send.style.display=inp.value.trim()?"flex":"none"; vb.style.display=inp.value.trim()?"none":"flex"; } };
     }
     socket.on("typing", d=>{ const t=$("typing-indicator"); if(t) { if(d.id!==socket.id && d.isTyping){t.textContent=`${escapeHTML(d.name)} is typing…`; t.style.display="block";}else t.style.display="none"; } });
 
-    const replyCancel = $("reply-cancel");
-    if(replyCancel) replyCancel.onclick=()=>{replyTo=null; safeHide("reply-bar");};
+    const rc = $("reply-cancel"); if(rc) rc.onclick=()=>{replyTo=null; safeHide("reply-bar");};
     
-    const emojiBtn = $("emojiButton");
-    if(emojiBtn) emojiBtn.onclick=(e)=>{e.stopPropagation(); safeHide("attachment-menu"); const ec=$("emoji-picker-container"); if(ec) ec.style.display=ec.style.display==="block"?"none":"block";};
+    const eb = $("emojiButton"); if(eb) eb.onclick=(e)=>{e.stopPropagation(); safeHide("attachment-menu"); const ec=$("emoji-picker-container"); if(ec) ec.style.display=ec.style.display==="block"?"none":"block";};
     
-    const emojiPicker = $("emojiPicker");
-    if(emojiPicker) {
-        emojiPicker.addEventListener("emoji-click",e=>{ const em=e.detail.unicode; if(reactingId){socket.emit("messageReaction",{messageId:reactingId,emoji:em});safeHide("emoji-picker-container");reactingId=null;}else if(inp){inp.value+=em;inp.focus();if(send) send.style.display="flex";if(vb) vb.style.display="none";} });
-    }
+    const ep = $("emojiPicker");
+    if(ep) { ep.addEventListener("emoji-click",e=>{ const em=e.detail.unicode; if(reactingId){socket.emit("messageReaction",{messageId:reactingId,emoji:em});safeHide("emoji-picker-container");reactingId=null;}else if(inp){inp.value+=em;inp.focus();if(send) send.style.display="flex";if(vb) vb.style.display="none";} }); }
     
-    const attBtn = $("chat-attach-btn");
-    if(attBtn) attBtn.onclick=(e)=>{e.stopPropagation(); safeHide("emoji-picker-container"); const am=$("attachment-menu"); if(am) am.style.display=am.style.display==="flex"?"none":"flex";};
+    const cab = $("chat-attach-btn"); if(cab) cab.onclick=(e)=>{e.stopPropagation(); safeHide("emoji-picker-container"); const am=$("attachment-menu"); if(am) am.style.display=am.style.display==="flex"?"none":"flex";};
     
     const fInp=$("chatFileInput");
-    const attMedia = $("att-media"); if(attMedia) attMedia.onclick=()=>{if(fInp){fInp.accept="image/*,video/*";fInp.click();safeHide("attachment-menu");}};
-    const attDoc = $("att-doc"); if(attDoc) attDoc.onclick=()=>{if(fInp){fInp.accept=".pdf,.doc,.txt,.zip";fInp.click();safeHide("attachment-menu");}};
-    const attAudio = $("att-audio"); if(attAudio) attAudio.onclick=()=>{if(fInp){fInp.accept="audio/*";fInp.click();safeHide("attachment-menu");}};
+    const atm = $("att-media"); if(atm) atm.onclick=()=>{if(fInp){fInp.accept="image/*,video/*";fInp.click();safeHide("attachment-menu");}};
+    const atd = $("att-doc"); if(atd) atd.onclick=()=>{if(fInp){fInp.accept=".pdf,.doc,.txt,.zip";fInp.click();safeHide("attachment-menu");}};
+    const ata = $("att-audio"); if(ata) ata.onclick=()=>{if(fInp){fInp.accept="audio/*";fInp.click();safeHide("attachment-menu");}};
     
     if(fInp) {
         fInp.onchange=()=>{ 
@@ -885,21 +910,20 @@ function setupChat(){
             const payload = {name:currentUser.name, type:f.type.split('/')[0]==="image"?"image":f.type.split('/')[0]==="video"?"video":f.type.split('/')[0]==="audio"?"audio":"document", data:r.result, replyTo};
             if(navigator.onLine) socket.emit("chatMessage", payload); 
             else { offlineMessageQueue.push(payload); showToast("📶 Offline: Message queued"); }
-            if($("reply-cancel")) $("reply-cancel").click();}; r.readAsDataURL(f); fInp.value="";
+            const rcb = $("reply-cancel"); if(rcb) rcb.click();}; r.readAsDataURL(f); fInp.value="";
         };
     }
 
     const cForm = $("chatForm");
     if(cForm) {
         cForm.onsubmit=e=>{ 
-            e.preventDefault(); 
-            if(!inp) return;
+            e.preventDefault(); if(!inp) return;
             const t=inp.value.trim(); 
             if(t){
                 const payload = {name:currentUser.name,type:"text",data:t,replyTo};
                 if(navigator.onLine) socket.emit("chatMessage",payload);
                 else { offlineMessageQueue.push(payload); showToast("📶 Offline: Message queued"); }
-                inp.value=""; if($("reply-cancel")) $("reply-cancel").click(); if(send) send.style.display="none"; if(vb) vb.style.display="flex"; inp.focus();
+                inp.value=""; const rcb = $("reply-cancel"); if(rcb) rcb.click(); if(send) send.style.display="none"; if(vb) vb.style.display="flex"; inp.focus();
             } 
         };
     }
@@ -921,40 +945,35 @@ function setupChat(){
         
         const a=document.createElement("div"); a.className="message-actions";
         emojis.forEach(e=>{const btn=document.createElement("button"); btn.className="action-btn"; btn.textContent=e; btn.onclick=()=>socket.emit("messageReaction",{messageId:m.id,emoji:e}); a.appendChild(btn);});
-        const rep=document.createElement("button"); rep.className="action-btn"; rep.textContent="↩ Reply"; rep.onclick=()=>{replyTo={id:m.id,name:m.name,type:m.type,preview:m.type==="text"?m.data.slice(0,50):"Attachment"}; if($("reply-preview")) $("reply-preview").textContent=`↩ ${m.name}`; safeShow("reply-bar", "flex"); if(inp) inp.focus();}; a.appendChild(rep);
+        const rep=document.createElement("button"); rep.className="action-btn"; rep.textContent="↩ Reply"; rep.onclick=()=>{replyTo={id:m.id,name:m.name,type:m.type,preview:m.type==="text"?m.data.slice(0,50):"Attachment"}; const rp=$("reply-preview"); if(rp) rp.textContent=`↩ ${m.name}`; safeShow("reply-bar", "flex"); if(inp) inp.focus();}; a.appendChild(rep);
         b.appendChild(a); const rr=document.createElement("div"); rr.className="reaction-row"; b.appendChild(rr); w.appendChild(b); 
         
         const chatMsgs = $("chat-messages");
-        if(chatMsgs) {
-            chatMsgs.appendChild(w);
-            chatMsgs.scrollTop=chatMsgs.scrollHeight;
-        }
+        if(chatMsgs) { chatMsgs.appendChild(w); chatMsgs.scrollTop=chatMsgs.scrollHeight; }
         msgStore.set(m.id,{msg:m,el:w});
         if(m.senderId!==socket.id && cc && cc.style.display!=="flex"){unread++; updateUnreadBadge();}
     }
     socket.on("chatHistory", l=>l.forEach(renderMsg)); socket.on("chatMessage", renderMsg);
 }
 
-// ==========================================
-// FIX 1: MEMORIES (Pin with Date & Name)
-// ==========================================
-function setupMemories(){
-    const galBtn = $("phase3-gallery-btn");
-    if(galBtn) galBtn.onclick = () => { safeShow("phase3-memory-overlay", "block"); renderMemGallery(); };
-    const closeOverlayBtn = $("phase3-memory-close");
-    if(closeOverlayBtn) closeOverlayBtn.onclick = () => safeHide("phase3-memory-overlay");
-    const closeViewBtn = $("p3-view-close");
-    if(closeViewBtn) closeViewBtn.onclick = () => safeHide("phase3-photo-viewer");
+// FEATURE 1: Memories Fix (Pin with Date & Name)
+function setupMemoriesSafe(){
+    const pgb = $("phase3-gallery-btn");
+    if(pgb) pgb.onclick = () => { safeShow("phase3-memory-overlay", "block"); renderMemGallery(); };
+    const pmc = $("phase3-memory-close");
+    if(pmc) pmc.onclick = () => safeHide("phase3-memory-overlay");
+    const pvc = $("p3-view-close");
+    if(pvc) pvc.onclick = () => safeHide("phase3-photo-viewer");
     
     document.querySelectorAll(".phase3-filter").forEach(b => {
         b.onclick = () => { document.querySelectorAll(".phase3-filter").forEach(x=>x.classList.remove("active")); b.classList.add("active"); currentGalleryFilter=b.dataset.filter; renderMemGallery(); };
     });
     
-    const searchInp = $("phase3-memory-search");
-    if(searchInp) searchInp.oninput = e => { currentGallerySearch=e.target.value.toLowerCase(); renderMemGallery(); };
+    const pms = $("phase3-memory-search");
+    if(pms) pms.oninput = e => { currentGallerySearch=e.target.value.toLowerCase(); renderMemGallery(); };
     
-    const focusBtn = $("p3-view-focus");
-    if(focusBtn) focusBtn.onclick = () => { const m=memories.get(selectedMemoryId); if(m) map.flyTo([m.lat,m.lng],17); safeHide("phase3-photo-viewer"); safeHide("phase3-memory-overlay"); };
+    const pvf = $("p3-view-focus");
+    if(pvf) pvf.onclick = () => { const m=memories.get(selectedMemoryId); if(m) map.flyTo([m.lat,m.lng],17); safeHide("phase3-photo-viewer"); safeHide("phase3-memory-overlay"); };
 
     function renderMemGallery(){
         let arr = Array.from(memories.values());
@@ -963,23 +982,21 @@ function setupMemories(){
         if(currentGallerySearch) arr=arr.filter(m=>cleanName(m.name).toLowerCase().includes(currentGallerySearch));
         arr.sort((a,b) => new Date(b.time) - new Date(a.time));
 
-        if($("phase3-memory-count")) $("phase3-memory-count").textContent = `${arr.length} memories`;
+        const pmc = $("phase3-memory-count"); if(pmc) pmc.textContent = `${arr.length} memories`;
         const grid=$("phase3-memory-grid"), time=$("phase3-timeline-list"), emp=$("phase3-memory-empty");
-        if(grid) grid.innerHTML=""; 
-        if(time) time.innerHTML=""; 
-        if(emp) emp.style.display=arr.length?"none":"block";
+        if(grid) grid.innerHTML=""; if(time) time.innerHTML=""; if(emp) emp.style.display=arr.length?"none":"block";
 
         arr.forEach(m=>{
             if(grid) {
                 const c=document.createElement("div"); c.className="p3-card";
                 c.innerHTML=`<img src="${escapeHTML(m.image)}" loading="lazy"><div class="p3-card-info"><b>${escapeHTML(m.name)}</b><span>${new Date(m.time).toLocaleDateString()}</span></div>`;
-                c.onclick=()=>{selectedMemoryId=m.id; if($("p3-view-image")) $("p3-view-image").src=m.image; if($("p3-view-name")) $("p3-view-name").textContent=m.name; if($("p3-view-date")) $("p3-view-date").textContent=new Date(m.time).toLocaleString(); safeShow("phase3-photo-viewer", "flex");}; 
+                c.onclick=()=>{selectedMemoryId=m.id; const pvi=$("p3-view-image"); if(pvi) pvi.src=m.image; const pvn=$("p3-view-name"); if(pvn) pvn.textContent=m.name; const pvd=$("p3-view-date"); if(pvd) pvd.textContent=new Date(m.time).toLocaleString(); safeShow("phase3-photo-viewer", "flex");}; 
                 grid.appendChild(c);
             }
             if(time) {
                 const t=document.createElement("div"); t.className="p3-time-item";
                 t.innerHTML=`<div class="p3-time-thumb"><img src="${escapeHTML(m.image)}" loading="lazy"></div><div class="p3-time-info"><b>${escapeHTML(m.name)}</b><span>${new Date(m.time).toLocaleString()}</span></div>`;
-                t.onclick=()=>{selectedMemoryId=m.id; if($("p3-view-image")) $("p3-view-image").src=m.image; if($("p3-view-name")) $("p3-view-name").textContent=m.name; if($("p3-view-date")) $("p3-view-date").textContent=new Date(m.time).toLocaleString(); safeShow("phase3-photo-viewer", "flex");}; 
+                t.onclick=()=>{selectedMemoryId=m.id; const pvi=$("p3-view-image"); if(pvi) pvi.src=m.image; const pvn=$("p3-view-name"); if(pvn) pvn.textContent=m.name; const pvd=$("p3-view-date"); if(pvd) pvd.textContent=new Date(m.time).toLocaleString(); safeShow("phase3-photo-viewer", "flex");}; 
                 time.appendChild(t);
             }
         });
@@ -991,10 +1008,9 @@ function setupMemories(){
             const icon = L.divIcon({ className:"p3-memory-marker", html:`<div style="width:46px;height:46px;border-radius:50%;overflow:hidden;border:2px solid #fff;background:#071018;box-shadow:0 4px 15px rgba(0,0,0,.65)"><img src="${escapeHTML(m.image)}" style="width:100%;height:100%;object-fit:cover;"></div>`, iconSize:[46,46], iconAnchor:[23,23]});
             const marker = L.marker([m.lat,m.lng],{icon}).addTo(memoryLayer);
             
-            // Name and Date strictly added to Popup
             marker.bindPopup(`<div class="p3-map-popup"><img src="${escapeHTML(m.image)}"><b style="color:var(--mint);">📸 ${escapeHTML(m.name)}</b><br><small style="color:#aaa;">${new Date(m.time).toLocaleString()}</small><br><button class="p3-open-map-memory">View Detail</button></div>`);
             
-            marker.on("popupopen",e=>{ const b=e.popup.getElement()?.querySelector(".p3-open-map-memory"); if(b) b.onclick=()=>{selectedMemoryId=m.id; if($("p3-view-image")) $("p3-view-image").src=m.image; if($("p3-view-name")) $("p3-view-name").textContent=m.name; if($("p3-view-date")) $("p3-view-date").textContent=new Date(m.time).toLocaleString(); safeShow("phase3-photo-viewer", "flex");}; });
+            marker.on("popupopen",e=>{ const b=e.popup.getElement()?.querySelector(".p3-open-map-memory"); if(b) b.onclick=()=>{selectedMemoryId=m.id; const pvi=$("p3-view-image"); if(pvi) pvi.src=m.image; const pvn=$("p3-view-name"); if(pvn) pvn.textContent=m.name; const pvd=$("p3-view-date"); if(pvd) pvd.textContent=new Date(m.time).toLocaleString(); safeShow("phase3-photo-viewer", "flex");}; });
         });
     }
 
@@ -1080,381 +1096,119 @@ function setupJoin(){
 }
 
 // ==========================================
-// FIX 5: SEARCH BAR NAVIGATION & ANIMATION 
+// FEATURE 5: SEARCH BAR NAVIGATION & ANIMATION 
 // ==========================================
 function setupGoogleSearch() {
-    const searchInput = $("location-search-input");
-    if (!searchInput) return;
-
+    const input = $("location-search-input");
+    if (!input) return;
     const clearBtn = $("location-search-clear");
-    if (clearBtn) {
-        clearBtn.onclick = () => {
-            searchInput.value = "";
-            safeHide("location-search-clear");
-            if (searchMarker) { map.removeLayer(searchMarker); searchMarker = null; }
-            navigationLayer.clearLayers();
-            safeHide("nav-panel");
-            safeHide("nav-bottom-sheet");
-            safeHide("premium-nav-ui");
-            if (myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
-        };
-    }
+    let timer = null, requestId = 0;
 
-    searchInput.addEventListener('input', () => {
-        if (clearBtn) clearBtn.style.display = searchInput.value.length > 0 ? "block" : "none";
+    const clearSearch = () => {
+        input.value = "";
+        if (clearBtn) clearBtn.style.display = "none";
+        searchPlace = null;
+        if (typeof searchLayer !== "undefined") searchLayer.clearLayers();
+        if (typeof navigationLayer !== "undefined") navigationLayer.clearLayers();
+        safeHide("premium-nav-ui");
+        safeHide("nav-bottom-sheet");
+        if (myCoords) map.flyTo([myCoords.lat,myCoords.lng],16);
+    };
+    if (clearBtn) clearBtn.onclick = clearSearch;
+
+    const resultBox = document.createElement("div");
+    resultBox.id = "search-results-box";
+    resultBox.style.cssText = "position:fixed;top:130px;left:50%;transform:translateX(-50%);width:min(90vw,420px);max-height:300px;overflow:auto;z-index:3500;background:rgba(10,17,28,.97);border:1px solid rgba(255,255,255,.14);border-radius:16px;box-shadow:0 20px 50px rgba(0,0,0,.5);display:none;padding:6px;";
+    document.body.appendChild(resultBox);
+
+    function hideResults(){ resultBox.style.display="none"; }
+    function showResults(){ resultBox.style.display="block"; }
+
+    input.addEventListener("input", () => {
+        if (clearBtn) clearBtn.style.display = input.value.trim() ? "block" : "none";
+        clearTimeout(timer);
+        const q=input.value.trim();
+        if(!q){ hideResults(); return; }
+        const id=++requestId;
+        timer=setTimeout(async()=>{
+            try{
+                const url=`https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=6&countrycodes=in&q=${encodeURIComponent(q)}`;
+                const res=await fetch(url,{headers:{"Accept-Language":"en"}});
+                const data=await res.json();
+                if(id!==requestId) return;
+                resultBox.innerHTML="";
+                if(!Array.isArray(data)||!data.length){ resultBox.innerHTML='<div style="padding:14px;color:#8b9bab">No location found.</div>'; showResults(); return; }
+                data.forEach(item=>{
+                    const lat=Number(item.lat),lng=Number(item.lon); if(!validCoord(lat,lng)) return;
+                    const name=item.name || item.display_name.split(",")[0];
+                    const b=document.createElement("button");
+                    b.type="button";
+                    b.style.cssText="width:100%;text-align:left;padding:12px;border-radius:12px;color:#fff;background:transparent;border:0;display:flex;flex-direction:column;gap:3px;cursor:pointer;";
+                    b.onmouseenter=()=>b.style.background="rgba(52,224,180,.10)";
+                    b.onmouseleave=()=>b.style.background="transparent";
+                    b.innerHTML=`<strong>${escapeHTML(name)}</strong><span style="font-size:11px;color:#8b9bab">${escapeHTML(item.display_name)}</span>`;
+                    b.onclick=()=>selectSearchPlace({lat,lng,name,address:item.display_name});
+                    resultBox.appendChild(b);
+                });
+                showResults();
+            }catch(e){ resultBox.innerHTML='<div style="padding:14px;color:#ff6b6b">Search unavailable. Try again.</div>'; showResults(); }
+        },350);
     });
 
-    const checkGoogle = setInterval(() => {
-        if (window.google && window.google.maps && window.google.maps.places) {
-            clearInterval(checkGoogle);
-            
-            const autocomplete = new google.maps.places.Autocomplete(searchInput, {
-                componentRestrictions: { country: "in" }
-            });
+    input.addEventListener("keydown",e=>{
+        if(e.key==="Escape"){hideResults();input.blur();}
+        if(e.key==="Enter"){const first=resultBox.querySelector("button");if(first)first.click();}
+    });
+    document.addEventListener("click",e=>{ if(e.target!==input && !resultBox.contains(e.target)) hideResults(); });
 
-            function updateSearchBounds() {
-                if(!map) return;
-                const center = map.getCenter();
-                const circle = new google.maps.Circle({ center: new google.maps.LatLng(center.lat, center.lng), radius: 50000 });
-                autocomplete.setBounds(circle.getBounds());
-            }
-            updateSearchBounds();
-            map.on('moveend', updateSearchBounds);
+    let searchLayer = L.layerGroup().addTo(map);
 
-            autocomplete.addListener("place_changed", () => {
-                const place = autocomplete.getPlace();
-                if (!place.geometry || !place.geometry.location) return showToast("❌ Location not found.");
-                
-                const destLat = place.geometry.location.lat();
-                const destLng = place.geometry.location.lng();
-                const placeName = place.name;
-                
-                if (searchMarker) map.removeLayer(searchMarker);
-                navigationLayer.clearLayers();
-                safeHide("nav-panel");
-                safeHide("nav-bottom-sheet");
-                safeHide("premium-nav-ui");
-                
-                map.flyTo([destLat, destLng], 15);
-                
-                const popupContent = `
-                    <div style="text-align:center; padding:6px; min-width:180px;">
-                        <strong style="color:var(--mint); font-size:15px; display:block; margin-bottom:8px;">📍 ${escapeHTML(placeName)}</strong>
-                        <div id="search-route-info" style="font-size:12px; color:var(--muted); margin-bottom:12px; background:rgba(255,255,255,0.05); padding:8px; border-radius:10px; border: 1px solid rgba(255,255,255,0.1);">
-                            <i>Calculating route... ⏳</i>
-                        </div>
-                        <button id="search-nav-btn" style="width:100%; padding:10px; border:none; border-radius:10px; background:var(--mint); color:#000; font-weight:800; font-size:13px; cursor:pointer; opacity:0.5; transition:0.3s;" disabled>
-                            ▶ Start Navigation
-                        </button>
-                    </div>
-                `;
-                
-                searchMarker = L.marker([destLat, destLng], {
-                    icon: L.divIcon({ className: 'geofence-marker', html: '📍', iconSize: [30, 30], iconAnchor: [15, 30] })
-                }).addTo(map);
-                
-                searchMarker.bindPopup(popupContent).openPopup();
-                if (clearBtn) safeShow("location-search-clear", "block");
+    window.selectSearchPlace = async place => {
+        hideResults(); input.value=place.name;
+        if(clearBtn) clearBtn.style.display="block";
+        searchLayer.clearLayers(); navigationLayer.clearLayers();
+        const marker=L.marker([place.lat,place.lng],{icon:L.divIcon({className:'geofence-marker',html:'📍',iconSize:[34,34],iconAnchor:[17,34]})}).addTo(searchLayer);
+        marker.bindTooltip(place.name,{direction:'top',offset:[0,-28],className:'weather-badge'}).openTooltip();
+        map.flyTo([place.lat,place.lng],16,{duration:.8});
 
-                // Use OSRM to guarantee route path calculation even without Google billing
-                if(myCoords) {
-                    fetch(`https://router.project-osrm.org/route/v1/driving/${myCoords.lng},${myCoords.lat};${destLng},${destLat}?steps=true&geometries=geojson&overview=full`)
-                    .then(res => res.json())
-                    .then(data => {
-                        const infoDiv = document.getElementById("search-route-info");
-                        const navBtn = document.getElementById("search-nav-btn");
-                        
-                        if(data.routes && data.routes.length > 0 && infoDiv && navBtn) {
-                            const route = data.routes[0];
-                            const coords = route.geometry.coordinates.map(c => [c[1], c[0]]);
-                            
-                            L.polyline(coords, { color: '#34e0b4', weight: 5, opacity: 0.8, className: 'nav-path-animated' }).addTo(navigationLayer);
-                            
-                            const distKm = (route.distance / 1000).toFixed(1);
-                            const timeMin = Math.round(route.duration / 60);
-
-                            infoDiv.innerHTML = `<span style="color:white; font-size:14px; font-weight:800;">🚗 ${distKm} km</span> <br> <span style="color:white; font-size:14px; font-weight:800;">⏱️ ${timeMin} min</span>`;
-                            navBtn.style.opacity = "1";
-                            navBtn.disabled = false;
-                            
-                            navBtn.onclick = () => {
-                                searchMarker.closePopup();
-                                startSearchNavigation(destLat, destLng, placeName, route);
-                            };
-                        } else if (infoDiv) {
-                            infoDiv.innerHTML = "<span style='color:#ef4444;'>No driving route found.</span>";
-                        }
-                    }).catch(err => {
-                        if(document.getElementById("search-route-info")) document.getElementById("search-route-info").innerHTML = "<span style='color:#f59e0b;'>Routing failed.</span>";
-                    });
-                } else {
-                    if(document.getElementById("search-route-info")) document.getElementById("search-route-info").innerHTML = "<span style='color:#f59e0b;'>GPS required.</span>";
-                }
-            });
+        let route=null;
+        if(myCoords){
+            try{
+                const url=`https://router.project-osrm.org/route/v1/driving/${myCoords.lng},${myCoords.lat};${place.lng},${place.lat}?steps=true&overview=full&geometries=geojson&alternatives=true`;
+                const res=await fetch(url); const data=await res.json();
+                if(data.routes?.length) route=data.routes.reduce((a,b)=>b.distance<a.distance?b:a,data.routes[0]);
+            }catch(e){ route=null; }
         }
-    }, 500); 
-}
 
-let navWatchId = null;
+        const popup=document.createElement("div");
+        popup.style.cssText="min-width:220px;text-align:center;";
+        const dist=route ? (route.distance/1000).toFixed(1) : "--";
+        const mins=route ? Math.max(1,Math.round(route.duration/60)) : "--";
+        popup.innerHTML=`<b style="color:var(--mint);font-size:15px">📍 ${escapeHTML(place.name)}</b><div style="margin:8px 0;color:#fff">🚗 ${dist} km &nbsp;•&nbsp; ⏱️ ${mins} min</div><div style="display:flex;gap:8px"><button id="popup-directions" style="flex:1;padding:9px;border:0;border-radius:10px;background:#2563eb;color:#fff;font-weight:800">🗺️ Directions</button><button id="popup-start" style="flex:1;padding:9px;border:0;border-radius:10px;background:#34e0b4;color:#062112;font-weight:800">▶ Start</button></div>`;
+        marker.bindPopup(popup).openPopup();
 
-function startSearchNavigation(destLat, destLng, destName, routeData) {
-    navigationLayer.clearLayers();
-    if(navWatchId) navigator.geolocation.clearWatch(navWatchId);
-    
-    // Hide regular UI elements
-    safeHide("map-tools");
-    safeHide("search-container");
-    safeHide("top-header");
-    safeHide("bottom-info");
-    safeHide("chat-toggle-btn");
-    safeHide("memoryButton");
-    
-    safeShow("premium-nav-ui", "block");
-    safeShow("nav-bottom-sheet", "flex");
-    safeShow("turn-banner", "flex");
-
-    const fullPath = routeData.geometry.coordinates.map(c => [c[1], c[0]]);
-    
-    const dottedPath = L.polyline(fullPath, { color: '#4f46e5', weight: 8, opacity: 0.7, className: 'anim-dash' }).addTo(navigationLayer);
-    const solidPath = L.polyline([], { color: '#34e0b4', weight: 8, opacity: 1, className: 'solid-trail' }).addTo(navigationLayer);
-
-    const userIcon = L.divIcon({
-        className: 'nav-avatar-marker',
-        html: `<img src="${escapeHTML(currentUser.avatar)}" style="width:100%;height:100%;object-fit:cover; border-radius:50%; border:2px solid #34e0b4;">`,
-        iconSize: [40, 40],
-        iconAnchor: [20, 20]
-    });
-    
-    const startPos = myCoords ? [myCoords.lat, myCoords.lng] : fullPath[0];
-    const userMarker = L.marker(startPos, {icon: userIcon, zIndexOffset: 1000}).addTo(navigationLayer);
-    L.marker([destLat, destLng], { icon: L.divIcon({className: 'geofence-marker', html: '📍'}) }).addTo(navigationLayer);
-
-    if($("stat-dist")) $("stat-dist").innerHTML = (routeData.distance / 1000).toFixed(1) + "<small> km</small>";
-    if($("stat-eta")) $("stat-eta").innerHTML = Math.round(routeData.duration / 60) + "<small> min</small>";
-    
-    const arrivalTime = new Date(Date.now() + routeData.duration * 1000);
-    if($("nav-arrival-time")) $("nav-arrival-time").innerHTML = arrivalTime.toLocaleTimeString([], {hour: 'numeric', minute:'2-digit', hour12: true});
-    
-    if(routeData.legs && routeData.legs[0] && routeData.legs[0].steps && routeData.legs[0].steps.length > 0) {
-        if($("nav-step-text")) $("nav-step-text").textContent = routeData.legs[0].steps[0].maneuver.type + " " + (routeData.legs[0].steps[0].maneuver.modifier || ""); 
-        if($("nav-step-dist")) $("nav-step-dist").textContent = routeData.legs[0].steps[0].distance + "m";
-    }
-    
-    if($("turn-name")) $("turn-name").textContent = "Heading to " + destName;
-
-    map.fitBounds(dottedPath.getBounds(), { paddingBottomRight: [0, 350], paddingTopLeft: [50, 150] });
-
-    const startBtn = $("btn-start-nav");
-    const resetBtn = $("btn-reset-nav");
-    const exitBtn = $("btn-exit-nav");
-    
-    if(startBtn) {
-        startBtn.style.display = "block";
-        startBtn.textContent = "Start Navigation";
-        startBtn.style.background = "linear-gradient(135deg, #34d399, #22c55e)";
-        startBtn.style.color = "#062112";
-    }
-    if(resetBtn) resetBtn.style.display = "block";
-    if(exitBtn) exitBtn.style.display = "none";
-    if($("stat-status")) $("stat-status").textContent = "Ready";
-    if($("speed-n")) $("speed-n").textContent = "0";
-
-    if(startBtn) {
-        startBtn.onclick = () => {
-            startBtn.style.display = "none";
-            if(resetBtn) resetBtn.style.display = "none";
-            if(exitBtn) exitBtn.style.display = "block";
-            
-            if($("stat-status")) {
-                $("stat-status").textContent = "En route";
-                $("stat-status").style.color = "#f5a524";
-            }
-            
-            if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 18, {animate: true, duration: 1.5});
-            
-            SmartDrive.startTrip();
-            
-            if (navigator.geolocation) {
-                let traveledCoords = [];
-                navWatchId = navigator.geolocation.watchPosition((pos) => {
-                    const currentLat = pos.coords.latitude;
-                    const currentLng = pos.coords.longitude;
-                    const currentPos = [currentLat, currentLng];
-                    
-                    const speedMps = pos.coords.speed || 0; 
-                    const speedKmh = Math.round(speedMps * 3.6);
-                    if($("speed-n")) $("speed-n").textContent = speedKmh;
-
-                    userMarker.setLatLng(currentPos);
-                    map.panTo(currentPos);
-
-                    traveledCoords.push(L.latLng(currentLat, currentLng));
-                    solidPath.setLatLngs(traveledCoords);
-
-                    const remainingMeters = map.distance(currentPos, [destLat, destLng]);
-                    const remainingKm = (remainingMeters / 1000).toFixed(1);
-                    if($("stat-dist")) $("stat-dist").innerHTML = remainingKm + "<small> km</small>";
-
-                    if(remainingMeters < 30) {
-                        navigator.geolocation.clearWatch(navWatchId);
-                        if(exitBtn) {
-                            exitBtn.textContent = "Arrived";
-                            exitBtn.style.background = "#3b82f6";
-                            exitBtn.style.color = "white";
-                        }
-                        if($("stat-status")) {
-                            $("stat-status").textContent = "Arrived";
-                            $("stat-status").style.color = "var(--mint)";
-                        }
-                        if($("turn-name")) $("turn-name").textContent = "Destination reached!";
-                        
-                        setTimeout(() => stopDrive(), 3000);
-                    }
-                }, (err) => {
-                    console.error("GPS Error during nav:", err);
-                }, { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 });
-            }
-        };
-    }
-    
-    if(resetBtn) resetBtn.onclick = () => stopDrive(true);
-    if(exitBtn) exitBtn.onclick = () => stopDrive();
-}
-
-function stopDrive(cancelled = false) {
-    if(navWatchId) navigator.geolocation.clearWatch(navWatchId);
-    navigationLayer.clearLayers();
-    safeHide("premium-nav-ui");
-    safeHide("nav-bottom-sheet");
-    safeHide("turn-banner");
-    safeHide("speed-dial");
-    
-    safeShow("map-tools", "flex");
-    safeShow("search-container", "flex");
-    safeShow("top-header", "flex");
-    safeShow("bottom-info", "flex");
-    safeShow("chat-toggle-btn", "flex");
-    safeShow("memoryButton", "flex");
-    
-    if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
-    
-    if(!cancelled) {
-        SmartDrive.endTrip();
-    }
-}
-
-// ==========================================
-// PWA APP INSTALL BUTTON LOGIC
-// ==========================================
-let deferredPrompt;
-window.addEventListener('beforeinstallprompt', (e) => {
-    e.preventDefault();
-    deferredPrompt = e;
-    const installBtn = $("install-app-btn");
-    if (installBtn) installBtn.style.display = 'flex';
-});
-
-window.addEventListener('DOMContentLoaded', () => {
-    const installBtn = $("install-app-btn");
-    if (installBtn) {
-        installBtn.onclick = async () => {
-            if (deferredPrompt) {
-                deferredPrompt.prompt();
-                const { outcome } = await deferredPrompt.userChoice;
-                if (outcome === 'accepted') {
-                    installBtn.style.display = 'none'; 
-                }
-                deferredPrompt = null;
-            }
-        };
-    }
-    if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true) {
-        if (installBtn) installBtn.style.display = 'none';
-    }
-});
-
-window.addEventListener('appinstalled', () => {
-    const installBtn = $("install-app-btn");
-    if (installBtn) installBtn.style.display = 'none';
-});
-
-// ==========================================
-// KORAPUT GEAR CHECKLIST & SOS FEATURE
-// ==========================================
-const TripChecklist = {
-    items: JSON.parse(localStorage.getItem("koraput_gear")) || {
-        "Action Camera & V50X Mounts": false,
-        "Powerbanks & Extra Batteries": false,
-        "Motorcycle & ID Documents": false,
-        "Deomali Trekking Shoes": false,
-        "First Aid & Meds": false
-    },
-    toggle(key) {
-        this.items[key] = !this.items[key];
-        localStorage.setItem("koraput_gear", JSON.stringify(this.items));
-        this.render();
-    },
-    render() {
-        const container = $("trip-checklist-container");
-        if(!container) return; 
-        container.innerHTML = `<h4 style="margin:5px 0; color:#18d6a3; font-size:13px;">🎒 Trip Gear Checklist</h4>`;
-        Object.keys(this.items).forEach(item => {
-            container.innerHTML += `
-            <label style="display:flex; align-items:center; gap:8px; font-size:12px; color:white; cursor:pointer; margin-bottom:4px;">
-                <input type="checkbox" ${this.items[item] ? "checked" : ""} onchange="TripChecklist.toggle('${item}')" style="accent-color:#18d6a3;">
-                <span style="${this.items[item] ? 'text-decoration:line-through; color:#94a3b8;' : ''}">${item}</span>
-            </label>`;
-        });
-    }
-};
-window.TripChecklist = TripChecklist;
-
-function setupSOS() {
-    let sosBtn = $("sos-btn");
-    if (!sosBtn) {
-        sosBtn = document.createElement("button");
-        sosBtn.id = "sos-btn";
-        sosBtn.innerHTML = "🚨 SOS";
-        sosBtn.style.cssText = "position:fixed;bottom:90px;right:20px;z-index:9998;background:#ef4444;color:white;border:none;border-radius:50%;width:55px;height:55px;font-weight:900;font-size:12px;box-shadow:0 0 15px rgba(239,68,68,0.7);cursor:pointer;animation:dangerPulse 1s infinite alternate;";
-        document.body.appendChild(sosBtn);
-    }
-    
-    sosBtn.onclick = () => {
-        if(!myCoords) return showToast("❌ Waiting for GPS...");
-        if(confirm("🚨 SEND EMERGENCY SOS? This will alert all friends with your exact coordinates!")) {
-            socket.emit("sos-alert", { 
-                name: currentUser.name, 
-                lat: myCoords.lat, 
-                lng: myCoords.lng, 
-                alt: myCoords.alt || "Unknown" 
-            });
-            showToast("🚨 SOS BROADCASTED TO ALL FRIENDS!", 8000);
+        if(route){
+            const line=L.polyline(route.geometry.coordinates.map(c=>[c[1],c[0]]),{color:'#34e0b4',weight:6,opacity:.9,className:'nav-path-animated'}).addTo(navigationLayer);
+            map.fitBounds(line.getBounds(),{padding:[70,220]});
+            setTimeout(()=>{
+                const el=marker.getPopup()?.getElement(); if(!el)return;
+                const d=el.querySelector("#popup-directions"), st=el.querySelector("#popup-start");
+                if(d)d.onclick=()=>{map.fitBounds(line.getBounds(),{padding:[70,220]});showToast(`🗺️ Shortest route: ${dist} km • ⏱️ ${mins} min`,5000);};
+                if(st)st.onclick=()=>{marker.closePopup();startSearchNavigation(place.lat,place.lng,place.name,route);};
+            },50);
+        }else{
+            setTimeout(()=>{const el=marker.getPopup()?.getElement();if(el){const d=el.querySelector("#popup-directions"),st=el.querySelector("#popup-start");if(d)d.onclick=()=>showToast("⚠️ GPS required for route preview.");if(st)st.onclick=()=>showToast("⚠️ GPS required for navigation.");}},50);
         }
     };
-
-    socket.on("sos-alert", (data) => {
-        const div = document.createElement("div");
-        div.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(239,68,68,0.3);border:10px solid #ef4444;z-index:99999;pointer-events:none;animation:dangerPulse 1s infinite alternate;";
-        document.body.appendChild(div);
-        
-        showToast(`🚨 URGENT SOS FROM ${data.name.toUpperCase()}! Check Map!`, 15000);
-        
-        L.marker([data.lat, data.lng], {
-            icon: L.divIcon({className: 'sos-marker', html: '<div style="font-size:30px;animation:dangerPulse 1s infinite alternate;">🚨</div>'})
-        }).bindPopup(`<b style="color:red;">EMERGENCY SOS: ${data.name}</b>`).addTo(map).openPopup();
-        
-        map.flyTo([data.lat, data.lng], 16, {animate:true, duration: 2});
-        setTimeout(() => div.remove(), 10000);
-    });
 }
 
 function initApp(){ 
     const tasks = [
         { name: "Join Setup", fn: setupJoin },
-        { name: "Controls", fn: setupBasicControls },
-        { name: "Advanced Tools", fn: setupAdvancedTools },
-        { name: "Chat UI", fn: setupChat },
-        { name: "Memories", fn: setupMemories },
+        { name: "Controls", fn: setupBasicControlsSafe },
+        { name: "Advanced Tools", fn: setupAdvancedToolsSafe },
+        { name: "Chat UI", fn: setupChatSafe },
+        { name: "Memories", fn: setupMemoriesSafe },
         { name: "SmartDrive", fn: () => SmartDrive.init() },
         { name: "GPS System", fn: startGPS },
         { name: "Google Search", fn: setupGoogleSearch },
