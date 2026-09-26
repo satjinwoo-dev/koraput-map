@@ -91,21 +91,6 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 });
-// features.js - Spotify Player Toggle Logic
-document.addEventListener("DOMContentLoaded", () => {
-    const spotifyBtn = document.getElementById("spotify-btn");
-    const spotifyPanel = document.getElementById("spotify-panel");
-    const closeSpotify = document.getElementById("close-spotify");
 
-    if (spotifyBtn && spotifyPanel) {
-        spotifyBtn.addEventListener("click", () => {
-            spotifyPanel.style.display = spotifyPanel.style.display === "none" ? "block" : "none";
-        });
-        
-        if (closeSpotify) {
-            closeSpotify.addEventListener("click", () => {
-                spotifyPanel.style.display = "none";
-            });
-        }
     }
 });
