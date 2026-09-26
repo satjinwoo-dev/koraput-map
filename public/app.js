@@ -430,16 +430,19 @@ function updateTripPanel() {
     const isMember = currentTrip.members.some(m => m.id === socket.id);
     let totalGroupFuel = 0;
 
+    // 🔥 FIX: Added strict CSS constraints so the avatar stays perfectly round and small
+    const avatarStyle = "width:32px; height:32px; border-radius:50%; object-fit:cover; vertical-align:middle; margin-right:8px; border:2px solid #34e0b4;";
+
     if(myCoords && currentUser.name && isMember) {
         const stats = tripRoadStats[socket.id] || { dist: '--', time: '--', fuel: '--' };
         if(stats.fuel !== '--') totalGroupFuel += Number(stats.fuel);
-        list.innerHTML += `<div class="trip-member" style="display:flex;justify-content:space-between;gap:8px;align-items:center;"><div><img src="${escapeHTML(currentUser.avatar)}"> You</div> <span style="text-align:right;">${stats.dist} km<br><small style="color:var(--muted)">${stats.time} min • ⛽ ${stats.fuel} L</small></span></div>`;
+        list.innerHTML += `<div class="trip-member" style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:8px;"><div><img src="${escapeHTML(currentUser.avatar)}" style="${avatarStyle}"> <b>You</b></div> <span style="text-align:right;">${stats.dist} km<br><small style="color:var(--muted)">${stats.time} min • ⛽ ${stats.fuel} L</small></span></div>`;
     }
     
     Object.values(friendData).filter(f => f.online !== false && currentTrip.members.some(m => m.id === f.id)).forEach(f => {
         const stats = tripRoadStats[f.id] || { dist: '--', time: '--', fuel: '--' };
         if(stats.fuel !== '--') totalGroupFuel += Number(stats.fuel);
-        list.innerHTML += `<div class="trip-member" style="display:flex;justify-content:space-between;gap:8px;align-items:center;"><div><img src="${escapeHTML(f.avatar)}"> ${escapeHTML(f.name)}</div> <span style="text-align:right;">${stats.dist} km<br><small style="color:var(--muted)">${stats.time} min • ⛽ ${stats.fuel} L</small></span></div>`;
+        list.innerHTML += `<div class="trip-member" style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:8px;"><div><img src="${escapeHTML(f.avatar)}" style="${avatarStyle}"> ${escapeHTML(f.name)}</div> <span style="text-align:right;">${stats.dist} km<br><small style="color:var(--muted)">${stats.time} min • ⛽ ${stats.fuel} L</small></span></div>`;
     });
     
     if(list.innerHTML) list.innerHTML+=`<div style="border-top:1px solid #333;margin-top:6px;padding-top:8px;font-size:12px;color:var(--mint);">Estimated group fuel: ${totalGroupFuel.toFixed(2)} L</div>`;
