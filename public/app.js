@@ -1004,11 +1004,16 @@ function setupChatSafe() {
     socket.on("chatHistory", l=>l.forEach(renderMsg)); socket.on("chatMessage", renderMsg);
 }
 
+// ==========================================
+// FIX 1: MEMORIES (Date, Name, Details on Pin)
+// ==========================================
 function setupMemoriesSafe(){
     const pgb = $("phase3-gallery-btn");
     if(pgb) pgb.onclick = () => { safeShow("phase3-memory-overlay", "block"); renderMemGallery(); };
+    
     const pmc = $("phase3-memory-close");
     if(pmc) pmc.onclick = () => safeHide("phase3-memory-overlay");
+    
     const pvc = $("p3-view-close");
     if(pvc) pvc.onclick = () => safeHide("phase3-photo-viewer");
     
@@ -1066,29 +1071,43 @@ function setupMemoriesSafe(){
 
     const mInp=$("memoryPhotoInput");
     const mb = $("memoryButton");
-    if(mb) mb.onclick=()=>{ if(!currentUser.name) return alert("Join map first."); if(mInp) mInp.click(); };
+    if(mb) mb.onclick=()=>{ if(!currentUser.name) return showToast("❌ Please Join map first."); if(mInp) mInp.click(); };
     
     const addMemBtn = $("p3-add-memory-btn");
     if(addMemBtn) addMemBtn.onclick = () => { safeHide("phase3-memory-overlay"); if(mInp) mInp.click(); };
     
     if(mInp) {
-        mInp.onchange=()=>{
-            const f=mInp.files?.[0]; if(!f) return;
-            if(!IMAGE_TYPES.includes(f.type)||f.size>MAX_MEMORY_FILE){
-                alert("Invalid image or >8MB."); 
+        mInp.onchange=(e)=>{
+            const f=e.target.files?.[0]; 
+            if(!f) return;
+            
+            // FIX: Replaced strict IMAGE_TYPES check with a safer image format verification
+            if(!f.type.startsWith("image/")){
+                showToast("❌ Invalid format! Please select an image file.");
                 mInp.value=""; 
                 return;
             }
+            
+            // FIX: Server limits base64 payload length. Reduced check to 5MB so it never silently fails on backend.
+            if(f.size > 5 * 1024 * 1024){ 
+                showToast("❌ Image is too large! Please choose a smaller photo (Under 5MB).");
+                mInp.value=""; 
+                return;
+            }
+            
             const r=new FileReader(); 
             r.onload=()=>{
-                if(validImageData(r.result)){ 
+                if(typeof r.result === "string" && r.result.startsWith("data:image/")){ 
                     pendingMemoryImage = r.result;
                     mapActionMode = 'memory'; 
-                    showToast("📸 Photo Selected! Now TAP ANYWHERE on the map to pin it.", 5000);
+                    showToast("📸 Photo Selected! Now TAP ANYWHERE on the map to pin it.", 6000);
+                } else {
+                    showToast("❌ Error reading photo format.");
                 }
+                // FIX: Cleared input inside onload to prevent browser bugs interrupting file reading
+                mInp.value=""; 
             }; 
             r.readAsDataURL(f); 
-            mInp.value="";
         };
     }
 }
