@@ -1,10 +1,7 @@
 "use strict";
 
-console.log("🔥 KORAPUT MAP APP JS VERSION: 2026-09-25-ULTIMATE-FIX");
+console.log("🔥 KORAPUT MAP APP JS VERSION: 2026-09-26-COMPRESSION-FIX");
 
-// ==========================================
-// CACHE KILLER
-// ==========================================
 if ('serviceWorker' in navigator) {
     navigator.serviceWorker.getRegistrations().then(function(registrations) {
         for(let registration of registrations) {
@@ -13,16 +10,10 @@ if ('serviceWorker' in navigator) {
     });
 }
 
-// ==========================================
-// 1. SETUP & LEAFLET MAP
-// ==========================================
 const socket = io({ transports: ["websocket", "polling"] });
-const DEFAULT_CENTER = [22.2475, 84.8828]; // Rourkela Center
+const DEFAULT_CENTER = [22.2475, 84.8828]; 
 const DEFAULT_AVATAR = "satyam.png";
 const MAX_NAME = 40;
-const MAX_CHAT_FILE = 5 * 1024 * 1024;
-const MAX_MEMORY_FILE = 8 * 1024 * 1024;
-const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
 const map = L.map("map", { 
     zoomControl: false, preferCanvas: false, minZoom: 3, maxBounds: [[-90, -180], [90, 180]], maxBoundsViscosity: 1.0
@@ -64,7 +55,7 @@ let pendingMemoryImage = null;
 let measurePoints = [];
 let currentTrip = null;
 let tripMarker = null;
-let searchPlace = null; // 🔥 FIX: Declared globally to prevent Strict Mode ReferenceError
+let searchPlace = null;
 
 let geoClickCount = 0, geoClickTimer = null;
 let currentGeofences = []; 
@@ -74,14 +65,12 @@ let currentGalleryFilter = "all", currentGallerySearch = "", selectedMemoryId = 
 let searchMarker = null;
 let offlineMessageQueue = [];
 let offlineMemoryQueue = [];
-let isNetworkOnline = navigator.onLine;
 
 const $ = id => document.getElementById(id);
 const safeShow = (id, displayStyle = "flex") => { const el = $(id); if (el) el.style.display = displayStyle; };
 const safeHide = (id) => { const el = $(id); if (el) el.style.display = "none"; };
 const cleanName = v => String(v || "User").trim().replace(/\s+/g," ").slice(0, MAX_NAME);
 const validCoord = (lat,lng) => Number.isFinite(lat) && Number.isFinite(lng) && lat>=-90 && lat<=90 && lng>=-180 && lng<=180;
-const validImageData = v => typeof v === "string" && v.startsWith("data:image/");
 
 function distanceKm(a,b,c,d){
     if(!validCoord(a,b) || !validCoord(c,d)) return "";
@@ -132,9 +121,6 @@ async function fetchCity(lat,lng){
     } catch { return "Local Area"; }
 }
 
-// ==========================================
-// 2. SMART DRIVE ENGINE (Fix 4: Trip Calculation)
-// ==========================================
 const SmartDrive = {
     isRecording: false,
     baseMileage: 18,
@@ -211,7 +197,6 @@ const SmartDrive = {
 
     tick(speedKmh, distKm) {
         this.checkSafetyLimits(speedKmh);
-        
         if (!this.trip.active && !this.isRecording) return;
         
         if (this.isRecording) {
@@ -267,9 +252,6 @@ const SmartDrive = {
     }
 };
 
-// ==========================================
-// MEET UP FEATURE
-// ==========================================
 const GroupNavigation = {
     active: false, destination: null, selectedMembers: [], layerGroup: L.layerGroup().addTo(map),
     lastFetchedCoords: {}, colors: ['#18d6a3', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6'], recalcTimer: null,
@@ -393,9 +375,6 @@ function triggerGroupRouteUpdate() {
     groupRouteUpdateTimer = setTimeout(() => updateGroupTripRoutes(), 1000);
 }
 
-// ==========================================
-// GROUP TRIP LOGIC (Distance, Time, Fuel calculations)
-// ==========================================
 async function updateGroupTripRoutes() {
     if (!currentTrip || isFetchingGroupRoutes) return;
     isFetchingGroupRoutes = true;
@@ -466,9 +445,6 @@ function updateTripPanel() {
     if(list.innerHTML) list.innerHTML+=`<div style="border-top:1px solid #333;margin-top:6px;padding-top:8px;font-size:12px;color:var(--mint);">Estimated group fuel: ${totalGroupFuel.toFixed(2)} L</div>`;
 }
 
-// ==========================================
-// CORE GPS: FAST FALLBACK + WATCH
-// ==========================================
 socket.on("connect", () => { 
     if (currentUser.name) socket.emit("profileReady", currentUser); 
     if(offlineMessageQueue.length > 0) {
@@ -671,9 +647,6 @@ function renderGeofenceList() {
 const gflc = $("geofence-list-close");
 if(gflc) gflc.addEventListener("click", () => safeHide("geofence-list-modal"));
 
-// ==========================================
-// SETUP FUNCTIONS (NULL-SAFE CHECKED)
-// ==========================================
 function setupBasicControlsSafe() {
     const locBtn = $("my-location-btn");
     if (locBtn) locBtn.onclick = () => {
@@ -697,20 +670,15 @@ function setupBasicControlsSafe() {
         sm.onclick = e => {
             const b = e.target.closest("[data-style]"); if (!b) return;
             const s = b.dataset.style;
-            
-            // Yahan terrainLayer add kiya gaya hai remove karne ke list me
             [satelliteLayer, streetLayer, darkLayer, terrainLayer].forEach(l => { 
                 if (map.hasLayer(l)) map.removeLayer(l); 
             });
-            
-            // Yahan terrainLayer add kiya gaya hai layers object me
             const layers = {
                 satellite: satelliteLayer, 
                 street: streetLayer, 
                 dark: darkLayer, 
                 terrain: terrainLayer
             };
-            
             if (layers[s]) layers[s].addTo(map);
             document.querySelectorAll("#map-style-menu button").forEach(x => x.classList.toggle("active", x.dataset.style === s));
             safeHide("map-style-menu");
@@ -791,7 +759,6 @@ function setupAdvancedToolsSafe() {
         else safeHide("group-nav-setup");
     };
 
-    // MEET UP CHOOSE POINT FIX
     const gNCB = $("group-nav-close-btn");
     if(gNCB) gNCB.onclick = () => { safeHide("group-nav-setup"); mapActionMode = null; const btn = $("group-nav-btn"); if(btn) btn.classList.remove("active-tool"); };
     
@@ -802,7 +769,6 @@ function setupAdvancedToolsSafe() {
     if(gNSB) gNSB.onclick = () => { if(typeof GroupNavigation !== 'undefined') GroupNavigation.stop(); };
 
     map.on('click', (e) => {
-        // FIX 3: Measure Shortest Path Road Integration
         if (mapActionMode === 'measure') {
             measurePoints.push(e.latlng);
             L.circleMarker(e.latlng, {color: '#f59e0b', radius: 5, fillOpacity: 1}).addTo(measureLayer);
@@ -1005,15 +971,13 @@ function setupChatSafe() {
 }
 
 // ==========================================
-// FIX 1: MEMORIES (Date, Name, Details on Pin)
+// 🔥 FIX 1: MEMORIES WITH HTML5 IMAGE COMPRESSION
 // ==========================================
 function setupMemoriesSafe(){
     const pgb = $("phase3-gallery-btn");
     if(pgb) pgb.onclick = () => { safeShow("phase3-memory-overlay", "block"); renderMemGallery(); };
-    
     const pmc = $("phase3-memory-close");
     if(pmc) pmc.onclick = () => safeHide("phase3-memory-overlay");
-    
     const pvc = $("p3-view-close");
     if(pvc) pvc.onclick = () => safeHide("phase3-photo-viewer");
     
@@ -1074,40 +1038,52 @@ function setupMemoriesSafe(){
     if(mb) mb.onclick=()=>{ if(!currentUser.name) return showToast("❌ Please Join map first."); if(mInp) mInp.click(); };
     
     const addMemBtn = $("p3-add-memory-btn");
-    if(addMemBtn) addMemBtn.onclick = () => { safeHide("phase3-memory-overlay"); if(mInp) mInp.click(); };
+    // Hiding the overlay but letting mobile browsers catch their breath before clicking the file input
+    if(addMemBtn) addMemBtn.onclick = () => { safeHide("phase3-memory-overlay"); setTimeout(() => { if(mInp) mInp.click(); }, 300); };
     
     if(mInp) {
         mInp.onchange=(e)=>{
             const f=e.target.files?.[0]; 
             if(!f) return;
             
-            // FIX: Replaced strict IMAGE_TYPES check with a safer image format verification
-            if(!f.type.startsWith("image/")){
+            if(!f.type.startsWith("image/") && !f.name.match(/\.(jpg|jpeg|png|gif|webp|heic)$/i)){
                 showToast("❌ Invalid format! Please select an image file.");
                 mInp.value=""; 
                 return;
             }
             
-            // FIX: Server limits base64 payload length. Reduced check to 5MB so it never silently fails on backend.
-            if(f.size > 5 * 1024 * 1024){ 
-                showToast("❌ Image is too large! Please choose a smaller photo (Under 5MB).");
-                mInp.value=""; 
-                return;
-            }
+            showToast("⏳ Processing high-quality photo...", 2000);
             
-            const r=new FileReader(); 
-            r.onload=()=>{
-                if(typeof r.result === "string" && r.result.startsWith("data:image/")){ 
-                    pendingMemoryImage = r.result;
+            const reader = new FileReader(); 
+            reader.onload = (ev) => {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement("canvas");
+                    const MAX_SIZE = 1000;
+                    let w = img.width, h = img.height;
+                    
+                    // Downscale large photos from devices like S24 FE
+                    if(w > h && w > MAX_SIZE) { h *= MAX_SIZE/w; w = MAX_SIZE; }
+                    else if(h > MAX_SIZE) { w *= MAX_SIZE/h; h = MAX_SIZE; }
+                    
+                    canvas.width = w; canvas.height = h;
+                    const ctx = canvas.getContext("2d");
+                    ctx.drawImage(img, 0, 0, w, h);
+                    
+                    // Compress to lightweight JPEG
+                    pendingMemoryImage = canvas.toDataURL("image/jpeg", 0.7);
                     mapActionMode = 'memory'; 
-                    showToast("📸 Photo Selected! Now TAP ANYWHERE on the map to pin it.", 6000);
-                } else {
-                    showToast("❌ Error reading photo format.");
-                }
-                // FIX: Cleared input inside onload to prevent browser bugs interrupting file reading
+                    showToast("✅ Photo Ready! TAP ANYWHERE on the map to pin it.", 6000);
+                };
+                img.onerror = () => {
+                    pendingMemoryImage = ev.target.result;
+                    mapActionMode = 'memory'; 
+                    showToast("✅ Photo Ready! TAP ANYWHERE on the map to pin it.", 6000);
+                };
+                img.src = ev.target.result;
                 mInp.value=""; 
             }; 
-            r.readAsDataURL(f); 
+            reader.readAsDataURL(f); 
         };
     }
 }
@@ -1165,7 +1141,6 @@ function setupGoogleSearch() {
     if (!input) return;
     const clearBtn = $("location-search-clear");
     
-    // Injecting CSS to make Google's native dropdown match your dark theme
     const style = document.createElement('style');
     style.innerHTML = `
         .pac-container { background-color: rgba(10,17,28,0.98); border: 1px solid rgba(255,255,255,0.14); border-radius: 16px; box-shadow: 0 20px 50px rgba(0,0,0,0.5); margin-top: 10px; padding: 6px; font-family: 'Inter', sans-serif; z-index: 9999 !important; }
@@ -1200,32 +1175,28 @@ function setupGoogleSearch() {
         if (window.google && window.google.maps && window.google.maps.places) {
             clearInterval(checkGoogle);
             
-            // Remove any old manual result boxes if they exist
             const oldResultBox = document.getElementById("search-results-box");
             if (oldResultBox) oldResultBox.remove();
             
-            // 1. Initialize Pure Google Autocomplete
             const autocomplete = new google.maps.places.Autocomplete(input, {
                 componentRestrictions: { country: "in" },
                 fields: ["geometry", "name", "formatted_address"]
             });
 
-            // 2. 🔥 STRICT LIVE LOCATION BIAS
             function updateSearchBounds() {
                 const centerLat = myCoords ? myCoords.lat : map.getCenter().lat;
                 const centerLng = myCoords ? myCoords.lng : map.getCenter().lng;
                 const circle = new google.maps.Circle({ 
                     center: new google.maps.LatLng(centerLat, centerLng), 
-                    radius: 50000 // 50 KM radius around your LIVE location
+                    radius: 50000
                 });
                 autocomplete.setBounds(circle.getBounds());
-                autocomplete.setOptions({ strictBounds: false }); // Prefers local, but allows outside if exact match
+                autocomplete.setOptions({ strictBounds: false }); 
             }
             
             input.addEventListener('focus', updateSearchBounds);
             map.on('moveend', updateSearchBounds);
 
-            // 3. Handle User Selection
             autocomplete.addListener("place_changed", () => {
                 const place = autocomplete.getPlace();
                 if (!place.geometry || !place.geometry.location) {
@@ -1264,7 +1235,6 @@ function setupGoogleSearch() {
                 searchMarker.bindPopup(popupContent).openPopup();
                 if (clearBtn) safeShow("location-search-clear", "block");
 
-                // 4. Pure Google Directions API for Path & ETA
                 if(myCoords && window.google) {
                     const ds = new google.maps.DirectionsService();
                     ds.route({
@@ -1279,7 +1249,6 @@ function setupGoogleSearch() {
                             const route = res.routes[0];
                             const leg = route.legs[0];
                             
-                            // Draw animated path
                             const coords = route.overview_path.map(p => [p.lat(), p.lng()]);
                             L.polyline(coords, { color: '#34e0b4', weight: 6, opacity: 0.8, className: 'nav-path-animated' }).addTo(navigationLayer);
                             map.fitBounds(L.polyline(coords).getBounds(), {padding: [50, 50]});
@@ -1291,7 +1260,6 @@ function setupGoogleSearch() {
                             navBtn.onclick = () => {
                                 searchMarker.closePopup();
                                 
-                                // Format Google data so your premium UI reads it perfectly
                                 const mockRouteData = {
                                     geometry: { coordinates: coords.map(c => [c[1], c[0]]) },
                                     distance: leg.distance.value,
