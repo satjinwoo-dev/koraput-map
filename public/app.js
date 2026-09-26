@@ -1136,6 +1136,9 @@ function setupJoin(){
     }
 }
 
+// ==========================================
+// PURE GOOGLE PLACES API SEARCH (FIXED WHITE TEXT BUG)
+// ==========================================
 function setupGoogleSearch() {
     const input = $("location-search-input");
     if (!input) return;
@@ -1216,13 +1219,14 @@ function setupGoogleSearch() {
                 
                 map.flyTo([destLat, destLng], 15);
                 
+                // 🔥 FIX: Changed text colors to black/dark grey (#000 & #333) so it shows clearly on the white popup background!
                 const popupContent = `
                     <div style="text-align:center; padding:6px; min-width:180px;">
-                        <strong style="color:var(--mint); font-size:15px; display:block; margin-bottom:8px;">📍 ${escapeHTML(placeName)}</strong>
-                        <div id="search-route-info" style="font-size:12px; color:var(--muted); margin-bottom:12px; background:rgba(255,255,255,0.05); padding:8px; border-radius:10px; border: 1px solid rgba(255,255,255,0.1);">
+                        <strong style="color:#065f46; font-size:16px; display:block; margin-bottom:8px;">📍 ${escapeHTML(placeName)}</strong>
+                        <div id="search-route-info" style="font-size:13px; color:#333; margin-bottom:12px; background:#f3f4f6; padding:8px; border-radius:10px; border: 1px solid #ccc;">
                             <i>Calculating route... ⏳</i>
                         </div>
-                        <button id="search-nav-btn" style="width:100%; padding:10px; border:none; border-radius:10px; background:var(--mint); color:#000; font-weight:800; font-size:13px; cursor:pointer; opacity:0.5; transition:0.3s;" disabled>
+                        <button id="search-nav-btn" style="width:100%; padding:10px; border:none; border-radius:10px; background:#34e0b4; color:#000; font-weight:900; font-size:14px; cursor:pointer; opacity:0.5; transition:0.3s;" disabled>
                             ▶ Start Navigation
                         </button>
                     </div>
@@ -1253,7 +1257,8 @@ function setupGoogleSearch() {
                             L.polyline(coords, { color: '#34e0b4', weight: 6, opacity: 0.8, className: 'nav-path-animated' }).addTo(navigationLayer);
                             map.fitBounds(L.polyline(coords).getBounds(), {padding: [50, 50]});
 
-                            infoDiv.innerHTML = `<span style="color:white; font-size:14px; font-weight:800;">🚗 ${leg.distance.text}</span> <br> <span style="color:white; font-size:14px; font-weight:800;">⏱️ ${leg.duration.text}</span>`;
+                            // 🔥 FIX: Changed 'color:white' to 'color:#000' (Black) for distance & time
+                            infoDiv.innerHTML = `<span style="color:#000; font-size:15px; font-weight:900;">🚗 ${leg.distance.text}</span> <br> <span style="color:#000; font-size:15px; font-weight:900;">⏱️ ${leg.duration.text}</span>`;
                             navBtn.style.opacity = "1";
                             navBtn.disabled = false;
                             
@@ -1274,11 +1279,11 @@ function setupGoogleSearch() {
                                 startSearchNavigation(destLat, destLng, placeName, mockRouteData);
                             };
                         } else if (infoDiv) {
-                            infoDiv.innerHTML = "<span style='color:#ef4444;'>No driving route found.</span>";
+                            infoDiv.innerHTML = "<span style='color:#ef4444; font-weight:bold;'>No driving route found.</span>";
                         }
                     });
                 } else {
-                    if(document.getElementById("search-route-info")) document.getElementById("search-route-info").innerHTML = "<span style='color:#f59e0b;'>GPS required.</span>";
+                    if(document.getElementById("search-route-info")) document.getElementById("search-route-info").innerHTML = "<span style='color:#f59e0b; font-weight:bold;'>GPS required.</span>";
                 }
             });
         }
