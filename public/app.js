@@ -3,10 +3,12 @@
 console.log("🔥 KORAPUT MAP APP JS VERSION: 2026-09-26-COMPRESSION-FIX");
 
 if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.getRegistrations().then(function(registrations) {
-        for(let registration of registrations) {
-            registration.unregister();
-        }
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').then(reg => {
+            console.log('ServiceWorker registered successfully!');
+        }).catch(err => {
+            console.log('ServiceWorker registration failed: ', err);
+        });
     });
 }
 
