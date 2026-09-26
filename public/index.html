@@ -455,5 +455,18 @@ button:active{transform:scale(.94)}
     🎙️ Group Call
 </button>
 <audio id="remote-audio" autoplay style="display:none;"></audio>
+  <!-- Dead-Zone P2P Radar Button & Panel -->
+<button id="p2p-radar-btn" style="position:fixed; bottom:150px; right:20px; z-index:999; background:#ff9f43; color:#071018; border:none; padding:12px 18px; border-radius:50px; font-weight:900; cursor:pointer; box-shadow:0 4px 15px rgba(0,0,0,0.3);">
+    📡 P2P Radar
+</button>
+
+<div id="radar-panel" style="display:none; position:fixed; bottom:210px; right:20px; z-index:1000; background:rgba(7,16,24,0.95); border:1px solid #ff9f43; padding:15px; border-radius:15px; width:250px; color:#fff; box-shadow:0 10px 30px rgba(0,0,0,0.5);">
+    <strong style="color:#ff9f43; display:block; margin-bottom:8px;">📡 Offline Squad Radar</strong>
+    <p id="radar-status" style="font-size:12px; margin:0 0 10px 0; color:#ccc;">Scanning for nearby offline peers...</p>
+    <ul id="peer-list" style="list-style:none; padding:0; margin:0; font-size:13px; max-height:100px; overflow-y:auto;">
+        <li style="color:#888;">No devices nearby</li>
+    </ul>
+    <button id="close-radar" style="margin-top:10px; width:100%; background:#333; color:#fff; border:none; padding:6px; border-radius:8px; cursor:pointer;">Close</button>
+</div>
 </body>
 </html>
