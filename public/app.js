@@ -1024,12 +1024,12 @@ function setupMemoriesSafe(){
             const icon = L.divIcon({ className:"p3-memory-marker", html:`<div style="width:46px;height:46px;border-radius:50%;overflow:hidden;border:2px solid #fff;background:#071018;box-shadow:0 4px 15px rgba(0,0,0,.65)"><img src="${escapeHTML(m.image)}" style="width:100%;height:100%;object-fit:cover;"></div>`, iconSize:[46,46], iconAnchor:[23,23]});
             const marker = L.marker([m.lat,m.lng],{icon}).addTo(memoryLayer);
             
-            marker.bindPopup(`<div class="p3-map-popup"><img src="${escapeHTML(m.image)}"><b style="color:var(--mint);">📸 ${escapeHTML(m.name)}</b><br><small style="color:#aaa;">${new Date(m.time).toLocaleString()}</small><br><button class="p3-open-map-memory" style="margin-top:8px;padding:6px;width:100%;background:#34e0b4;color:#000;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">View Detail</button></div>`);
+            // 🔥 FIX: Added strict width/height and styling to the image and container
+            marker.bindPopup(`<div class="p3-map-popup" style="width:220px; text-align:center;"><img src="${escapeHTML(m.image)}" style="width:100%; height:140px; object-fit:cover; border-radius:8px; margin-bottom:8px; box-shadow:0 4px 10px rgba(0,0,0,0.2);"><br><b style="color:var(--mint); font-size:14px;">📸 ${escapeHTML(m.name)}</b><br><small style="color:#aaa;">${new Date(m.time).toLocaleString()}</small><br><button class="p3-open-map-memory" style="margin-top:8px;padding:8px;width:100%;background:#34e0b4;color:#000;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">View Detail</button></div>`);
             
             marker.on("popupopen",e=>{ const b=e.popup.getElement()?.querySelector(".p3-open-map-memory"); if(b) b.onclick=()=>{selectedMemoryId=m.id; const pvi=$("p3-view-image"); if(pvi) pvi.src=m.image; const pvn=$("p3-view-name"); if(pvn) pvn.textContent=m.name; const pvd=$("p3-view-date"); if(pvd) pvd.textContent=new Date(m.time).toLocaleString(); safeShow("phase3-photo-viewer", "flex");}; });
         });
     }
-
     socket.on("loadMemoryPhotos", l=>{ memories.clear(); l.forEach(m=>memories.set(m.id,m)); renderPins(); });
     socket.on("newMemoryPin", m=>{ memories.set(m.id,m); renderPins(); const pmo=$("phase3-memory-overlay"); if(pmo && pmo.style.display==="block") renderMemGallery(); });
 
