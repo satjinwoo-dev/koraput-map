@@ -1464,7 +1464,11 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
             if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 18, {animate: true, duration: 1.5});
             
             SmartDrive.startTrip();
-            
+            // 💾 SEARCH NAV BACKUP: ताकि रिफ्रेश पर गायब न हो
+        if (typeof TripDB !== "undefined") {
+            TripDB.saveNavState({ destLat, destLng, destName: destName, active: true });
+            console.log("💾 [DB] Active Navigation Route Saved!");
+        }
             if (navigator.geolocation) {
                 let traveledCoords = [];
                 navWatchId = navigator.geolocation.watchPosition((pos) => {
@@ -1879,3 +1883,19 @@ function initApp(){
 }
 
 if(document.readyState==="loading") document.addEventListener("DOMContentLoaded", initApp); else initApp();
+// 🔄 AUTO-RESTORE NAVIGATION ON PAGE REFRESH
+setTimeout(() => {
+    if (typeof TripDB !== "undefined") {
+        const savedNav = TripDB.restoreNavState();
+        if (savedNav && savedNav.active && savedNav.destLat && typeof startSearchNavigation === "function") {
+            console.log("🔄 Restoring previous navigation state...");
+            // पुराना डेस्टिनेशन सेट करो
+            startSearchNavigation(savedNav.destLat, savedNav.destLng, savedNav.destName, null);
+            // 1.5 सेकंड बाद ऑटोमैटिक 'Start Navigation' बटन दबा दो ताकि हरा पैनल खुल जाए
+            setTimeout(() => { 
+                const startBtn = document.getElementById("btn-start-nav"); 
+                if (startBtn && startBtn.style.display !== "none") startBtn.click(); 
+            }, 1500);
+        }
+    }
+}, 2000); // ऐप लोड होने के 2 सेकंड बाद चेक करेगा
