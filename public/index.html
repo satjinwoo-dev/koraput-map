@@ -433,17 +433,6 @@ button:active{transform:scale(.94)}
 <input id="memoryPhotoInput" type="file" accept="image/*" hidden>
 <audio id="remote-audio" autoplay playsinline hidden></audio>
 
-<!-- KILLS SERVICE WORKER IMMEDIATELY SO WE NEVER SEE THE OLD CACHE AGAIN -->
-<script>
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.getRegistrations().then(function(registrations) {
-      for(let registration of registrations) {
-        registration.unregister();
-      }
-    });
-  }
-</script>
-
 <script src="/socket.io/socket.io.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <!-- API KEY -->
