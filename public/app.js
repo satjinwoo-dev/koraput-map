@@ -358,9 +358,16 @@ const GroupNavigation = {
         mapActionMode = 'group-nav';
         showToast("📍 Tap the map to set the common destination!", 5000);
     },
-    async setDestination(latlng) {
+   async setDestination(latlng) {
         this.active = true; this.destination = latlng; this.layerGroup.clearLayers(); this.lastFetchedCoords = {};
-        L.marker(latlng, { icon: L.divIcon({className: 'geofence-marker', html: '🎯'}) }).bindTooltip("Group Destination", {permanent:true, direction:"top", className:"weather-badge"}).addTo(this.layerGroup);
+        
+        // 💾 GROUP TRIP & MEETUP BACKUP ENGINE
+        if (typeof TripDB !== "undefined" && typeof currentUser !== "undefined") {
+            TripDB.saveSession(currentUser.name, { active: true, dest: latlng, members: this.selectedMembers });
+            console.log("💾 [DB] Group Trip & Meetup Auto-Saved!");
+        }
+
+        L.marker(latlng, { icon: L.divIcon({className: 'geofence-marker', html: '📍'}) }).bindTooltip("Group Destination", {permanent:true, direction:"top", className:"weather-badge"}).addTo(this.layerGroup);
         safeShow("group-nav-active", "flex");
         await this.calculateAll();
     },
@@ -1191,6 +1198,11 @@ function setupJoin(){
         else currentUser.name = "Explorer";
         
         localStorage.setItem("koraput_name",currentUser.name);
+        // 💾 NEW: TripDB me session save karo taaki 7 din tak login rahe
+        if (typeof TripDB !== "undefined") {
+            TripDB.saveSession(currentUser.name, null);
+            console.log("💾 [DB] User Session Saved to TripDB!");
+        }
         
         const aInp = $("avatarInput") || document.querySelector("input[type='file']");
         const f = aInp ? aInp.files?.[0] : null;
