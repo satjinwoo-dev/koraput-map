@@ -91,6 +91,106 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 });
+// ==============================================================
+// 🚀 1. SKUNKWORKS: THE SEISMOGRAPH ENGINE (VIBRATION SENSOR) 🚀
+// ==============================================================
 
+const Seismograph = {
+    active: false,
+    threshold: 18, // कितना तेज़ झटका चाहिए (नॉर्मल ग्रेविटी 9.8 होती है)
+    cooldown: false, // एक ही गड्ढे पर बार-बार अलार्म न बजे
+
+    init() {
+        if (!window.DeviceMotionEvent) {
+            console.log("[SEISMOGRAPH] Accelerometer not supported on this device.");
+            return;
+        }
+
+        window.addEventListener('devicemotion', (event) => {
+            // app.js से currentTravelMode चेक करो (सेफ्टी के साथ)
+            if (typeof currentTravelMode !== 'undefined' && currentTravelMode === 'walk') return;
+            if (!this.active) return;
+
+            const acc = event.accelerationIncludingGravity;
+            if (!acc) return;
+
+            // X, Y, Z तीनों दिशाओं के झटके का टोटल निकालो
+            const force = Math.sqrt(acc.x * acc.x + acc.y * acc.y + acc.z * acc.z);
+
+            if (force > this.threshold && !this.cooldown) {
+                this.triggerPotholeAlert(force);
+            }
+        });
+    },
+
+    start() {
+        this.active = true;
+        console.log("[SEISMOGRAPH] Armed and ready to detect potholes in background!");
+    },
+
+    stop() {
+        this.active = false;
+    },
+
+    triggerPotholeAlert(force) {
+        console.log(`[SEISMOGRAPH] ⚠️ MAJOR POTHOLE DETECTED! Force: ${force.toFixed(1)}`);
+        
+        // 5 सेकंड का कूलडाउन
+        this.cooldown = true;
+        setTimeout(() => { this.cooldown = false; }, 5000);
+
+        // मैप पर गड्ढे का रेड मार्कर (Pin) लगाओ (सेफ्टी के साथ)
+        if (typeof lastFixCoords !== 'undefined' && lastFixCoords && typeof map !== 'undefined') {
+            L.circleMarker([lastFixCoords.latitude, lastFixCoords.longitude], {
+                radius: 8,
+                color: 'red',
+                fillColor: '#f03',
+                fillOpacity: 0.5
+            }).addTo(map).bindPopup("⚠️ Auto-Detected Pothole").openPopup();
+        }
     }
-});
+};
+
+// ऐप लोड होते ही वाइब्रेशन सेंसर चालू कर दो
+Seismograph.init();
+Seismograph.start();
+
+
+// ==============================================================
+// 📷 2. OPTIONAL AI DASHCAM (CAMERA SENSOR) 📷
+// ==============================================================
+
+let dashcamStream = null;
+
+async function toggleAIDashcam() {
+    const videoEl = document.getElementById('dashcam-video');
+    const btn = document.getElementById('ai-dashcam-btn');
+
+    if (dashcamStream) {
+        // अगर पहले से चालू है, तो बंद कर दो (बैटरी बचाओ)
+        dashcamStream.getTracks().forEach(track => track.stop());
+        dashcamStream = null;
+        videoEl.style.display = 'none';
+        btn.style.borderColor = 'gray';
+        btn.innerHTML = '📷';
+        console.log("[AI DASHCAM] Camera OFF. Reverting to Seismograph. Saving battery.");
+    } else {
+        // अगर बंद है, तो यूज़र से परमिशन मांग कर बैक कैमरा चालू करो
+        try {
+            // 'environment' का मतलब है फोन का पीछे वाला कैमरा
+            dashcamStream = await navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: 'environment' } 
+            });
+            videoEl.srcObject = dashcamStream;
+            videoEl.style.display = 'block';
+            
+            btn.style.borderColor = '#ff3b30'; // लाल रंग का बॉर्डर
+            btn.innerHTML = '🔴';
+            console.log("[AI DASHCAM] Camera ON. Warning: High battery usage active.");
+            
+        } catch (err) {
+            console.error("[AI DASHCAM] Camera access denied or failed:", err);
+            alert("Bhai, AI Dashcam use karne ke liye camera permission deni padegi!");
+        }
+    }
+}
