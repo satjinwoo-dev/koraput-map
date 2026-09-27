@@ -425,6 +425,12 @@ button:active{transform:scale(.94)}
   <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #333; padding-bottom:10px; margin-bottom:10px;">
       <strong id="trip-title">Trip</strong>
       <button id="trip-action-btn" class="btn-secondary-nav" style="height:30px; font-size:11px; padding:0 10px;">Join</button>
+    <!-- AI DASHCAM TOGGLE BUTTON & VIDEO PREVIEW -->
+<button id="ai-dashcam-btn" onclick="toggleAIDashcam()" style="position: fixed; top: 150px; right: 20px; z-index: 1000; background: rgba(20,20,20,0.8); color: white; padding: 12px; border-radius: 50%; border: 2px solid gray; cursor: pointer; font-size: 20px; backdrop-filter: blur(5px);">
+    📷
+</button>
+<!-- Hidden video element for live feed -->
+<video id="dashcam-video" autoplay playsinline muted style="display: none; width: 150px; height: auto; position: fixed; bottom: 100px; left: 20px; z-index: 1000; border: 2px solid #18d6a3; border-radius: 10px; box-shadow: 0px 4px 10px rgba(0,0,0,0.5);"></video>
   </div>
   <div id="trip-members-list" style="display:flex; flex-direction:column; gap:8px;"></div>
 </div>
