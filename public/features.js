@@ -238,36 +238,84 @@ function setTravelMode(mode) {
 // डिफ़ॉल्ट रूप से बाइक मोड सेट कर दो
 window.currentTravelMode = 'bike';
 // ==============================================================
-// 💾 3. DATABASE PERSISTENCE (OFFLINE TRIP BACKUP) 💾
+// 💾 3. DATABASE PERSISTENCE (7-DAY EXPIRY & EXPORT) 💾
 // ==============================================================
 
 const TripDB = {
     autoSaveInterval: null,
+    expiryTime: 7 * 24 * 60 * 60 * 1000, // 7 दिन (मिलीसेकंड में)
+
+    // 🕒 टाइम चेक: अगर डेटा 7 दिन से पुराना है, तो उसे डिलीट कर दो
+    checkExpiry() {
+        const lastSaved = localStorage.getItem('mapUnite_last_saved');
+        if (lastSaved && (Date.now() - parseInt(lastSaved)) > this.expiryTime) {
+            this.clearBackup();
+            console.log("🗑️ [DB] 7 Days passed. Old data auto-deleted for privacy.");
+        }
+    },
 
     startAutoSave(tripObject) {
-        // हर 10 सेकंड में ट्रिप का डेटा फोन की ऑफलाइन मेमोरी में सेव करेगा
+        this.checkExpiry(); 
+        if (this.autoSaveInterval) clearInterval(this.autoSaveInterval);
         this.autoSaveInterval = setInterval(() => {
             if (tripObject && tripObject.active) {
                 localStorage.setItem('mapUnite_trip_backup', JSON.stringify(tripObject));
-                console.log("💾 [DB] Trip Auto-Saved to local storage.");
+                localStorage.setItem('mapUnite_last_saved', Date.now().toString());
             }
-        }, 10000);
+        }, 5000);
     },
 
-    restoreTrip() {
-        // अगर ऐप क्रैश होकर दोबारा खुली, तो पुराना डेटा वापस लाएगा
-        const savedData = localStorage.getItem('mapUnite_trip_backup');
-        if (savedData) {
-            console.log("💾 [DB] Previous trip backup found! Restoring...");
-            return JSON.parse(savedData);
+    saveNavState(destinationData) {
+        if (destinationData) {
+            localStorage.setItem('mapUnite_nav_backup', JSON.stringify(destinationData));
+            localStorage.setItem('mapUnite_last_saved', Date.now().toString());
         }
-        return null; // कोई पुराना ट्रिप नहीं मिला
+    },
+
+    saveSession(username, groupData) {
+        if (username) localStorage.setItem('mapUnite_username', username);
+        if (groupData) localStorage.setItem('mapUnite_group_backup', JSON.stringify(groupData));
+        localStorage.setItem('mapUnite_last_saved', Date.now().toString());
+    },
+
+    restoreAll() {
+        this.checkExpiry(); // रिस्टोर करने से पहले चेक करो कि डेटा एक्सपायर तो नहीं हुआ
+        return {
+            username: localStorage.getItem('mapUnite_username'),
+            nav: JSON.parse(localStorage.getItem('mapUnite_nav_backup')),
+            trip: JSON.parse(localStorage.getItem('mapUnite_trip_backup')),
+            group: JSON.parse(localStorage.getItem('mapUnite_group_backup'))
+        };
     },
 
     clearBackup() {
-        // जब ट्रिप सच में ख़त्म हो जाए, तब मेमोरी साफ़ कर दो
         localStorage.removeItem('mapUnite_trip_backup');
+        localStorage.removeItem('mapUnite_nav_backup');
+        localStorage.removeItem('mapUnite_group_backup');
+        localStorage.removeItem('mapUnite_last_saved');
         if (this.autoSaveInterval) clearInterval(this.autoSaveInterval);
-        console.log("💾 [DB] Trip backup cleared.");
+    },
+
+    // ⬇️ यूज़र का पूरा डेटा एक JSON फाइल में डाउनलोड करने का फंक्शन
+    downloadDetailedInfo() {
+        const allBackup = {
+            ExportDate: new Date().toLocaleString(),
+            Username: localStorage.getItem('mapUnite_username') || "Not Set",
+            TripDetails: JSON.parse(localStorage.getItem('mapUnite_trip_backup') || "{}"),
+            Navigation: JSON.parse(localStorage.getItem('mapUnite_nav_backup') || "{}"),
+            GroupData: JSON.parse(localStorage.getItem('mapUnite_group_backup') || "{}")
+        };
+
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(allBackup, null, 2));
+        const downloadAnchorNode = document.createElement('a');
+        downloadAnchorNode.setAttribute("href", dataStr);
+        // फाइल का नाम तारीख के साथ सेव होगा (उदा: MapUnite_Data_27-9-2026.json)
+        downloadAnchorNode.setAttribute("download", `MapUnite_Data_${new Date().toLocaleDateString().replace(/\//g, '-')}.json`);
+        document.body.appendChild(downloadAnchorNode);
+        downloadAnchorNode.click();
+        downloadAnchorNode.remove();
     }
 };
+
+// पेज लोड होते ही बैकग्राउंड में एक्सपायरी चेक रन कर दो
+TripDB.checkExpiry();
