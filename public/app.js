@@ -301,11 +301,26 @@ tick(speedKmh, distKm) {
         ctx.stroke();
     },
 
-    startTrip() { this.trip = { active: true, startTime: Date.now(), totalDist: 0, actualFuel: 0, maxSpeed: 0, sumSpeed: 0, ticks: 0, ranges: {efficient:0, moderate:0, inefficient:0} }; },
+    startTrip() { 
+        // 💾 1. चेक करो कि क्या कोई क्रैश हुई ट्रिप का डेटा सेव है?
+        let savedTrip = (typeof TripDB !== "undefined") ? TripDB.restoreTrip() : null;
+        
+        if (savedTrip && savedTrip.active) {
+            this.trip = savedTrip; // पुराना डेटा वापस लाओ
+            console.log("💾 [SmartDrive] Old trip recovered!");
+        } else {
+            // कोई पुराना डेटा नहीं है, तो नई ट्रिप शुरू करो
+            this.trip = { active: true, startTime: Date.now(), totalDist: 0, actualFuel: 0, maxSpeed: 0, sumSpeed: 0, ticks: 0, ranges: {efficient:0, moderate:0, inefficient:0} }; 
+        }
+        
+        // 💾 2. ऑटो-सेव (Auto-Save) चालू कर दो
+        if (typeof TripDB !== "undefined") TripDB.startAutoSave(this.trip);
+    },
     
     endTrip() {
         if(!this.trip.active) return;
         this.trip.active = false;
+        if (typeof TripDB !== "undefined") TripDB.clearBackup();
         const avg = this.trip.ticks > 0 ? this.trip.sumSpeed / this.trip.ticks : 0;
         
         const rd = $("res-dist"); if(rd) rd.textContent = this.trip.totalDist.toFixed(2) + " km";
