@@ -32,7 +32,30 @@ let myCoords = null, myWeather = "", ownMarker = null, accuracyCircle = null, ci
 let lastWeatherFetch = 0;
 const friendMarkers = Object.create(null);
 const friendData = Object.create(null);
+// --- ADVANCED GPS FILTER (Speed-alert v2) ---
+const GpsFilter = {
+    history: [],           // हाल ही की स्पीड का रिकॉर्ड
+    MAX_HISTORY: 8,        // पिछले 8 GPS पिंग्स को याद रखेगा
 
+    // 1. Moving Average: एक झटके में स्पीड 100 न हो जाए, उसे स्मूथ करेगा
+    smooth(rawSpeed) {
+        this.history.push(rawSpeed);
+        if (this.history.length > this.MAX_HISTORY) this.history.shift();
+        return this.history.reduce((a, b) => a + b, 0) / this.history.length;
+    },
+
+    // 2. Spike Rejection: अगर स्पीड 1 सेकंड में 0 से 80 हो जाए, तो उसे फेक (झूठा) मानेगा
+    isPlausibleJump(prevSpeedKmh, newSpeedKmh, dtSec) {
+        const deltaMs = Math.abs(newSpeedKmh - prevSpeedKmh) / 3.6; // मीटर प्रति सेकंड में बदलो
+        return dtSec > 0 ? (deltaMs / dtSec) < 8 : true; // 8 m/s² से ज़्यादा का एक्सीलरेशन किसी नॉर्मल बाइक का नहीं होता
+    },
+
+    // 3. Confidence Score: GPS की एक्यूरेसी (accuracy) के हिसाब से स्कोर देगा (0 से 1 के बीच)
+    confidence(accuracyM, jumpPlausible) {
+        const accScore = Math.max(0, 1 - accuracyM / 100);   // 100 मीटर से ज़्यादा ख़राब GPS = 0 स्कोर
+        return jumpPlausible ? accScore : accScore * 0.2;    // अगर स्पीड जंप फेक है, तो स्कोर एकदम गिरा दो
+    }
+};
 let lastFixCoords = null, lastFixTime = 0; 
 let locationHistory = [];
 try {
@@ -197,18 +220,36 @@ const SmartDrive = {
         else if (speed >= 60) { showToast("🟢 Alert: Speed above 60 km/h.", 3000); this.lastAlertTime = now; }
     },
 
-    tick(speedKmh, distKm) {
-        this.checkSafetyLimits(speedKmh);
+    // --- 🚨 GATEKEEPER: SPEED-ALERT V2 LOGIC 🚨 ---
+        let dtSec = 1; 
+        let accuracy = 10; 
+        
+        let smoothedSpeed = GpsFilter.smooth(speedKmh);
+        let plausible = GpsFilter.isPlausibleJump(window.lastSpeedKmh || 0, smoothedSpeed, dtSec);
+        let conf = GpsFilter.confidence(accuracy, plausible);
+        
+        window.lastSpeedKmh = smoothedSpeed;
+
+        // Gatekeeper Check
+        if (conf > 0.4 && typeof currentTravelMode !== 'undefined' && currentTravelMode !== 'walk') {
+            this.checkSafetyLimits(smoothedSpeed); 
+        } else {
+            console.log("[SYSTEM] Ignored bad GPS fix or in Walk mode.");
+        }
+        // ----------------------------------------------
+
         if (!this.trip.active && !this.isRecording) return;
         
         if (this.isRecording) {
-            this.speedHistory.push(speedKmh);
+            this.speedHistory.push(smoothedSpeed); // Graph mein smooth speed
             if(this.speedHistory.length > 50) this.speedHistory.shift();
             this.drawGraph();
         }
 
         if (this.trip.active && distKm > 0) {
-            this.trip.totalDist += distKm; this.trip.ticks += 1; this.trip.sumSpeed += speedKmh;
+            this.trip.totalDist += distKm; 
+            this.trip.ticks += 1; 
+            this.trip.sumSpeed += smoothedSpeed; // Sum mein smooth speed
             if(speedKmh > this.trip.maxSpeed) this.trip.maxSpeed = speedKmh;
             if(speedKmh >= 40 && speedKmh <= 60) this.trip.ranges.efficient++;
             else if (speedKmh > 80) this.trip.ranges.inefficient++;
