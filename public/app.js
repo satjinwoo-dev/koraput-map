@@ -238,30 +238,54 @@ const SmartDrive = {
         }
         // ----------------------------------------------
 
-        if (!this.trip.active && !this.isRecording) return;
-        
-        if (this.isRecording) {
-            this.speedHistory.push(smoothedSpeed); // Graph mein smooth speed
-            if(this.speedHistory.length > 50) this.speedHistory.shift();
-            this.drawGraph();
-        }
-
-        if (this.trip.active && distKm > 0) {
-            this.trip.totalDist += distKm; 
+       // --- FUEL MODEL V2 (Idle Burn + U-Shape Curve) ---
+        if (this.trip.active) {
             this.trip.ticks += 1; 
-            this.trip.sumSpeed += smoothedSpeed; // Sum mein smooth speed
-            if(speedKmh > this.trip.maxSpeed) this.trip.maxSpeed = speedKmh;
-            if(speedKmh >= 40 && speedKmh <= 60) this.trip.ranges.efficient++;
-            else if (speedKmh > 80) this.trip.ranges.inefficient++;
-            else this.trip.ranges.moderate++;
 
-            let currentEff = this.baseMileage;
-            if (speedKmh > 60) currentEff -= (speedKmh - 60) * 0.005 * this.baseMileage; 
-            else if (speedKmh < 40) currentEff -= (40 - speedKmh) * 0.004 * this.baseMileage; 
-            currentEff = Math.max(2, currentEff); 
-            this.trip.actualFuel += (distKm / currentEff);
+            if (distKm > 0) {
+                this.trip.totalDist += distKm;
+                this.trip.sumSpeed += smoothedSpeed;
+                
+                // अब मैक्स स्पीड भी स्मूथ वाली सेव होगी
+                if(smoothedSpeed > this.trip.maxSpeed) this.trip.maxSpeed = smoothedSpeed;
+                
+                // U-Shape Curve Analytics
+                if(smoothedSpeed >= 40 && smoothedSpeed <= 60) this.trip.ranges.efficient++;
+                else if (smoothedSpeed > 80) this.trip.ranges.inefficient++;
+                else this.trip.ranges.moderate++;
+            }
+
+            // 🚨 असली मैथ: Idle Burn vs Moving Burn (Stopwatch Logic) 🚨
+            let fuelBurned = 0;
+            if (smoothedSpeed > 3) {
+                // तुम चल रहे हो, टाइमर को वापस ज़ीरो कर दो
+                window.stoppedTimeSec = 0; 
+                
+                // मूविंग बर्न: U-Shape कर्व
+                let currentEff = this.baseMileage || 35;
+                if (smoothedSpeed > 60) currentEff -= (smoothedSpeed - 60) * 0.005 * this.baseMileage;
+                else if (smoothedSpeed < 40) currentEff -= (40 - smoothedSpeed) * 0.004 * this.baseMileage;
+                
+                currentEff = Math.max(5, currentEff); 
+                fuelBurned = (distKm / currentEff);
+            } else {
+                // बाइक रुकी हुई है, स्टॉपवॉच चालू करो
+                window.stoppedTimeSec = (window.stoppedTimeSec || 0) + dtSec;
+                
+                // अगर 180 सेकंड (3 मिनट) से कम रुके हो, तो मान लो इंजन ऑन है
+                if (window.stoppedTimeSec < 180) {
+                    fuelBurned = (0.4 / 3600) * dtSec; 
+                } else {
+                    // 3 मिनट से ज़्यादा हो गए, मान लो इंजन बंद है
+                    fuelBurned = 0; 
+                }
+            }
+            
+            this.trip.actualFuel += fuelBurned;
         }
-    },
+},
+
+        
 
     drawGraph() {
         const cvs = $("speed-graph-canvas"); if(!cvs || !this.isRecording) return;
