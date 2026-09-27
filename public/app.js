@@ -219,7 +219,7 @@ const SmartDrive = {
         else if (speed >= 80) { showToast("⚠️ WARNING: Crossing 80 km/h.", 4000); this.beep(600, 400); this.lastAlertTime = now; } 
         else if (speed >= 60) { showToast("🟢 Alert: Speed above 60 km/h.", 3000); this.lastAlertTime = now; }
     },
-
+tick(speedKmh, distKm) {
     // --- 🚨 GATEKEEPER: SPEED-ALERT V2 LOGIC 🚨 ---
         let dtSec = 1; 
         let accuracy = 10; 
