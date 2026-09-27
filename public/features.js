@@ -237,3 +237,37 @@ function setTravelMode(mode) {
 
 // डिफ़ॉल्ट रूप से बाइक मोड सेट कर दो
 window.currentTravelMode = 'bike';
+// ==============================================================
+// 💾 3. DATABASE PERSISTENCE (OFFLINE TRIP BACKUP) 💾
+// ==============================================================
+
+const TripDB = {
+    autoSaveInterval: null,
+
+    startAutoSave(tripObject) {
+        // हर 10 सेकंड में ट्रिप का डेटा फोन की ऑफलाइन मेमोरी में सेव करेगा
+        this.autoSaveInterval = setInterval(() => {
+            if (tripObject && tripObject.active) {
+                localStorage.setItem('mapUnite_trip_backup', JSON.stringify(tripObject));
+                console.log("💾 [DB] Trip Auto-Saved to local storage.");
+            }
+        }, 10000);
+    },
+
+    restoreTrip() {
+        // अगर ऐप क्रैश होकर दोबारा खुली, तो पुराना डेटा वापस लाएगा
+        const savedData = localStorage.getItem('mapUnite_trip_backup');
+        if (savedData) {
+            console.log("💾 [DB] Previous trip backup found! Restoring...");
+            return JSON.parse(savedData);
+        }
+        return null; // कोई पुराना ट्रिप नहीं मिला
+    },
+
+    clearBackup() {
+        // जब ट्रिप सच में ख़त्म हो जाए, तब मेमोरी साफ़ कर दो
+        localStorage.removeItem('mapUnite_trip_backup');
+        if (this.autoSaveInterval) clearInterval(this.autoSaveInterval);
+        console.log("💾 [DB] Trip backup cleared.");
+    }
+};
