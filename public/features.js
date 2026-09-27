@@ -194,3 +194,46 @@ async function toggleAIDashcam() {
         }
     }
 }
+// ==============================================================
+// 🛠️ SKUNKWORKS UI CONTROLLER (MODE & MENU)
+// ==============================================================
+
+// मेनू को खोलने और बंद करने का लॉजिक
+function toggleSkunkworks() {
+    const panel = document.getElementById('skunkworks-panel');
+    if (panel.style.display === 'none' || panel.style.display === '') {
+        panel.style.display = 'flex';
+    } else {
+        panel.style.display = 'none';
+    }
+}
+
+// मोड चेंज करने और बटन का रंग बदलने का लॉजिक
+function setTravelMode(mode) {
+    // 1. ग्लोबल वेरिएबल अपडेट करो (जिससे Seismograph और Fuel Model को पता चले)
+    window.currentTravelMode = mode;
+    console.log("[SYSTEM] Travel mode changed to:", mode);
+
+    // 2. सारे बटन्स को वापस ग्रे (Gray) कर दो
+    const allModes = ['car', 'bike', 'walk'];
+    allModes.forEach(m => {
+        const btn = document.getElementById(`mode-${m}`);
+        if (btn) {
+            btn.style.background = 'transparent';
+            btn.style.borderColor = 'gray';
+        }
+    });
+
+    // 3. जो मोड सेलेक्ट हुआ है, उसे हरा (Green) कर दो
+    const selectedBtn = document.getElementById(`mode-${mode}`);
+    if (selectedBtn) {
+        selectedBtn.style.background = '#18d6a3';
+        selectedBtn.style.borderColor = '#18d6a3';
+    }
+    
+    // (Future Integration: यहाँ हम Mapbox/Google Maps का रूटिंग API कॉल कर सकते हैं 
+    // ताकि नेविगेशन का रास्ता बाइक या पैदल के हिसाब से बदल जाए)
+}
+
+// डिफ़ॉल्ट रूप से बाइक मोड सेट कर दो
+window.currentTravelMode = 'bike';
