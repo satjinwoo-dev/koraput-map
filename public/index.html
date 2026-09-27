@@ -486,5 +486,26 @@ button:active{transform:scale(.94)}
 
 <!-- Video Preview (Hidden default) -->
 <video id="dashcam-video" autoplay playsinline muted style="display: none; width: 150px; height: auto; position: fixed; bottom: 100px; left: 20px; z-index: 1000; border: 2px solid #18d6a3; border-radius: 10px; box-shadow: 0px 4px 10px rgba(0,0,0,0.5);"></video>
+  <!-- ⋮ SETTINGS & DOWNLOAD MENU (RIGHT SIDE) -->
+<div style="position: fixed; top: 140px; right: 15px; z-index: 1000;">
+    
+    <!-- 3 Dots Button -->
+    <button onclick="const dd = document.getElementById('settings-dropdown'); dd.style.display = dd.style.display === 'none' ? 'block' : 'none';" style="background: rgba(20, 20, 20, 0.9); color: white; border: 1px solid #444; border-radius: 50%; width: 45px; height: 45px; font-size: 22px; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.5); backdrop-filter: blur(5px);">
+        ⋮
+    </button>
+
+    <!-- Dropdown Menu -->
+    <div id="settings-dropdown" style="display: none; position: absolute; top: 55px; right: 0; background: rgba(20, 20, 20, 0.95); padding: 12px; border-radius: 12px; border: 1px solid #444; width: 180px; backdrop-filter: blur(10px); box-shadow: 0 5px 15px rgba(0,0,0,0.7);">
+        
+        <button onclick="TripDB.downloadDetailedInfo()" style="width: 100%; background: #18d6a3; color: black; border: none; padding: 10px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 14px; transition: 0.2s;">
+            ⬇️ Download Data
+        </button>
+        
+        <p style="color: #888; font-size: 11px; margin: 10px 0 0 0; text-align: center;">
+            Auto-deletes after 7 days
+        </p>
+    </div>
+    
+</div>
 </body>
 </html>
