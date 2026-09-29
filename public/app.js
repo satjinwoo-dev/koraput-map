@@ -1,30 +1,60 @@
 "use strict";
 
-console.log("🔥 KORAPUT MAP APP JS VERSION: 2026-09-26-COMPRESSION-FIX");
+/* ============================================================================
+   MapUnite client — app.js  (v3, roadmap-aligned refactor)
+   ==============================================================================
+   This is an ADDITIVE rewrite over the working original: the realtime hot path
+   (GPS -> socket -> markers), chat, memories, geofencing, group trip, 1:1 WebRTC
+   calling, search+navigation and the join flow are all preserved. What changed:
 
-if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js').then(reg => {
-            console.log('ServiceWorker registered successfully!');
-        }).catch(err => {
-            console.log('ServiceWorker registration failed: ', err);
-        });
-    });
-}
+     - Service worker registration REMOVED from here — shell.js is now the one
+       and only place that registers /sw.js (fixes the SW teardown/rebuild race).
+     - Satellite/terrain tiles swapped off the unofficial mt0.google.com/vt path
+       onto Esri World Imagery + OpenTopoMap (roadmap Section 20).
+     - GpsFilter + gpsConfidence(): real EMA smoothing, spike rejection and a
+       transparent 0..1 confidence score computed from ACTUAL accuracy/dt, not
+       the hardcoded accuracy=10/dtSec=1 stand-ins the shipped build used
+       (roadmap Sections 8 + 14).
+     - SmartDrive.checkSafetyLimits: escalation-safe per-tier cooldown (a lower
+       tier can no longer suppress a higher one) + confidence gating.
+     - Fuel model v2: idle burn while stopped-but-active, U-shaped efficiency
+       curve, explicit "what if you'd driven efficiently" comparison, all
+       labeled as estimates in the results panel (roadmap Section 9).
+     - DeviceIdentity: a persisted per-device UUID + server-issued token,
+       completing the identity handshake server.js already expects
+       (roadmap Section 15).
+     - PrivacyControls: wires the sharing-mode segmented control + export/clear
+       buttons Step 2 added to the settings modal to the matching sockets.
+     - MeetupPlanner + CarpoolPlanner: new modules that call the server's
+       computeMeetup / carpoolOptimize sockets and render into the map/UI
+       (roadmap Sections 11 + 12).
+     - Two real bugs fixed: `TripDB.restoreTrip()` / `TripDB.restoreNavState()`
+       don't exist on TripDB (features.js only exposes `restoreAll()`) — both
+       call sites threw. Fixed to read through `restoreAll()`.
+   ============================================================================ */
 
 const socket = io({ transports: ["websocket", "polling"] });
-const DEFAULT_CENTER = [22.2475, 84.8828]; 
+const DEFAULT_CENTER = [22.2475, 84.8828];
 const DEFAULT_AVATAR = "satyam.png";
 const MAX_NAME = 40;
 
-const map = L.map("map", { 
+const map = L.map("map", {
     zoomControl: false, preferCanvas: false, minZoom: 3, maxBounds: [[-90, -180], [90, 180]], maxBoundsViscosity: 1.0
 }).setView(DEFAULT_CENTER, 13);
 
-const satelliteLayer = L.tileLayer("https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}", { maxZoom: 22, subdomains: ["mt0","mt1","mt2","mt3"] });
-const streetLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 });
-const darkLayer = L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", { maxZoom: 20 });
-const terrainLayer = L.tileLayer("https://{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}", { maxZoom: 20, subdomains: ["mt0","mt1","mt2","mt3"] });
+// ---- TILE LAYERS -----------------------------------------------------------
+// Satellite + terrain used to hit https://{s}.google.com/vt/... — an
+// undocumented XYZ path, not the licensed Maps tile API, that Google can
+// rate-limit or kill without notice (roadmap Section 20). Swapped for two
+// properly licensed free sources; street/dark were already fine and are
+// unchanged.
+const satelliteLayer = L.tileLayer(
+    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    { maxZoom: 19, attribution: "Tiles &copy; Esri — Esri, Maxar, Earthstar Geographics" }
+);
+const streetLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "&copy; OpenStreetMap contributors" });
+const darkLayer = L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", { maxZoom: 20, attribution: "&copy; OpenStreetMap contributors &copy; CARTO" });
+const terrainLayer = L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", { maxZoom: 17, subdomains: "abc", attribution: "Map data: &copy; OpenStreetMap contributors, SRTM | Map style: &copy; OpenTopoMap (CC-BY-SA)" });
 satelliteLayer.addTo(map);
 
 let currentUser = { name: localStorage.getItem("koraput_name") || "", avatar: localStorage.getItem("koraput_avatar") || DEFAULT_AVATAR };
@@ -32,37 +62,113 @@ let myCoords = null, myWeather = "", ownMarker = null, accuracyCircle = null, ci
 let lastWeatherFetch = 0;
 const friendMarkers = Object.create(null);
 const friendData = Object.create(null);
-// --- ADVANCED GPS FILTER (Speed-alert v2) ---
-const GpsFilter = {
-    history: [],           // हाल ही की स्पीड का रिकॉर्ड
-    MAX_HISTORY: 8,        // पिछले 8 GPS पिंग्स को याद रखेगा
 
-    // 1. Moving Average: एक झटके में स्पीड 100 न हो जाए, उसे स्मूथ करेगा
-    smooth(rawSpeed) {
-        this.history.push(rawSpeed);
+// ---- DEVICE IDENTITY (roadmap Section 15) ----------------------------------
+// A UUID persisted in localStorage, sent with every profileReady. On first
+// sight the server mints a secret token and returns it once (profileAccepted);
+// we store only that token and resend it on every reconnect. This closes the
+// "anyone can profileReady as anyone" gap without needing real accounts.
+const DeviceIdentity = {
+    KEY_ID: "mu_device_id", KEY_TOKEN: "mu_device_token",
+    id: null, token: null,
+
+    init() {
+        this.id = localStorage.getItem(this.KEY_ID);
+        if (!this.id || !/^[0-9a-f-]{36}$/i.test(this.id)) {
+            this.id = (crypto.randomUUID ? crypto.randomUUID() : this._fallbackUuid());
+            localStorage.setItem(this.KEY_ID, this.id);
+        }
+        this.token = localStorage.getItem(this.KEY_TOKEN) || null;
+    },
+    _fallbackUuid() {
+        return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+            const r = (Math.random() * 16) | 0, v = c === "x" ? r : (r & 0x3) | 0x8;
+            return v.toString(16);
+        });
+    },
+    // Called from profileAccepted. The server only ever issues a token the
+    // FIRST time it sees a deviceId — a truthy value here means "new token."
+    storeIssuedToken(token) {
+        if (typeof token === "string" && token.length > 0) {
+            this.token = token;
+            localStorage.setItem(this.KEY_TOKEN, token);
+        }
+    },
+    // The server rejected our token (cleared storage on another device, or a
+    // stale/corrupted token). We can't recover the old identity — the honest
+    // move is to mint a fresh one rather than loop rejections forever.
+    resetAfterRejection() {
+        localStorage.removeItem(this.KEY_TOKEN);
+        this.id = (crypto.randomUUID ? crypto.randomUUID() : this._fallbackUuid());
+        this.token = null;
+        localStorage.setItem(this.KEY_ID, this.id);
+    }
+};
+DeviceIdentity.init();
+
+// ---- GPS FILTER + CONFIDENCE (roadmap Sections 8 + 14) ---------------------
+// Sits in front of SmartDrive.tick(): smooths raw fixes, scores each fix's
+// plausibility, and gates alerts/graph points on that score instead of trusting
+// every fix (or silently clamping a spoofed one) like the original build did.
+const GpsFilter = {
+    history: [],           // recent smoothed speeds, for the moving average
+    MAX_HISTORY: 8,
+    lastSmoothed: 0,
+    lastFixTs: 0,
+    lastFixLat: null,
+    lastFixLng: null,
+
+    smooth(rawSpeedKmh) {
+        this.history.push(rawSpeedKmh);
         if (this.history.length > this.MAX_HISTORY) this.history.shift();
         return this.history.reduce((a, b) => a + b, 0) / this.history.length;
     },
 
-    // 2. Spike Rejection: अगर स्पीड 1 सेकंड में 0 से 80 हो जाए, तो उसे फेक (झूठा) मानेगा
+    // > 8 m/s^2 sustained is implausible for normal riding/driving.
     isPlausibleJump(prevSpeedKmh, newSpeedKmh, dtSec) {
-        const deltaMs = Math.abs(newSpeedKmh - prevSpeedKmh) / 3.6; // मीटर प्रति सेकंड में बदलो
-        return dtSec > 0 ? (deltaMs / dtSec) < 8 : true; // 8 m/s² से ज़्यादा का एक्सीलरेशन किसी नॉर्मल बाइक का नहीं होता
+        if (dtSec <= 0) return true;
+        const deltaMs = Math.abs(newSpeedKmh - prevSpeedKmh) / 3.6;
+        return (deltaMs / dtSec) < 8;
     },
 
-    // 3. Confidence Score: GPS की एक्यूरेसी (accuracy) के हिसाब से स्कोर देगा (0 से 1 के बीच)
-    confidence(accuracyM, jumpPlausible) {
-        const accScore = Math.max(0, 1 - accuracyM / 100);   // 100 मीटर से ज़्यादा ख़राब GPS = 0 स्कोर
-        return jumpPlausible ? accScore : accScore * 0.2;    // अगर स्पीड जंप फेक है, तो स्कोर एकदम गिरा दो
-    }
+    // Coarse mode from a sustained speed band — used only as a fallback
+    // suggestion; an explicit user mode pick (skunkworks) always wins.
+    detectMode(avgSpeedKmh) {
+        if (avgSpeedKmh < 7) return "walk";
+        if (avgSpeedKmh < 25) return "cycle";
+        return "drive";
+    },
+
+    reset() { this.history = []; this.lastSmoothed = 0; this.lastFixTs = 0; this.lastFixLat = null; this.lastFixLng = null; }
 };
-let lastFixCoords = null, lastFixTime = 0; 
+
+// Transparent 0..1 implausibility-aware confidence score. Not "spoof-proof" —
+// nothing running in a browser tab honestly can be — this scores how much to
+// trust a fix, and gates alerts/graph points on it rather than clamp-and-trust.
+function gpsConfidence({ accuracyM, prevSpeedKmh, newSpeedKmh, dtSec, jumpDistanceKm }) {
+    const acc = Number.isFinite(accuracyM) ? accuracyM : 100;
+    const accScore = Math.max(0, 1 - acc / 100);
+    let score = accScore;
+
+    if (dtSec > 0) {
+        const impliedAccel = Math.abs(newSpeedKmh - prevSpeedKmh) / 3.6 / dtSec;   // m/s^2
+        const accelOk = impliedAccel < 8;
+        if (!accelOk) score *= 0.2;
+
+        const maxPlausibleKm = (300 / 3600) * dtSec;                               // 300 km/h hard ceiling
+        const teleportOk = jumpDistanceKm < maxPlausibleKm;
+        if (!teleportOk) score = 0;                                                // hard reject, not a clamp
+    }
+    return Math.max(0, Math.min(1, score));
+}
+
+let lastFixCoords = null, lastFixTime = 0;
 let locationHistory = [];
 try {
     const stored = localStorage.getItem("koraput_history");
     if (stored) locationHistory = JSON.parse(stored);
     if (!Array.isArray(locationHistory)) locationHistory = [];
-} catch(e) { locationHistory = []; }
+} catch (e) { locationHistory = []; }
 
 const p4LayerGroup = L.layerGroup().addTo(map);
 const measureLayer = L.layerGroup().addTo(map);
@@ -70,280 +176,373 @@ const historyPolyline = L.polyline(locationHistory, { color: '#3b82f6', weight: 
 const navigationLayer = L.layerGroup().addTo(map);
 const tripRoutesLayer = L.layerGroup().addTo(map);
 const memoryLayer = L.layerGroup().addTo(map);
+const meetupLayer = L.layerGroup().addTo(map);
+const carpoolLayer = L.layerGroup().addTo(map);
 
-const tripLastFetchedCoords = {}; 
-let tripRoadStats = {}; 
-const routeColors = ['#18d6a3', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6']; 
+const tripLastFetchedCoords = {};
+let tripRoadStats = {};
+const routeColors = ['#18d6a3', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6'];
 
-let mapActionMode = null; 
-let pendingMemoryImage = null; 
+let mapActionMode = null;
+let pendingMemoryImage = null;
 let measurePoints = [];
 let currentTrip = null;
 let tripMarker = null;
 let searchPlace = null;
 
 let geoClickCount = 0, geoClickTimer = null;
-let currentGeofences = []; 
+let currentGeofences = [];
 const memories = new Map();
 let currentGalleryFilter = "all", currentGallerySearch = "", selectedMemoryId = null;
 
 let searchMarker = null;
 let offlineMessageQueue = [];
 let offlineMemoryQueue = [];
+let myOwnerKey = null;   // set from profileAccepted; identifies "my own" geofences across reconnects
 
 const $ = id => document.getElementById(id);
 const safeShow = (id, displayStyle = "flex") => { const el = $(id); if (el) el.style.display = displayStyle; };
 const safeHide = (id) => { const el = $(id); if (el) el.style.display = "none"; };
-const cleanName = v => String(v || "User").trim().replace(/\s+/g," ").slice(0, MAX_NAME);
-const validCoord = (lat,lng) => Number.isFinite(lat) && Number.isFinite(lng) && lat>=-90 && lat<=90 && lng>=-180 && lng<=180;
+const cleanName = v => String(v || "User").trim().replace(/\s+/g, " ").slice(0, MAX_NAME);
+const validCoord = (lat, lng) => Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
 
-function distanceKm(a,b,c,d){
-    if(!validCoord(a,b) || !validCoord(c,d)) return "";
-    const p = Math.PI/180, a1 = 0.5 - Math.cos((c-a)*p)/2 + Math.cos(a*p)*Math.cos(c*p)*Math.sin((d-b)*p/2)**2;
+function distanceKm(a, b, c, d) {
+    if (!validCoord(a, b) || !validCoord(c, d)) return "";
+    const p = Math.PI / 180, a1 = 0.5 - Math.cos((c - a) * p) / 2 + Math.cos(a * p) * Math.cos(c * p) * Math.sin((d - b) * p / 2) ** 2;
     return (12742 * Math.asin(Math.sqrt(a1))).toFixed(2);
 }
-function escapeHTML(v) { return String(v ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;"); }
+function escapeHTML(v) { return String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;"); }
 
-function ownIcon() { 
-    return L.divIcon({ 
-        className: "custom-own-icon", 
+// Small helper: a Promise-based confirm that prefers shell.js's sheet but
+// degrades to window.confirm if shell.js hasn't loaded for some reason.
+async function confirmDialog(opts) {
+    if (window.MapUnite && typeof window.MapUnite.confirm === "function") return window.MapUnite.confirm(opts);
+    return { ok: window.confirm(opts.body || opts.title || "Are you sure?"), checked: false };
+}
+function islandShow(spec) { if (window.StatusIsland) return window.StatusIsland.show(spec); }
+function islandHide(id) { if (window.StatusIsland) window.StatusIsland.hide(id); }
+
+function ownIcon() {
+    return L.divIcon({
+        className: "custom-own-icon",
         html: `<div style="width:100%; height:100%; border-radius:50%; border:2.5px solid #18d6a3; overflow:hidden; background:#071018; box-sizing:border-box; box-shadow:0 0 10px rgba(24,214,163,0.5);"><img src="${escapeHTML(currentUser.avatar)}" style="width:100%; height:100%; object-fit:cover; display:block;"></div>`,
-        iconSize: [38, 38], iconAnchor: [19, 19] 
-    }); 
+        iconSize: [38, 38], iconAnchor: [19, 19]
+    });
 }
 
-function friendIcon(avatar) { 
-    return L.divIcon({ 
-        className: "custom-friend-icon", 
+function friendIcon(avatar) {
+    return L.divIcon({
+        className: "custom-friend-icon",
         html: `<div style="width:100%; height:100%; border-radius:50%; border:2px solid #60a5fa; overflow:hidden; background:#071018; box-sizing:border-box;"><img src="${escapeHTML(avatar)}" style="width:100%; height:100%; object-fit:cover; display:block;"></div>`,
-        iconSize: [36, 36], iconAnchor: [18, 18] 
-    }); 
+        iconSize: [36, 36], iconAnchor: [18, 18]
+    });
 }
 
-function weatherEmoji(code){
-    if(code===0) return "☀️"; if([1,2,3].includes(code)) return "⛅"; if([45,48].includes(code)) return "🌫️";
-    if([51,53,55,56,57,61,63,65,66,67].includes(code)) return "🌧️"; if([71,73,75,77,85,86].includes(code)) return "❄️";
-    if([80,81,82].includes(code)) return "🌦️"; if([95,96,99].includes(code)) return "⛈️"; return "🌤️";
+function weatherEmoji(code) {
+    if (code === 0) return "☀️"; if ([1, 2, 3].includes(code)) return "⛅"; if ([45, 48].includes(code)) return "🌫️";
+    if ([51, 53, 55, 56, 57, 61, 63, 65, 66, 67].includes(code)) return "🌧️"; if ([71, 73, 75, 77, 85, 86].includes(code)) return "❄️";
+    if ([80, 81, 82].includes(code)) return "🌦️"; if ([95, 96, 99].includes(code)) return "⛈️"; return "🌤️";
 }
 
-async function fetchWeather(lat,lng){
+async function fetchWeather(lat, lng) {
     try {
         const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lng)}&current=temperature_2m,weather_code`);
-        if(!r.ok) return ""; const d = await r.json();
+        if (!r.ok) return ""; const d = await r.json();
         const t = Number(d?.current?.temperature_2m), code = Number(d?.current?.weather_code);
         return Number.isFinite(t) ? `${weatherEmoji(code)} ${Math.round(t)}°C` : "";
     } catch { return ""; }
 }
 
-async function fetchCity(lat,lng){
+async function fetchCity(lat, lng) {
     try {
         const r = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=en`);
         if (r.ok) { const d = await r.json(); const c = d.city || d.locality || d.principalSubdivision; if (c) return c; }
-    } catch (e) {}
+    } catch (e) { /* fall through to Nominatim */ }
     try {
         const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}&zoom=10`);
         if (r.ok) { const d = await r.json(); return d.address?.city || d.address?.town || d.address?.county || "Local Area"; }
     } catch { return "Local Area"; }
 }
 
+// ============================================================================
+// SMARTDRIVE — speed-alert v2 (Section 8) + fuel model v2 (Section 9)
+// ============================================================================
+const IDLE_L_PER_HOUR = 0.4;          // assumed idle burn while stopped-but-active — labeled, not measured
+const IDLE_CUTOFF_SEC = 180;          // beyond this we assume the engine's actually off, not idling
+
 const SmartDrive = {
     isRecording: false,
     baseMileage: 18,
     speedHistory: [],
-    trip: { active: false, startTime: 0, totalDist: 0, actualFuel: 0, maxSpeed: 0, sumSpeed: 0, ticks: 0, ranges: { efficient: 0, moderate: 0, inefficient: 0 } },
-    audioCtx: null, lastAlertTime: 0, overlayTimer: null,
+    trip: {
+        active: false, startTime: 0, totalDist: 0, actualFuel: 0, maxSpeed: 0, sumSpeed: 0, ticks: 0,
+        ranges: { efficient: 0, moderate: 0, inefficient: 0 },
+        stoppedTimeSec: 0, points: [], lastPointTs: 0
+    },
+    audioCtx: null, overlayTimer: null,
+    lastAlertTime: 0, lastAlertTier: 0,     // escalation-safe cooldown state (Section 8)
+    wakeLock: null,
 
     init() {
         const savedMil = localStorage.getItem("sd_mileage");
-        if(savedMil) this.baseMileage = parseFloat(savedMil);
+        if (savedMil) this.baseMileage = parseFloat(savedMil);
         const fiv = $("fuel-input-val");
-        if(fiv) fiv.value = this.baseMileage;
-        
+        if (fiv) fiv.value = this.baseMileage;
+
         const savedRec = localStorage.getItem("sd_record");
         this.isRecording = savedRec === "1";
         const srt = $("speed-record-toggle");
-        if(srt) srt.checked = this.isRecording;
-        
-        const sgc = $("speed-graph-canvas");
-        if(sgc) sgc.style.display = this.isRecording ? "block" : "none";
+        if (srt) srt.checked = this.isRecording;
 
-        if(fiv) fiv.addEventListener("change", (e) => { this.baseMileage = parseFloat(e.target.value) || 18; localStorage.setItem("sd_mileage", this.baseMileage); });
-        if(srt) srt.addEventListener("change", (e) => { this.isRecording = e.target.checked; localStorage.setItem("sd_record", this.isRecording ? "1" : "0"); const sgc2 = $("speed-graph-canvas"); if(sgc2) sgc2.style.display = this.isRecording ? "block" : "none"; if(!this.isRecording) this.speedHistory = []; });
+        const sgc = $("speed-graph-canvas");
+        if (sgc) sgc.style.display = this.isRecording ? "block" : "none";
+
+        if (fiv) fiv.addEventListener("change", (e) => { this.baseMileage = parseFloat(e.target.value) || 18; localStorage.setItem("sd_mileage", this.baseMileage); });
+        if (srt) srt.addEventListener("change", (e) => { this.isRecording = e.target.checked; localStorage.setItem("sd_record", this.isRecording ? "1" : "0"); const sgc2 = $("speed-graph-canvas"); if (sgc2) sgc2.style.display = this.isRecording ? "block" : "none"; if (!this.isRecording) this.speedHistory = []; });
 
         const pob = $("profile-open-btn");
-        if(pob) pob.addEventListener("click", () => safeShow("profile-settings-modal", "flex"));
+        if (pob) pob.addEventListener("click", () => safeShow("profile-settings-modal", "flex"));
         const csb = $("close-settings-btn");
-        if(csb) csb.addEventListener("click", () => safeHide("profile-settings-modal"));
+        if (csb) csb.addEventListener("click", () => safeHide("profile-settings-modal"));
         const crb = $("close-results-btn");
-        if(crb) crb.addEventListener("click", () => safeHide("results-panel"));
-        
+        if (crb) crb.addEventListener("click", () => safeHide("results-panel"));
+
         document.addEventListener("click", () => {
-            if(!this.audioCtx) { const AudioContext = window.AudioContext || window.webkitAudioContext; if(AudioContext) this.audioCtx = new AudioContext(); }
-            if(this.audioCtx && this.audioCtx.state === "suspended") this.audioCtx.resume();
-        }, {passive:true});
+            if (!this.audioCtx) { const AudioContext = window.AudioContext || window.webkitAudioContext; if (AudioContext) this.audioCtx = new AudioContext(); }
+            if (this.audioCtx && this.audioCtx.state === "suspended") this.audioCtx.resume();
+        }, { passive: true });
     },
 
     beep(freq, ms) {
-        if(!this.audioCtx) return;
+        if (!this.audioCtx) return;
         try {
             if (this.audioCtx.state === "suspended") this.audioCtx.resume();
             const osc = this.audioCtx.createOscillator(), gain = this.audioCtx.createGain();
             osc.type = "square"; osc.frequency.value = freq; gain.gain.value = 0.15;
             osc.connect(gain); gain.connect(this.audioCtx.destination);
-            osc.start(); osc.stop(this.audioCtx.currentTime + ms/1000);
-        } catch(e) {}
+            osc.start(); osc.stop(this.audioCtx.currentTime + ms / 1000);
+        } catch (e) { /* AudioContext can throw pre-gesture on some browsers — non-fatal */ }
     },
 
     triggerRedMap() {
-        const overlay = $("speed-danger-overlay") || $("speed-alert-overlay");
-        if(overlay) {
+        const overlay = $("speed-danger-overlay");
+        if (overlay) {
             overlay.classList.add("active"); clearTimeout(this.overlayTimer);
             this.overlayTimer = setTimeout(() => overlay.classList.remove("active"), 10000);
         }
     },
 
-    checkSafetyLimits(speed) {
-        const now = Date.now();
+    async requestWakeLock() {
+        try { if ("wakeLock" in navigator) this.wakeLock = await navigator.wakeLock.request("screen"); } catch (e) { /* e.g. tab not visible — fine, not fatal */ }
+    },
+    releaseWakeLock() {
+        try { if (this.wakeLock) { this.wakeLock.release(); this.wakeLock = null; } } catch (e) { /* ignore */ }
+    },
+
+    // --- Speed-alert v2: escalation-safe per-tier cooldown (Section 8) -----
+    // The shipped build had one shared `lastAlertTime`: a 60 km/h alert could
+    // suppress a 100 km/h critical alert 5s later, since the cooldown didn't
+    // know the new alert was more severe. Fix: only a cooldown from an
+    // EQUAL-OR-HIGHER tier blocks a new alert.
+    checkSafetyLimits(speed, confidence) {
         const dial = $("speed-dial");
-        if(dial) {
-            if(speed > 3) {
+        if (dial) {
+            if (speed > 3) {
                 dial.style.display = "flex";
-                const sn = $("speed-n"); if(sn) sn.textContent = Math.round(speed);
-                dial.className = "speed-dial " + (speed >= 100 ? "danger" : (speed >= 80 ? "warn" : ""));
+                const sn = $("speed-n"); if (sn) sn.textContent = Math.round(speed);
+                dial.className = "speed-dial " + (speed >= 100 ? "danger" : (speed >= 80 ? "warn" : "")) + (confidence < 0.6 ? " lowconf" : "");
             } else { dial.style.display = "none"; }
         }
 
-        if (now - this.lastAlertTime < 15000) return; 
+        if (confidence < 0.4) return;                    // don't act on low-confidence data — display only, above
 
-        if (speed >= 100) { showToast("🚨 DANGER: Speed 100+ km/h! Slow Down!", 5000); this.triggerRedMap(); this.beep(800, 3000); this.lastAlertTime = now; } 
-        else if (speed >= 80) { showToast("⚠️ WARNING: Crossing 80 km/h.", 4000); this.beep(600, 400); this.lastAlertTime = now; } 
-        else if (speed >= 60) { showToast("🟢 Alert: Speed above 60 km/h.", 3000); this.lastAlertTime = now; }
-    },
-tick(speedKmh, distKm) {
-    // --- 🚨 GATEKEEPER: SPEED-ALERT V2 LOGIC 🚨 ---
-        let dtSec = 1; 
-        let accuracy = 10; 
-        
-        let smoothedSpeed = GpsFilter.smooth(speedKmh);
-        let plausible = GpsFilter.isPlausibleJump(window.lastSpeedKmh || 0, smoothedSpeed, dtSec);
-        let conf = GpsFilter.confidence(accuracy, plausible);
-        
-        window.lastSpeedKmh = smoothedSpeed;
+        const tier = speed >= 100 ? 3 : speed >= 80 ? 2 : speed >= 60 ? 1 : 0;
+        if (tier === 0) { this.lastAlertTier = 0; return; }
 
-        // Gatekeeper Check
-        if (conf > 0.4 && typeof currentTravelMode !== 'undefined' && currentTravelMode !== 'walk') {
-            this.checkSafetyLimits(smoothedSpeed); 
+        const now = Date.now();
+        if (tier <= this.lastAlertTier && now - this.lastAlertTime < 15000) return;
+
+        if (tier === 3) {
+            showToast("🚨 DANGER: Speed 100+ km/h! Slow Down!", 5000);
+            this.triggerRedMap();
+            this.beep(800, 3000);
+            islandShow({ id: "speed", kind: "speed-danger", title: "Slow down", sub: "Over 100 km/h", meta: `${Math.round(speed)}`, ttl: 8000 });
+        } else if (tier === 2) {
+            showToast("⚠️ WARNING: Crossing 80 km/h.", 4000);
+            this.beep(600, 400);
+            islandShow({ id: "speed", kind: "speed-warn", title: "Speed check", sub: "Over 80 km/h", meta: `${Math.round(speed)}`, ttl: 4500 });
         } else {
-            console.log("[SYSTEM] Ignored bad GPS fix or in Walk mode.");
+            showToast("🟢 Alert: Speed above 60 km/h.", 3000);
+            islandShow({ id: "speed", kind: "info", title: "Speed", sub: "Over 60 km/h", meta: `${Math.round(speed)}`, ttl: 3000, haptic: false });
         }
-        // ----------------------------------------------
+        this.lastAlertTime = now;
+        this.lastAlertTier = tier;
+    },
 
-       // --- FUEL MODEL V2 (Idle Burn + U-Shape Curve) ---
-        if (this.trip.active) {
-            this.trip.ticks += 1; 
+    // rawSpeedKmh/accuracyM/dtSec/jumpKm come from the real GPS fix in
+    // startGPS() — no more hardcoded accuracy=10 / dtSec=1 stand-ins.
+    tick(rawSpeedKmh, distKm, { accuracyM, dtSec, jumpKm } = {}) {
+        const prevSmoothed = GpsFilter.lastSmoothed;
+        const smoothedSpeed = GpsFilter.smooth(rawSpeedKmh);
+        const dt = Number.isFinite(dtSec) ? dtSec : 1;
 
-            if (distKm > 0) {
-                this.trip.totalDist += distKm;
-                this.trip.sumSpeed += smoothedSpeed;
-                
-                // अब मैक्स स्पीड भी स्मूथ वाली सेव होगी
-                if(smoothedSpeed > this.trip.maxSpeed) this.trip.maxSpeed = smoothedSpeed;
-                
-                // U-Shape Curve Analytics
-                if(smoothedSpeed >= 40 && smoothedSpeed <= 60) this.trip.ranges.efficient++;
-                else if (smoothedSpeed > 80) this.trip.ranges.inefficient++;
-                else this.trip.ranges.moderate++;
-            }
+        const conf = gpsConfidence({
+            accuracyM: Number.isFinite(accuracyM) ? accuracyM : 100,
+            prevSpeedKmh: prevSmoothed, newSpeedKmh: smoothedSpeed, dtSec: dt,
+            jumpDistanceKm: Number.isFinite(jumpKm) ? jumpKm : 0
+        });
+        GpsFilter.lastSmoothed = smoothedSpeed;
 
-            // 🚨 असली मैथ: Idle Burn vs Moving Burn (Stopwatch Logic) 🚨
-            let fuelBurned = 0;
-            if (smoothedSpeed > 3) {
-                // तुम चल रहे हो, टाइमर को वापस ज़ीरो कर दो
-                window.stoppedTimeSec = 0; 
-                
-                // मूविंग बर्न: U-Shape कर्व
-                let currentEff = this.baseMileage || 35;
-                if (smoothedSpeed > 60) currentEff -= (smoothedSpeed - 60) * 0.005 * this.baseMileage;
-                else if (smoothedSpeed < 40) currentEff -= (40 - smoothedSpeed) * 0.004 * this.baseMileage;
-                
-                currentEff = Math.max(5, currentEff); 
-                fuelBurned = (distKm / currentEff);
-            } else {
-                // बाइक रुकी हुई है, स्टॉपवॉच चालू करो
-                window.stoppedTimeSec = (window.stoppedTimeSec || 0) + dtSec;
-                
-                // अगर 180 सेकंड (3 मिनट) से कम रुके हो, तो मान लो इंजन ऑन है
-                if (window.stoppedTimeSec < 180) {
-                    fuelBurned = (0.4 / 3600) * dtSec; 
-                } else {
-                    // 3 मिनट से ज़्यादा हो गए, मान लो इंजन बंद है
-                    fuelBurned = 0; 
-                }
-            }
-            
-            this.trip.actualFuel += fuelBurned;
+        const walking = typeof currentTravelMode !== "undefined" && currentTravelMode === "walk";
+        if (!walking) this.checkSafetyLimits(smoothedSpeed, conf);
+
+        // Low-confidence fixes don't get to shape the recorded graph either —
+        // "feed it to the map for display, but don't let it drive an alert or
+        // a graph point" (Section 14).
+        if (conf > 0.4 && this.isRecording) {
+            this.speedHistory.push(smoothedSpeed);
+            if (this.speedHistory.length > 120) this.speedHistory.shift();
+            this.drawGraph();
         }
-},
 
-        
+        if (!this.trip.active) return;
+        if (conf <= 0.4) return;                          // don't let a bad fix corrupt trip stats either
+
+        this.trip.ticks += 1;
+        if (distKm > 0) {
+            this.trip.totalDist += distKm;
+            this.trip.sumSpeed += smoothedSpeed;
+            if (smoothedSpeed > this.trip.maxSpeed) this.trip.maxSpeed = smoothedSpeed;
+            if (smoothedSpeed >= 40 && smoothedSpeed <= 60) this.trip.ranges.efficient++;
+            else if (smoothedSpeed > 80) this.trip.ranges.inefficient++;
+            else this.trip.ranges.moderate++;
+        }
+
+        // --- Fuel model v2: U-shaped curve + idle burn (Section 9) ---------
+        let fuelBurned = 0;
+        if (smoothedSpeed > 3) {
+            this.trip.stoppedTimeSec = 0;
+            let currentEff = this.baseMileage || 18;
+            if (smoothedSpeed > 60) currentEff -= (smoothedSpeed - 60) * 0.005 * this.baseMileage;      // drag past 60
+            else if (smoothedSpeed < 40) currentEff -= (40 - smoothedSpeed) * 0.004 * this.baseMileage;  // stop-start below 40
+            currentEff = Math.max(5, currentEff);
+            fuelBurned = distKm > 0 ? distKm / currentEff : 0;
+        } else if (this.trip.active) {
+            // Idling engine still burns fuel — the original model silently
+            // credited a stop with zero consumption.
+            this.trip.stoppedTimeSec += dt;
+            fuelBurned = this.trip.stoppedTimeSec < IDLE_CUTOFF_SEC ? IDLE_L_PER_HOUR * (dt / 3600) : 0;
+        }
+        this.trip.actualFuel += fuelBurned;
+
+        // Downsampled point log for Section 13's trip analytics — ~1 point/5s
+        // even if ticks arrive faster, so a 2h ride is ~1,440 points, not 7,200.
+        const nowTs = Date.now();
+        if (myCoords && (nowTs - this.trip.lastPointTs >= 5000 || this.trip.points.length === 0)) {
+            this.trip.points.push({ ts: nowTs, lat: myCoords.lat, lng: myCoords.lng, speedKmh: Math.round(smoothedSpeed * 10) / 10, accuracy: accuracyM ?? null });
+            this.trip.lastPointTs = nowTs;
+            if (this.trip.points.length > 2000) this.trip.points.shift();
+        }
+    },
 
     drawGraph() {
-        const cvs = $("speed-graph-canvas"); if(!cvs || !this.isRecording) return;
+        const cvs = $("speed-graph-canvas"); if (!cvs || !this.isRecording) return;
         const ctx = cvs.getContext("2d"); const w = cvs.width = cvs.offsetWidth, h = cvs.height = cvs.offsetHeight;
-        ctx.clearRect(0,0,w,h);
-        if(this.speedHistory.length < 2) return;
+        ctx.clearRect(0, 0, w, h);
+        if (this.speedHistory.length < 2) return;
         const max = Math.max(60, ...this.speedHistory);
         ctx.beginPath(); ctx.strokeStyle = "#3b82f6"; ctx.lineWidth = 2;
         this.speedHistory.forEach((v, i) => {
             const x = (i / (this.speedHistory.length - 1)) * w; const y = h - (v / max) * h * 0.8;
-            if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
         });
         ctx.stroke();
     },
 
-    startTrip() { 
-        // 💾 1. चेक करो कि क्या कोई क्रैश हुई ट्रिप का डेटा सेव है?
-        let savedTrip = (typeof TripDB !== "undefined") ? TripDB.restoreTrip() : null;
-        
-        if (savedTrip && savedTrip.active) {
-            this.trip = savedTrip; // पुराना डेटा वापस लाओ
-            console.log("💾 [SmartDrive] Old trip recovered!");
+    startTrip() {
+        const saved = tripDbRestoreTrip();                // fixed: TripDB has no restoreTrip(), read via restoreAll()
+        if (saved && saved.active) {
+            this.trip = { stoppedTimeSec: 0, points: [], lastPointTs: 0, ...saved };
+            console.log("[SmartDrive] Recovered an in-progress trip from local backup.");
         } else {
-            // कोई पुराना डेटा नहीं है, तो नई ट्रिप शुरू करो
-            this.trip = { active: true, startTime: Date.now(), totalDist: 0, actualFuel: 0, maxSpeed: 0, sumSpeed: 0, ticks: 0, ranges: {efficient:0, moderate:0, inefficient:0} }; 
+            this.trip = {
+                active: true, startTime: Date.now(), totalDist: 0, actualFuel: 0, maxSpeed: 0, sumSpeed: 0, ticks: 0,
+                ranges: { efficient: 0, moderate: 0, inefficient: 0 }, stoppedTimeSec: 0, points: [], lastPointTs: 0
+            };
         }
-        
-        // 💾 2. ऑटो-सेव (Auto-Save) चालू कर दो
+        GpsFilter.reset();
+        this.lastAlertTier = 0;
         if (typeof TripDB !== "undefined") TripDB.startAutoSave(this.trip);
+        this.requestWakeLock();
+        const mode = (typeof currentTravelMode !== "undefined" && currentTravelMode) || "drive";
+        socket.emit("startSession", { mode: mode === "car" ? "drive" : mode });
     },
-    
+
     endTrip() {
-        if(!this.trip.active) return;
+        if (!this.trip.active) return;
         this.trip.active = false;
+        this.releaseWakeLock();
         if (typeof TripDB !== "undefined") TripDB.clearBackup();
+        socket.emit("endSession");
+
         const avg = this.trip.ticks > 0 ? this.trip.sumSpeed / this.trip.ticks : 0;
-        
-        const rd = $("res-dist"); if(rd) rd.textContent = this.trip.totalDist.toFixed(2) + " km";
-        const ras = $("res-avg-speed"); if(ras) ras.textContent = Math.round(avg) + " km/h";
-        const rms = $("res-max-speed"); if(rms) rms.textContent = Math.round(this.trip.maxSpeed) + " km/h";
-        const ret = $("res-eff-time"); if(ret) ret.textContent = Math.round(this.trip.ranges.efficient / 60) + " min";
-        const rit = $("res-ineff-time"); if(rit) rit.textContent = Math.round(this.trip.ranges.inefficient / 60) + " min";
-        const rbm = $("res-base-mlg"); if(rbm) rbm.textContent = this.baseMileage + " km/L";
-        const raf = $("res-actual-fuel"); if(raf) raf.textContent = this.trip.actualFuel.toFixed(2) + " L";
+        const rated = this.baseMileage || 18;
+
+        // "What if you'd driven efficiently the whole way" comparison (Section 9.2) —
+        // labeled plainly as an estimate, not measured fuel.
+        const potentialFuelL = this.trip.totalDist / rated;
+        const extraFuelL = Math.max(0, this.trip.actualFuel - potentialFuelL);
+
+        const rd = $("res-dist"); if (rd) rd.textContent = this.trip.totalDist.toFixed(2) + " km";
+        const ras = $("res-avg-speed"); if (ras) ras.textContent = Math.round(avg) + " km/h";
+        const rms = $("res-max-speed"); if (rms) rms.textContent = Math.round(this.trip.maxSpeed) + " km/h";
+        const ret = $("res-eff-time"); if (ret) ret.textContent = Math.round(this.trip.ranges.efficient / 60) + " min";
+        const rit = $("res-ineff-time"); if (rit) rit.textContent = Math.round(this.trip.ranges.inefficient / 60) + " min";
+        const rbm = $("res-base-mlg"); if (rbm) rbm.textContent = rated + " km/L";
+        const raf = $("res-actual-fuel"); if (raf) raf.textContent = this.trip.actualFuel.toFixed(2) + " L";
+        const rex = $("res-extra-fuel");
+        if (rex) rex.textContent = extraFuelL > 0.01 ? `~${extraFuelL.toFixed(2)} L more than an efficient drive (est.)` : "Right around an efficient drive — nice.";
         safeShow("results-panel", "flex");
+
+        // Close the loop with Step 1's persistence layer — one compact record
+        // per trip, not a stream per tick (Section 13).
+        if (this.trip.totalDist > 0.05) {
+            socket.emit("tripFinished", {
+                name: cityName ? `Ride near ${cityName}` : "Ride",
+                mode: (typeof currentTravelMode !== "undefined" && currentTravelMode === "car") ? "drive" : (currentTravelMode || "drive"),
+                startedAt: this.trip.startTime, endedAt: Date.now(),
+                totalDistKm: this.trip.totalDist, avgSpeed: avg, maxSpeed: this.trip.maxSpeed,
+                fuelUsedL: this.trip.actualFuel, points: this.trip.points
+            }, (res) => { if (res && res.ok) console.log(`[SmartDrive] Trip saved (${res.points} points).`); });
+        }
     }
 };
 
+// TripDB (features.js) only exposes restoreAll() -> {username, nav, trip, group}.
+// The shipped app.js called TripDB.restoreTrip()/restoreNavState(), which don't
+// exist and threw. These two helpers read the SAME backing store correctly.
+function tripDbRestoreTrip() {
+    if (typeof TripDB === "undefined" || typeof TripDB.restoreAll !== "function") return null;
+    try { return TripDB.restoreAll()?.trip || null; } catch { return null; }
+}
+function tripDbRestoreNav() {
+    if (typeof TripDB === "undefined" || typeof TripDB.restoreAll !== "function") return null;
+    try { return TripDB.restoreAll()?.nav || null; } catch { return null; }
+}
+
+// ============================================================================
+// GROUP NAVIGATION — manual "everyone routes to a tapped point" (unchanged)
+// ============================================================================
 const GroupNavigation = {
     active: false, destination: null, selectedMembers: [], layerGroup: L.layerGroup().addTo(map),
     lastFetchedCoords: {}, colors: ['#18d6a3', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6'], recalcTimer: null,
 
     openSetup() {
-        const list = $("group-nav-friend-list"); 
-        if(!list) return;
+        const list = $("group-nav-friend-list");
+        if (!list) return;
         list.innerHTML = "";
         const activeFriends = Object.values(friendData).filter(f => f.online !== false);
-        if(activeFriends.length === 0) list.innerHTML = `<div style="color:var(--muted); font-size:11px;">No friends online.</div>`;
+        if (activeFriends.length === 0) list.innerHTML = `<div style="color:var(--muted); font-size:11px;">No friends online.</div>`;
         else activeFriends.forEach(f => {
             list.innerHTML += `<label style="display:flex; align-items:center; gap:8px; font-size:13px; color:white; cursor:pointer;"><input type="checkbox" value="${f.id}" class="group-nav-cb"><img src="${escapeHTML(f.avatar)}" style="width:28px; height:28px; border-radius:50%; object-fit:cover;">${escapeHTML(f.name)}</label>`;
         });
@@ -351,65 +550,62 @@ const GroupNavigation = {
     },
     startSelection() {
         const cbs = document.querySelectorAll(".group-nav-cb:checked");
-        if(cbs.length === 0) return showToast("Select at least 1 friend.");
-        if(cbs.length > 3) return showToast("Select up to 3 friends only.");
+        if (cbs.length === 0) return showToast("Select at least 1 friend.");
+        if (cbs.length > 7) return showToast("Select up to 7 friends only.");
         this.selectedMembers = ["me", ...Array.from(cbs).map(cb => cb.value)];
         safeHide("group-nav-setup");
         mapActionMode = 'group-nav';
-        showToast("📍 Tap the map to set the common destination!", 5000);
+        showToast("📍 Tap the map to set the common destination — or use “Find best meetup point” next time.", 5500);
     },
-   async setDestination(latlng) {
+    async setDestination(latlng) {
         this.active = true; this.destination = latlng; this.layerGroup.clearLayers(); this.lastFetchedCoords = {};
-        
-        // 💾 GROUP TRIP & MEETUP BACKUP ENGINE
+
         if (typeof TripDB !== "undefined" && typeof currentUser !== "undefined") {
             TripDB.saveSession(currentUser.name, { active: true, dest: latlng, members: this.selectedMembers });
-            console.log("💾 [DB] Group Trip & Meetup Auto-Saved!");
         }
 
-        L.marker(latlng, { icon: L.divIcon({className: 'geofence-marker', html: '📍'}) }).bindTooltip("Group Destination", {permanent:true, direction:"top", className:"weather-badge"}).addTo(this.layerGroup);
+        L.marker(latlng, { icon: L.divIcon({ className: 'geofence-marker', html: '📍' }) }).bindTooltip("Group Destination", { permanent: true, direction: "top", className: "weather-badge" }).addTo(this.layerGroup);
         safeShow("group-nav-active", "flex");
         await this.calculateAll();
     },
     async calculateAll() {
-        if(!this.active || !this.destination) return;
+        if (!this.active || !this.destination) return;
         const statsList = $("group-nav-stats-list");
-        if(statsList) statsList.innerHTML = "<div style='color:var(--muted); font-size:11px; text-align:center;'>Calculating road paths...</div>";
+        if (statsList) statsList.innerHTML = "<div style='color:var(--muted); font-size:11px; text-align:center;'>Calculating road paths...</div>";
 
         let statsHTML = "", validPaths = [];
 
-        for(let i = 0; i < this.selectedMembers.length; i++) {
+        for (let i = 0; i < this.selectedMembers.length; i++) {
             const memberId = this.selectedMembers[i];
             const color = this.colors[i % this.colors.length];
             let name = "User", avatar = DEFAULT_AVATAR, coords = null;
 
-            if (memberId === "me") { 
-                if (!myCoords) continue; 
-                name = "You"; avatar = currentUser.avatar; coords = myCoords; 
-            } 
-            else { 
-                const f = friendData[memberId]; 
-                if (!f || f.online === false || !validCoord(f.lat, f.lng)) continue; 
-                name = f.name; avatar = f.avatar; coords = { lat: f.lat, lng: f.lng }; 
+            if (memberId === "me") {
+                if (!myCoords) continue;
+                name = "You"; avatar = currentUser.avatar; coords = myCoords;
+            } else {
+                const f = friendData[memberId];
+                if (!f || f.online === false || !validCoord(f.lat, f.lng)) continue;
+                name = f.name; avatar = f.avatar; coords = { lat: f.lat, lng: f.lng };
             }
 
             try {
                 const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${coords.lng},${coords.lat};${this.destination.lng},${this.destination.lat}?overview=full&geometries=geojson&alternatives=true`);
                 const data = await res.json();
-                if(data.routes && data.routes.length > 0) {
-                    const r = data.routes.reduce((a,b)=>b.distance<a.distance?b:a, data.routes[0]);
+                if (data.routes && data.routes.length > 0) {
+                    const r = data.routes.reduce((a, b) => b.distance < a.distance ? b : a, data.routes[0]);
                     const pathCoords = r.geometry.coordinates.map(c => [c[1], c[0]]);
-                    
-                    this.layerGroup.eachLayer(l => { if(l.memberId === memberId) this.layerGroup.removeLayer(l); });
-                    
+
+                    this.layerGroup.eachLayer(l => { if (l.memberId === memberId) this.layerGroup.removeLayer(l); });
+
                     const poly = L.polyline(pathCoords, { color: color, weight: 5, opacity: 0.8, className: 'nav-path-animated' });
-                    poly.memberId = memberId; 
-                    poly.addTo(this.layerGroup); 
+                    poly.memberId = memberId;
+                    poly.addTo(this.layerGroup);
                     validPaths.push(poly);
 
-                    const distKm = (r.distance / 1000).toFixed(1); 
+                    const distKm = (r.distance / 1000).toFixed(1);
                     const timeMin = Math.max(1, Math.round(r.duration / 60));
-                    
+
                     statsHTML += `
                     <div style="display:flex; justify-content:space-between; align-items:center; padding:10px; background:rgba(255,255,255,0.05); border-radius:10px; border-left:4px solid ${color};">
                         <div style="display:flex; align-items:center; gap:10px;">
@@ -421,38 +617,38 @@ const GroupNavigation = {
                             <div style="color:var(--muted); font-size:11px;">${timeMin} min</div>
                         </div>
                     </div>`;
-                    
+
                     this.lastFetchedCoords[memberId] = { lat: coords.lat, lng: coords.lng };
                 } else {
                     statsHTML += `<div style="color:#ef4444; font-size:11px; padding:10px;">No road route for ${escapeHTML(name)}</div>`;
                 }
-            } catch(e) {}
+            } catch (e) { /* one member's route failing shouldn't blank the whole panel */ }
         }
-        if(statsList) statsList.innerHTML = statsHTML;
-        if(validPaths.length > 0) map.fitBounds(L.featureGroup(validPaths).getBounds(), { padding: [40, 40] });
+        if (statsList) statsList.innerHTML = statsHTML;
+        if (validPaths.length > 0) map.fitBounds(L.featureGroup(validPaths).getBounds(), { padding: [40, 40] });
     },
     onLiveUpdate() {
-        if(!this.active || !this.destination) return;
+        if (!this.active || !this.destination) return;
         let needsRecalc = false;
-        if (this.selectedMembers.includes("me") && myCoords) { 
-            const last = this.lastFetchedCoords["me"]; 
-            if(!last || distanceKm(last.lat, last.lng, myCoords.lat, myCoords.lng) > 0.1) needsRecalc = true; 
+        if (this.selectedMembers.includes("me") && myCoords) {
+            const last = this.lastFetchedCoords["me"];
+            if (!last || distanceKm(last.lat, last.lng, myCoords.lat, myCoords.lng) > 0.1) needsRecalc = true;
         }
-        this.selectedMembers.forEach(id => { 
-            if(id !== "me" && friendData[id]) { 
-                const f = friendData[id]; const last = this.lastFetchedCoords[id]; 
-                if(validCoord(f.lat, f.lng) && (!last || distanceKm(last.lat, last.lng, f.lat, f.lng) > 0.1)) needsRecalc = true; 
+        this.selectedMembers.forEach(id => {
+            if (id !== "me" && friendData[id]) {
+                const f = friendData[id]; const last = this.lastFetchedCoords[id];
+                if (validCoord(f.lat, f.lng) && (!last || distanceKm(last.lat, last.lng, f.lat, f.lng) > 0.1)) needsRecalc = true;
             }
         });
-        if (needsRecalc) { 
-            clearTimeout(this.recalcTimer); 
-            this.recalcTimer = setTimeout(() => this.calculateAll(), 3000); 
+        if (needsRecalc) {
+            clearTimeout(this.recalcTimer);
+            this.recalcTimer = setTimeout(() => this.calculateAll(), 3000);
         }
     },
-    stop() { 
-        this.active = false; this.destination = null; this.selectedMembers = []; 
-        this.layerGroup.clearLayers(); safeHide("group-nav-active"); 
-        if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16); 
+    stop() {
+        this.active = false; this.destination = null; this.selectedMembers = [];
+        this.layerGroup.clearLayers(); safeHide("group-nav-active");
+        if (myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
     }
 };
 
@@ -471,10 +667,10 @@ async function updateGroupTripRoutes() {
     const promises = currentTrip.members.map(async (member, index) => {
         const color = routeColors[index % routeColors.length];
         let coords = null;
-        
+
         if (member.id === socket.id && myCoords) coords = myCoords;
         else if (friendData[member.id] && friendData[member.id].online !== false) coords = friendData[member.id];
-        
+
         if (coords) {
             const last = tripLastFetchedCoords[member.id];
             if (last && distanceKm(last.lat, last.lng, coords.lat, coords.lng) < 0.1) return;
@@ -482,27 +678,27 @@ async function updateGroupTripRoutes() {
             try {
                 const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${coords.lng},${coords.lat};${currentTrip.lng},${currentTrip.lat}?geometries=geojson&alternatives=true`);
                 const data = await res.json();
-                
+
                 if (data.routes && data.routes.length > 0) {
-                    const r = data.routes.reduce((a,b)=>b.distance<a.distance?b:a, data.routes[0]);
+                    const r = data.routes.reduce((a, b) => b.distance < a.distance ? b : a, data.routes[0]);
                     const pathCoords = r.geometry.coordinates.map(c => [c[1], c[0]]);
-                    
-                    tripRoutesLayer.eachLayer(l => { if(l.memberId === member.id) tripRoutesLayer.removeLayer(l); });
+
+                    tripRoutesLayer.eachLayer(l => { if (l.memberId === member.id) tripRoutesLayer.removeLayer(l); });
 
                     const poly = L.polyline(pathCoords, { color: color, weight: 5, opacity: 0.8, className: 'nav-path-animated' });
                     poly.memberId = member.id;
                     poly.addTo(tripRoutesLayer);
-                    
+
                     tripLastFetchedCoords[member.id] = { lat: coords.lat, lng: coords.lng };
-                    
+
                     const distKm = r.distance / 1000;
                     const timeMin = Math.max(1, Math.round(r.duration / 60));
                     const mileage = SmartDrive.baseMileage || 18;
                     const fuel = distKm / mileage;
-                    
+
                     tripRoadStats[member.id] = { dist: distKm.toFixed(1), time: timeMin, fuel: fuel.toFixed(2) };
                 }
-            } catch(e) {}
+            } catch (e) { /* one member's fetch failing shouldn't stall the others */ }
         }
     });
 
@@ -512,47 +708,312 @@ async function updateGroupTripRoutes() {
 }
 
 function updateTripPanel() {
-    if(!currentTrip) return;
-    const list = $("trip-members-list"); if(!list) return;
+    if (!currentTrip) return;
+    const list = $("trip-members-list"); if (!list) return;
     list.innerHTML = "";
-    
+
     const isMember = currentTrip.members.some(m => m.id === socket.id);
     let totalGroupFuel = 0;
-
-    // 🔥 FIX: Added strict CSS constraints so the avatar stays perfectly round and small
     const avatarStyle = "width:32px; height:32px; border-radius:50%; object-fit:cover; vertical-align:middle; margin-right:8px; border:2px solid #34e0b4;";
 
-    if(myCoords && currentUser.name && isMember) {
+    if (myCoords && currentUser.name && isMember) {
         const stats = tripRoadStats[socket.id] || { dist: '--', time: '--', fuel: '--' };
-        if(stats.fuel !== '--') totalGroupFuel += Number(stats.fuel);
+        if (stats.fuel !== '--') totalGroupFuel += Number(stats.fuel);
         list.innerHTML += `<div class="trip-member" style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:8px;"><div><img src="${escapeHTML(currentUser.avatar)}" style="${avatarStyle}"> <b>You</b></div> <span style="text-align:right;">${stats.dist} km<br><small style="color:var(--muted)">${stats.time} min • ⛽ ${stats.fuel} L</small></span></div>`;
     }
-    
+
     Object.values(friendData).filter(f => f.online !== false && currentTrip.members.some(m => m.id === f.id)).forEach(f => {
         const stats = tripRoadStats[f.id] || { dist: '--', time: '--', fuel: '--' };
-        if(stats.fuel !== '--') totalGroupFuel += Number(stats.fuel);
+        if (stats.fuel !== '--') totalGroupFuel += Number(stats.fuel);
         list.innerHTML += `<div class="trip-member" style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:8px;"><div><img src="${escapeHTML(f.avatar)}" style="${avatarStyle}"> ${escapeHTML(f.name)}</div> <span style="text-align:right;">${stats.dist} km<br><small style="color:var(--muted)">${stats.time} min • ⛽ ${stats.fuel} L</small></span></div>`;
     });
-    
-    if(list.innerHTML) list.innerHTML+=`<div style="border-top:1px solid #333;margin-top:6px;padding-top:8px;font-size:12px;color:var(--mint);">Estimated group fuel: ${totalGroupFuel.toFixed(2)} L</div>`;
+
+    if (list.innerHTML) list.innerHTML += `<div style="border-top:1px solid #333;margin-top:6px;padding-top:8px;font-size:12px;color:var(--mint);">Estimated group fuel: ${totalGroupFuel.toFixed(2)} L</div>`;
 }
 
-socket.on("connect", () => { 
-    if (currentUser.name) socket.emit("profileReady", currentUser); 
-    if(offlineMessageQueue.length > 0) {
+// ============================================================================
+// MEETUP PLANNER (new) — roadmap Section 11
+// ============================================================================
+// Inserts a candidate-search-and-score step BEFORE GroupNavigation.setDestination()
+// is called, instead of that destination always coming from a manual tap. Reuses
+// GroupNavigation's existing per-member routing/rendering once a point is chosen —
+// additive, not a rewrite, per the roadmap's own framing.
+const MeetupPlanner = {
+    lastResult: null,
+    strategy: "sum",
+
+    init() {
+        const openBtn = $("meetup-find-btn");
+        if (openBtn) openBtn.addEventListener("click", () => this.compute());
+        const seg = document.querySelector('[data-segment="meetupStrategy"]');
+        if (seg) seg.addEventListener("segment", (e) => { this.strategy = e.detail.value; if (this.lastResult) this.renderCandidates(); });
+        const closeBtn = $("meetup-results-close");
+        if (closeBtn) closeBtn.addEventListener("click", () => safeHide("meetup-results-sheet"));
+    },
+
+    async compute() {
+        if (GroupNavigation.selectedMembers.length === 0) {
+            const cbs = document.querySelectorAll(".group-nav-cb:checked");
+            if (cbs.length === 0) return showToast("Select at least 1 friend first.");
+            GroupNavigation.selectedMembers = ["me", ...Array.from(cbs).map(cb => cb.value)];
+        }
+        const memberIds = GroupNavigation.selectedMembers;
+        if (memberIds.filter((id) => id === "me" ? !!myCoords : (friendData[id] && validCoord(friendData[id].lat, friendData[id].lng))).length < 2) {
+            return showToast("Need at least 2 located members (only Exact-sharing riders count).");
+        }
+
+        safeHide("group-nav-setup");
+        const resultsList = $("meetup-results-list");
+        if (resultsList) resultsList.innerHTML = `<div style="color:var(--muted); font-size:12px; text-align:center; padding:20px 0;">Scoring nearby meetup points by real road time…</div>`;
+        safeShow("meetup-results-sheet", "flex");
+
+        socket.emit("computeMeetup", { memberIds, strategy: this.strategy }, (res) => {
+            if (!res || !res.ok) {
+                if (resultsList) resultsList.innerHTML = `<div style="color:#ef4444; font-size:12px; text-align:center; padding:20px 0;">${escapeHTML(res?.reason === "need-at-least-2-located-members" ? "Need at least 2 located members." : "Couldn't compute a meetup point right now.")}</div>`;
+                return;
+            }
+            this.lastResult = res;
+            this.renderCandidates();
+        });
+    },
+
+    renderCandidates() {
+        const resultsList = $("meetup-results-list");
+        if (!resultsList || !this.lastResult) return;
+        const candidates = this.lastResult.rankings?.[this.strategy] || this.lastResult.results || [];
+        if (candidates.length === 0) { resultsList.innerHTML = `<div style="color:var(--muted); font-size:12px; text-align:center;">No reachable candidate found.</div>`; return; }
+
+        meetupLayer.clearLayers();
+        resultsList.innerHTML = "";
+        candidates.forEach((c, i) => {
+            L.marker([c.lat, c.lng], { icon: L.divIcon({ className: 'geofence-marker', html: i === 0 ? '🏆' : '📍' }) })
+                .bindTooltip(c.label, { permanent: false, direction: "top" }).addTo(meetupLayer);
+
+            const card = document.createElement("div");
+            card.className = "list-card" + (i === 0 ? " pick" : "");
+            const worst = Math.round(c.maxSec / 60), total = Math.round(c.sumSec / 60);
+            card.innerHTML = `<strong>${escapeHTML(c.label)}</strong>${c.kind === "venue" ? ' <span style="color:var(--muted);font-size:11px;">real venue</span>' : ''}
+                <div style="margin-top:4px;color:var(--soft);font-size:12.5px;">
+                    ${this.strategy === "minimax" ? `Worst rider: ${worst} min` : `Total: ${total} min`} · Spread: ${Math.round(c.spreadSec / 60)} min
+                </div>`;
+            const pickBtn = document.createElement("button");
+            pickBtn.type = "button"; pickBtn.className = "btn-primary-nav btn-block"; pickBtn.style.marginTop = "8px"; pickBtn.textContent = "Meet here";
+            pickBtn.onclick = () => {
+                safeHide("meetup-results-sheet");
+                meetupLayer.clearLayers();
+                GroupNavigation.setDestination({ lat: c.lat, lng: c.lng });
+            };
+            card.appendChild(pickBtn);
+            resultsList.appendChild(card);
+        });
+        if (candidates.length) map.flyTo([candidates[0].lat, candidates[0].lng], 14);
+    }
+};
+
+// ============================================================================
+// CARPOOL PLANNER (new) — roadmap Section 12
+// ============================================================================
+// Server does the actual ordering (OSRM /trip, falling back to greedy+2-opt)
+// and the fuel split; this module is just pickup selection + rendering.
+const CarpoolPlanner = {
+    pickups: [],           // [{id, name, lat, lng}]
+    destination: null,
+    lastResult: null,
+
+    init() {
+        const openBtn = $("carpool-open-btn");
+        if (openBtn) openBtn.addEventListener("click", () => this.openSetup());
+        const closeBtn = $("carpool-close-btn");
+        if (closeBtn) closeBtn.addEventListener("click", () => this.closeSetup());
+        const destBtn = $("carpool-pick-dest-btn");
+        if (destBtn) destBtn.addEventListener("click", () => {
+            showToast("🚗 Tap the map to set the drop-off point.", 4000);
+            mapActionMode = "carpool-dest";
+            safeHide("carpool-modal");
+        });
+        const runBtn = $("carpool-run-btn");
+        if (runBtn) runBtn.addEventListener("click", () => this.compute());
+    },
+
+    openSetup() {
+        const list = $("carpool-riders");
+        if (!list) return;
+        list.innerHTML = "";
+        const online = Object.values(friendData).filter(f => f.online !== false && validCoord(f.lat, f.lng));
+        if (online.length === 0) list.innerHTML = `<div style="color:var(--muted); font-size:11px;">No located friends online.</div>`;
+        else online.forEach(f => {
+            list.innerHTML += `<label style="display:flex; align-items:center; gap:8px; font-size:13px; color:white; cursor:pointer;"><input type="checkbox" value="${f.id}" class="carpool-cb"><img src="${escapeHTML(f.avatar)}" style="width:26px;height:26px;border-radius:50%;object-fit:cover;">${escapeHTML(f.name)}</label>`;
+        });
+        const destLbl = $("carpool-dest-label");
+        if (destLbl) destLbl.textContent = this.destination ? `${this.destination.lat.toFixed(4)}, ${this.destination.lng.toFixed(4)}` : "Not set";
+        safeShow("carpool-modal", "flex");
+    },
+    closeSetup() { safeHide("carpool-modal"); mapActionMode = null; },
+
+    setDestination(latlng) {
+        this.destination = latlng;
+        carpoolLayer.clearLayers();
+        L.marker(latlng, { icon: L.divIcon({ className: 'geofence-marker', html: '🏁' }) }).bindTooltip("Carpool drop-off", { permanent: true, direction: "top" }).addTo(carpoolLayer);
+        showToast("🏁 Drop-off set.");
+        this.openSetup();
+    },
+
+    compute() {
+        if (!myCoords) return showToast("Waiting for your GPS fix…");
+        if (!this.destination) return showToast("Set a drop-off point first.");
+        const cbs = document.querySelectorAll(".carpool-cb:checked");
+        if (cbs.length === 0) return showToast("Select at least 1 rider to pick up.");
+
+        this.pickups = Array.from(cbs).map((cb) => {
+            const f = friendData[cb.value];
+            return { id: f.id, name: f.name, lat: f.lat, lng: f.lng };
+        });
+
+        const kmPerL = parseFloat($("carpool-kmpl")?.value) || SmartDrive.baseMileage || 15;
+        const pricePerL = parseFloat($("carpool-price")?.value) || 0;
+
+        const resultsBox = $("carpool-results");
+        if (resultsBox) resultsBox.innerHTML = `<div style="color:var(--muted);font-size:12px;text-align:center;">Ordering pickups…</div>`;
+        safeShow("carpool-modal", "flex");
+
+        socket.emit("carpoolOptimize", {
+            start: myCoords, destination: this.destination, pickups: this.pickups, kmPerL, fuelPricePerL: pricePerL
+        }, (res) => {
+            if (!res || !res.ok) { if (resultsBox) resultsBox.innerHTML = `<div style="color:#ef4444;font-size:12px;">Couldn't plan the carpool right now.</div>`; return; }
+            this.lastResult = res;
+            this.render(res);
+        });
+    },
+
+    render(res) {
+        carpoolLayer.clearLayers();
+        if (myCoords) L.marker([myCoords.lat, myCoords.lng], { icon: L.divIcon({ className: 'geofence-marker', html: '🚗' }) }).addTo(carpoolLayer);
+        if (res.geometry && Array.isArray(res.geometry.coordinates)) {
+            const path = res.geometry.coordinates.map(c => [c[1], c[0]]);
+            const line = L.polyline(path, { color: '#f59e0b', weight: 6, opacity: 0.85, className: 'nav-path-animated' }).addTo(carpoolLayer);
+            map.fitBounds(line.getBounds(), { padding: [40, 40] });
+        }
+        res.pickupOrder.forEach((p, i) => {
+            L.marker([p.lat, p.lng], { icon: L.divIcon({ className: 'geofence-marker', html: `${i + 1}️⃣` }) }).bindTooltip(p.name, { permanent: false }).addTo(carpoolLayer);
+        });
+        if (this.destination) L.marker([this.destination.lat, this.destination.lng], { icon: L.divIcon({ className: 'geofence-marker', html: '🏁' }) }).addTo(carpoolLayer);
+
+        const resultsBox = $("carpool-results");
+        if (!resultsBox) return;
+        const order = res.pickupOrder.map((p) => escapeHTML(p.name)).join(" → ");
+        let html = `<div class="list-card"><strong>Pickup order</strong><div style="margin-top:4px;color:var(--soft);font-size:12.5px;">You → ${order} → Drop-off</div>
+            <div style="margin-top:6px;color:var(--soft);font-size:12.5px;">${res.totalDistanceKm} km${res.totalDurationMin != null ? ` · ${res.totalDurationMin} min` : ''}${res.approximate ? ' · <span style="color:var(--c-warn);">approximate ordering</span>' : ''}</div></div>`;
+        html += `<div class="list-card"><strong>You (driver)</strong><div style="margin-top:4px;color:var(--soft);font-size:12.5px;">${res.driver.distanceKm} km · ⛽ ${res.driver.fuelL} L${res.assumptions.fuelPricePerL ? ` · ${(res.driver.cost).toFixed(2)}` : ''}</div></div>`;
+        res.riders.forEach((r) => {
+            html += `<div class="list-card"><strong>${escapeHTML(r.name)}</strong><div style="margin-top:4px;color:var(--soft);font-size:12.5px;">${r.distanceKm} km ridden · ⛽ ${r.fuelL} L share${res.assumptions.fuelPricePerL ? ` · ${r.cost.toFixed(2)}` : ''}</div></div>`;
+        });
+        html += `<p class="field-hint">${escapeHTML(res.assumptions.note)}</p>`;
+        resultsBox.innerHTML = html;
+    }
+};
+
+// ============================================================================
+// PRIVACY CONTROLS (new) — roadmap Section 15, wired to Step 1's sockets
+// ============================================================================
+const PrivacyControls = {
+    mode: "exact",
+
+    init() {
+        const seg = document.querySelector('[data-segment="sharingMode"]');
+        if (seg) seg.addEventListener("segment", (e) => this.setMode(e.detail.value));
+
+        const exportBtn = $("export-data-btn");
+        if (exportBtn) exportBtn.addEventListener("click", () => this.exportData());
+
+        const clearBtn = $("clear-history-btn");
+        if (clearBtn) clearBtn.addEventListener("click", () => this.clearHistory());
+    },
+
+    setMode(mode, { silent = false } = {}) {
+        if (!["exact", "approx", "off"].includes(mode)) return;
+        this.mode = mode;
+        if (window.MapUnite) window.MapUnite.setSegment("sharingMode", mode);
+        if (!silent) socket.emit("setSharing", { mode });
+        if (mode === "off") {
+            islandShow({ id: "privacy", kind: "sensor", title: "Location sharing off", sub: "You appear offline to others", ttl: 4500 });
+        } else if (mode === "approx") {
+            islandShow({ id: "privacy", kind: "sensor", title: "Sharing approximate location", sub: "Rounded to ~1 km outside active trips", ttl: 4500 });
+        }
+    },
+
+    async exportData() {
+        socket.emit("exportMyData", {}, (res) => {
+            if (!res || !res.ok) return showToast("Couldn't export your data right now.");
+            const blob = new Blob([JSON.stringify(res, null, 2)], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url; a.download = `mapunite-export-${new Date().toISOString().slice(0, 10)}.json`;
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 4000);
+            showToast("📥 Export downloaded.");
+        });
+    },
+
+    async clearHistory() {
+        const { ok, checked } = await confirmDialog({
+            title: "Clear your history?",
+            body: "This permanently deletes your trips, breadcrumbs, memories and geofences from this server. It cannot be undone.",
+            okLabel: "Delete everything", cancelLabel: "Cancel", danger: true,
+            checkboxLabel: "Also remove my device identity (you'll appear as a new rider next time)"
+        });
+        if (!ok) return;
+        socket.emit("deleteMyHistory", { includeIdentity: checked }, (res) => {
+            if (!res || !res.ok) return showToast("Couldn't clear your history right now.");
+            locationHistory = [];
+            try { localStorage.removeItem("koraput_history"); } catch (e) { /* ignore */ }
+            historyPolyline.setLatLngs([]);
+            if (checked) DeviceIdentity.resetAfterRejection();
+            showToast(`🗑️ Cleared ${res.tripsDeleted} trip(s), ${res.memoriesDeleted} memor${res.memoriesDeleted === 1 ? 'y' : 'ies'}, ${res.geofencesDeleted} geofence(s).`, 6000);
+        });
+    }
+};
+
+// ============================================================================
+// SOCKET CONNECTION LIFECYCLE + IDENTITY HANDSHAKE
+// ============================================================================
+socket.on("connect", () => {
+    if (currentUser.name) {
+        socket.emit("profileReady", { name: currentUser.name, avatar: currentUser.avatar, deviceId: DeviceIdentity.id, deviceToken: DeviceIdentity.token });
+    }
+    if (offlineMessageQueue.length > 0) {
         offlineMessageQueue.forEach(msg => socket.emit("chatMessage", msg));
         offlineMessageQueue = [];
         showToast("📶 Back online! Sent queued messages.");
     }
-    if(offlineMemoryQueue.length > 0) {
+    if (offlineMemoryQueue.length > 0) {
         offlineMemoryQueue.forEach(mem => socket.emit("uploadMemoryPhoto", mem));
         offlineMemoryQueue = [];
         showToast("📶 Back online! Pinned queued memories.");
     }
 });
 
+socket.on("profileAccepted", (data) => {
+    if (data?.deviceToken) DeviceIdentity.storeIssuedToken(data.deviceToken);
+    if (data?.sharingMode) PrivacyControls.setMode(data.sharingMode, { silent: true });
+    if (data?.ownerKey) myOwnerKey = data.ownerKey;    // used to tell "my own geofence" apart, see renderGeofenceList()
+});
+
+socket.on("profileRejected", () => {
+    console.warn("[identity] Server rejected our device token — minting a new identity.");
+    DeviceIdentity.resetAfterRejection();
+    socket.emit("profileReady", { name: currentUser.name, avatar: currentUser.avatar, deviceId: DeviceIdentity.id, deviceToken: null });
+    showToast("Your device identity was reset — you'll appear as a fresh rider.", 5000);
+});
+
+socket.on("locationRejected", (data) => {
+    if (data?.reason === "implausible-jump") console.warn("[gps] Server flagged an implausible jump; strike", data.strikes);
+});
+
+socket.on("sharingChanged", (data) => { if (data?.mode) PrivacyControls.setMode(data.mode, { silent: true }); });
+
 function showToast(message, duration = 4000) {
-    const container = $("toast-container"); if(!container) return;
+    if (window.MapUnite && typeof window.MapUnite.toast === "function") { window.MapUnite.toast(message, duration); return; }
+    const container = $("toast-container"); if (!container) return;
     const toast = document.createElement("div"); toast.className = "toast"; toast.textContent = message;
     container.appendChild(toast);
     setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, duration);
@@ -561,10 +1022,11 @@ function showToast(message, duration = 4000) {
 socket.on("geofenceAlert", (data) => {
     const action = data.type === "enter" ? "entered" : "left";
     showToast(`🔔 ${data.user} has ${action} ${data.fence}!`);
+    islandShow({ id: "geo", kind: "geofence", title: escapeHTML(data.fence), sub: `${escapeHTML(data.user)} ${action}`, ttl: 5500 });
 });
 
 function startGPS() {
-    if(!navigator.geolocation) {
+    if (!navigator.geolocation) {
         showToast("❌ Browser does not support GPS");
         return;
     }
@@ -572,34 +1034,34 @@ function startGPS() {
     const processLocation = async (p) => {
         const lat = Number(p.coords.latitude), lng = Number(p.coords.longitude), acc = Number(p.coords.accuracy);
         const alt = p.coords.altitude ? Math.round(p.coords.altitude) : null;
-        let speedKmh = 0; let dist = 0;
-        
+        let speedKmh = 0; let dist = 0; let dtSec = 1;
+
         if (p.coords.speed != null && p.coords.speed >= 0) speedKmh = p.coords.speed * 3.6;
         if (lastFixCoords && lastFixTime) {
             dist = Number(distanceKm(lastFixCoords.lat, lastFixCoords.lng, lat, lng)) || 0;
-            const dtSec = (Date.now() - lastFixTime) / 1000;
+            dtSec = (Date.now() - lastFixTime) / 1000;
             if (!p.coords.speed && dtSec > 0.5) speedKmh = (dist / dtSec) * 3600;
         }
-        speedKmh = Math.min(speedKmh, 300); 
-        
-        if(!validCoord(lat,lng)) return;
-        myCoords = {lat, lng, alt, speedKmh};
+        speedKmh = Math.min(speedKmh, 300);
+
+        if (!validCoord(lat, lng)) return;
+        myCoords = { lat, lng, alt, speedKmh };
 
         locationHistory.push([lat, lng]);
-        if(locationHistory.length > 1000) locationHistory.shift(); 
+        if (locationHistory.length > 1000) locationHistory.shift();
         historyPolyline.setLatLngs(locationHistory);
         localStorage.setItem("koraput_history", JSON.stringify(locationHistory));
 
-        if(!ownMarker){
-            ownMarker = L.marker([lat,lng],{icon:ownIcon(), zIndexOffset:1000}).addTo(map);
-            map.flyTo([lat,lng], 16, {animate: true, duration: 1.5}); 
+        if (!ownMarker) {
+            ownMarker = L.marker([lat, lng], { icon: ownIcon(), zIndexOffset: 1000 }).addTo(map);
+            map.flyTo([lat, lng], 16, { animate: true, duration: 1.5 });
         } else {
-            ownMarker.setLatLng([lat,lng]);
+            ownMarker.setLatLng([lat, lng]);
         }
 
-        if(acc > 0 && acc < 100000){
-            if(!accuracyCircle) accuracyCircle=L.circle([lat,lng],{radius:acc, color:"#10b981", weight:2, fillOpacity:.15}).addTo(map);
-            else {accuracyCircle.setLatLng([lat,lng]); accuracyCircle.setRadius(acc);}
+        if (acc > 0 && acc < 100000) {
+            if (!accuracyCircle) accuracyCircle = L.circle([lat, lng], { radius: acc, color: "#10b981", weight: 2, fillOpacity: .15 }).addTo(map);
+            else { accuracyCircle.setLatLng([lat, lng]); accuracyCircle.setRadius(acc); }
         }
 
         if (!cityName) {
@@ -619,27 +1081,35 @@ function startGPS() {
                     myWeather = w;
                     lastWeatherFetch = Date.now();
                     const mtd = $("map-temp-display"); if (mtd) mtd.textContent = w;
-                    const tw = $("top-weather"); if (tw) { safeShow("top-weather", "flex"); tw.textContent = w; }
-                    
+                    // Step 2 gave #top-weather a child #top-weather-text so the
+                    // pill's icon survives updates — setting textContent on the
+                    // container directly (the old behavior) would wipe the icon.
+                    const twt = $("top-weather-text");
+                    if (twt) { safeShow("top-weather", "flex"); twt.textContent = w; }
+                    else { const tw = $("top-weather"); if (tw) { safeShow("top-weather", "flex"); tw.textContent = w; } }
+
                     const badgeText = alt !== null ? `${w} | ⛰️${alt}m` : w;
                     if (ownMarker) ownMarker.unbindTooltip().bindTooltip(badgeText, { permanent: true, direction: "right", className: "weather-badge", offset: [15, 0] });
                 }
             });
         }
 
-        lastFixCoords = { lat, lng }; lastFixTime = Date.now();
-        if (typeof SmartDrive !== 'undefined') SmartDrive.tick(speedKmh, dist);
+        // Real inputs for the confidence gate — no more hardcoded accuracy=10 / dtSec=1.
+        const jumpKm = dist;
+        SmartDrive.tick(speedKmh, dist, { accuracyM: acc, dtSec, jumpKm });
 
-        socket.emit("updateLocation",{name:currentUser.name, avatar:currentUser.avatar, lat, lng, alt, speedKmh, weather:myWeather});
-        updateFriendBadges(); 
-        
-        if(typeof triggerGroupRouteUpdate === 'function') triggerGroupRouteUpdate(); 
-        if(typeof GroupNavigation !== 'undefined') GroupNavigation.onLiveUpdate();
+        lastFixCoords = { lat, lng }; lastFixTime = Date.now();
+
+        socket.emit("updateLocation", { lat, lng, alt, speedKmh, accuracy: acc, weather: myWeather });
+        updateFriendBadges();
+
+        if (typeof triggerGroupRouteUpdate === 'function') triggerGroupRouteUpdate();
+        if (typeof GroupNavigation !== 'undefined') GroupNavigation.onLiveUpdate();
     };
 
     const handleGpsError = (e) => {
         console.warn("GPS error", e);
-        if(e.code === 1) showToast("⚠️ GPS Permission Denied! Please enable location.", 6000);
+        if (e.code === 1) showToast("⚠️ GPS Permission Denied! Please enable location.", 6000);
         else showToast("⚠️ GPS Signal Lost or Weak. Trying again...", 4000);
     };
 
@@ -647,108 +1117,133 @@ function startGPS() {
     navigator.geolocation.watchPosition(processLocation, handleGpsError, { enableHighAccuracy: true, timeout: 15000, maximumAge: 2000 });
 }
 
-function updateFriendBadges(){
-    Object.keys(friendMarkers).forEach(id=>{
-        const f=friendData[id], m=friendMarkers[id]; if(!f||!m) return;
-        let text = f.online===false ? "Offline" : f.weather;
-        if(f.alt) text += ` | ⛰️${f.alt}m`;
-        if(myCoords && validCoord(f.lat,f.lng)) text += ` | 📍 ${distanceKm(myCoords.lat,myCoords.lng,f.lat,f.lng)} km away`;
-        m.unbindTooltip(); if(text) m.bindTooltip(text,{permanent:true,direction:"right",className:"weather-badge",offset:[15,0]});
+function updateFriendBadges() {
+    Object.keys(friendMarkers).forEach(id => {
+        const f = friendData[id], m = friendMarkers[id]; if (!f || !m) return;
+        let text = f.online === false ? "Offline" : (f.approx ? "📶 Approx. location" : f.weather);
+        if (f.alt) text += ` | ⛰️${f.alt}m`;
+        if (myCoords && validCoord(f.lat, f.lng)) text += ` | 📍 ${distanceKm(myCoords.lat, myCoords.lng, f.lat, f.lng)} km away`;
+        m.unbindTooltip(); if (text) m.bindTooltip(text, { permanent: true, direction: "right", className: "weather-badge", offset: [15, 0] });
     });
 }
 
-socket.on("onlineUsers", list=>{ if(Array.isArray(list)) list.forEach(u=>{ if(u.id!==socket.id){ friendData[u.id]={...(friendData[u.id]||{}),...u,online:true}; createOrUpdateFriendMarker(u);} }); updateOnlineUI(); });
-socket.on("userOnline", u=>{ if(u.id!==socket.id){ friendData[u.id]={...(friendData[u.id]||{}),...u,online:true}; createOrUpdateFriendMarker(u); } updateOnlineUI(); });
-socket.on("userOffline", d=>{ if(d?.id && friendData[d.id]){ friendData[d.id].online=false; if(friendMarkers[d.id]) friendMarkers[d.id].setOpacity(0.45); } updateOnlineUI(); });
-socket.on("friendMoved", u=>{ if(u?.id) { createOrUpdateFriendMarker({...u,online:true}); updateOnlineUI(); if(typeof triggerGroupRouteUpdate === 'function') triggerGroupRouteUpdate(); }});
-socket.on("friendDisconnected", id=>{ if(friendMarkers[id]){map.removeLayer(friendMarkers[id]); delete friendMarkers[id];} delete friendData[id]; updateOnlineUI(); });
+socket.on("onlineUsers", list => { if (Array.isArray(list)) list.forEach(u => { if (u.id !== socket.id) { friendData[u.id] = { ...(friendData[u.id] || {}), ...u, online: true }; createOrUpdateFriendMarker(u); } }); updateOnlineUI(); });
+socket.on("userOnline", u => { if (u.id !== socket.id) { friendData[u.id] = { ...(friendData[u.id] || {}), ...u, online: true }; createOrUpdateFriendMarker(u); } updateOnlineUI(); });
+socket.on("userOffline", d => { if (d?.id && friendData[d.id]) { friendData[d.id].online = false; if (friendMarkers[d.id]) friendMarkers[d.id].setOpacity(0.45); } updateOnlineUI(); });
+socket.on("friendMoved", u => {
+    if (!u?.id) return;
+    if (u.lat == null || u.lng == null) {                         // sharing set to "off" — remove the marker, don't misplace it
+        if (friendMarkers[u.id]) { map.removeLayer(friendMarkers[u.id]); delete friendMarkers[u.id]; }
+        friendData[u.id] = { ...(friendData[u.id] || {}), ...u, online: u.online !== false };
+        updateOnlineUI();
+        return;
+    }
+    createOrUpdateFriendMarker({ ...u, online: true });
+    updateOnlineUI();
+    if (typeof triggerGroupRouteUpdate === 'function') triggerGroupRouteUpdate();
+});
+socket.on("friendDisconnected", id => { if (friendMarkers[id]) { map.removeLayer(friendMarkers[id]); delete friendMarkers[id]; } delete friendData[id]; updateOnlineUI(); });
 
-function createOrUpdateFriendMarker(u){
-    if(!u?.id || !validCoord(u.lat,u.lng)) return;
-    friendData[u.id] = { id:u.id, name:u.name||"Friend", avatar:u.avatar||DEFAULT_AVATAR, lat:u.lat, lng:u.lng, alt:u.alt, speedKmh:u.speedKmh, weather:u.weather||"", online:u.online!==false };
+function createOrUpdateFriendMarker(u) {
+    if (!u?.id || !validCoord(u.lat, u.lng)) return;
+    friendData[u.id] = { id: u.id, name: u.name || "Friend", avatar: u.avatar || DEFAULT_AVATAR, lat: u.lat, lng: u.lng, alt: u.alt, speedKmh: u.speedKmh, weather: u.weather || "", online: u.online !== false, approx: Boolean(u.approx) };
     let m = friendMarkers[u.id];
-    if(!m){ m=L.marker([u.lat,u.lng],{icon:friendIcon(u.avatar)}).addTo(map); m.on("click",()=>showProfilePopup(u)); friendMarkers[u.id]=m; }
-    else { m.setLatLng([u.lat,u.lng]); m.setOpacity(u.online===false?0.45:1); }
+    if (!m) { m = L.marker([u.lat, u.lng], { icon: friendIcon(u.avatar) }).addTo(map); m.on("click", () => showProfilePopup(u)); friendMarkers[u.id] = m; }
+    else { m.setLatLng([u.lat, u.lng]); m.setOpacity(u.online === false ? 0.45 : 1); }
+    m.setIcon(friendIcon(u.avatar));
+    if (u.approx) m.getElement()?.classList.add("approx-marker"); else m.getElement()?.classList.remove("approx-marker");
     updateFriendBadges();
 }
 
-function updateOnlineUI(){
-    const cs = $("chat-subtitle"); if(cs) cs.textContent = `${currentUser.name ? 1 : 0} online`;
-    const box=$("online-list"); if(!box) return; box.innerHTML="";
-    Object.values(friendData).filter(f=>f.online!==false).forEach(u=>{
-        const btn=document.createElement("button"); btn.className="online-friend";
-        btn.innerHTML=`<img src="${escapeHTML(u.avatar)}"><span><b>${escapeHTML(u.name)}</b></span><div class="status-dot"></div>`;
-        btn.onclick=()=>{ map.flyTo([u.lat,u.lng],16); showProfilePopup(u); }; box.appendChild(btn);
+function updateOnlineUI() {
+    const cs = $("chat-subtitle"); if (cs) cs.textContent = `${currentUser.name ? 1 : 0} online`;
+    const box = $("online-list"); if (!box) return; box.innerHTML = "";
+    Object.values(friendData).filter(f => f.online !== false).forEach(u => {
+        const btn = document.createElement("button"); btn.className = "online-friend";
+        btn.innerHTML = `<img src="${escapeHTML(u.avatar)}"><span><b>${escapeHTML(u.name)}</b></span><div class="status-dot"></div>`;
+        btn.onclick = () => { if (validCoord(u.lat, u.lng)) map.flyTo([u.lat, u.lng], 16); showProfilePopup(u); }; box.appendChild(btn);
     });
 }
 
 function showProfilePopup(u) {
-    const ppa = $("profile-popup-avatar"); if(ppa) ppa.src=u.avatar; 
-    const ppn = $("profile-popup-name"); if(ppn) ppn.textContent=u.name;
+    const ppa = $("profile-popup-avatar"); if (ppa) ppa.src = u.avatar;
+    const ppn = $("profile-popup-name"); if (ppn) ppn.textContent = u.name;
     const st = $("profile-popup-status");
-    if(st) { st.textContent = u.online!==false ? "● Online" : "● Offline"; st.style.color = u.online!==false ? "#18d6a3" : "#8fa1aa"; }
+    if (st) { st.textContent = u.online !== false ? (u.approx ? "● Approx. location" : "● Online") : "● Offline"; st.style.color = u.online !== false ? "#18d6a3" : "#8fa1aa"; }
     const ppd = $("profile-popup-distance");
-    if(ppd) ppd.textContent = myCoords ? `${distanceKm(myCoords.lat,myCoords.lng,u.lat,u.lng)} km away` : "--";
+    if (ppd) ppd.textContent = (myCoords && validCoord(u.lat, u.lng)) ? `${distanceKm(myCoords.lat, myCoords.lng, u.lat, u.lng)} km away` : "--";
     const ppw = $("profile-popup-weather");
-    if(ppw) ppw.textContent = u.weather || "--";
-    
+    if (ppw) ppw.textContent = u.weather || "--";
+
     const pnb = $("profile-nav-btn");
-    if(pnb) { 
-        pnb.onclick = () => { 
-            if(validCoord(u.lat, u.lng)) {
+    if (pnb) {
+        pnb.onclick = () => {
+            if (validCoord(u.lat, u.lng) && myCoords) {
                 safeHide("profile-popup");
                 fetch(`https://router.project-osrm.org/route/v1/driving/${myCoords.lng},${myCoords.lat};${u.lng},${u.lat}?steps=true&geometries=geojson&overview=full`)
-                .then(res => res.json())
-                .then(data => {
-                    if(data.routes && data.routes.length > 0) {
-                        startSearchNavigation(u.lat, u.lng, u.name, data.routes[0]);
-                    }
-                });
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.routes && data.routes.length > 0) {
+                            startSearchNavigation(u.lat, u.lng, u.name, data.routes[0]);
+                        }
+                    });
+            } else if (!validCoord(u.lat, u.lng)) {
+                showToast("This rider's exact location isn't shared right now.");
             }
-        }; 
+        };
     }
-    
+
     if (typeof initCallButton === "function") initCallButton(u);
-    
+
     safeShow("profile-popup", "flex");
     const fb = $("profile-focus-btn");
-    if(fb) fb.onclick=()=>{ map.flyTo([u.lat,u.lng],16); safeHide("profile-popup"); };
+    if (fb) fb.onclick = () => { if (validCoord(u.lat, u.lng)) map.flyTo([u.lat, u.lng], 16); safeHide("profile-popup"); };
 }
 const ppc = $("profile-popup-close");
-if(ppc) ppc.addEventListener("click",()=>safeHide("profile-popup"));
+if (ppc) ppc.addEventListener("click", () => safeHide("profile-popup"));
 
 function renderGeofenceList() {
-    const list = $("geofence-items"); if(!list) return; list.innerHTML = "";
-    if(currentGeofences.length === 0) {
+    const list = $("geofence-items"); if (!list) return; list.innerHTML = "";
+    if (currentGeofences.length === 0) {
         list.innerHTML = "<div style='color:var(--muted); font-size:12px; text-align:center;'>No active geofences.</div>";
     } else {
         currentGeofences.forEach(f => {
-            const isOwner = f.ownerId === socket.id;
-            const actionBtn = isOwner 
-                ? `<button onclick="removeGeofence('${f.id}')" style="background:rgba(239, 68, 68, 0.2); color:#ef4444; border:none; padding:6px 12px; border-radius:8px; font-weight:bold; font-size:11px; cursor:pointer;">Remove</button>`
-                : `<span style="font-size:10px; color:var(--muted); font-weight:bold;">Owner: ${escapeHTML(f.ownerName)}</span>`;
+            // Ownership now comes from the server as ownerKey (a per-device HMAC),
+            // which survives reconnects — the old ownerId===socket.id check broke
+            // on every reconnect since socket ids aren't stable.
+            const isOwner = f.ownerKey && f.ownerKey === myOwnerKey;
+            const actionBtn = isOwner
+                ? `<button data-remove-geofence="${escapeHTML(f.id)}" style="background:rgba(239, 68, 68, 0.2); color:#ef4444; border:none; padding:6px 12px; border-radius:8px; font-weight:bold; font-size:11px; cursor:pointer;">Remove</button>`
+                : `<span style="font-size:10px; color:var(--muted); font-weight:bold;">Owner: ${escapeHTML(f.ownerName || "Someone")}</span>`;
 
             list.innerHTML += `
             <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.05); padding:10px; border-radius:10px; margin-bottom:8px;">
                 <div><div style="color:white; font-size:13px; font-weight:bold;">${escapeHTML(f.name)}</div><div style="color:var(--muted); font-size:11px;">Radius: ${f.radius}m</div></div>${actionBtn}
             </div>`;
         });
+        list.querySelectorAll("[data-remove-geofence]").forEach((btn) => {
+            btn.addEventListener("click", () => socket.emit("removeGeofence", btn.dataset.removeGeofence));
+        });
     }
-    const modal = $("geofence-list-modal"); if(modal) modal.style.display = "flex";
+    const modal = $("geofence-list-modal"); if (modal) modal.style.display = "flex";
 }
 const gflc = $("geofence-list-close");
-if(gflc) gflc.addEventListener("click", () => safeHide("geofence-list-modal"));
+if (gflc) gflc.addEventListener("click", () => safeHide("geofence-list-modal"));
+
+// myOwnerKey (declared in part 1) is set from profileAccepted — the server's
+// stable, non-reversible per-device tag, so "is this mine?" survives socket
+// reconnects, unlike the old ownerId===socket.id check.
 
 function setupBasicControlsSafe() {
     const locBtn = $("my-location-btn");
     if (locBtn) locBtn.onclick = () => {
-        if (myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16, {animate:true, duration:.8});
+        if (myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16, { animate: true, duration: .8 });
         else showToast("📍 Waiting for GPS location...");
     };
 
     const compassBtn = $("compass-btn");
     if (compassBtn) compassBtn.onclick = () => {
-        map.setView(map.getCenter(), map.getZoom(), {animate:true});
+        map.setView(map.getCenter(), map.getZoom(), { animate: true });
         const ci = $("compass-icon"); if (ci) ci.style.transform = "rotate(0deg)";
     };
 
@@ -757,22 +1252,19 @@ function setupBasicControlsSafe() {
     if (styleBtn && sm) {
         styleBtn.onclick = e => {
             e.stopPropagation();
-            sm.style.display = sm.style.display === "flex" ? "none" : "flex";
+            const willOpen = sm.style.display !== "flex";
+            sm.style.display = willOpen ? "flex" : "none";
+            styleBtn.setAttribute("aria-expanded", willOpen ? "true" : "false");
         };
         sm.onclick = e => {
             const b = e.target.closest("[data-style]"); if (!b) return;
             const s = b.dataset.style;
-            [satelliteLayer, streetLayer, darkLayer, terrainLayer].forEach(l => { 
-                if (map.hasLayer(l)) map.removeLayer(l); 
+            [satelliteLayer, streetLayer, darkLayer, terrainLayer].forEach(l => {
+                if (map.hasLayer(l)) map.removeLayer(l);
             });
-            const layers = {
-                satellite: satelliteLayer, 
-                street: streetLayer, 
-                dark: darkLayer, 
-                terrain: terrainLayer
-            };
+            const layers = { satellite: satelliteLayer, street: streetLayer, dark: darkLayer, terrain: terrainLayer };
             if (layers[s]) layers[s].addTo(map);
-            document.querySelectorAll("#map-style-menu button").forEach(x => x.classList.toggle("active", x.dataset.style === s));
+            document.querySelectorAll("#map-style-menu button").forEach(x => { const active = x.dataset.style === s; x.classList.toggle("active", active); x.setAttribute("aria-checked", active ? "true" : "false"); });
             safeHide("map-style-menu");
         };
     }
@@ -795,26 +1287,34 @@ function setupBasicControlsSafe() {
             offlineMemoryQueue = [];
         }
     });
+
+    // Battery: don't run the chat's typing-indicator/presence chatter while
+    // the tab is hidden (roadmap Section 24).
+    document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "hidden") { clearTimeout(typingTimerRef.id); socket.emit("typing", false); }
+    });
+}
+
+function clearActiveToolButtons(except) {
+    ["measure-btn", "geofence-btn", "trip-btn", "group-nav-btn"].forEach((id) => { if (id !== except) { const b = $(id); if (b) b.classList.remove("active-tool"); } });
 }
 
 function setupAdvancedToolsSafe() {
     const mb = $("measure-btn");
-    if(mb) mb.onclick = () => {
+    if (mb) mb.onclick = () => {
         mapActionMode = mapActionMode === 'measure' ? null : 'measure';
         mb.classList.toggle("active-tool", mapActionMode === 'measure');
-        const gb = $("geofence-btn"); if(gb) gb.classList.remove("active-tool"); 
-        const tb = $("trip-btn"); if(tb) tb.classList.remove("active-tool"); 
-        const gnb = $("group-nav-btn"); if(gnb) gnb.classList.remove("active-tool");
-        if(mapActionMode !== 'measure') { 
-            measureLayer.clearLayers(); 
-            measurePoints = []; 
-            const mr=$("measure-result-panel"); if(mr) mr.style.display="none"; 
+        clearActiveToolButtons("measure-btn");
+        if (mapActionMode !== 'measure') {
+            measureLayer.clearLayers();
+            measurePoints = [];
+            const mr = $("measure-result-panel"); if (mr) mr.style.display = "none";
         }
         else showToast("📍 Tap two points on the map to measure road distance");
     };
 
     const gb = $("geofence-btn");
-    if(gb) gb.onclick = () => {
+    if (gb) gb.onclick = () => {
         geoClickCount++;
         if (geoClickCount === 3) {
             clearTimeout(geoClickTimer); geoClickCount = 0; renderGeofenceList(); return;
@@ -823,424 +1323,432 @@ function setupAdvancedToolsSafe() {
         geoClickTimer = setTimeout(() => {
             geoClickCount = 0; mapActionMode = mapActionMode === 'geofence' ? null : 'geofence';
             gb.classList.toggle("active-tool", mapActionMode === 'geofence');
-            const mb = $("measure-btn"); if(mb) mb.classList.remove("active-tool"); 
-            const tb = $("trip-btn"); if(tb) tb.classList.remove("active-tool"); 
-            const gnb = $("group-nav-btn"); if(gnb) gnb.classList.remove("active-tool");
-            if(mapActionMode === 'geofence') showToast("⭕ Tap map to set Geofence. (Tap button 3 times to view/delete)");
+            clearActiveToolButtons("geofence-btn");
+            if (mapActionMode === 'geofence') showToast("⭕ Tap map to set Geofence. (Tap button 3 times to view/delete)");
         }, 900);
     };
 
     const tb = $("trip-btn");
-    if(tb) tb.onclick = () => {
+    if (tb) tb.onclick = () => {
         mapActionMode = mapActionMode === 'trip' ? null : 'trip';
         tb.classList.toggle("active-tool", mapActionMode === 'trip');
-        const mb = $("measure-btn"); if(mb) mb.classList.remove("active-tool"); 
-        const gb = $("geofence-btn"); if(gb) gb.classList.remove("active-tool"); 
-        const gnb = $("group-nav-btn"); if(gnb) gnb.classList.remove("active-tool");
-        if(mapActionMode === 'trip') showToast("🚗 Tap the map to set Group Trip Destination");
+        clearActiveToolButtons("trip-btn");
+        if (mapActionMode === 'trip') showToast("🚗 Tap the map to set Group Trip Destination");
     };
 
     const gnb = $("group-nav-btn");
-    if(gnb) gnb.onclick = () => {
+    if (gnb) gnb.onclick = () => {
         mapActionMode = mapActionMode === 'group-nav' ? null : 'group-nav';
         gnb.classList.toggle("active-tool", mapActionMode === 'group-nav');
-        const mb = $("measure-btn"); if(mb) mb.classList.remove("active-tool"); 
-        const gb = $("geofence-btn"); if(gb) gb.classList.remove("active-tool"); 
-        const tb = $("trip-btn"); if(tb) tb.classList.remove("active-tool");
-        if(mapActionMode === 'group-nav') { if(typeof GroupNavigation !== 'undefined') GroupNavigation.openSetup(); }
+        clearActiveToolButtons("group-nav-btn");
+        if (mapActionMode === 'group-nav') { if (typeof GroupNavigation !== 'undefined') GroupNavigation.openSetup(); }
         else safeHide("group-nav-setup");
     };
 
     const gNCB = $("group-nav-close-btn");
-    if(gNCB) gNCB.onclick = () => { safeHide("group-nav-setup"); mapActionMode = null; const btn = $("group-nav-btn"); if(btn) btn.classList.remove("active-tool"); };
-    
+    if (gNCB) gNCB.onclick = () => { safeHide("group-nav-setup"); mapActionMode = null; const btn = $("group-nav-btn"); if (btn) btn.classList.remove("active-tool"); };
+
     const gNNB = $("group-nav-next-btn");
-    if(gNNB) gNNB.onclick = () => { if(typeof GroupNavigation !== 'undefined') GroupNavigation.startSelection(); };
-    
+    if (gNNB) gNNB.onclick = () => { if (typeof GroupNavigation !== 'undefined') GroupNavigation.startSelection(); };
+
     const gNSB = $("group-nav-stop-btn");
-    if(gNSB) gNSB.onclick = () => { if(typeof GroupNavigation !== 'undefined') GroupNavigation.stop(); };
+    if (gNSB) gNSB.onclick = () => { if (typeof GroupNavigation !== 'undefined') GroupNavigation.stop(); };
 
     map.on('click', (e) => {
         if (mapActionMode === 'measure') {
             measurePoints.push(e.latlng);
-            L.circleMarker(e.latlng, {color: '#f59e0b', radius: 5, fillOpacity: 1}).addTo(measureLayer);
-            
+            L.circleMarker(e.latlng, { color: '#f59e0b', radius: 5, fillOpacity: 1 }).addTo(measureLayer);
+
             if (measurePoints.length === 2) {
                 const p1 = measurePoints[0], p2 = measurePoints[1];
                 showToast("📏 Calculating road distance...", 2000);
-                
+
                 fetch(`https://router.project-osrm.org/route/v1/driving/${p1.lng},${p1.lat};${p2.lng},${p2.lat}?overview=full&geometries=geojson&alternatives=true`)
-                .then(r => r.json())
-                .then(data => {
-                    measureLayer.clearLayers();
-                    if(data.routes && data.routes.length > 0) {
-                        const r = data.routes.reduce((a,b) => b.distance < a.distance ? b : a, data.routes[0]);
-                        const coords = r.geometry.coordinates.map(c => [c[1], c[0]]);
-                        L.polyline(coords, {color:'#f59e0b', weight:6, className:'nav-path-animated'}).addTo(measureLayer);
-                        L.marker(p1, {icon:L.divIcon({className:'measure-point',html:'A',iconSize:[24,24],iconAnchor:[12,12]})}).addTo(measureLayer);
-                        L.marker(p2, {icon:L.divIcon({className:'measure-point',html:'B',iconSize:[24,24],iconAnchor:[12,12]})}).addTo(measureLayer);
-                        
-                        const distKm=(r.distance/1000).toFixed(2);
-                        const timeMin=Math.max(1,Math.round(r.duration/60));
-                        
-                        let panel=$("measure-result-panel");
-                        if(!panel){ 
-                            panel=document.createElement("div"); 
-                            panel.id="measure-result-panel"; 
-                            panel.style.cssText="position:fixed;left:50%;bottom:72px;transform:translateX(-50%);z-index:4500;background:rgba(10,17,28,.96);border:1px solid rgba(255,255,255,.14);border-radius:16px;padding:12px 16px;color:#fff;box-shadow:0 15px 40px rgba(0,0,0,.45);font-size:13px;text-align:center;min-width:220px;"; 
-                            document.body.appendChild(panel); 
-                        }
-                        panel.innerHTML=`<b style="color:#f59e0b">📏 Shortest road route</b><br><strong>${distKm} km</strong> &nbsp;•&nbsp; <strong>${timeMin} min</strong>`;
-                        panel.style.display="block";
-                        showToast(`📏 Shortest: ${distKm} km • ⏱️ ${timeMin} min`,5000);
-                    } else showToast("❌ Road route unavailable. Try again.");
-                }).catch(() => showToast("❌ Road route unavailable. Try again."));
+                    .then(r => r.json())
+                    .then(data => {
+                        measureLayer.clearLayers();
+                        if (data.routes && data.routes.length > 0) {
+                            const r = data.routes.reduce((a, b) => b.distance < a.distance ? b : a, data.routes[0]);
+                            const coords = r.geometry.coordinates.map(c => [c[1], c[0]]);
+                            L.polyline(coords, { color: '#f59e0b', weight: 6, className: 'nav-path-animated' }).addTo(measureLayer);
+                            L.marker(p1, { icon: L.divIcon({ className: 'measure-point', html: 'A', iconSize: [24, 24], iconAnchor: [12, 12] }) }).addTo(measureLayer);
+                            L.marker(p2, { icon: L.divIcon({ className: 'measure-point', html: 'B', iconSize: [24, 24], iconAnchor: [12, 12] }) }).addTo(measureLayer);
+
+                            const distKm = (r.distance / 1000).toFixed(2);
+                            const timeMin = Math.max(1, Math.round(r.duration / 60));
+
+                            let panel = $("measure-result-panel");
+                            if (!panel) {
+                                panel = document.createElement("div");
+                                panel.id = "measure-result-panel";
+                                panel.style.cssText = "position:fixed;left:50%;bottom:72px;transform:translateX(-50%);z-index:4500;background:rgba(10,17,28,.96);border:1px solid rgba(255,255,255,.14);border-radius:16px;padding:12px 16px;color:#fff;box-shadow:0 15px 40px rgba(0,0,0,.45);font-size:13px;text-align:center;min-width:220px;";
+                                document.body.appendChild(panel);
+                            }
+                            panel.innerHTML = `<b style="color:#f59e0b">📏 Shortest road route</b><br><strong>${distKm} km</strong> &nbsp;•&nbsp; <strong>${timeMin} min</strong>`;
+                            panel.style.display = "block";
+                            showToast(`📏 Shortest: ${distKm} km • ⏱️ ${timeMin} min`, 5000);
+                        } else showToast("❌ Road route unavailable. Try again.");
+                    }).catch(() => showToast("❌ Road route unavailable. Try again."));
             }
-        } 
+        }
         else if (mapActionMode === 'geofence') {
             const name = prompt("Enter Geofence Name:");
             if (name && name.trim()) {
                 const radius = Number(prompt("Enter Radius in meters (10 to 50000):", "500"));
                 if (Number.isFinite(radius) && radius >= 10 && radius <= 50000) { socket.emit("addGeofence", { name: name.trim(), lat: e.latlng.lat, lng: e.latlng.lng, radius: radius }); showToast(`⭕ Geofence created!`); }
             }
-            mapActionMode = null; const gb = $("geofence-btn"); if(gb) gb.classList.remove("active-tool");
+            mapActionMode = null; const gb2 = $("geofence-btn"); if (gb2) gb2.classList.remove("active-tool");
         }
         else if (mapActionMode === 'trip') {
             const name = prompt("Enter Trip Destination Name:");
             if (name && name.trim()) { socket.emit("startTrip", { name: name.trim(), lat: e.latlng.lat, lng: e.latlng.lng }); showToast(`🚗 Trip started!`); }
-            mapActionMode = null; const tb = $("trip-btn"); if(tb) tb.classList.remove("active-tool");
+            mapActionMode = null; const tb2 = $("trip-btn"); if (tb2) tb2.classList.remove("active-tool");
         }
         else if (mapActionMode === 'memory') {
             if (pendingMemoryImage) {
                 const payload = { name: currentUser.name, lat: e.latlng.lat, lng: e.latlng.lng, image: pendingMemoryImage, time: new Date().toISOString() };
-                if (navigator.onLine) { socket.emit("uploadMemoryPhoto", payload); showToast("✅ Memory pinned successfully!"); } 
+                if (navigator.onLine) { socket.emit("uploadMemoryPhoto", payload); showToast("✅ Memory pinned successfully!"); }
                 else { offlineMemoryQueue.push(payload); showToast("📶 Offline: Memory saved. Will sync when reconnected."); }
             }
             mapActionMode = null; pendingMemoryImage = null;
         }
         else if (mapActionMode === 'group-nav') {
-            if(typeof GroupNavigation !== 'undefined') {
+            if (typeof GroupNavigation !== 'undefined') {
                 GroupNavigation.setDestination(e.latlng);
                 mapActionMode = null;
             }
+        }
+        else if (mapActionMode === 'carpool-dest') {
+            CarpoolPlanner.setDestination(e.latlng);
+            mapActionMode = null;
         }
     });
 
     socket.on("loadGeofences", fences => {
         currentGeofences = fences;
-        p4LayerGroup.eachLayer(l => { if(l.options?.isGeofence) map.removeLayer(l); });
+        p4LayerGroup.eachLayer(l => { if (l.options?.isGeofence) map.removeLayer(l); });
         fences.forEach(f => {
             L.circle([f.lat, f.lng], { radius: f.radius, color: "#8b5cf6", weight: 2, fillOpacity: 0.1, isGeofence: true }).addTo(p4LayerGroup);
-            L.marker([f.lat, f.lng], { icon: L.divIcon({className: 'geofence-marker', html: '📍'}), isGeofence: true }).bindTooltip(f.name, {permanent: true, direction: "top", className: "weather-badge"}).addTo(p4LayerGroup);
+            L.marker([f.lat, f.lng], { icon: L.divIcon({ className: 'geofence-marker', html: '📍' }), isGeofence: true }).bindTooltip(f.name, { permanent: true, direction: "top", className: "weather-badge" }).addTo(p4LayerGroup);
         });
         const geoModal = $("geofence-list-modal"); if (geoModal && geoModal.style.display === "flex") renderGeofenceList();
     });
 
     socket.on("tripData", trip => {
         currentTrip = trip;
-        if(tripMarker) { map.removeLayer(tripMarker); tripMarker = null; }
-        if(trip) {
+        if (tripMarker) { map.removeLayer(tripMarker); tripMarker = null; }
+        if (trip) {
             safeShow("trip-panel", "flex");
-            const tt = $("trip-title"); if(tt) tt.textContent = `Trip to ${trip.name}`;
-            tripMarker = L.marker([trip.lat, trip.lng], { icon: L.divIcon({className: 'geofence-marker', html: '🏁'}) }).addTo(map);
+            const tt = $("trip-title"); if (tt) tt.textContent = `Trip to ${trip.name}`;
+            tripMarker = L.marker([trip.lat, trip.lng], { icon: L.divIcon({ className: 'geofence-marker', html: '🏁' }) }).addTo(map);
 
             const isMember = trip.members.some(m => m.id === socket.id);
             const isHost = trip.hostId === socket.id;
             const actionBtn = $("trip-action-btn");
-            
+
             if (actionBtn) {
                 if (isHost) {
-                    actionBtn.textContent = "End Trip"; actionBtn.style.color = "#ef4444"; actionBtn.style.background = "rgba(239, 68, 68, 0.2)"; 
-                    actionBtn.onclick = () => { if(typeof SmartDrive!="undefined" && SmartDrive.trip.active) SmartDrive.endTrip(); socket.emit("leaveTrip"); };
+                    actionBtn.textContent = "End Trip"; actionBtn.style.color = "#ef4444"; actionBtn.style.background = "rgba(239, 68, 68, 0.2)";
+                    actionBtn.onclick = () => { if (typeof SmartDrive != "undefined" && SmartDrive.trip.active) SmartDrive.endTrip(); socket.emit("leaveTrip"); };
                 } else if (isMember) {
-                    actionBtn.textContent = "Leave Trip"; actionBtn.style.color = "#f59e0b"; actionBtn.style.background = "rgba(245, 158, 11, 0.2)"; 
-                    actionBtn.onclick = () => { if(typeof SmartDrive!="undefined" && SmartDrive.trip.active) SmartDrive.endTrip(); socket.emit("leaveTrip"); };
+                    actionBtn.textContent = "Leave Trip"; actionBtn.style.color = "#f59e0b"; actionBtn.style.background = "rgba(245, 158, 11, 0.2)";
+                    actionBtn.onclick = () => { if (typeof SmartDrive != "undefined" && SmartDrive.trip.active) SmartDrive.endTrip(); socket.emit("leaveTrip"); };
                 } else {
                     actionBtn.textContent = "Join Trip"; actionBtn.style.color = "#10b981"; actionBtn.style.background = "rgba(16, 185, 129, 0.2)"; actionBtn.onclick = () => socket.emit("joinTrip");
                 }
             }
-            if(typeof SmartDrive !== "undefined" && isMember && !SmartDrive.trip.active) SmartDrive.startTrip();
-            if(typeof triggerGroupRouteUpdate === 'function') triggerGroupRouteUpdate(); 
-            if(window.renderTripChecklist) window.renderTripChecklist();
+            if (typeof SmartDrive !== "undefined" && isMember && !SmartDrive.trip.active) SmartDrive.startTrip();
+            if (typeof triggerGroupRouteUpdate === 'function') triggerGroupRouteUpdate();
+            if (window.TripChecklist) window.TripChecklist.render();
         } else {
-            if(typeof SmartDrive !== "undefined" && SmartDrive.trip.active) SmartDrive.endTrip();
+            if (typeof SmartDrive !== "undefined" && SmartDrive.trip.active) SmartDrive.endTrip();
             tripRoutesLayer.clearLayers(); tripRoadStats = {}; safeHide("trip-panel");
         }
     });
 }
 
-function setupChatSafe() {
-    const cc=$("chat-container"), inp=$("chatInput"), send=$("chat-send"), vb=$("voiceButton");
-    let unread=0, typingTimer=null, replyTo=null, reactingId=null;
-    const msgStore=new Map(), emojis=["👍","❤️","😂","😮","😢","🔥"];
+// ==========================================
+// CHAT
+// ==========================================
+const typingTimerRef = { id: null };
 
-    function updateUnreadBadge(){ const b=$("chat-unread-badge"); if(b){ b.textContent=unread>99?"99+":unread; b.style.display=unread>0?"flex":"none"; } }
+function setupChatSafe() {
+    const cc = $("chat-container"), inp = $("chatInput"), send = $("chat-send"), vb = $("voiceButton");
+    const emojis = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
+    const msgStore = new Map();
+    let unread = 0, replyTo = null, reactingId = null;
+
+    function updateUnreadBadge() { const b = $("chat-unread-badge"); if (b) { b.textContent = unread > 99 ? "99+" : unread; b.style.display = unread > 0 ? "flex" : "none"; } }
 
     const ctb = $("chat-toggle-btn");
-    if(ctb) ctb.onclick = () => { safeShow("chat-container", "flex"); safeHide("chat-toggle-btn"); unread=0; updateUnreadBadge(); if(inp) inp.focus(); };
-    
+    if (ctb) ctb.onclick = () => { safeShow("chat-container", "flex"); safeHide("chat-toggle-btn"); unread = 0; updateUnreadBadge(); if (inp) inp.focus(); };
+
     const cmb = $("chat-minimize-btn");
-    if(cmb) cmb.onclick = () => { safeHide("chat-container"); safeShow("chat-toggle-btn", "flex"); };
-    
+    if (cmb) cmb.onclick = () => { safeHide("chat-container"); safeShow("chat-toggle-btn", "flex"); };
+
     const ob = $("online-btn");
-    if(ob) ob.onclick = (e) => { e.stopPropagation(); const l=$("online-list"); if(l) l.style.display = l.style.display === "block" ? "none" : "block"; updateOnlineUI(); };
-    
-    document.addEventListener("click", e => { 
+    if (ob) ob.onclick = (e) => { e.stopPropagation(); const l = $("online-list"); if (l) l.style.display = l.style.display === "flex" ? "none" : "flex"; updateOnlineUI(); };
+
+    document.addEventListener("click", e => {
         const ol = $("online-list");
         const obtn = $("online-btn");
-        if (ol && obtn && !ol.contains(e.target) && e.target !== obtn) safeHide("online-list"); 
+        if (ol && obtn && !ol.contains(e.target) && e.target !== obtn) safeHide("online-list");
     });
 
-    if(inp) {
-        inp.oninput=()=>{ socket.emit("typing",true); clearTimeout(typingTimer); typingTimer=setTimeout(()=>socket.emit("typing",false), 1200); if(send && vb) { send.style.display=inp.value.trim()?"flex":"none"; vb.style.display=inp.value.trim()?"none":"flex"; } };
+    if (inp) {
+        inp.oninput = () => { socket.emit("typing", true); clearTimeout(typingTimerRef.id); typingTimerRef.id = setTimeout(() => socket.emit("typing", false), 1200); if (send && vb) { send.style.display = inp.value.trim() ? "flex" : "none"; vb.style.display = inp.value.trim() ? "none" : "flex"; } };
     }
-    socket.on("typing", d=>{ const t=$("typing-indicator"); if(t) { if(d.id!==socket.id && d.isTyping){t.textContent=`${escapeHTML(d.name)} is typing…`; t.style.display="block";}else t.style.display="none"; } });
+    socket.on("typing", d => { const t = $("typing-indicator"); if (t) { if (d.id !== socket.id && d.isTyping) { t.textContent = `${escapeHTML(d.name)} is typing…`; t.style.display = "block"; } else t.style.display = "none"; } });
 
-    const rc = $("reply-cancel"); if(rc) rc.onclick=()=>{replyTo=null; safeHide("reply-bar");};
-    
-    const eb = $("emojiButton"); if(eb) eb.onclick=(e)=>{e.stopPropagation(); safeHide("attachment-menu"); const ec=$("emoji-picker-container"); if(ec) ec.style.display=ec.style.display==="block"?"none":"block";};
-    
+    const rc = $("reply-cancel"); if (rc) rc.onclick = () => { replyTo = null; safeHide("reply-bar"); };
+
+    const eb = $("emojiButton"); if (eb) eb.onclick = (e) => { e.stopPropagation(); safeHide("attachment-menu"); const ec = $("emoji-picker-container"); if (ec) ec.style.display = ec.style.display === "block" ? "none" : "block"; };
+
     const ep = $("emojiPicker");
-    if(ep) { ep.addEventListener("emoji-click",e=>{ const em=e.detail.unicode; if(reactingId){socket.emit("messageReaction",{messageId:reactingId,emoji:em});safeHide("emoji-picker-container");reactingId=null;}else if(inp){inp.value+=em;inp.focus();if(send) send.style.display="flex";if(vb) vb.style.display="none";} }); }
-    
-    const cab = $("chat-attach-btn"); if(cab) cab.onclick=(e)=>{e.stopPropagation(); safeHide("emoji-picker-container"); const am=$("attachment-menu"); if(am) am.style.display=am.style.display==="flex"?"none":"flex";};
-    
-    const fInp=$("chatFileInput");
-    const atm = $("att-media"); if(atm) atm.onclick=()=>{if(fInp){fInp.accept="image/*,video/*";fInp.click();safeHide("attachment-menu");}};
-    const atd = $("att-doc"); if(atd) atd.onclick=()=>{if(fInp){fInp.accept=".pdf,.doc,.txt,.zip";fInp.click();safeHide("attachment-menu");}};
-    const ata = $("att-audio"); if(ata) ata.onclick=()=>{if(fInp){fInp.accept="audio/*";fInp.click();safeHide("attachment-menu");}};
-    
-    if(fInp) {
-        fInp.onchange=()=>{ 
-            const f=fInp.files?.[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ 
-            const payload = {name:currentUser.name, type:f.type.split('/')[0]==="image"?"image":f.type.split('/')[0]==="video"?"video":f.type.split('/')[0]==="audio"?"audio":"document", data:r.result, replyTo};
-            if(navigator.onLine) socket.emit("chatMessage", payload); 
-            else { offlineMessageQueue.push(payload); showToast("📶 Offline: Message queued"); }
-            const rcb = $("reply-cancel"); if(rcb) rcb.click();}; r.readAsDataURL(f); fInp.value="";
+    if (ep) { ep.addEventListener("emoji-click", e => { const em = e.detail.unicode; if (reactingId) { socket.emit("messageReaction", { messageId: reactingId, emoji: em }); safeHide("emoji-picker-container"); reactingId = null; } else if (inp) { inp.value += em; inp.focus(); if (send) send.style.display = "flex"; if (vb) vb.style.display = "none"; } }); }
+
+    const cab = $("chat-attach-btn"); if (cab) cab.onclick = (e) => { e.stopPropagation(); safeHide("emoji-picker-container"); const am = $("attachment-menu"); if (am) am.style.display = am.style.display === "flex" ? "none" : "flex"; };
+
+    const fInp = $("chatFileInput");
+    const atm = $("att-media"); if (atm) atm.onclick = () => { if (fInp) { fInp.accept = "image/*,video/*"; fInp.click(); safeHide("attachment-menu"); } };
+    const atd = $("att-doc"); if (atd) atd.onclick = () => { if (fInp) { fInp.accept = ".pdf,.doc,.txt,.zip"; fInp.click(); safeHide("attachment-menu"); } };
+    const ata = $("att-audio"); if (ata) ata.onclick = () => { if (fInp) { fInp.accept = "audio/*"; fInp.click(); safeHide("attachment-menu"); } };
+
+    if (fInp) {
+        fInp.onchange = () => {
+            const f = fInp.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = () => {
+                const payload = { name: currentUser.name, type: f.type.split('/')[0] === "image" ? "image" : f.type.split('/')[0] === "video" ? "video" : f.type.split('/')[0] === "audio" ? "audio" : "document", data: r.result, replyTo };
+                if (navigator.onLine) socket.emit("chatMessage", payload);
+                else { offlineMessageQueue.push(payload); showToast("📶 Offline: Message queued"); }
+                const rcb = $("reply-cancel"); if (rcb) rcb.click();
+            }; r.readAsDataURL(f); fInp.value = "";
         };
     }
 
     const cForm = $("chatForm");
-    if(cForm) {
-        cForm.onsubmit=e=>{ 
-            e.preventDefault(); if(!inp) return;
-            const t=inp.value.trim(); 
-            if(t){
-                const payload = {name:currentUser.name,type:"text",data:t,replyTo};
-                if(navigator.onLine) socket.emit("chatMessage",payload);
+    if (cForm) {
+        cForm.onsubmit = e => {
+            e.preventDefault(); if (!inp) return;
+            const t = inp.value.trim();
+            if (t) {
+                const payload = { name: currentUser.name, type: "text", data: t, replyTo };
+                if (navigator.onLine) socket.emit("chatMessage", payload);
                 else { offlineMessageQueue.push(payload); showToast("📶 Offline: Message queued"); }
-                inp.value=""; const rcb = $("reply-cancel"); if(rcb) rcb.click(); if(send) send.style.display="none"; if(vb) vb.style.display="flex"; inp.focus();
-            } 
+                inp.value = ""; const rcb = $("reply-cancel"); if (rcb) rcb.click(); if (send) send.style.display = "none"; if (vb) vb.style.display = "flex"; inp.focus();
+            }
         };
     }
 
-    function renderMsg(m){
-        if(msgStore.has(m.id)) return;
-        const w=document.createElement("div"); w.className="chat-row "+(m.senderId===socket.id?"mine":"");
-        const b=document.createElement("div"); b.className="chat-message "+(m.senderId===socket.id?"msg-mine":"msg-theirs");
-        if(m.senderId!==socket.id) b.innerHTML+=`<div class="msg-sender">${escapeHTML(m.name)}</div>`;
-        if(m.replyTo) b.innerHTML+=`<div class="reply-quote"><b>${escapeHTML(m.replyTo.name)}</b><br>${escapeHTML(m.replyTo.preview)}</div>`;
-        
-        if(m.type==="text") b.innerHTML+=`<div style="word-wrap:break-word;word-break:break-word;">${escapeHTML(m.data)}</div>`;
-        else if(m.type==="image") b.innerHTML+=`<img class="chat-media" src="${m.data}">`;
-        else if(m.type==="video") b.innerHTML+=`<video class="chat-media" controls src="${m.data}"></video>`;
-        else if(m.type==="audio") b.innerHTML+=`<audio class="chat-audio" controls src="${m.data}"></audio>`;
-        else if(m.type==="document") b.innerHTML+=`<a class="chat-document" href="${m.data}" download>📄 Download File</a>`;
-        
-        b.innerHTML+=`<div class="message-meta">${new Date(m.time).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</div>`;
-        
-        const a=document.createElement("div"); a.className="message-actions";
-        emojis.forEach(e=>{const btn=document.createElement("button"); btn.className="action-btn"; btn.textContent=e; btn.onclick=()=>socket.emit("messageReaction",{messageId:m.id,emoji:e}); a.appendChild(btn);});
-        const rep=document.createElement("button"); rep.className="action-btn"; rep.textContent="↩ Reply"; rep.onclick=()=>{replyTo={id:m.id,name:m.name,type:m.type,preview:m.type==="text"?m.data.slice(0,50):"Attachment"}; const rp=$("reply-preview"); if(rp) rp.textContent=`↩ ${m.name}`; safeShow("reply-bar", "flex"); if(inp) inp.focus();}; a.appendChild(rep);
-        b.appendChild(a); const rr=document.createElement("div"); rr.className="reaction-row"; b.appendChild(rr); w.appendChild(b); 
-        
+    function renderMsg(m) {
+        if (msgStore.has(m.id)) return;
+        const w = document.createElement("div"); w.className = "chat-row " + (m.senderId === socket.id ? "mine" : "");
+        const b = document.createElement("div"); b.className = "chat-message " + (m.senderId === socket.id ? "msg-mine" : "msg-theirs");
+        if (m.senderId !== socket.id) b.innerHTML += `<div class="msg-sender">${escapeHTML(m.name)}</div>`;
+        if (m.replyTo) b.innerHTML += `<div class="reply-quote"><b>${escapeHTML(m.replyTo.name)}</b><br>${escapeHTML(m.replyTo.preview)}</div>`;
+
+        if (m.type === "text") b.innerHTML += `<div style="word-wrap:break-word;word-break:break-word;">${escapeHTML(m.data)}</div>`;
+        else if (m.type === "image") b.innerHTML += `<img class="chat-media" src="${m.data}">`;
+        else if (m.type === "video") b.innerHTML += `<video class="chat-media" controls src="${m.data}"></video>`;
+        else if (m.type === "audio") b.innerHTML += `<audio class="chat-audio" controls src="${m.data}"></audio>`;
+        else if (m.type === "document") b.innerHTML += `<a class="chat-document" href="${m.data}" download>📄 Download File</a>`;
+
+        b.innerHTML += `<div class="message-meta">${new Date(m.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>`;
+
+        const a = document.createElement("div"); a.className = "message-actions";
+        emojis.forEach(e => { const btn = document.createElement("button"); btn.className = "action-btn"; btn.textContent = e; btn.onclick = () => socket.emit("messageReaction", { messageId: m.id, emoji: e }); a.appendChild(btn); });
+        const rep = document.createElement("button"); rep.className = "action-btn"; rep.textContent = "↩ Reply"; rep.onclick = () => { replyTo = { id: m.id, name: m.name, type: m.type, preview: m.type === "text" ? m.data.slice(0, 50) : "Attachment" }; const rp = $("reply-preview"); if (rp) rp.textContent = `↩ ${m.name}`; safeShow("reply-bar", "flex"); if (inp) inp.focus(); }; a.appendChild(rep);
+        b.appendChild(a); const rr = document.createElement("div"); rr.className = "reaction-row"; b.appendChild(rr); w.appendChild(b);
+
         const chatMsgs = $("chat-messages");
-        if(chatMsgs) { chatMsgs.appendChild(w); chatMsgs.scrollTop=chatMsgs.scrollHeight; }
-        msgStore.set(m.id,{msg:m,el:w});
-        if(m.senderId!==socket.id && cc && cc.style.display!=="flex"){unread++; updateUnreadBadge();}
+        if (chatMsgs) { chatMsgs.appendChild(w); chatMsgs.scrollTop = chatMsgs.scrollHeight; }
+        msgStore.set(m.id, { msg: m, el: w });
+        if (m.senderId !== socket.id && cc && cc.style.display !== "flex") { unread++; updateUnreadBadge(); }
     }
-    socket.on("chatHistory", l=>l.forEach(renderMsg)); socket.on("chatMessage", renderMsg);
+    socket.on("chatHistory", l => l.forEach(renderMsg)); socket.on("chatMessage", renderMsg);
+    socket.on("messageReaction", (data) => {
+        const entry = msgStore.get(data.messageId); if (!entry) return;
+        const rr = entry.el.querySelector(".reaction-row"); if (!rr) return;
+        rr.innerHTML = "";
+        Object.entries(data.reactions || {}).forEach(([emoji, ids]) => {
+            if (!ids || ids.length === 0) return;
+            const chip = document.createElement("span"); chip.textContent = `${emoji} ${ids.length}`;
+            chip.style.cssText = "background:rgba(255,255,255,.08);border-radius:10px;padding:2px 7px;margin-right:4px;";
+            rr.appendChild(chip);
+        });
+    });
 }
 
 // ==========================================
-// 🔥 FIX 1: MEMORIES WITH HTML5 IMAGE COMPRESSION
+// MEMORIES — canvas downscale + JPEG compress before upload
 // ==========================================
-function setupMemoriesSafe(){
+function setupMemoriesSafe() {
     const pgb = $("phase3-gallery-btn");
-    if(pgb) pgb.onclick = () => { safeShow("phase3-memory-overlay", "block"); renderMemGallery(); };
+    if (pgb) pgb.onclick = () => { safeShow("phase3-memory-overlay", "block"); renderMemGallery(); };
     const pmc = $("phase3-memory-close");
-    if(pmc) pmc.onclick = () => safeHide("phase3-memory-overlay");
+    if (pmc) pmc.onclick = () => safeHide("phase3-memory-overlay");
     const pvc = $("p3-view-close");
-    if(pvc) pvc.onclick = () => safeHide("phase3-photo-viewer");
-    
+    if (pvc) pvc.onclick = () => safeHide("phase3-photo-viewer");
+
     document.querySelectorAll(".phase3-filter").forEach(b => {
-        b.onclick = () => { document.querySelectorAll(".phase3-filter").forEach(x=>x.classList.remove("active")); b.classList.add("active"); currentGalleryFilter=b.dataset.filter; renderMemGallery(); };
+        b.onclick = () => { document.querySelectorAll(".phase3-filter").forEach(x => x.classList.remove("active")); b.classList.add("active"); currentGalleryFilter = b.dataset.filter; renderMemGallery(); };
     });
-    
+
     const pms = $("phase3-memory-search");
-    if(pms) pms.oninput = e => { currentGallerySearch=e.target.value.toLowerCase(); renderMemGallery(); };
-    
+    if (pms) pms.oninput = e => { currentGallerySearch = e.target.value.toLowerCase(); renderMemGallery(); };
+
     const pvf = $("p3-view-focus");
-    if(pvf) pvf.onclick = () => { const m=memories.get(selectedMemoryId); if(m) map.flyTo([m.lat,m.lng],17); safeHide("phase3-photo-viewer"); safeHide("phase3-memory-overlay"); };
+    if (pvf) pvf.onclick = () => { const m = memories.get(selectedMemoryId); if (m) map.flyTo([m.lat, m.lng], 17); safeHide("phase3-photo-viewer"); safeHide("phase3-memory-overlay"); };
 
-    function renderMemGallery(){
+    function openViewer(m) {
+        selectedMemoryId = m.id;
+        const pvi = $("p3-view-image"); if (pvi) pvi.src = m.image;
+        const pvn = $("p3-view-name"); if (pvn) pvn.textContent = m.name;
+        const pvd = $("p3-view-date"); if (pvd) pvd.textContent = new Date(m.time).toLocaleString();
+        safeShow("phase3-photo-viewer", "flex");
+    }
+
+    function renderMemGallery() {
         let arr = Array.from(memories.values());
-        if(currentGalleryFilter==="today") arr=arr.filter(m=>new Date(m.time)>=new Date().setHours(0,0,0,0));
-        else if(currentGalleryFilter==="mine") arr=arr.filter(m=>cleanName(m.name)===currentUser.name);
-        if(currentGallerySearch) arr=arr.filter(m=>cleanName(m.name).toLowerCase().includes(currentGallerySearch));
-        arr.sort((a,b) => new Date(b.time) - new Date(a.time));
+        if (currentGalleryFilter === "today") arr = arr.filter(m => new Date(m.time) >= new Date().setHours(0, 0, 0, 0));
+        else if (currentGalleryFilter === "mine") arr = arr.filter(m => m.ownerKey && m.ownerKey === myOwnerKey);
+        if (currentGallerySearch) arr = arr.filter(m => cleanName(m.name).toLowerCase().includes(currentGallerySearch));
+        arr.sort((a, b) => new Date(b.time) - new Date(a.time));
 
-        const pmc = $("phase3-memory-count"); if(pmc) pmc.textContent = `${arr.length} memories`;
-        const grid=$("phase3-memory-grid"), time=$("phase3-timeline-list"), emp=$("phase3-memory-empty");
-        if(grid) grid.innerHTML=""; if(time) time.innerHTML=""; if(emp) emp.style.display=arr.length?"none":"block";
+        const pmc2 = $("phase3-memory-count"); if (pmc2) pmc2.textContent = `${arr.length} memories`;
+        const grid = $("phase3-memory-grid"), time = $("phase3-timeline-list"), emp = $("phase3-memory-empty");
+        if (grid) grid.innerHTML = ""; if (time) time.innerHTML = ""; if (emp) emp.style.display = arr.length ? "none" : "block";
 
-        arr.forEach(m=>{
-            if(grid) {
-                const c=document.createElement("div"); c.className="p3-card";
-                c.innerHTML=`<img src="${escapeHTML(m.image)}" loading="lazy"><div class="p3-card-info"><b>${escapeHTML(m.name)}</b><span>${new Date(m.time).toLocaleDateString()}</span></div>`;
-                c.onclick=()=>{selectedMemoryId=m.id; const pvi=$("p3-view-image"); if(pvi) pvi.src=m.image; const pvn=$("p3-view-name"); if(pvn) pvn.textContent=m.name; const pvd=$("p3-view-date"); if(pvd) pvd.textContent=new Date(m.time).toLocaleString(); safeShow("phase3-photo-viewer", "flex");}; 
+        arr.forEach(m => {
+            if (grid) {
+                const c = document.createElement("div"); c.className = "p3-card";
+                c.innerHTML = `<img src="${escapeHTML(m.image)}" loading="lazy"><div class="p3-card-info"><b>${escapeHTML(m.name)}</b><span>${new Date(m.time).toLocaleDateString()}</span></div>`;
+                c.onclick = () => openViewer(m);
                 grid.appendChild(c);
             }
-            if(time) {
-                const t=document.createElement("div"); t.className="p3-time-item";
-                t.innerHTML=`<div class="p3-time-thumb"><img src="${escapeHTML(m.image)}" loading="lazy"></div><div class="p3-time-info"><b>${escapeHTML(m.name)}</b><span>${new Date(m.time).toLocaleString()}</span></div>`;
-                t.onclick=()=>{selectedMemoryId=m.id; const pvi=$("p3-view-image"); if(pvi) pvi.src=m.image; const pvn=$("p3-view-name"); if(pvn) pvn.textContent=m.name; const pvd=$("p3-view-date"); if(pvd) pvd.textContent=new Date(m.time).toLocaleString(); safeShow("phase3-photo-viewer", "flex");}; 
+            if (time) {
+                const t = document.createElement("div"); t.className = "p3-time-item";
+                t.innerHTML = `<div class="p3-time-thumb"><img src="${escapeHTML(m.image)}" loading="lazy"></div><div class="p3-time-info"><b>${escapeHTML(m.name)}</b><span>${new Date(m.time).toLocaleString()}</span></div>`;
+                t.onclick = () => openViewer(m);
                 time.appendChild(t);
             }
         });
     }
 
-    function renderPins(){
+    function renderPins() {
         memoryLayer.clearLayers();
-        memories.forEach(m=>{
-            const icon = L.divIcon({ className:"p3-memory-marker", html:`<div style="width:46px;height:46px;border-radius:50%;overflow:hidden;border:2px solid #fff;background:#071018;box-shadow:0 4px 15px rgba(0,0,0,.65)"><img src="${escapeHTML(m.image)}" style="width:100%;height:100%;object-fit:cover;"></div>`, iconSize:[46,46], iconAnchor:[23,23]});
-            const marker = L.marker([m.lat,m.lng],{icon}).addTo(memoryLayer);
-            
-            // 🔥 FIX: Added strict width/height and styling to the image and container
+        memories.forEach(m => {
+            const icon = L.divIcon({ className: "p3-memory-marker", html: `<div style="width:46px;height:46px;border-radius:50%;overflow:hidden;border:2px solid #fff;background:#071018;box-shadow:0 4px 15px rgba(0,0,0,.65)"><img src="${escapeHTML(m.image)}" style="width:100%;height:100%;object-fit:cover;"></div>`, iconSize: [46, 46], iconAnchor: [23, 23] });
+            const marker = L.marker([m.lat, m.lng], { icon }).addTo(memoryLayer);
             marker.bindPopup(`<div class="p3-map-popup" style="width:220px; text-align:center;"><img src="${escapeHTML(m.image)}" style="width:100%; height:140px; object-fit:cover; border-radius:8px; margin-bottom:8px; box-shadow:0 4px 10px rgba(0,0,0,0.2);"><br><b style="color:var(--mint); font-size:14px;">📸 ${escapeHTML(m.name)}</b><br><small style="color:#aaa;">${new Date(m.time).toLocaleString()}</small><br><button class="p3-open-map-memory" style="margin-top:8px;padding:8px;width:100%;background:#34e0b4;color:#000;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">View Detail</button></div>`);
-            
-            marker.on("popupopen",e=>{ const b=e.popup.getElement()?.querySelector(".p3-open-map-memory"); if(b) b.onclick=()=>{selectedMemoryId=m.id; const pvi=$("p3-view-image"); if(pvi) pvi.src=m.image; const pvn=$("p3-view-name"); if(pvn) pvn.textContent=m.name; const pvd=$("p3-view-date"); if(pvd) pvd.textContent=new Date(m.time).toLocaleString(); safeShow("phase3-photo-viewer", "flex");}; });
+            marker.on("popupopen", e => { const b = e.popup.getElement()?.querySelector(".p3-open-map-memory"); if (b) b.onclick = () => openViewer(m); });
         });
     }
-    socket.on("loadMemoryPhotos", l=>{ memories.clear(); l.forEach(m=>memories.set(m.id,m)); renderPins(); });
-    socket.on("newMemoryPin", m=>{ memories.set(m.id,m); renderPins(); const pmo=$("phase3-memory-overlay"); if(pmo && pmo.style.display==="block") renderMemGallery(); });
+    socket.on("loadMemoryPhotos", l => { memories.clear(); l.forEach(m => memories.set(m.id, m)); renderPins(); });
+    socket.on("newMemoryPin", m => { memories.set(m.id, m); renderPins(); const pmo = $("phase3-memory-overlay"); if (pmo && pmo.style.display === "block") renderMemGallery(); });
 
-    const mInp=$("memoryPhotoInput");
+    const mInp = $("memoryPhotoInput");
     const mb = $("memoryButton");
-    if(mb) mb.onclick=()=>{ if(!currentUser.name) return showToast("❌ Please Join map first."); if(mInp) mInp.click(); };
-    
+    if (mb) mb.onclick = () => { if (!currentUser.name) return showToast("❌ Please Join map first."); if (mInp) mInp.click(); };
+
     const addMemBtn = $("p3-add-memory-btn");
-    // Hiding the overlay but letting mobile browsers catch their breath before clicking the file input
-    if(addMemBtn) addMemBtn.onclick = () => { safeHide("phase3-memory-overlay"); setTimeout(() => { if(mInp) mInp.click(); }, 300); };
-    
-    if(mInp) {
-        mInp.onchange=(e)=>{
-            const f=e.target.files?.[0]; 
-            if(!f) return;
-            
-            if(!f.type.startsWith("image/") && !f.name.match(/\.(jpg|jpeg|png|gif|webp|heic)$/i)){
+    if (addMemBtn) addMemBtn.onclick = () => { safeHide("phase3-memory-overlay"); setTimeout(() => { if (mInp) mInp.click(); }, 300); };
+
+    if (mInp) {
+        mInp.onchange = (e) => {
+            const f = e.target.files?.[0];
+            if (!f) return;
+            if (!f.type.startsWith("image/") && !f.name.match(/\.(jpg|jpeg|png|gif|webp|heic)$/i)) {
                 showToast("❌ Invalid format! Please select an image file.");
-                mInp.value=""; 
+                mInp.value = "";
                 return;
             }
-            
             showToast("⏳ Processing high-quality photo...", 2000);
-            
-            const reader = new FileReader(); 
+            const reader = new FileReader();
             reader.onload = (ev) => {
                 const img = new Image();
                 img.onload = () => {
                     const canvas = document.createElement("canvas");
                     const MAX_SIZE = 1000;
                     let w = img.width, h = img.height;
-                    
-                    // Downscale large photos from devices like S24 FE
-                    if(w > h && w > MAX_SIZE) { h *= MAX_SIZE/w; w = MAX_SIZE; }
-                    else if(h > MAX_SIZE) { w *= MAX_SIZE/h; h = MAX_SIZE; }
-                    
+                    if (w > h && w > MAX_SIZE) { h *= MAX_SIZE / w; w = MAX_SIZE; }
+                    else if (h > MAX_SIZE) { w *= MAX_SIZE / h; h = MAX_SIZE; }
                     canvas.width = w; canvas.height = h;
                     const ctx = canvas.getContext("2d");
                     ctx.drawImage(img, 0, 0, w, h);
-                    
-                    // Compress to lightweight JPEG
                     pendingMemoryImage = canvas.toDataURL("image/jpeg", 0.7);
-                    mapActionMode = 'memory'; 
+                    mapActionMode = 'memory';
                     showToast("✅ Photo Ready! TAP ANYWHERE on the map to pin it.", 6000);
                 };
                 img.onerror = () => {
                     pendingMemoryImage = ev.target.result;
-                    mapActionMode = 'memory'; 
+                    mapActionMode = 'memory';
                     showToast("✅ Photo Ready! TAP ANYWHERE on the map to pin it.", 6000);
                 };
                 img.src = ev.target.result;
-                mInp.value=""; 
-            }; 
-            reader.readAsDataURL(f); 
+                mInp.value = "";
+            };
+            reader.readAsDataURL(f);
         };
     }
 }
 
-function setupJoin(){
-    if(currentUser.name){ 
-        safeHide("join-screen"); 
+function setupJoin() {
+    if (currentUser.name) {
+        safeHide("join-screen");
         const hAv = $("header-avatar");
-        if(hAv) { hAv.style.display="block"; hAv.src=currentUser.avatar; } 
-        socket.emit("profileReady",currentUser); 
+        if (hAv) { hAv.style.display = "block"; hAv.src = currentUser.avatar; }
+        socket.emit("profileReady", { name: currentUser.name, avatar: currentUser.avatar, deviceId: DeviceIdentity.id, deviceToken: DeviceIdentity.token });
     }
-    
+
     const jForm = $("join-form") || document.querySelector("form");
-    
+
     const handleJoin = (e) => {
-        if(e) e.preventDefault(); 
-        
+        if (e) e.preventDefault();
+
         const nInp = $("nameInput") || document.querySelector("input[type='text']");
-        if(nInp && nInp.value.trim()) currentUser.name = cleanName(nInp.value); 
+        if (nInp && nInp.value.trim()) currentUser.name = cleanName(nInp.value);
         else currentUser.name = "Explorer";
-        
-        localStorage.setItem("koraput_name",currentUser.name);
-        // 💾 NEW: TripDB me session save karo taaki 7 din tak login rahe
-        if (typeof TripDB !== "undefined") {
-            TripDB.saveSession(currentUser.name, null);
-            console.log("💾 [DB] User Session Saved to TripDB!");
-        }
-        
+
+        localStorage.setItem("koraput_name", currentUser.name);
+        if (typeof TripDB !== "undefined") TripDB.saveSession(currentUser.name, null);
+
         const aInp = $("avatarInput") || document.querySelector("input[type='file']");
         const f = aInp ? aInp.files?.[0] : null;
-        
-        if(f){
-            const r=new FileReader(); 
-            r.onload=()=>{
-                currentUser.avatar=r.result; 
-                localStorage.setItem("koraput_avatar",r.result); 
+
+        if (f) {
+            const r = new FileReader();
+            r.onload = () => {
+                currentUser.avatar = r.result;
+                localStorage.setItem("koraput_avatar", r.result);
                 done();
-            }; 
+            };
             r.readAsDataURL(f);
         } else {
             done();
         }
     };
 
-    if(jForm) {
-        jForm.addEventListener("submit", handleJoin);
-    }
-    
-    function done(){
-        safeHide("join-screen"); 
+    if (jForm) jForm.addEventListener("submit", handleJoin);
+
+    function done() {
+        safeHide("join-screen");
         const hAv2 = $("header-avatar");
-        if(hAv2) { hAv2.style.display="block"; hAv2.src=currentUser.avatar; } 
-        socket.emit("profileReady",currentUser); 
-        if(typeof updateOnlineUI === 'function') updateOnlineUI();
+        if (hAv2) { hAv2.style.display = "block"; hAv2.src = currentUser.avatar; }
+        socket.emit("profileReady", { name: currentUser.name, avatar: currentUser.avatar, deviceId: DeviceIdentity.id, deviceToken: DeviceIdentity.token });
+        if (typeof updateOnlineUI === 'function') updateOnlineUI();
     }
 }
 
 // ==========================================
-// PURE GOOGLE PLACES API SEARCH (FIXED WHITE TEXT BUG)
+// GOOGLE PLACES SEARCH  (unchanged — script tag kept per explicit instruction,
+// secured via HTTP-referrer restriction in Google Cloud Console rather than a
+// server-side proxy)
 // ==========================================
 function setupGoogleSearch() {
     const input = $("location-search-input");
     if (!input) return;
     const clearBtn = $("location-search-clear");
-    
+
     const style = document.createElement('style');
     style.innerHTML = `
         .pac-container { background-color: rgba(10,17,28,0.98); border: 1px solid rgba(255,255,255,0.14); border-radius: 16px; box-shadow: 0 20px 50px rgba(0,0,0,0.5); margin-top: 10px; padding: 6px; font-family: 'Inter', sans-serif; z-index: 9999 !important; }
@@ -1274,10 +1782,10 @@ function setupGoogleSearch() {
     const checkGoogle = setInterval(() => {
         if (window.google && window.google.maps && window.google.maps.places) {
             clearInterval(checkGoogle);
-            
+
             const oldResultBox = document.getElementById("search-results-box");
             if (oldResultBox) oldResultBox.remove();
-            
+
             const autocomplete = new google.maps.places.Autocomplete(input, {
                 componentRestrictions: { country: "in" },
                 fields: ["geometry", "name", "formatted_address"]
@@ -1286,14 +1794,14 @@ function setupGoogleSearch() {
             function updateSearchBounds() {
                 const centerLat = myCoords ? myCoords.lat : map.getCenter().lat;
                 const centerLng = myCoords ? myCoords.lng : map.getCenter().lng;
-                const circle = new google.maps.Circle({ 
-                    center: new google.maps.LatLng(centerLat, centerLng), 
+                const circle = new google.maps.Circle({
+                    center: new google.maps.LatLng(centerLat, centerLng),
                     radius: 50000
                 });
                 autocomplete.setBounds(circle.getBounds());
-                autocomplete.setOptions({ strictBounds: false }); 
+                autocomplete.setOptions({ strictBounds: false });
             }
-            
+
             input.addEventListener('focus', updateSearchBounds);
             map.on('moveend', updateSearchBounds);
 
@@ -1303,20 +1811,19 @@ function setupGoogleSearch() {
                     showToast("❌ Please select a location from the dropdown list.");
                     return;
                 }
-                
+
                 const destLat = place.geometry.location.lat();
                 const destLng = place.geometry.location.lng();
                 const placeName = place.name;
-                
+
                 searchLayer.clearLayers();
                 if (typeof navigationLayer !== "undefined") navigationLayer.clearLayers();
                 safeHide("nav-panel");
                 safeHide("nav-bottom-sheet");
                 safeHide("premium-nav-ui");
-                
+
                 map.flyTo([destLat, destLng], 15);
-                
-                // 🔥 FIX: Changed text colors to black/dark grey (#000 & #333) so it shows clearly on the white popup background!
+
                 const popupContent = `
                     <div style="text-align:center; padding:6px; min-width:180px;">
                         <strong style="color:#065f46; font-size:16px; display:block; margin-bottom:8px;">📍 ${escapeHTML(placeName)}</strong>
@@ -1328,15 +1835,15 @@ function setupGoogleSearch() {
                         </button>
                     </div>
                 `;
-                
+
                 searchMarker = L.marker([destLat, destLng], {
                     icon: L.divIcon({ className: 'geofence-marker', html: '📍', iconSize: [30, 30], iconAnchor: [15, 30] })
                 }).addTo(searchLayer);
-                
+
                 searchMarker.bindPopup(popupContent).openPopup();
                 if (clearBtn) safeShow("location-search-clear", "block");
 
-                if(myCoords && window.google) {
+                if (myCoords && window.google) {
                     const ds = new google.maps.DirectionsService();
                     ds.route({
                         origin: new google.maps.LatLng(myCoords.lat, myCoords.lng),
@@ -1345,23 +1852,22 @@ function setupGoogleSearch() {
                     }, (res, status) => {
                         const infoDiv = document.getElementById("search-route-info");
                         const navBtn = document.getElementById("search-nav-btn");
-                        
-                        if(status === 'OK' && res.routes.length > 0 && infoDiv && navBtn) {
+
+                        if (status === 'OK' && res.routes.length > 0 && infoDiv && navBtn) {
                             const route = res.routes[0];
                             const leg = route.legs[0];
-                            
+
                             const coords = route.overview_path.map(p => [p.lat(), p.lng()]);
                             L.polyline(coords, { color: '#34e0b4', weight: 6, opacity: 0.8, className: 'nav-path-animated' }).addTo(navigationLayer);
-                            map.fitBounds(L.polyline(coords).getBounds(), {padding: [50, 50]});
+                            map.fitBounds(L.polyline(coords).getBounds(), { padding: [50, 50] });
 
-                            // 🔥 FIX: Changed 'color:white' to 'color:#000' (Black) for distance & time
                             infoDiv.innerHTML = `<span style="color:#000; font-size:15px; font-weight:900;">🚗 ${leg.distance.text}</span> <br> <span style="color:#000; font-size:15px; font-weight:900;">⏱️ ${leg.duration.text}</span>`;
                             navBtn.style.opacity = "1";
                             navBtn.disabled = false;
-                            
+
                             navBtn.onclick = () => {
                                 searchMarker.closePopup();
-                                
+
                                 const mockRouteData = {
                                     geometry: { coordinates: coords.map(c => [c[1], c[0]]) },
                                     distance: leg.distance.value,
@@ -1369,7 +1875,8 @@ function setupGoogleSearch() {
                                     legs: [{
                                         steps: leg.steps.map(s => ({
                                             maneuver: { type: s.instructions.replace(/<[^>]*>?/gm, ''), modifier: '' },
-                                            distance: s.distance.text
+                                            distance: s.distance.text,
+                                            location: null
                                         }))
                                     }]
                                 };
@@ -1380,105 +1887,173 @@ function setupGoogleSearch() {
                         }
                     });
                 } else {
-                    if(document.getElementById("search-route-info")) document.getElementById("search-route-info").innerHTML = "<span style='color:#f59e0b; font-weight:bold;'>GPS required.</span>";
+                    if (document.getElementById("search-route-info")) document.getElementById("search-route-info").innerHTML = "<span style='color:#f59e0b; font-weight:bold;'>GPS required.</span>";
                 }
             });
         }
-    }, 500); 
+    }, 500);
 }
 
 let navWatchId = null;
 
+// ---- Maneuver text (roadmap Section 7) -------------------------------------
+// Google's DirectionsService already returns plain-English instructions (we
+// strip its HTML at the call site). OSRM's `steps=true` instead returns
+// maneuver.type/modifier codes — map those through a small phrase table so
+// OSRM-sourced routes (e.g. "Route to friend") get readable turn text too.
+const MANEUVER_PHRASES = {
+    "turn|left": "Turn left", "turn|right": "Turn right", "turn|straight": "Continue straight",
+    "turn|slight left": "Bear left", "turn|slight right": "Bear right",
+    "turn|sharp left": "Sharp left", "turn|sharp right": "Sharp right",
+    "new name|": "Continue", "depart|": "Head out", "arrive|": "You have arrived",
+    "merge|left": "Merge left", "merge|right": "Merge right",
+    "roundabout|": "Enter the roundabout", "rotary|": "Enter the roundabout",
+    "fork|left": "Keep left", "fork|right": "Keep right",
+    "end of road|left": "Turn left", "end of road|right": "Turn right",
+    "on ramp|": "Take the ramp", "off ramp|": "Take the exit", "continue|": "Continue"
+};
+function maneuverPhrase(step) {
+    const type = step?.maneuver?.type || "";
+    const modifier = step?.maneuver?.modifier || "";
+    if (/[a-z].*\s/i.test(type)) return type;              // already plain text (Google path)
+    return MANEUVER_PHRASES[`${type}|${modifier}`] || MANEUVER_PHRASES[`${type}|`] || (type ? `${type} ${modifier}`.trim() : "Continue on route");
+}
+
+// Perpendicular (great-circle-ish, planar-approximated — fine at road scale)
+// distance in meters from a point to the nearest segment of a polyline.
+function pointToPolylineDistanceMeters(lat, lng, latlngs) {
+    if (!latlngs || latlngs.length < 2) return Infinity;
+    const cosLat = Math.cos((lat * Math.PI) / 180);
+    const toXY = (la, ln) => [(ln) * 111320 * cosLat, (la) * 110540];
+    const [px, py] = toXY(lat, lng);
+    let best = Infinity;
+    for (let i = 0; i < latlngs.length - 1; i++) {
+        const [ax, ay] = toXY(latlngs[i][0], latlngs[i][1]);
+        const [bx, by] = toXY(latlngs[i + 1][0], latlngs[i + 1][1]);
+        const dx = bx - ax, dy = by - ay;
+        const lenSq = dx * dx + dy * dy;
+        let t = lenSq > 0 ? ((px - ax) * dx + (py - ay) * dy) / lenSq : 0;
+        t = Math.max(0, Math.min(1, t));
+        const cx = ax + t * dx, cy = ay + t * dy;
+        const d = Math.hypot(px - cx, py - cy);
+        if (d < best) best = d;
+    }
+    return best;
+}
+
+// Reroute-decision threshold, exactly as specified (roadmap Section 10):
+// only worth swapping if it saves real time, isn't a wildly different path,
+// and we haven't just rerouted.
+function shouldReroute(current, candidate, lastRerouteTime) {
+    const timeSavedSec = current.durationSec - candidate.durationSec;
+    const distDeltaPct = current.distanceM > 0 ? Math.abs(candidate.distanceM - current.distanceM) / current.distanceM : 1;
+    const cooldownOk = Date.now() - lastRerouteTime > 60_000;
+    return timeSavedSec > 90 && distDeltaPct < 0.5 && cooldownOk;
+}
+
+function speak(text) {
+    try {
+        if (!("speechSynthesis" in window)) return;
+        const u = new SpeechSynthesisUtterance(text);
+        u.rate = 1.02; u.volume = 0.9;
+        window.speechSynthesis.speak(u);
+    } catch (e) { /* speech synthesis is a nice-to-have, never block on it */ }
+}
+
 function startSearchNavigation(destLat, destLng, destName, routeData) {
     navigationLayer.clearLayers();
-    if(navWatchId) navigator.geolocation.clearWatch(navWatchId);
-    
+    if (navWatchId) navigator.geolocation.clearWatch(navWatchId);
+
     safeHide("map-tools");
     safeHide("search-container");
     safeHide("top-header");
     safeHide("bottom-info");
     safeHide("chat-toggle-btn");
     safeHide("memoryButton");
-    
+
     safeShow("premium-nav-ui", "block");
     safeShow("nav-bottom-sheet", "flex");
     safeShow("turn-banner", "flex");
 
-    const fullPath = routeData.geometry.coordinates.map(c => [c[1], c[0]]);
-    
+    let fullPath = routeData.geometry.coordinates.map(c => [c[1], c[0]]);
+    let activeRoute = { distanceM: routeData.distance, durationSec: routeData.duration };
+    let steps = (routeData.legs && routeData.legs[0] && routeData.legs[0].steps) || [];
+    let stepIdx = 0;
+    let offRouteStreak = 0;
+    let lastRerouteTime = 0;
+
     const dottedPath = L.polyline(fullPath, { color: '#4f46e5', weight: 8, opacity: 0.7, className: 'anim-dash' }).addTo(navigationLayer);
     const solidPath = L.polyline([], { color: '#34e0b4', weight: 8, opacity: 1, className: 'solid-trail' }).addTo(navigationLayer);
 
     const userIcon = L.divIcon({
         className: 'nav-avatar-marker',
         html: `<img src="${escapeHTML(currentUser.avatar)}" style="width:100%;height:100%;object-fit:cover; border-radius:50%; border:2px solid #34e0b4;">`,
-        iconSize: [40, 40],
-        iconAnchor: [20, 20]
+        iconSize: [40, 40], iconAnchor: [20, 20]
     });
-    
-    const startPos = myCoords ? [myCoords.lat, myCoords.lng] : fullPath[0];
-    const userMarker = L.marker(startPos, {icon: userIcon, zIndexOffset: 1000}).addTo(navigationLayer);
-    L.marker([destLat, destLng], { icon: L.divIcon({className: 'geofence-marker', html: '📍'}) }).addTo(navigationLayer);
 
-    if($("stat-dist")) $("stat-dist").innerHTML = (routeData.distance / 1000).toFixed(1) + "<small> km</small>";
-    if($("stat-eta")) $("stat-eta").innerHTML = Math.round(routeData.duration / 60) + "<small> min</small>";
-    
-    const arrivalTime = new Date(Date.now() + routeData.duration * 1000);
-    if($("nav-arrival-time")) $("nav-arrival-time").innerHTML = arrivalTime.toLocaleTimeString([], {hour: 'numeric', minute:'2-digit', hour12: true});
-    
-    if(routeData.legs && routeData.legs[0] && routeData.legs[0].steps && routeData.legs[0].steps.length > 0) {
-        if($("nav-step-text")) $("nav-step-text").textContent = routeData.legs[0].steps[0].maneuver.type + " " + (routeData.legs[0].steps[0].maneuver.modifier || ""); 
-        if($("nav-step-dist")) $("nav-step-dist").textContent = routeData.legs[0].steps[0].distance + "m";
-    }
-    
-    if($("turn-name")) $("turn-name").textContent = "Heading to " + destName;
+    const startPos = myCoords ? [myCoords.lat, myCoords.lng] : fullPath[0];
+    const userMarker = L.marker(startPos, { icon: userIcon, zIndexOffset: 1000 }).addTo(navigationLayer);
+    const destMarker = L.marker([destLat, destLng], { icon: L.divIcon({ className: 'geofence-marker', html: '📍' }) }).addTo(navigationLayer);
+
+    const updateNavStats = (distMeters, durSec) => {
+        if ($("stat-dist")) $("stat-dist").innerHTML = (distMeters / 1000).toFixed(1) + "<small> km</small>";
+        if ($("stat-eta")) $("stat-eta").innerHTML = Math.max(0, Math.round(durSec / 60)) + "<small> min</small>";
+        const arrivalTime = new Date(Date.now() + Math.max(0, durSec) * 1000);
+        if ($("nav-arrival-time")) $("nav-arrival-time").innerHTML = arrivalTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
+    };
+    updateNavStats(routeData.distance, routeData.duration);
+
+    const updateStepDisplay = () => {
+        if (!steps.length) return;
+        const s = steps[Math.min(stepIdx, steps.length - 1)];
+        if ($("nav-step-text")) $("nav-step-text").textContent = maneuverPhrase(s);
+        if ($("nav-step-dist")) $("nav-step-dist").textContent = typeof s.distance === "string" ? s.distance : `${Math.round(s.distance || 0)}m`;
+    };
+    updateStepDisplay();
+
+    if ($("turn-name")) $("turn-name").textContent = "Heading to " + destName;
 
     map.fitBounds(dottedPath.getBounds(), { paddingBottomRight: [0, 350], paddingTopLeft: [50, 150] });
 
     const startBtn = $("btn-start-nav");
     const resetBtn = $("btn-reset-nav");
     const exitBtn = $("btn-exit-nav");
-    
-    if(startBtn) {
+
+    if (startBtn) {
         startBtn.style.display = "block";
         startBtn.textContent = "Start Navigation";
         startBtn.style.background = "linear-gradient(135deg, #34d399, #22c55e)";
         startBtn.style.color = "#062112";
     }
-    if(resetBtn) resetBtn.style.display = "block";
-    if(exitBtn) exitBtn.style.display = "none";
-    if($("stat-status")) $("stat-status").textContent = "Ready";
-    if($("speed-n")) $("speed-n").textContent = "0";
+    if (resetBtn) resetBtn.style.display = "block";
+    if (exitBtn) exitBtn.style.display = "none";
+    if ($("stat-status")) $("stat-status").textContent = "Ready";
+    if ($("speed-n")) $("speed-n").textContent = "0";
 
-    if(startBtn) {
+    if (startBtn) {
         startBtn.onclick = () => {
             startBtn.style.display = "none";
-            if(resetBtn) resetBtn.style.display = "none";
-            if(exitBtn) exitBtn.style.display = "block";
-            
-            if($("stat-status")) {
-                $("stat-status").textContent = "En route";
-                $("stat-status").style.color = "#f5a524";
-            }
-            
-            if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 18, {animate: true, duration: 1.5});
-            
+            if (resetBtn) resetBtn.style.display = "none";
+            if (exitBtn) exitBtn.style.display = "block";
+
+            if ($("stat-status")) { $("stat-status").textContent = "En route"; $("stat-status").style.color = "#f5a524"; }
+
+            if (myCoords) map.flyTo([myCoords.lat, myCoords.lng], 18, { animate: true, duration: 1.5 });
+
             SmartDrive.startTrip();
-            // 💾 SEARCH NAV BACKUP: ताकि रिफ्रेश पर गायब न हो
-        if (typeof TripDB !== "undefined") {
-            TripDB.saveNavState({ destLat, destLng, destName: destName, active: true });
-            console.log("💾 [DB] Active Navigation Route Saved!");
-        }
+            if (typeof TripDB !== "undefined") TripDB.saveNavState({ destLat, destLng, destName, active: true });
+            speak(`Navigation started. Heading to ${destName}.`);
+
             if (navigator.geolocation) {
                 let traveledCoords = [];
-                navWatchId = navigator.geolocation.watchPosition((pos) => {
+                navWatchId = navigator.geolocation.watchPosition(async (pos) => {
                     const currentLat = pos.coords.latitude;
                     const currentLng = pos.coords.longitude;
                     const currentPos = [currentLat, currentLng];
-                    
-                    const speedMps = pos.coords.speed || 0; 
+
+                    const speedMps = pos.coords.speed || 0;
                     const speedKmh = Math.round(speedMps * 3.6);
-                    if($("speed-n")) $("speed-n").textContent = speedKmh;
+                    if ($("speed-n")) $("speed-n").textContent = speedKmh;
 
                     userMarker.setLatLng(currentPos);
                     map.panTo(currentPos);
@@ -1487,59 +2062,92 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
                     solidPath.setLatLngs(traveledCoords);
 
                     const remainingMeters = map.distance(currentPos, [destLat, destLng]);
-                    const remainingKm = (remainingMeters / 1000).toFixed(1);
-                    if($("stat-dist")) $("stat-dist").innerHTML = remainingKm + "<small> km</small>";
+                    updateNavStats(remainingMeters, activeRoute.durationSec * (remainingMeters / Math.max(1, activeRoute.distanceM)));
 
-                    if(remainingMeters < 30) {
+                    // Advance the turn-by-turn step once the reported next
+                    // maneuver location is close (only OSRM-sourced steps carry
+                    // a location; Google's stay on the single instruction).
+                    const nextStep = steps[stepIdx + 1];
+                    if (nextStep?.maneuver?.location) {
+                        const [mLng, mLat] = nextStep.maneuver.location;
+                        if (map.distance(currentPos, [mLat, mLng]) < 35) { stepIdx++; updateStepDisplay(); }
+                    }
+
+                    // --- Off-route detection + reroute (roadmap Section 7 + 10) ---
+                    const offDist = pointToPolylineDistanceMeters(currentLat, currentLng, fullPath);
+                    offRouteStreak = offDist > 40 ? offRouteStreak + 1 : 0;
+                    if (offRouteStreak >= 2 && Date.now() - lastRerouteTime > 60_000) {
+                        try {
+                            const r = await fetch(`https://router.project-osrm.org/route/v1/driving/${currentLng},${currentLat};${destLng},${destLat}?overview=full&geometries=geojson&steps=true&alternatives=false`);
+                            const data = await r.json();
+                            const cand = data.routes && data.routes[0];
+                            if (cand) {
+                                const currentEstimate = { distanceM: remainingMeters, durationSec: activeRoute.durationSec * (remainingMeters / Math.max(1, activeRoute.distanceM)) };
+                                const candidate = { distanceM: cand.distance, durationSec: cand.duration };
+                                // Always resync the polyline once we're genuinely off it — silent
+                                // navigation off a route the rider can see is confusing either way.
+                                // shouldReroute() only decides whether to also call this out as a
+                                // "faster path found" cue vs. a quiet resync.
+                                fullPath = cand.geometry.coordinates.map(c => [c[1], c[0]]);
+                                dottedPath.setLatLngs(fullPath);
+                                activeRoute = { distanceM: cand.distance, durationSec: cand.duration };
+                                steps = (cand.legs && cand.legs[0] && cand.legs[0].steps) || [];
+                                stepIdx = 0; updateStepDisplay();
+                                lastRerouteTime = Date.now();
+                                offRouteStreak = 0;
+
+                                if (shouldReroute(currentEstimate, candidate, 0)) {
+                                    showToast("🔄 Faster route found — recalculating.", 4000);
+                                    speak("Recalculating a faster route.");
+                                } else {
+                                    showToast("🔄 Back on track — route updated.", 3000);
+                                    speak("Route updated.");
+                                }
+                                islandShow({ id: "reroute", kind: "info", title: "Rerouting", sub: "Path updated to your position", ttl: 4000 });
+                            }
+                        } catch (e) { /* OSRM demo instance hiccup — just try again next off-route streak */ }
+                    }
+
+                    if (remainingMeters < 30) {
                         navigator.geolocation.clearWatch(navWatchId);
-                        if(exitBtn) {
-                            exitBtn.textContent = "Arrived";
-                            exitBtn.style.background = "#3b82f6";
-                            exitBtn.style.color = "white";
-                        }
-                        if($("stat-status")) {
-                            $("stat-status").textContent = "Arrived";
-                            $("stat-status").style.color = "var(--mint)";
-                        }
-                        if($("turn-name")) $("turn-name").textContent = "Destination reached!";
-                        
+                        if (exitBtn) { exitBtn.textContent = "Arrived"; exitBtn.style.background = "#3b82f6"; exitBtn.style.color = "white"; }
+                        if ($("stat-status")) { $("stat-status").textContent = "Arrived"; $("stat-status").style.color = "var(--mint)"; }
+                        if ($("turn-name")) $("turn-name").textContent = "Destination reached!";
+                        speak("You have arrived.");
                         setTimeout(() => stopDrive(), 3000);
                     }
-                }, (err) => {
-                    console.error("GPS Error during nav:", err);
-                }, { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 });
+                }, (err) => { console.error("GPS Error during nav:", err); }, { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 });
             }
         };
     }
-    
-    if(resetBtn) resetBtn.onclick = () => stopDrive(true);
-    if(exitBtn) exitBtn.onclick = () => stopDrive();
+
+    if (resetBtn) resetBtn.onclick = () => stopDrive(true);
+    if (exitBtn) exitBtn.onclick = () => stopDrive();
 }
 
 function stopDrive(cancelled = false) {
-    if(navWatchId) navigator.geolocation.clearWatch(navWatchId);
+    if (navWatchId) navigator.geolocation.clearWatch(navWatchId);
     navigationLayer.clearLayers();
     safeHide("premium-nav-ui");
     safeHide("nav-bottom-sheet");
     safeHide("turn-banner");
     safeHide("speed-dial");
-    
+
     safeShow("map-tools", "flex");
     safeShow("search-container", "flex");
     safeShow("top-header", "flex");
     safeShow("bottom-info", "flex");
     safeShow("chat-toggle-btn", "flex");
     safeShow("memoryButton", "flex");
-    
-    if(myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
-    
-    if(!cancelled) {
-        SmartDrive.endTrip();
-    }
+
+    if (myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
+
+    if (!cancelled) SmartDrive.endTrip();
+    else SmartDrive.releaseWakeLock();
 }
 
 // ==========================================
-// VOICE CALLING (ONLINE WEBRTC & OFFLINE GSM)
+// VOICE CALLING (1:1 WebRTC via Socket.IO signaling)
 // ==========================================
 let peerConnection = null;
 let localStream = null;
@@ -1547,19 +2155,19 @@ let incomingIceCandidates = [];
 let callDialog = null;
 let activeCallBtn = null;
 
-const rtcConfig = { 
+const rtcConfig = {
     iceServers: [
         { urls: "stun:stun.l.google.com:19302" },
         { urls: "stun:stun.cloudflare.com:3478" },
         { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
         { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" },
         { urls: "turn:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" }
-    ] 
+    ]
 };
 
 function attachAudioTrack(event) {
     let audio = document.getElementById("remote-audio");
-    if(!audio) {
+    if (!audio) {
         audio = document.createElement("audio");
         audio.id = "remote-audio";
         audio.autoplay = true;
@@ -1567,13 +2175,9 @@ function attachAudioTrack(event) {
         audio.hidden = true;
         document.body.appendChild(audio);
     }
-    
-    if (event.streams && event.streams[0]) {
-        audio.srcObject = event.streams[0];
-    } else {
-        audio.srcObject = new MediaStream([event.track]);
-    }
-    
+    if (event.streams && event.streams[0]) audio.srcObject = event.streams[0];
+    else audio.srcObject = new MediaStream([event.track]);
+
     audio.play().catch(e => {
         console.log("Audio play error, forcing play:", e);
         document.body.addEventListener('click', () => { audio.play(); }, { once: true });
@@ -1583,42 +2187,32 @@ function attachAudioTrack(event) {
 function initCallButton(u) {
     const callBtn = $("profile-call-btn");
     if (!callBtn) return;
-    
     const newBtn = callBtn.cloneNode(true);
     callBtn.parentNode.replaceChild(newBtn, callBtn);
-    
+
     newBtn.onclick = async () => {
         if (!navigator.onLine || u.online === false) {
             const phone = prompt(`No Internet or Friend is offline.\nEnter mobile number to dial via SIM:`);
             if (phone) window.location.href = `tel:${phone.trim()}`;
             return;
         }
-
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
             showToast("❌ Microphone is not available in this browser.");
             return;
         }
-
         try {
             localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
             peerConnection = new RTCPeerConnection(rtcConfig);
             localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-
-            peerConnection.ontrack = attachAudioTrack; 
-
+            peerConnection.ontrack = attachAudioTrack;
             peerConnection.onicecandidate = (event) => {
-                if (event.candidate) {
-                    socket.emit("call-user", { to: u.id, signal: { type: "ice", candidate: event.candidate }, name: currentUser.name });
-                }
+                if (event.candidate) socket.emit("call-user", { to: u.id, signal: { type: "ice", candidate: event.candidate }, name: currentUser.name });
             };
-
             const offer = await peerConnection.createOffer();
             await peerConnection.setLocalDescription(offer);
             socket.emit("call-user", { to: u.id, signal: { type: "offer", sdp: offer }, name: currentUser.name });
-            
             showToast(`📞 Calling ${u.name}...`, 5000);
             showActiveCallUI(() => socket.emit("end-call", { to: u.id }));
-            
         } catch (err) {
             console.error("CALL MIC ERROR:", err);
             showToast(`❌ Mic Error: ${err.name || "Unknown"}`);
@@ -1629,14 +2223,10 @@ function initCallButton(u) {
 
 socket.on("incoming-call", async (data) => {
     if (data.signal.type === "offer") {
-        if (peerConnection) {
-            socket.emit("end-call", { to: data.from });
-            return;
-        }
-        
+        if (peerConnection) { socket.emit("end-call", { to: data.from }); return; }
         incomingIceCandidates = [];
         if (callDialog) callDialog.remove();
-        
+
         callDialog = document.createElement('div');
         callDialog.style.cssText = "position:fixed;top:70px;left:50%;transform:translateX(-50%);background:rgba(15,23,42,0.98);padding:24px;border:1px solid #18d6a3;border-radius:20px;z-index:9999;box-shadow:0 15px 40px rgba(0,0,0,0.7);color:white;text-align:center;backdrop-filter:blur(10px);min-width:280px;";
         callDialog.innerHTML = `
@@ -1651,38 +2241,26 @@ socket.on("incoming-call", async (data) => {
         document.body.appendChild(callDialog);
 
         const acceptBtn = document.getElementById("accept-call-btn");
-        if(acceptBtn) {
+        if (acceptBtn) {
             acceptBtn.onclick = async () => {
                 if (callDialog) callDialog.remove();
                 callDialog = null;
-                
                 try {
                     localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
                     peerConnection = new RTCPeerConnection(rtcConfig);
                     localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-
-                    peerConnection.ontrack = attachAudioTrack; 
-
+                    peerConnection.ontrack = attachAudioTrack;
                     peerConnection.onicecandidate = (event) => {
-                        if (event.candidate) {
-                            socket.emit("answer-call", { to: data.from, signal: { type: "ice", candidate: event.candidate } });
-                        }
+                        if (event.candidate) socket.emit("answer-call", { to: data.from, signal: { type: "ice", candidate: event.candidate } });
                     };
-
                     await peerConnection.setRemoteDescription(new RTCSessionDescription(data.signal.sdp));
                     const answer = await peerConnection.createAnswer();
                     await peerConnection.setLocalDescription(answer);
-
                     socket.emit("answer-call", { to: data.from, signal: { type: "answer", sdp: answer } });
                     showToast(`🎙️ Call Connected with ${data.name}`);
-                    
                     showActiveCallUI(() => socket.emit("end-call", { to: data.from }));
-
-                    incomingIceCandidates.forEach(async (c) => {
-                        try { await peerConnection.addIceCandidate(new RTCIceCandidate(c)); } catch(e){}
-                    });
+                    incomingIceCandidates.forEach(async (c) => { try { await peerConnection.addIceCandidate(new RTCIceCandidate(c)); } catch (e) { /* stale candidate, ignore */ } });
                     incomingIceCandidates = [];
-                    
                 } catch (e) {
                     showToast("❌ Mic error.");
                     socket.emit("end-call", { to: data.from });
@@ -1690,22 +2268,11 @@ socket.on("incoming-call", async (data) => {
                 }
             };
         }
-
         const rejectBtn = document.getElementById("reject-call-btn");
-        if(rejectBtn) {
-            rejectBtn.onclick = () => {
-                if (callDialog) callDialog.remove();
-                callDialog = null;
-                socket.emit("end-call", { to: data.from });
-            };
-        }
-
+        if (rejectBtn) rejectBtn.onclick = () => { if (callDialog) callDialog.remove(); callDialog = null; socket.emit("end-call", { to: data.from }); };
     } else if (data.signal.type === "ice") {
-        if (peerConnection && peerConnection.remoteDescription) {
-            try { await peerConnection.addIceCandidate(new RTCIceCandidate(data.signal.candidate)); } catch(e){}
-        } else {
-            incomingIceCandidates.push(data.signal.candidate);
-        }
+        if (peerConnection && peerConnection.remoteDescription) { try { await peerConnection.addIceCandidate(new RTCIceCandidate(data.signal.candidate)); } catch (e) { /* stale candidate, ignore */ } }
+        else incomingIceCandidates.push(data.signal.candidate);
     }
 });
 
@@ -1714,14 +2281,11 @@ socket.on("call-accepted", async (signal) => {
         await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.sdp));
         showToast("🎙️ Call Connected!");
     } else if (signal.type === "ice" && peerConnection && peerConnection.remoteDescription) {
-        try { await peerConnection.addIceCandidate(new RTCIceCandidate(signal.candidate)); } catch(e){}
+        try { await peerConnection.addIceCandidate(new RTCIceCandidate(signal.candidate)); } catch (e) { /* stale candidate, ignore */ }
     }
 });
 
-socket.on("call-ended", () => {
-    endLocalCall();
-    showToast("📴 Call Ended.");
-});
+socket.on("call-ended", () => { endLocalCall(); showToast("📴 Call Ended."); });
 
 function showActiveCallUI(endFn) {
     if (activeCallBtn) return;
@@ -1729,10 +2293,7 @@ function showActiveCallUI(endFn) {
     activeCallBtn.innerHTML = "📴 End Call";
     activeCallBtn.style.cssText = "position:fixed;top:80px;left:50%;transform:translateX(-50%);z-index:9999;background:#ef4444;color:white;border:none;padding:12px 24px;border-radius:30px;font-weight:bold;box-shadow:0 10px 25px rgba(239,68,68,0.5);cursor:pointer;font-size:14px;";
     document.body.appendChild(activeCallBtn);
-    activeCallBtn.onclick = () => {
-        endFn();
-        endLocalCall();
-    };
+    activeCallBtn.onclick = () => { endFn(); endLocalCall(); };
 }
 
 function endLocalCall() {
@@ -1744,7 +2305,7 @@ function endLocalCall() {
 }
 
 // ==========================================
-// PWA APP INSTALL BUTTON LOGIC
+// PWA INSTALL BUTTON  (registration itself lives in shell.js now)
 // ==========================================
 let deferredPrompt;
 window.addEventListener('beforeinstallprompt', (e) => {
@@ -1761,9 +2322,7 @@ window.addEventListener('DOMContentLoaded', () => {
             if (deferredPrompt) {
                 deferredPrompt.prompt();
                 const { outcome } = await deferredPrompt.userChoice;
-                if (outcome === 'accepted') {
-                    installBtn.style.display = 'none'; 
-                }
+                if (outcome === 'accepted') installBtn.style.display = 'none';
                 deferredPrompt = null;
             }
         };
@@ -1773,82 +2332,79 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-window.addEventListener('appinstalled', () => {
-    const installBtn = $("install-app-btn");
-    if (installBtn) installBtn.style.display = 'none';
-});
+window.addEventListener('appinstalled', () => { const installBtn = $("install-app-btn"); if (installBtn) installBtn.style.display = 'none'; });
 
 // ==========================================
-// KORAPUT GEAR CHECKLIST & SOS FEATURE
+// TRIP GEAR CHECKLIST
 // ==========================================
 const TripChecklist = {
     items: JSON.parse(localStorage.getItem("koraput_gear")) || {
-        "Action Camera & V50X Mounts": false,
-        "Powerbanks & Extra Batteries": false,
-        "Motorcycle & ID Documents": false,
-        "Deomali Trekking Shoes": false,
-        "First Aid & Meds": false
+        "Action Camera & Mounts": false, "Powerbanks & Extra Batteries": false,
+        "Vehicle & ID Documents": false, "Trekking Shoes": false, "First Aid & Meds": false
     },
-    toggle(key) {
-        this.items[key] = !this.items[key];
-        localStorage.setItem("koraput_gear", JSON.stringify(this.items));
-        this.render();
-    },
+    toggle(key) { this.items[key] = !this.items[key]; localStorage.setItem("koraput_gear", JSON.stringify(this.items)); this.render(); },
     render() {
         const container = $("trip-checklist-container");
-        if(!container) return; 
+        if (!container) return;
         container.innerHTML = `<h4 style="margin:5px 0; color:#18d6a3; font-size:13px;">🎒 Trip Gear Checklist</h4>`;
         Object.keys(this.items).forEach(item => {
-            container.innerHTML += `
-            <label style="display:flex; align-items:center; gap:8px; font-size:12px; color:white; cursor:pointer; margin-bottom:4px;">
-                <input type="checkbox" ${this.items[item] ? "checked" : ""} onchange="TripChecklist.toggle('${item}')" style="accent-color:#18d6a3;">
-                <span style="${this.items[item] ? 'text-decoration:line-through; color:#94a3b8;' : ''}">${item}</span>
-            </label>`;
+            const row = document.createElement("label");
+            row.style.cssText = "display:flex; align-items:center; gap:8px; font-size:12px; color:white; cursor:pointer; margin-bottom:4px;";
+            const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = Boolean(this.items[item]); cb.style.accentColor = "#18d6a3";
+            cb.addEventListener("change", () => this.toggle(item));
+            const span = document.createElement("span"); span.textContent = item;
+            if (this.items[item]) span.style.cssText = "text-decoration:line-through; color:#94a3b8;";
+            row.appendChild(cb); row.appendChild(span); container.appendChild(row);
         });
     }
 };
 window.TripChecklist = TripChecklist;
 
+// ==========================================
+// EMERGENCY SOS
+// ==========================================
 function setupSOS() {
     let sosBtn = $("sos-btn");
     if (!sosBtn) {
         sosBtn = document.createElement("button");
         sosBtn.id = "sos-btn";
         sosBtn.innerHTML = "🚨 SOS";
-        sosBtn.style.cssText = "position:fixed;bottom:90px;right:20px;z-index:9998;background:#ef4444;color:white;border:none;border-radius:50%;width:55px;height:55px;font-weight:900;font-size:12px;box-shadow:0 0 15px rgba(239,68,68,0.7);cursor:pointer;animation:dangerPulse 1s infinite alternate;";
+        sosBtn.style.cssText = "position:fixed;bottom:calc(90px + env(safe-area-inset-bottom,0px));right:20px;z-index:9998;background:#ef4444;color:white;border:none;border-radius:50%;width:55px;height:55px;font-weight:900;font-size:12px;box-shadow:0 0 15px rgba(239,68,68,0.7);cursor:pointer;animation:dangerPulse 1s infinite alternate;";
         document.body.appendChild(sosBtn);
     }
-    
-    sosBtn.onclick = () => {
-        if(!myCoords) return showToast("❌ Waiting for GPS...");
-        if(confirm("🚨 SEND EMERGENCY SOS? This will alert all friends with your exact coordinates!")) {
-            socket.emit("sos-alert", { 
-                name: currentUser.name, 
-                lat: myCoords.lat, 
-                lng: myCoords.lng, 
-                alt: myCoords.alt || "Unknown" 
-            });
-            showToast("🚨 SOS BROADCASTED TO ALL FRIENDS!", 8000);
-        }
+
+    sosBtn.onclick = async () => {
+        if (!myCoords) return showToast("❌ Waiting for GPS...");
+        const { ok } = await confirmDialog({
+            title: "Send emergency SOS?", body: "This alerts every connected friend with your exact coordinates.",
+            okLabel: "Send SOS", cancelLabel: "Cancel", danger: true
+        });
+        if (!ok) return;
+        socket.emit("sos-alert", { name: currentUser.name, lat: myCoords.lat, lng: myCoords.lng, alt: myCoords.alt ?? null });
+        showToast("🚨 SOS BROADCASTED TO ALL FRIENDS!", 8000);
+        islandShow({ id: "sos", kind: "sos", title: "SOS sent", sub: "Your friends were alerted", ttl: 6000 });
     };
 
     socket.on("sos-alert", (data) => {
         const div = document.createElement("div");
         div.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(239,68,68,0.3);border:10px solid #ef4444;z-index:99999;pointer-events:none;animation:dangerPulse 1s infinite alternate;";
         document.body.appendChild(div);
-        
+
         showToast(`🚨 URGENT SOS FROM ${data.name.toUpperCase()}! Check Map!`, 15000);
-        
-        L.marker([data.lat, data.lng], {
-            icon: L.divIcon({className: 'sos-marker', html: '<div style="font-size:30px;animation:dangerPulse 1s infinite alternate;">🚨</div>'})
-        }).bindPopup(`<b style="color:red;">EMERGENCY SOS: ${data.name}</b>`).addTo(map).openPopup();
-        
-        map.flyTo([data.lat, data.lng], 16, {animate:true, duration: 2});
+        islandShow({ id: "sos-in", kind: "sos", title: "SOS", sub: `${escapeHTML(data.name)} needs help`, ttl: 15000 });
+
+        L.marker([data.lat, data.lng], { icon: L.divIcon({ className: 'sos-marker', html: '<div style="font-size:30px;animation:dangerPulse 1s infinite alternate;">🚨</div>' }) })
+            .bindPopup(`<b style="color:red;">EMERGENCY SOS: ${escapeHTML(data.name)}</b>`).addTo(map).openPopup();
+
+        map.flyTo([data.lat, data.lng], 16, { animate: true, duration: 2 });
         setTimeout(() => div.remove(), 10000);
     });
 }
 
-function initApp(){ 
+// ==========================================
+// BOOT
+// ==========================================
+function initApp() {
     const tasks = [
         { name: "Join Setup", fn: setupJoin },
         { name: "Controls", fn: setupBasicControlsSafe },
@@ -1856,46 +2412,52 @@ function initApp(){
         { name: "Chat UI", fn: setupChatSafe },
         { name: "Memories", fn: setupMemoriesSafe },
         { name: "SmartDrive", fn: () => SmartDrive.init() },
+        { name: "Privacy Controls", fn: () => PrivacyControls.init() },
+        { name: "Meetup Planner", fn: () => MeetupPlanner.init() },
+        { name: "Carpool Planner", fn: () => CarpoolPlanner.init() },
         { name: "GPS System", fn: startGPS },
         { name: "Google Search", fn: setupGoogleSearch },
         { name: "Emergency SOS", fn: setupSOS }
     ];
 
     tasks.forEach(task => {
-        try {
-            task.fn();
-        } catch(e) {
-            console.error(`[INIT ERROR] Failed to load ${task.name}:`, e);
-        }
+        try { task.fn(); } catch (e) { console.error(`[INIT ERROR] Failed to load ${task.name}:`, e); }
     });
-    
+
     setTimeout(() => {
         try {
-            if($("trip-panel") && !$("trip-checklist-container")) {
+            if ($("trip-panel") && !$("trip-checklist-container")) {
                 const listDiv = document.createElement("div");
                 listDiv.id = "trip-checklist-container";
                 listDiv.style.cssText = "background:rgba(255,255,255,0.05); padding:10px; border-radius:10px; margin-top:10px;";
                 $("trip-panel").insertBefore(listDiv, $("trip-action-btn"));
                 TripChecklist.render();
             }
-        } catch(e) { console.error(e); }
+        } catch (e) { console.error(e); }
     }, 1000);
 }
 
-if(document.readyState==="loading") document.addEventListener("DOMContentLoaded", initApp); else initApp();
-// 🔄 AUTO-RESTORE NAVIGATION ON PAGE REFRESH
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initApp); else initApp();
+
+// Auto-restore navigation across a refresh. Fixed: TripDB has no
+// restoreNavState() — read the same backing store via restoreAll() instead
+// (see tripDbRestoreNav() near SmartDrive, defined earlier in this file).
 setTimeout(() => {
-    if (typeof TripDB !== "undefined") {
-        const savedNav = TripDB.restoreNavState();
-        if (savedNav && savedNav.active && savedNav.destLat && typeof startSearchNavigation === "function") {
-            console.log("🔄 Restoring previous navigation state...");
-            // पुराना डेस्टिनेशन सेट करो
-            startSearchNavigation(savedNav.destLat, savedNav.destLng, savedNav.destName, null);
-            // 1.5 सेकंड बाद ऑटोमैटिक 'Start Navigation' बटन दबा दो ताकि हरा पैनल खुल जाए
-            setTimeout(() => { 
-                const startBtn = document.getElementById("btn-start-nav"); 
-                if (startBtn && startBtn.style.display !== "none") startBtn.click(); 
-            }, 1500);
+    const savedNav = tripDbRestoreNav();
+    if (savedNav && savedNav.active && savedNav.destLat && typeof startSearchNavigation === "function") {
+        console.log("🔄 Restoring previous navigation state...");
+        // Fixed: the original called startSearchNavigation(..., null) here,
+        // which crashed immediately on routeData.geometry.coordinates — a real
+        // route has to be fetched first.
+        if (myCoords) {
+            fetch(`https://router.project-osrm.org/route/v1/driving/${myCoords.lng},${myCoords.lat};${savedNav.destLng},${savedNav.destLat}?overview=full&geometries=geojson&steps=true`)
+                .then(r => r.json())
+                .then(data => {
+                    const route = data.routes && data.routes[0];
+                    if (!route) return;
+                    startSearchNavigation(savedNav.destLat, savedNav.destLng, savedNav.destName, route);
+                    setTimeout(() => { const startBtn = document.getElementById("btn-start-nav"); if (startBtn && startBtn.style.display !== "none") startBtn.click(); }, 1200);
+                }).catch(() => { /* couldn't restore — rider just re-searches, no crash */ });
         }
     }
-}, 2000); // ऐप लोड होने के 2 सेकंड बाद चेक करेगा
+}, 2000);
