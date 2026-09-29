@@ -626,6 +626,7 @@ emoji-picker { width: 100%; height: 320px; --background: #0e1724; --border-color
       <div class="turn-copy">
         <div class="d" id="turn-dist">Calculating...</div>
         <div class="n" id="turn-name">Finding route</div>
+        <div class="turn-then on"><span id="nav-step-text"></span> <span id="nav-step-dist" style="color:var(--muted);"></span></div>
       </div>
     </div>
     <div class="speed-dial" id="speed-dial">
@@ -636,6 +637,7 @@ emoji-picker { width: 100%; height: 320px; --background: #0e1724; --border-color
       <div class="nav-stats">
         <div class="n-stat"><div class="l">Distance</div><div class="v" id="stat-dist">--<small> km</small></div></div>
         <div class="n-stat"><div class="l">ETA</div><div class="v" id="stat-eta">--<small> min</small></div></div>
+        <div class="n-stat"><div class="l">Arrival</div><div class="v" id="nav-arrival-time" style="font-size:15px;">--</div></div>
         <div class="n-stat"><div class="l">Status</div><div class="v" id="stat-status">Ready</div></div>
       </div>
       <div class="controls-row">
@@ -651,10 +653,12 @@ emoji-picker { width: 100%; height: 320px; --background: #0e1724; --border-color
   <h3><svg class="i"><use href="#i-fuel"/></svg> Trip Summary</h3>
   <div class="r-row"><span class="r-label">Total Distance</span><span class="r-val" id="res-dist">0 km</span></div>
   <div class="r-row"><span class="r-label">Avg Speed</span><span class="r-val" id="res-avg-speed">0 km/h</span></div>
+  <div class="r-row"><span class="r-label">Max Speed</span><span class="r-val" id="res-max-speed">0 km/h</span></div>
   <div class="r-row"><span class="r-label">Efficient (40-60)</span><span class="r-val good" id="res-eff-time">0 min</span></div>
   <div class="r-row"><span class="r-label">Inefficient (&gt;80)</span><span class="r-val bad" id="res-ineff-time">0 min</span></div>
   <div class="fuel-estimate-box">
     <p>At <strong id="res-base-mlg">15 km/l</strong>, you used approx <strong id="res-actual-fuel">0 L</strong>.</p>
+    <p id="res-extra-fuel" class="estimate-note" style="color:var(--c-warn);"></p>
     <p class="estimate-note">Estimate from GPS speed samples — not a substitute for your odometer.</p>
   </div>
   <button id="close-results-btn" class="btn-secondary-nav" type="button">Dismiss</button>
@@ -839,7 +843,47 @@ emoji-picker { width: 100%; height: 320px; --background: #0e1724; --border-color
     </div>
     <p>Select friends to meet.</p>
     <div id="group-nav-friend-list"></div>
-    <button id="group-nav-next-btn" class="btn-primary-nav btn-block" type="button">Choose Point</button>
+    <div class="form-section" style="margin-top:10px;padding-top:10px;">
+      <h3>Fairness</h3>
+      <div class="segmented" data-segment="meetupStrategy" role="radiogroup" aria-label="Meetup fairness strategy">
+        <button type="button" data-value="sum" aria-pressed="true">Fastest overall</button>
+        <button type="button" data-value="minimax" aria-pressed="false">Fair to all</button>
+      </div>
+    </div>
+    <button id="meetup-find-btn" class="btn-primary-nav btn-block" type="button">🎯 Find best meetup point</button>
+    <button id="group-nav-next-btn" class="btn-secondary-nav btn-block" type="button">Or tap the map to choose manually</button>
+    <button id="carpool-open-btn" class="btn-secondary-nav btn-block" type="button">🚗 Plan a carpool instead</button>
+  </div>
+</div>
+
+<!-- MEETUP RESULTS (roadmap Section 11) -->
+<div id="meetup-results-sheet" class="sheet">
+  <div class="sheet-card glass-strong">
+    <div class="modal-head">
+      <strong>Meetup candidates</strong>
+      <button id="meetup-results-close" class="close-modal" type="button" aria-label="Close"><svg class="i sm"><use href="#i-x"/></svg></button>
+    </div>
+    <div id="meetup-results-list"></div>
+  </div>
+</div>
+
+<!-- CARPOOL PLANNER (roadmap Section 12) -->
+<div id="carpool-modal" class="modal" data-dismissable role="dialog" aria-modal="true">
+  <div class="modal-card wide">
+    <button id="carpool-close-btn" class="close-modal" type="button" aria-label="Close"><svg class="i sm"><use href="#i-x"/></svg></button>
+    <h2>Plan a carpool</h2>
+    <div class="modal-row"><span>Drop-off point</span><span id="carpool-dest-label" style="color:var(--soft);font-size:12.5px;">Not set</span></div>
+    <button id="carpool-pick-dest-btn" class="btn-secondary-nav btn-block" type="button">📍 Tap map to set drop-off</button>
+    <div class="form-section">
+      <h3>Riders to pick up</h3>
+      <div id="carpool-riders"></div>
+    </div>
+    <div class="form-section" style="display:flex;gap:10px;align-items:center;">
+      <div><span style="font-size:12px;color:var(--soft);">km/L</span><br><input id="carpool-kmpl" type="number" class="num-input" value="15" min="1" max="100"></div>
+      <div><span style="font-size:12px;color:var(--soft);">Price/L</span><br><input id="carpool-price" type="number" class="num-input" value="0" min="0"></div>
+    </div>
+    <button id="carpool-run-btn" class="btn-primary-nav btn-block" type="button">Plan pickups</button>
+    <div id="carpool-results" class="form-section"></div>
   </div>
 </div>
 <div id="group-nav-active" class="modal" data-dismissable role="dialog" aria-modal="true">
