@@ -1,24 +1,38 @@
 "use strict";
 
 /* ============================================================================
-   MapUnite Server — server.js
+   MapUnite Server — server.js  (v3, hardened)
    ==============================================================================
-   Realtime hot path (users/chatMessages/memories/geofences/currentTrip) stays
-   in-memory, exactly as before — that's what makes a squad's live map fast.
-   SQLite sits BESIDE it as a persistence bolt-on: trips/memories/geofences are
-   written through on creation, and it survives restarts. It does not replace
-   the in-memory broadcast path.
+   Architecture
+     - Realtime hot path (users / chat / memories / geofences / currentTrip)
+       stays in memory. Every live broadcast reads and writes RAM only.
+     - SQLite (better-sqlite3) sits BESIDE it. It is written through on
+       creation and HYDRATED INTO RAM ON BOOT, so a restart no longer loses
+       memories or geofences.
+     - Every socket handler goes through safeHandler(): sync throws AND async
+       rejections are caught, per-bucket rate limited, and can never take the
+       process down.
 
    Requires (npm install):
      express helmet express-rate-limit socket.io better-sqlite3
-   Requires Node 18+ (native fetch / AbortSignal.timeout, no extra dependency).
+   Requires Node 18+ (native fetch / AbortSignal.timeout).
 
    Env vars (all optional):
-     PORT                default 3000
-     CORS_ORIGIN         default "*"              — tighten to your domain in prod
-     DB_PATH             default ./data/mapunite.db
-     OSRM_BASE_URL       default https://router.project-osrm.org
-     HTTP_RATE_LIMIT_MAX default 300 (per 15 min, per IP)
+     PORT                     default 3000
+     NODE_ENV                 "production" => same-origin CORS unless CORS_ORIGIN set
+     CORS_ORIGIN              comma-separated origins, e.g. https://app.example.com
+     DB_PATH                  default ./data/mapunite.db
+     SERVER_SECRET            HMAC key for pseudonymous owner keys (auto-generated
+                              and persisted in the DB if unset)
+     OSRM_BASE_URL            default https://router.project-osrm.org
+     OVERPASS_URL             default https://overpass-api.de/api/interpreter
+     GOOGLE_MAPS_SERVER_KEY   server-side Places key (IP-restrict it in Google
+                              Cloud). Never put a Maps key in client markup.
+     HTTP_RATE_LIMIT_MAX      default 300 per 15 min per IP
+     MAX_SOCKETS_PER_IP       default 20
+     RECONNECT_GRACE_MS       default 30000
+     TRIP_RETENTION_DAYS      default 30 (0 = keep forever)
+     ENFORCE_CSP              "1" to enforce the CSP (default: report-only)
    ============================================================================ */
 
 const express = require("express");
@@ -32,90 +46,240 @@ const { Server } = require("socket.io");
 const Database = require("better-sqlite3");
 
 // ==========================================================================
+// 0. CONFIG
+// ==========================================================================
+const IS_PROD = process.env.NODE_ENV === "production";
+const PORT = Number(process.env.PORT) || 3000;
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, "data", "mapunite.db");
+const OSRM_BASE = process.env.OSRM_BASE_URL || "https://router.project-osrm.org";
+const OVERPASS_URL = process.env.OVERPASS_URL || "https://overpass-api.de/api/interpreter";
+const GOOGLE_KEY = process.env.GOOGLE_MAPS_SERVER_KEY || "";
+const MAX_SOCKETS_PER_IP = Number(process.env.MAX_SOCKETS_PER_IP) || 20;
+const RECONNECT_GRACE_MS = Number(process.env.RECONNECT_GRACE_MS) || 30_000;
+const TRIP_RETENTION_DAYS = process.env.TRIP_RETENTION_DAYS !== undefined
+    ? Math.max(0, Number(process.env.TRIP_RETENTION_DAYS) || 0) : 30;
+const CORS_ORIGIN = process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(",").map((s) => s.trim()).filter(Boolean)
+    : (IS_PROD ? false : "*");
+
+const REACTION_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
+const ALLOWED_MSG_TYPES = ["text", "image", "video", "audio", "document"];
+const ALLOWED_MODES = ["drive", "bike", "walk"];
+const SHARING_MODES = ["exact", "approx", "off"];
+const MAX_AVATAR_B64_LEN = 3_000_000;
+const MAX_MEMORY_IMAGE_B64_LEN = 6_000_000;
+const MAX_MEMORIES_IN_RAM = 100;
+const MAX_GEOFENCES_TOTAL = 200;
+const MAX_GEOFENCES_PER_OWNER = 20;
+const MAX_PLAUSIBLE_KMH = 300;
+const APPROX_GRID_KM = 1;
+const DEFAULT_AVATAR = "satyam.png";
+
+// ==========================================================================
 // 1. APP / HTTP / SOCKET.IO BOOTSTRAP
 // ==========================================================================
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-    cors: { origin: process.env.CORS_ORIGIN || "*", methods: ["GET", "POST"] },
-    // Compressed memory photos as base64 can comfortably exceed Socket.IO's
-    // 1MB default buffer — that default silently drops the message with no
-    // client-side error. 8MB gives real headroom while still bounding abuse.
+    cors: { origin: CORS_ORIGIN, methods: ["GET", "POST"] },
+    // Base64 memory photos exceed Socket.IO's 1MB default, which silently
+    // drops the packet. 8MB gives real headroom while still bounding abuse.
     maxHttpBufferSize: 8 * 1024 * 1024
 });
 
-// Needed so express-rate-limit sees the real client IP, not Render's proxy IP,
-// when the app sits behind a reverse proxy (Render, Heroku, etc.)
+// Real client IP behind Render / Heroku / nginx.
 app.set("trust proxy", 1);
 
 // ==========================================================================
 // 2. SECURITY MIDDLEWARE
 // ==========================================================================
-app.use(helmet({
-    // A correct CSP for this app has to allow: unpkg.com (Leaflet), Google
-    // Fonts, jsdelivr (emoji-picker-element), maps.googleapis.com + its own
-    // sub-origins, several map-tile hosts, and a handful of fetch() targets
-    // (OSRM/Open-Meteo/BigDataCloud/Nominatim). Shipping a CSP I haven't been
-    // able to test against your live page risks silently breaking the map —
-    // worse than no CSP. Left OFF by default; the exact policy this app needs
-    // is below, commented, ready to test and enable yourself.
-    contentSecurityPolicy: false,
-    crossOriginEmbedderPolicy: false
-}));
-
-/*
-// Tested-shape CSP — enable once you've verified it against your live page:
-app.use(helmet.contentSecurityPolicy({
-  directives: {
+// CSP ships in REPORT-ONLY mode by default: it cannot break the live page, and
+// violations are logged via /csp-report. Flip ENFORCE_CSP=1 once the log is
+// clean. Google Maps JS is intentionally absent from script-src — the client
+// no longer loads it (Places is proxied below).
+const cspDirectives = {
     defaultSrc: ["'self'"],
-    scriptSrc: ["'self'", "'unsafe-inline'", "https://unpkg.com", "https://cdn.jsdelivr.net", "https://maps.googleapis.com"],
+    scriptSrc: ["'self'", "https://unpkg.com", "https://cdn.jsdelivr.net"],
     styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://unpkg.com"],
     fontSrc: ["'self'", "https://fonts.gstatic.com"],
-    imgSrc: ["'self'", "data:", "blob:", "https://*.google.com", "https://*.googleapis.com", "https://*.ggpht.com",
-             "https://*.gstatic.com", "https://*.tile.openstreetmap.org", "https://*.basemaps.cartocdn.com"],
-    connectSrc: ["'self'", "wss:", "https://maps.googleapis.com", "https://router.project-osrm.org",
-                 "https://api.open-meteo.com", "https://api.bigdatacloud.net", "https://nominatim.openstreetmap.org"]
-  }
-}));
-*/
+    imgSrc: ["'self'", "data:", "blob:", "https://*.google.com", "https://*.gstatic.com",
+             "https://*.tile.openstreetmap.org", "https://*.basemaps.cartocdn.com", "https://unpkg.com"],
+    connectSrc: ["'self'", "ws:", "wss:", "https://router.project-osrm.org",
+                 "https://api.open-meteo.com", "https://api.bigdatacloud.net",
+                 "https://nominatim.openstreetmap.org"],
+    mediaSrc: ["'self'", "blob:", "data:"],
+    workerSrc: ["'self'"],
+    manifestSrc: ["'self'"],
+    objectSrc: ["'none'"],
+    frameAncestors: ["'none'"],
+    baseUri: ["'self'"],
+    formAction: ["'self'"],
+    reportUri: ["/csp-report"]
+};
 
+app.use(helmet({
+    contentSecurityPolicy: {
+        useDefaults: false,
+        reportOnly: process.env.ENFORCE_CSP !== "1",
+        directives: cspDirectives
+    },
+    crossOriginEmbedderPolicy: false,
+    // Permissions-Policy is set by hand: the app needs geolocation, mic and
+    // camera on its own origin only.
+    crossOriginResourcePolicy: { policy: "same-site" }
+}));
+app.use((_req, res, next) => {
+    res.setHeader("Permissions-Policy",
+        "geolocation=(self), microphone=(self), camera=(self), accelerometer=(self), gyroscope=(self), bluetooth=(self), screen-wake-lock=(self)");
+    next();
+});
+
+// NOTE on Socket.IO + rate limiting: engine.io intercepts /socket.io/ requests
+// on the raw http.Server BEFORE Express sees them, so this limiter never counts
+// them. The skip is kept as belt-and-braces (and for any proxy that rewrites the
+// path). Realtime abuse is handled by the per-socket buckets and the per-IP
+// connection cap further down, NOT by this page-view budget.
 const httpLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: Number(process.env.HTTP_RATE_LIMIT_MAX) || 300,
     standardHeaders: true,
     legacyHeaders: false,
-    // BUG FIX (roadmap §15): Socket.IO's own polling-transport handshake hits
-    // this same Express middleware stack. Counting it against the page-view
-    // budget meant normal realtime traffic alone could exhaust the limiter
-    // and lock riders out. The per-socket limiter further down covers abuse
-    // on the realtime side instead.
     skip: (req) => req.path.startsWith("/socket.io/")
 });
 app.use(httpLimiter);
 
-app.use(express.static(path.join(__dirname, "public")));
+// Static assets. sw.js must NEVER be served from a stale HTTP cache, otherwise
+// a client can run a new app.js against an old worker (the classic PWA update
+// race). Everything else may revalidate normally.
+app.use(express.static(path.join(__dirname, "public"), {
+    setHeaders(res, filePath) {
+        const base = path.basename(filePath);
+        if (base === "sw.js") {
+            res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+            res.setHeader("Service-Worker-Allowed", "/");
+        } else if (base === "manifest.json" || base === "index.html") {
+            res.setHeader("Cache-Control", "no-cache");
+        }
+    }
+}));
 app.use(express.json({ limit: "256kb" }));
 
 app.get("/healthz", (_req, res) => res.json({ ok: true, uptimeSec: Math.round(process.uptime()) }));
 
+// Public feature flags the client reads at boot (no secrets).
+app.get("/api/config", (_req, res) => {
+    res.json({
+        ok: true,
+        placesProxy: Boolean(GOOGLE_KEY),
+        approxGridKm: APPROX_GRID_KM,
+        tripRetentionDays: TRIP_RETENTION_DAYS,
+        maxPlausibleKmh: MAX_PLAUSIBLE_KMH
+    });
+});
+
+app.post("/csp-report",
+    express.json({ type: ["application/json", "application/csp-report", "application/reports+json"], limit: "16kb" }),
+    (req, res) => {
+        try { console.warn("[CSP]", JSON.stringify(req.body).slice(0, 600)); } catch { /* ignore */ }
+        res.sendStatus(204);
+    });
+
+// ---- Google Places proxy (keeps the API key off the client entirely) --------
+const placesLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false });
+const SESSION_TOKEN_RE = /^[A-Za-z0-9_-]{8,64}$/;
+
+app.get("/api/places/autocomplete", placesLimiter, async (req, res) => {
+    if (!GOOGLE_KEY) return res.status(503).json({ ok: false, reason: "places-not-configured" });
+    const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+    if (q.length < 2 || q.length > 120) return res.status(400).json({ ok: false, reason: "bad-query" });
+
+    const body = { input: q };
+    const lat = Number(req.query.lat), lng = Number(req.query.lng);
+    if (req.query.lat !== undefined && isValidCoordPair(lat, lng)) {
+        body.locationBias = { circle: { center: { latitude: lat, longitude: lng }, radius: 50000 } };
+    }
+    if (typeof req.query.sessionToken === "string" && SESSION_TOKEN_RE.test(req.query.sessionToken)) {
+        body.sessionToken = req.query.sessionToken;
+    }
+    try {
+        const r = await fetch("https://places.googleapis.com/v1/places:autocomplete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Goog-Api-Key": GOOGLE_KEY },
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(6000)
+        });
+        if (!r.ok) return res.status(502).json({ ok: false, reason: "upstream-error" });
+        const json = await r.json();
+        const suggestions = (json.suggestions || [])
+            .map((s) => s.placePrediction)
+            .filter((p) => p && p.placeId)
+            .slice(0, 6)
+            .map((p) => ({
+                placeId: p.placeId,
+                text: p.text?.text || "",
+                main: p.structuredFormat?.mainText?.text || p.text?.text || "",
+                secondary: p.structuredFormat?.secondaryText?.text || ""
+            }));
+        res.json({ ok: true, suggestions });
+    } catch (e) {
+        console.error("places autocomplete failed:", e.message);
+        res.status(502).json({ ok: false, reason: "upstream-unreachable" });
+    }
+});
+
+app.get("/api/places/details", placesLimiter, async (req, res) => {
+    if (!GOOGLE_KEY) return res.status(503).json({ ok: false, reason: "places-not-configured" });
+    const placeId = typeof req.query.placeId === "string" ? req.query.placeId : "";
+    if (!/^[A-Za-z0-9_-]{10,300}$/.test(placeId)) return res.status(400).json({ ok: false, reason: "bad-place-id" });
+    const qs = typeof req.query.sessionToken === "string" && SESSION_TOKEN_RE.test(req.query.sessionToken)
+        ? `?sessionToken=${encodeURIComponent(req.query.sessionToken)}` : "";
+    try {
+        const r = await fetch(`https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}${qs}`, {
+            headers: { "X-Goog-Api-Key": GOOGLE_KEY, "X-Goog-FieldMask": "id,displayName,formattedAddress,location" },
+            signal: AbortSignal.timeout(6000)
+        });
+        if (!r.ok) return res.status(502).json({ ok: false, reason: "upstream-error" });
+        const p = await r.json();
+        if (!isValidCoordPair(p.location?.latitude, p.location?.longitude)) {
+            return res.status(502).json({ ok: false, reason: "no-location" });
+        }
+        res.json({
+            ok: true,
+            place: {
+                id: p.id, name: p.displayName?.text || "", address: p.formattedAddress || "",
+                lat: p.location.latitude, lng: p.location.longitude
+            }
+        });
+    } catch (e) {
+        console.error("places details failed:", e.message);
+        res.status(502).json({ ok: false, reason: "upstream-unreachable" });
+    }
+});
+
 // ==========================================================================
 // 3. PERSISTENCE — better-sqlite3
 // ==========================================================================
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, "data", "mapunite.db");
 fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 const db = new Database(DB_PATH);
 db.pragma("journal_mode = WAL");
+db.pragma("synchronous = NORMAL");
+// Zero-trace deletes: overwrite freed pages so "Clear My History" is not
+// recoverable from the file. Combined with a WAL checkpoint on delete.
+db.pragma("secure_delete = ON");
 
-// NOTE if you deploy this on Render (or similar): the filesystem is ephemeral
-// unless you attach a persistent disk at DB_PATH's directory. Without one,
-// this survives a crash/restart but NOT a redeploy — the whole point of this
-// section is defeated silently. Attach a disk, or point DB_PATH at one.
+// Render (and similar) has an ephemeral filesystem: attach a persistent disk
+// at DB_PATH's directory or this survives restarts but not redeploys.
 
 db.exec(`
+CREATE TABLE IF NOT EXISTS meta (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS users (
   device_id   TEXT PRIMARY KEY,
   name        TEXT NOT NULL,
   avatar      TEXT,
+  token_hash  TEXT,
   created_at  INTEGER NOT NULL,
   last_seen   INTEGER NOT NULL
 );
@@ -132,6 +296,7 @@ CREATE TABLE IF NOT EXISTS trips (
   fuel_used_l     REAL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_trips_device ON trips(host_device_id);
+CREATE INDEX IF NOT EXISTS idx_trips_started ON trips(started_at);
 CREATE TABLE IF NOT EXISTS trip_points (
   trip_id   TEXT NOT NULL,
   ts        INTEGER NOT NULL,
@@ -148,10 +313,12 @@ CREATE TABLE IF NOT EXISTS memories (
   lat         REAL NOT NULL,
   lng         REAL NOT NULL,
   image_ref   TEXT NOT NULL,
+  caption     TEXT,
   trip_id     TEXT,
   created_at  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_memories_device ON memories(device_id);
+CREATE INDEX IF NOT EXISTS idx_memories_created ON memories(created_at);
 CREATE TABLE IF NOT EXISTS geofences (
   id               TEXT PRIMARY KEY,
   name             TEXT NOT NULL,
@@ -160,62 +327,108 @@ CREATE TABLE IF NOT EXISTS geofences (
   radius           INTEGER NOT NULL,
   owner_device_id  TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_geofences_owner ON geofences(owner_device_id);
 `);
-// Images stored inline as base64 TEXT is fine at hobby volume (same call the
-// client-side memory-compression code already makes). If memory count grows
-// a lot, move image_ref to filesystem/blob storage and keep the DB holding
-// just a path — the schema doesn't need to change to do that later.
+
+// Idempotent migrations for databases created by earlier versions.
+function ensureColumn(table, column, ddl) {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+    if (!cols.includes(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+}
+ensureColumn("users", "token_hash", "TEXT");
+ensureColumn("memories", "caption", "TEXT");
 
 const stmt = {
+    getMeta: db.prepare(`SELECT value FROM meta WHERE key = ?`),
+    setMeta: db.prepare(`INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`),
+
+    getUser: db.prepare(`SELECT device_id, token_hash FROM users WHERE device_id = ?`),
     upsertUser: db.prepare(`
-        INSERT INTO users (device_id, name, avatar, created_at, last_seen) VALUES (?,?,?,?,?)
-        ON CONFLICT(device_id) DO UPDATE SET name=excluded.name, avatar=excluded.avatar, last_seen=excluded.last_seen
+        INSERT INTO users (device_id, name, avatar, token_hash, created_at, last_seen) VALUES (?,?,?,?,?,?)
+        ON CONFLICT(device_id) DO UPDATE SET
+            name = excluded.name, avatar = excluded.avatar, last_seen = excluded.last_seen,
+            token_hash = COALESCE(users.token_hash, excluded.token_hash)
     `),
+    deleteUser: db.prepare(`DELETE FROM users WHERE device_id = ?`),
+
     insertTrip: db.prepare(`
         INSERT INTO trips (id, host_device_id, name, mode, started_at, ended_at, total_dist_km, avg_speed, max_speed, fuel_used_l)
         VALUES (?,?,?,?,?,?,?,?,?,?)
     `),
     insertTripPoint: db.prepare(`INSERT INTO trip_points (trip_id, ts, lat, lng, speed_kmh, accuracy) VALUES (?,?,?,?,?,?)`),
-    insertMemory: db.prepare(`INSERT INTO memories (id, device_id, name, lat, lng, image_ref, trip_id, created_at) VALUES (?,?,?,?,?,?,?,?)`),
+    listTrips: db.prepare(`
+        SELECT id, name, mode, started_at, ended_at, total_dist_km, avg_speed, max_speed, fuel_used_l
+        FROM trips WHERE host_device_id = ? ORDER BY started_at DESC LIMIT ?
+    `),
+    getTripOwner: db.prepare(`SELECT host_device_id FROM trips WHERE id = ?`),
+    getTripPoints: db.prepare(`
+        SELECT ts, lat, lng, speed_kmh, accuracy FROM trip_points WHERE trip_id = ? ORDER BY ts ASC LIMIT ?
+    `),
+    deleteTripPointsForDevice: db.prepare(`
+        DELETE FROM trip_points WHERE trip_id IN (SELECT id FROM trips WHERE host_device_id = ?)
+    `),
+    deleteTripsForDevice: db.prepare(`DELETE FROM trips WHERE host_device_id = ?`),
+    purgeOldTripPoints: db.prepare(`DELETE FROM trip_points WHERE trip_id IN (SELECT id FROM trips WHERE started_at < ?)`),
+    purgeOldTrips: db.prepare(`DELETE FROM trips WHERE started_at < ?`),
+
+    insertMemory: db.prepare(`
+        INSERT INTO memories (id, device_id, name, lat, lng, image_ref, caption, trip_id, created_at) VALUES (?,?,?,?,?,?,?,?,?)
+    `),
+    hydrateMemories: db.prepare(`
+        SELECT id, device_id, name, lat, lng, image_ref, caption, trip_id, created_at
+        FROM memories ORDER BY created_at DESC LIMIT ?
+    `),
+    listMemoriesMeta: db.prepare(`SELECT id, name, lat, lng, caption, trip_id, created_at FROM memories WHERE device_id = ?`),
+    deleteMemoriesForDevice: db.prepare(`DELETE FROM memories WHERE device_id = ?`),
+
     insertGeofence: db.prepare(`INSERT INTO geofences (id, name, lat, lng, radius, owner_device_id) VALUES (?,?,?,?,?,?)`),
     deleteGeofence: db.prepare(`DELETE FROM geofences WHERE id = ?`),
-    tripIdsForDevice: db.prepare(`SELECT id FROM trips WHERE host_device_id = ?`),
-    deleteTripPointsFor: db.prepare(`DELETE FROM trip_points WHERE trip_id = ?`),
-    deleteTripsForDevice: db.prepare(`DELETE FROM trips WHERE host_device_id = ?`),
-    deleteMemoriesForDevice: db.prepare(`DELETE FROM memories WHERE device_id = ?`)
+    hydrateGeofences: db.prepare(`
+        SELECT g.id, g.name, g.lat, g.lng, g.radius, g.owner_device_id, u.name AS owner_name
+        FROM geofences g LEFT JOIN users u ON u.device_id = g.owner_device_id
+    `),
+    listGeofencesForDevice: db.prepare(`SELECT id, name, lat, lng, radius FROM geofences WHERE owner_device_id = ?`),
+    deleteGeofencesForDevice: db.prepare(`DELETE FROM geofences WHERE owner_device_id = ?`)
 };
 
+// Server secret for pseudonymous owner keys. Persisted so keys stay stable
+// across restarts. Owner keys let clients answer "is this mine?" WITHOUT the
+// raw deviceId (a private tracking identifier) ever being broadcast.
+const SERVER_SECRET = (() => {
+    if (process.env.SERVER_SECRET) return process.env.SERVER_SECRET;
+    const row = stmt.getMeta.get("server_secret");
+    if (row) return row.value;
+    const fresh = crypto.randomBytes(32).toString("hex");
+    stmt.setMeta.run("server_secret", fresh);
+    return fresh;
+})();
+const ownerKeyFor = (deviceId) => deviceId
+    ? crypto.createHmac("sha256", SERVER_SECRET).update(String(deviceId)).digest("hex").slice(0, 16)
+    : null;
+
 // ==========================================================================
-// 4. IN-MEMORY HOT PATH (unchanged shape from the original — this is what
-//    every realtime broadcast reads/writes; SQLite above never sits on this path)
+// 4. IN-MEMORY HOT PATH
 // ==========================================================================
-const users = new Map();
+const users = new Map();            // socketId -> internal user record
 const chatMessages = [];
-const memories = [];
-let geofences = [];
+const memories = [];                // internal memory records (capped in RAM, full history in SQLite)
+let geofences = [];                 // internal fence records
 let currentTrip = null;
-const voiceSquadMembers = new Map(); // socketId -> {id,name,avatar} — real roster, not a fake panel
-
-const OSRM_BASE = process.env.OSRM_BASE_URL || "https://router.project-osrm.org";
-// Swapping to a self-hosted OSRM instance later (recommended before any real
-// production load — the public instance has no SLA) is a one-line env change.
-
-const REACTION_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
-const ALLOWED_MSG_TYPES = ["text", "image", "video", "audio", "document"];
-const ALLOWED_MODES = ["drive", "bike", "walk"];
-const MAX_AVATAR_B64_LEN = 3_000_000;
-const MAX_MEMORY_IMAGE_B64_LEN = 6_000_000;
-const DEFAULT_AVATAR = "satyam.png";
+const voiceSquadMembers = new Map();
+const deviceToSocket = new Map();   // deviceId -> live socketId
+const pendingDeparture = new Map(); // deviceId -> grace timer
+const venueCache = new Map();       // "lat,lng" -> {ts, venues}
 
 // ==========================================================================
 // 5. PURE HELPERS
 // ==========================================================================
 const generateId = () => crypto.randomUUID();
 
-function distanceKm(a, b, c, d) {
+function distanceKm(lat1, lng1, lat2, lng2) {
     const p = Math.PI / 180;
-    const x = 0.5 - Math.cos((c - a) * p) / 2 + Math.cos(a * p) * Math.cos(c * p) * (1 - Math.cos((d - b) * p)) / 2;
-    return 12742 * Math.asin(Math.sqrt(x));
+    const x = 0.5 - Math.cos((lat2 - lat1) * p) / 2 +
+        Math.cos(lat1 * p) * Math.cos(lat2 * p) * (1 - Math.cos((lng2 - lng1) * p)) / 2;
+    return 12742 * Math.asin(Math.sqrt(Math.max(0, x)));
 }
 
 const isFiniteNum = (v) => typeof v === "number" && Number.isFinite(v);
@@ -225,6 +438,20 @@ const isValidCoordPair = (lat, lng) => isValidLat(lat) && isValidLng(lng);
 const isNonEmptyStr = (v, max = 200) => typeof v === "string" && v.trim().length > 0 && v.length <= max;
 const isValidRadius = (v) => isFiniteNum(v) && v >= 10 && v <= 50000;
 const clampStr = (v, max) => String(v ?? "").slice(0, max);
+const clampNum = (v, min, max, fallback) => (isFiniteNum(v) ? Math.min(Math.max(v, min), max) : fallback);
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const IMAGE_DATA_URL_RE = /^data:image\/(png|jpe?g|webp|gif|heic|heif);base64,/i;
+
+function normalizeMode(m) {
+    if (m === "car") return "drive";
+    return ALLOWED_MODES.includes(m) ? m : "drive";
+}
+
+function sanitizeAvatar(a) {
+    if (typeof a !== "string" || a.length === 0 || a.length > MAX_AVATAR_B64_LEN) return DEFAULT_AVATAR;
+    if (a.startsWith("data:")) return IMAGE_DATA_URL_RE.test(a.slice(0, 40)) ? a : DEFAULT_AVATAR;
+    return /^[\w.\-/]{1,100}$/.test(a) && !a.includes("..") ? a : DEFAULT_AVATAR;
+}
 
 function sanitizeReplyTo(r) {
     if (!r || typeof r !== "object") return null;
@@ -232,180 +459,477 @@ function sanitizeReplyTo(r) {
     return { id: r.id, name: clampStr(r.name, 40), type: r.type, preview: clampStr(r.preview, 60) };
 }
 
-// Only ever send this shape to other clients — never the raw `users` record
-// (which can carry deviceId, an internal tracking identifier that shouldn't
-// be handed to every peer).
-function publicUser(u) {
-    const hidden = u.sharing === false; // "paused sharing" = no location visible to anyone
+// WebRTC signalling payloads are relayed blindly, so bound them.
+function isSignalPayload(s) {
+    if (!s || typeof s !== "object" || !["offer", "answer", "ice"].includes(s.type)) return false;
+    try { return JSON.stringify(s).length < 20_000; } catch { return false; }
+}
+
+const hashToken = (t) => crypto.createHash("sha256").update(String(t)).digest("hex");
+function tokenMatches(presented, storedHash) {
+    const a = Buffer.from(hashToken(presented), "hex");
+    const b = Buffer.from(String(storedHash), "hex");
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+// ---- Privacy: effective sharing mode + 1 km grid snapping -------------------
+const isInActiveTrip = (socketId) => Boolean(currentTrip && currentTrip.members.some((m) => m.id === socketId));
+
+// "off" is always honoured. "approx" is only honoured OUTSIDE an active squad
+// trip — inside one, the squad needs your real position.
+function effectiveMode(u) {
+    const mode = u.sharingMode || "exact";
+    if (mode === "off") return "off";
+    if (mode === "approx" && !isInActiveTrip(u.id)) return "approx";
+    return "exact";
+}
+
+function snapToGrid(lat, lng) {
+    const latStep = APPROX_GRID_KM / 111.32;
+    const cLat = (Math.floor(lat / latStep) + 0.5) * latStep;
+    const cosLat = Math.max(0.01, Math.cos((cLat * Math.PI) / 180));
+    const lngStep = latStep / cosLat;
+    const cLng = (Math.floor(lng / lngStep) + 0.5) * lngStep;
     return {
-        id: u.id,
-        name: u.name,
-        avatar: u.avatar,
-        online: u.online !== false,
-        lat: hidden ? null : u.lat,
-        lng: hidden ? null : u.lng,
-        alt: hidden ? null : (u.alt ?? null),
-        speedKmh: hidden ? null : (u.speedKmh ?? null),
-        weather: u.weather || ""
+        lat: +Math.min(90, Math.max(-90, cLat)).toFixed(5),
+        lng: +Math.min(180, Math.max(-180, cLng)).toFixed(5)
     };
 }
 
-// ==========================================================================
-// 6. PER-SOCKET EVENT RATE LIMIT + CRASH-PROOF HANDLER WRAPPER
-// ==========================================================================
-// This is the structural fix for the messageReaction crash class, applied to
-// EVERY handler, not just the one that was reported: an uncaught synchronous
-// exception inside a Socket.IO callback crashes the whole Node process in
-// this architecture, dropping every connected rider. No handler below is
-// allowed to throw past this wrapper.
-const socketEventCounts = new Map();
-const EVENT_WINDOW_MS = 10_000;
-const EVENT_MAX_PER_WINDOW = 60;
-
-function allowEvent(socketId) {
-    const now = Date.now();
-    let rec = socketEventCounts.get(socketId);
-    if (!rec || now - rec.windowStart > EVENT_WINDOW_MS) {
-        rec = { count: 0, windowStart: now };
-        socketEventCounts.set(socketId, rec);
+// The ONLY shape ever sent to other clients. Never the raw record (deviceId
+// is a private identifier).
+function publicUser(u) {
+    const mode = effectiveMode(u);
+    const hasFix = isValidCoordPair(u.lat, u.lng);
+    let lat = null, lng = null, alt = null, speedKmh = null;
+    if (mode !== "off" && hasFix) {
+        if (mode === "approx") {
+            ({ lat, lng } = snapToGrid(u.lat, u.lng));
+        } else {
+            lat = u.lat; lng = u.lng; alt = u.alt ?? null; speedKmh = u.speedKmh ?? null;
+        }
     }
-    rec.count++;
-    return rec.count <= EVENT_MAX_PER_WINDOW;
+    return {
+        id: u.id, name: u.name, avatar: u.avatar, online: u.online !== false,
+        lat, lng, alt, speedKmh, weather: mode === "exact" ? (u.weather || "") : "",
+        approx: mode === "approx", ownerKey: ownerKeyFor(u.deviceId)
+    };
 }
 
-function safeHandler(socket, fn) {
+function publicMemory(m) {
+    return {
+        id: m.id, name: m.name, lat: m.lat, lng: m.lng, image: m.image,
+        caption: m.caption || "", time: m.time, tripId: m.tripId || null,
+        ownerKey: ownerKeyFor(m.deviceId)
+    };
+}
+
+function publicFence(f) {
+    return {
+        id: f.id, name: f.name, lat: f.lat, lng: f.lng, radius: f.radius,
+        ownerName: f.ownerName || "", ownerKey: ownerKeyFor(f.ownerDeviceId),
+        // Live socket id of the owner (survives reconnects), so the client's
+        // existing `ownerId === socket.id` check keeps working.
+        ownerId: (f.ownerDeviceId && deviceToSocket.get(f.ownerDeviceId)) || f.ownerId || null
+    };
+}
+
+function broadcastUserState(socketId) {
+    const u = users.get(socketId);
+    if (u) io.emit("friendMoved", publicUser(u));
+}
+
+// ==========================================================================
+// 6. RATE LIMITING + CRASH-PROOF HANDLER WRAPPER
+// ==========================================================================
+// One uncaught exception in a Socket.IO callback would crash the Node process
+// and drop every rider. NO handler may throw past safeHandler, sync OR async.
+// Buckets are separate so chatty events (typing) cannot starve GPS updates.
+const BUCKETS = { general: { max: 100, windowMs: 10_000 }, location: { max: 40, windowMs: 10_000 } };
+const socketEventCounts = new Map(); // `${socketId}:${bucket}` -> {count, windowStart}
+const heavyGate = new Map();         // `${socketId}:${key}` -> lastTs
+
+function allowEvent(socketId, bucket) {
+    const cfg = BUCKETS[bucket] || BUCKETS.general;
+    const key = `${socketId}:${bucket}`;
+    const now = Date.now();
+    let rec = socketEventCounts.get(key);
+    if (!rec || now - rec.windowStart > cfg.windowMs) {
+        rec = { count: 0, windowStart: now };
+        socketEventCounts.set(key, rec);
+    }
+    rec.count++;
+    return rec.count <= cfg.max;
+}
+
+function throttle(socketId, key, minGapMs) {
+    const k = `${socketId}:${key}`;
+    const now = Date.now();
+    if (now - (heavyGate.get(k) || 0) < minGapMs) return false;
+    heavyGate.set(k, now);
+    return true;
+}
+
+function forgetSocketCounters(socketId) {
+    for (const b of Object.keys(BUCKETS)) socketEventCounts.delete(`${socketId}:${b}`);
+    for (const k of heavyGate.keys()) if (k.startsWith(`${socketId}:`)) heavyGate.delete(k);
+}
+
+function safeHandler(socket, fn, bucket = "general") {
     return (...args) => {
+        const maybeAck = args[args.length - 1];
+        const ack = typeof maybeAck === "function" ? maybeAck : null;
+        const fail = (reason) => { if (ack) { try { ack({ ok: false, reason }); } catch { /* ignore */ } } };
         try {
-            if (!allowEvent(socket.id)) return; // silently dropped, no crash, no info leak
-            fn(...args);
+            if (!allowEvent(socket.id, bucket)) return fail("rate-limited");
+            const out = fn(...args);
+            if (out && typeof out.catch === "function") {
+                out.catch((err) => {
+                    console.error(`[socket:${socket.id}] async handler error:`, err);
+                    fail("internal-error");
+                });
+            }
         } catch (err) {
             console.error(`[socket:${socket.id}] handler error:`, err);
+            fail("internal-error");
         }
     };
 }
 
-// ==========================================================================
-// 7. OSRM HELPERS (meetup + carpool algorithms)
-// ==========================================================================
-function buildMeetupCandidates(members, extraCandidates) {
-    const centroidLat = members.reduce((s, m) => s + m.lat, 0) / members.length;
-    const centroidLng = members.reduce((s, m) => s + m.lng, 0) / members.length;
+// Per-IP concurrent connection cap (Socket.IO's own traffic never touches the
+// Express limiter, so this is the realtime-side abuse control).
+const ipConnections = new Map();
+io.use((socket, next) => {
+    const fwd = socket.handshake.headers["x-forwarded-for"];
+    const ip = (typeof fwd === "string" && fwd.split(",")[0].trim()) || socket.handshake.address || "unknown";
+    const n = ipConnections.get(ip) || 0;
+    if (n >= MAX_SOCKETS_PER_IP) return next(new Error("too-many-connections"));
+    ipConnections.set(ip, n + 1);
+    socket.on("disconnect", () => {
+        const left = (ipConnections.get(ip) || 1) - 1;
+        if (left <= 0) ipConnections.delete(ip); else ipConnections.set(ip, left);
+    });
+    next();
+});
 
+// ==========================================================================
+// 7. ROUTING ALGORITHMS (meetup + carpool)
+// ==========================================================================
+async function fetchVenues(lat, lng, radiusM) {
+    const cacheKey = `${lat.toFixed(3)},${lng.toFixed(3)},${Math.round(radiusM / 500)}`;
+    const hit = venueCache.get(cacheKey);
+    if (hit && Date.now() - hit.ts < 10 * 60 * 1000) return hit.venues;
+    try {
+        const q = `[out:json][timeout:6];node(around:${Math.round(radiusM)},${lat},${lng})` +
+            `[amenity~"^(cafe|restaurant|fast_food|fuel|marketplace)$"][name];out 14;`;
+        const res = await fetch(OVERPASS_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: "data=" + encodeURIComponent(q),
+            signal: AbortSignal.timeout(7000)
+        });
+        if (!res.ok) return [];
+        const json = await res.json();
+        const venues = (json.elements || [])
+            .filter((e) => isValidCoordPair(e.lat, e.lon) && e.tags?.name)
+            .slice(0, 10)
+            .map((e) => ({ lat: e.lat, lng: e.lon, label: clampStr(e.tags.name, 60), kind: "venue", category: e.tags.amenity }));
+        if (venueCache.size > 100) venueCache.clear();
+        venueCache.set(cacheKey, { ts: Date.now(), venues });
+        return venues;
+    } catch (e) {
+        console.warn("Overpass venue lookup failed (falling back to geometric candidates):", e.message);
+        return [];
+    }
+}
+
+function buildMeetupCandidates(members, venues, extra) {
+    const cLat = members.reduce((s, m) => s + m.lat, 0) / members.length;
+    const cLng = members.reduce((s, m) => s + m.lng, 0) / members.length;
     let maxSpreadKm = 1;
     for (let i = 0; i < members.length; i++) {
         for (let j = i + 1; j < members.length; j++) {
             maxSpreadKm = Math.max(maxSpreadKm, distanceKm(members[i].lat, members[i].lng, members[j].lat, members[j].lng));
         }
     }
-    const ringRadiusKm = Math.min(15, Math.max(0.5, maxSpreadKm / 2));
-
+    const ringKm = Math.min(15, Math.max(0.5, maxSpreadKm / 2));
     const ring = [];
-    const RING_POINTS = 6;
-    for (let k = 0; k < RING_POINTS; k++) {
-        const bearing = (k / RING_POINTS) * 2 * Math.PI;
-        const dLat = (ringRadiusKm / 111) * Math.cos(bearing);
-        const dLng = (ringRadiusKm / (111 * Math.cos((centroidLat * Math.PI) / 180))) * Math.sin(bearing);
-        ring.push({ lat: centroidLat + dLat, lng: centroidLng + dLng, label: null });
+    for (let k = 0; k < 6; k++) {
+        const b = (k / 6) * 2 * Math.PI;
+        ring.push({
+            lat: cLat + (ringKm / 111.32) * Math.cos(b),
+            lng: cLng + (ringKm / (111.32 * Math.max(0.01, Math.cos((cLat * Math.PI) / 180)))) * Math.sin(b),
+            label: `Midpoint ${k + 1}`, kind: "ring"
+        });
     }
-    return [{ lat: centroidLat, lng: centroidLng, label: "Centroid" }, ...ring, ...extraCandidates];
+    const all = [{ lat: cLat, lng: cLng, label: "Centroid", kind: "centroid" }, ...ring, ...venues,
+        ...extra.map((c) => ({ lat: c.lat, lng: c.lng, label: clampStr(c.label || "Custom point", 60), kind: "custom" }))];
+    return { candidates: all, centroid: { lat: cLat, lng: cLng }, maxSpreadKm };
 }
 
 async function fetchOsrmTable(members, candidates) {
-    const allCoords = [...members.map((m) => `${m.lng},${m.lat}`), ...candidates.map((c) => `${c.lng},${c.lat}`)];
+    const coords = [...members, ...candidates].map((p) => `${p.lng.toFixed(6)},${p.lat.toFixed(6)}`).join(";");
     const sources = members.map((_, i) => i).join(";");
     const destinations = candidates.map((_, i) => members.length + i).join(";");
-    const url = `${OSRM_BASE}/table/v1/driving/${allCoords.join(";")}?sources=${sources}&destinations=${destinations}&annotations=duration,distance`;
+    const url = `${OSRM_BASE}/table/v1/driving/${coords}?sources=${sources}&destinations=${destinations}&annotations=duration,distance`;
     try {
         const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
         if (!res.ok) return null;
         const json = await res.json();
         if (json.code !== "Ok") return null;
-        return { durations: json.durations, distances: json.distances };
+        return json;
     } catch (e) {
         console.error("OSRM table fetch failed:", e.message);
         return null;
     }
 }
 
+// Greedy nearest-neighbour + 2-opt, start and destination fixed. Used when
+// OSRM /trip is unreachable so carpooling still works (flagged approximate).
+function orderPickupsFallback(start, stops, dest) {
+    const remaining = stops.map((s, i) => ({ ...s, _i: i }));
+    const route = [];
+    let cur = start;
+    while (remaining.length) {
+        let bi = 0, bd = Infinity;
+        remaining.forEach((p, i) => {
+            const d = distanceKm(cur.lat, cur.lng, p.lat, p.lng);
+            if (d < bd) { bd = d; bi = i; }
+        });
+        cur = remaining.splice(bi, 1)[0];
+        route.push(cur);
+    }
+    const pathLen = (seq) => {
+        let t = distanceKm(start.lat, start.lng, seq[0].lat, seq[0].lng);
+        for (let i = 0; i < seq.length - 1; i++) t += distanceKm(seq[i].lat, seq[i].lng, seq[i + 1].lat, seq[i + 1].lng);
+        return t + distanceKm(seq[seq.length - 1].lat, seq[seq.length - 1].lng, dest.lat, dest.lng);
+    };
+    let improved = true, guard = 0;
+    while (improved && guard++ < 50) {
+        improved = false;
+        for (let i = 0; i < route.length - 1; i++) {
+            for (let j = i + 1; j < route.length; j++) {
+                const cand = route.slice(0, i).concat(route.slice(i, j + 1).reverse(), route.slice(j + 1));
+                if (pathLen(cand) + 1e-9 < pathLen(route)) {
+                    route.splice(0, route.length, ...cand);
+                    improved = true;
+                }
+            }
+        }
+    }
+    // Leg lengths (metres) with a 1.3 road-detour factor over great-circle.
+    const seq = [start, ...route, dest];
+    const legMeters = [];
+    for (let i = 0; i < seq.length - 1; i++) {
+        legMeters.push(distanceKm(seq[i].lat, seq[i].lng, seq[i + 1].lat, seq[i + 1].lng) * 1300);
+    }
+    return { ordered: route, legMeters };
+}
+
+// Fair, distance-proportional fuel split. Leg k runs stop k -> stop k+1; every
+// rider picked up at or before stop k is aboard, so each leg's fuel is split
+// equally among the driver and the riders actually aboard for it.
+function splitCarpoolCosts(ordered, legMeters, kmPerL, pricePerL) {
+    const driver = { distanceKm: 0, fuelL: 0, cost: 0 };
+    const riders = ordered.map((s) => ({ id: s.id || null, name: s.name || "", distanceKm: 0, fuelL: 0, cost: 0 }));
+    legMeters.forEach((meters, k) => {
+        const km = meters / 1000;
+        const fuel = km / kmPerL;
+        const aboard = Math.min(k, ordered.length);     // riders picked at positions 1..k
+        const share = 1 / (aboard + 1);
+        driver.distanceKm += km; driver.fuelL += fuel * share;
+        for (let r = 0; r < aboard; r++) { riders[r].distanceKm += km; riders[r].fuelL += fuel * share; }
+    });
+    const round = (o) => {
+        o.distanceKm = +o.distanceKm.toFixed(2);
+        o.fuelL = +o.fuelL.toFixed(3);
+        o.cost = +(o.fuelL * pricePerL).toFixed(2);
+        return o;
+    };
+    return { driver: round(driver), riders: riders.map(round) };
+}
+
 // ==========================================================================
-// 8. SOCKET.IO EVENT HANDLERS
+// 8. TRIP / IDENTITY LIFECYCLE HELPERS
+// ==========================================================================
+function removeFromTrip(socketId) {
+    if (!currentTrip) return;
+    if (currentTrip.hostId === socketId) {
+        currentTrip = null;
+        io.emit("tripData", null);
+    } else if (currentTrip.members.some((m) => m.id === socketId)) {
+        currentTrip.members = currentTrip.members.filter((m) => m.id !== socketId);
+        io.emit("tripData", currentTrip);
+    }
+}
+
+// Mobile sockets get a NEW id on every reconnect. Carry trip role / roster
+// state over to it so a network blip does not end the squad's trip.
+function migrateIdentity(oldId, newId) {
+    if (currentTrip) {
+        if (currentTrip.hostId === oldId) currentTrip.hostId = newId;
+        currentTrip.members.forEach((m) => { if (m.id === oldId) m.id = newId; });
+    }
+    if (voiceSquadMembers.delete(oldId)) io.emit("voice-squad-member-left", { id: oldId });
+    users.delete(oldId);
+    forgetSocketCounters(oldId);
+    io.emit("friendDisconnected", oldId);
+}
+
+function finalizeDeparture(socketId) {
+    const user = users.get(socketId);
+    if (!user || user.online) return; // came back in the meantime
+    if (user.deviceId) {
+        pendingDeparture.delete(user.deviceId);
+        if (deviceToSocket.get(user.deviceId) === socketId) deviceToSocket.delete(user.deviceId);
+    }
+    removeFromTrip(socketId);
+    if (voiceSquadMembers.delete(socketId)) io.emit("voice-squad-member-left", { id: socketId });
+    io.emit("friendDisconnected", socketId);
+    users.delete(socketId);
+}
+
+// ==========================================================================
+// 9. SOCKET.IO EVENT HANDLERS
 // ==========================================================================
 io.on("connection", (socket) => {
     console.log(`🟢 New Connection: ${socket.id}`);
 
-    // --- A. PROFILE & INITIALIZATION -------------------------------------
+    // --- A. PROFILE & DEVICE IDENTITY ---------------------------------------
     socket.on("profileReady", safeHandler(socket, (data) => {
         if (!data || !isNonEmptyStr(data.name, 40)) return;
 
-        const deviceId = isNonEmptyStr(data.deviceId, 100) ? data.deviceId : null;
-        const name = clampStr(data.name, 40);
-        const avatar = typeof data.avatar === "string" && data.avatar.length > 0 && data.avatar.length <= MAX_AVATAR_B64_LEN
-            ? data.avatar
-            : DEFAULT_AVATAR;
+        const deviceId = typeof data.deviceId === "string" && UUID_RE.test(data.deviceId) ? data.deviceId.toLowerCase() : null;
+        const name = clampStr(data.name, 40).trim();
+        const avatar = sanitizeAvatar(data.avatar);
 
-        const user = { id: socket.id, deviceId, name, avatar, online: true, sharing: true, sessionMode: null, lat: null, lng: null };
+        // Device-token check. First sight of a deviceId: server mints a secret
+        // token, returns it once, stores only its hash. After that the token
+        // must be presented. A copied deviceId alone can no longer impersonate.
+        // (A repeat profileReady on the same, already-verified socket is
+        // accepted — the client legitimately sends it more than once at boot.)
+        const existing = users.get(socket.id);
+        const alreadyVerified = Boolean(existing && existing.deviceId === deviceId && existing.verified);
+        let issuedToken = null;
+        let newHash = null;
+        if (deviceId && !alreadyVerified) {
+            const row = stmt.getUser.get(deviceId);
+            if (row && row.token_hash) {
+                if (!isNonEmptyStr(data.deviceToken, 128) || !tokenMatches(data.deviceToken, row.token_hash)) {
+                    socket.emit("profileRejected", { reason: "device-token-mismatch" });
+                    return;
+                }
+            } else {
+                issuedToken = crypto.randomBytes(24).toString("base64url");
+                newHash = hashToken(issuedToken);
+            }
+        }
+
+        // Same device already connected elsewhere (stale socket after a network
+        // change, or a second tab): the newest socket wins and inherits state.
+        if (deviceId) {
+            const pending = pendingDeparture.get(deviceId);
+            if (pending) { clearTimeout(pending); pendingDeparture.delete(deviceId); }
+            const stale = Array.from(users.values()).find((u) => u.deviceId === deviceId && u.id !== socket.id);
+            if (stale) {
+                migrateIdentity(stale.id, socket.id);
+                const staleSock = io.sockets.sockets.get(stale.id);
+                if (staleSock) staleSock.disconnect(true);
+            }
+            deviceToSocket.set(deviceId, socket.id);
+        }
+
+        const user = {
+            id: socket.id, deviceId, verified: Boolean(deviceId), name, avatar, online: true,
+            sharingMode: existing?.sharingMode || "exact", sessionMode: existing?.sessionMode || null,
+            sessionId: existing?.sessionId || null, lat: null, lng: null, lastFix: null, spoofStrikes: 0
+        };
         users.set(socket.id, user);
 
-        // Real, but casual, identity: this closes "anyone can profileReady as
-        // anyone" for the common case, not cryptographic auth. A stolen/copied
-        // localStorage deviceId can still impersonate — full accounts would be
-        // the honest next step if that threat matters for your squad.
-        if (deviceId) stmt.upsertUser.run(deviceId, name, avatar, Date.now(), Date.now());
+        if (deviceId) stmt.upsertUser.run(deviceId, name, avatar, newHash, Date.now(), Date.now());
 
+        socket.emit("profileAccepted", {
+            ownerKey: ownerKeyFor(deviceId),
+            deviceToken: issuedToken,                // null unless first registration
+            sharingMode: user.sharingMode,
+            tripRetentionDays: TRIP_RETENTION_DAYS
+        });
         socket.emit("chatHistory", chatMessages);
-        socket.emit("loadMemoryPhotos", memories);
-        socket.emit("loadGeofences", geofences);
+        socket.emit("loadMemoryPhotos", memories.map(publicMemory));
+        socket.emit("loadGeofences", geofences.map(publicFence));
         socket.emit("onlineUsers", Array.from(users.values()).map(publicUser));
         if (currentTrip) socket.emit("tripData", currentTrip);
-
         socket.broadcast.emit("userOnline", publicUser(user));
     }));
 
-    // --- B. LIVE LOCATION + GEOFENCE CHECK --------------------------------
+    // --- B. LIVE LOCATION + ANTI-SPOOF + GEOFENCE CHECK ---------------------
     socket.on("updateLocation", safeHandler(socket, (data) => {
-        if (!users.has(socket.id) || !data || !isValidCoordPair(data.lat, data.lng)) return;
-
         const user = users.get(socket.id);
-        if (user.sharing === false) return; // paused — do not update or broadcast position
+        if (!user || !data || !isValidCoordPair(data.lat, data.lng)) return;
+        if (user.sharingMode === "off") return;
+
+        // Teleport rejection: > 300 km/h between fixes is physically implausible
+        // for this app. The baseline is server time (client clocks are
+        // untrusted). After 3 consecutive rejections the new position is
+        // accepted as the baseline so a legitimate relocation cannot lock a
+        // rider out forever.
+        const now = Date.now();
+        if (user.lastFix) {
+            const dtH = (now - user.lastFix.ts) / 3_600_000;
+            const dKm = distanceKm(user.lastFix.lat, user.lastFix.lng, data.lat, data.lng);
+            if (dKm > 0.2 && dtH > 0 && dKm / dtH > MAX_PLAUSIBLE_KMH && user.spoofStrikes < 3) {
+                user.spoofStrikes++;
+                socket.emit("locationRejected", { reason: "implausible-jump", strikes: user.spoofStrikes });
+                return;
+            }
+        }
+        user.spoofStrikes = 0;
 
         const oldLat = user.lat, oldLng = user.lng;
+        const oldMode = effectiveMode(user);
         user.lat = data.lat;
         user.lng = data.lng;
+        user.lastFix = { lat: data.lat, lng: data.lng, ts: now };
         user.alt = isFiniteNum(data.alt) ? data.alt : null;
-        user.speedKmh = isFiniteNum(data.speedKmh) ? Math.min(Math.max(data.speedKmh, 0), 300) : 0;
+        user.speedKmh = isFiniteNum(data.speedKmh) ? clampNum(data.speedKmh, 0, 300, 0) : 0;
+        user.accuracy = isFiniteNum(data.accuracy) ? clampNum(data.accuracy, 0, 100000, null) : null;
         if (isNonEmptyStr(data.weather, 40)) user.weather = data.weather;
-        users.set(socket.id, user);
 
-        socket.broadcast.emit("friendMoved", publicUser(user));
+        const mode = effectiveMode(user);
+        const pub = publicUser(user);
+        // Approximate riders move between 1 km cells rarely; do not spam the
+        // squad with identical snapped coordinates every second.
+        if (mode === "approx") {
+            const sameCell = user.lastBroadcast && user.lastBroadcast.lat === pub.lat && user.lastBroadcast.lng === pub.lng;
+            if (sameCell && oldMode === "approx" && now - user.lastBroadcast.ts < 30_000) return;
+            user.lastBroadcast = { lat: pub.lat, lng: pub.lng, ts: now };
+        }
+        socket.broadcast.emit("friendMoved", pub);
 
-        if (oldLat != null && oldLng != null) {
+        // Geofence events only for exact-sharing riders: an "enter/leave"
+        // alert would otherwise leak position finer than the 1 km grid.
+        if (mode === "exact" && oldLat != null && oldLng != null) {
             geofences.forEach((fence) => {
-                const distOld = distanceKm(oldLat, oldLng, fence.lat, fence.lng) * 1000;
-                const distNew = distanceKm(user.lat, user.lng, fence.lat, fence.lng) * 1000;
-                const wasOutside = distOld > fence.radius;
-                const isInside = distNew <= fence.radius;
-                if (wasOutside && isInside) io.emit("geofenceAlert", { user: user.name, fence: fence.name, type: "enter" });
-                else if (!wasOutside && !isInside) io.emit("geofenceAlert", { user: user.name, fence: fence.name, type: "leave" });
+                const wasOutside = distanceKm(oldLat, oldLng, fence.lat, fence.lng) * 1000 > fence.radius;
+                const isInside = distanceKm(user.lat, user.lng, fence.lat, fence.lng) * 1000 <= fence.radius;
+                if (wasOutside && isInside) io.emit("geofenceAlert", { user: user.name, fence: fence.name, type: "enter", at: now });
+                else if (!wasOutside && !isInside) io.emit("geofenceAlert", { user: user.name, fence: fence.name, type: "leave", at: now });
             });
         }
-    }));
+    }, "location"));
 
-    // --- C. CHAT SYSTEM ----------------------------------------------------
+    // --- C. CHAT --------------------------------------------------------------
     socket.on("chatMessage", safeHandler(socket, (data) => {
-        if (!users.has(socket.id) || !data || !ALLOWED_MSG_TYPES.includes(data.type)) return;
+        const user = users.get(socket.id);
+        if (!user || !data || !ALLOWED_MSG_TYPES.includes(data.type)) return;
         if (data.type === "text" && !isNonEmptyStr(data.data, 1000)) return;
         if (data.type !== "text" && (typeof data.data !== "string" || data.data.length === 0 || data.data.length > 7_000_000)) return;
 
-        const user = users.get(socket.id);
         const msg = {
-            id: generateId(),
-            senderId: socket.id,
-            name: clampStr(data.name || user.name, 40),
-            type: data.type,
-            data: data.data,
-            replyTo: sanitizeReplyTo(data.replyTo),
+            id: generateId(), senderId: socket.id, name: clampStr(data.name || user.name, 40),
+            type: data.type, data: data.data, replyTo: sanitizeReplyTo(data.replyTo),
             time: new Date().toISOString(),
-            reactions: { "👍": [], "❤️": [], "😂": [], "😮": [], "😢": [], "🔥": [] }
+            reactions: Object.fromEntries(REACTION_EMOJIS.map((e) => [e, []]))
         };
         chatMessages.push(msg);
         if (chatMessages.length > 200) chatMessages.shift();
@@ -414,61 +938,74 @@ io.on("connection", (socket) => {
 
     socket.on("typing", safeHandler(socket, (isTyping) => {
         const user = users.get(socket.id);
-        if (user) socket.broadcast.emit("typing", { id: socket.id, name: user.name, isTyping: !!isTyping });
+        if (user) socket.broadcast.emit("typing", { id: socket.id, name: user.name, isTyping: Boolean(isTyping) });
     }));
 
     socket.on("messageReaction", safeHandler(socket, (data) => {
-        // THE FIX: validated emoji + existence check before any property access.
-        // A client could previously send ANY string as data.emoji; indexing
-        // msg.reactions[data.emoji] on an unknown key threw synchronously and
-        // took the whole server process down with it.
-        if (!data || !isNonEmptyStr(data.messageId, 60) || !REACTION_EMOJIS.includes(data.emoji)) return;
+        // THE CRASH FIX: emoji is validated against an allow-list and the
+        // reaction array's existence is checked BEFORE any property access.
+        if (!users.has(socket.id) || !data || !isNonEmptyStr(data.messageId, 60) || !REACTION_EMOJIS.includes(data.emoji)) return;
         const msg = chatMessages.find((m) => m.id === data.messageId);
-        if (!msg || !msg.reactions[data.emoji]) return;
+        if (!msg || !msg.reactions || !Array.isArray(msg.reactions[data.emoji])) return;
 
-        const userIndex = msg.reactions[data.emoji].indexOf(socket.id);
-        if (userIndex > -1) {
-            msg.reactions[data.emoji].splice(userIndex, 1);
+        const list = msg.reactions[data.emoji];
+        const idx = list.indexOf(socket.id);
+        if (idx > -1) {
+            list.splice(idx, 1);
         } else {
-            Object.keys(msg.reactions).forEach((e) => {
-                const idx = msg.reactions[e].indexOf(socket.id);
-                if (idx > -1) msg.reactions[e].splice(idx, 1);
-            });
-            msg.reactions[data.emoji].push(socket.id);
+            for (const e of Object.keys(msg.reactions)) {
+                const i = msg.reactions[e].indexOf(socket.id);
+                if (i > -1) msg.reactions[e].splice(i, 1);
+            }
+            list.push(socket.id);
         }
         io.emit("messageReaction", { messageId: msg.id, reactions: msg.reactions });
     }));
 
-    // --- D. GEOFENCING -------------------------------------------------------
+    // --- D. GEOFENCING ----------------------------------------------------------
     socket.on("addGeofence", safeHandler(socket, (data) => {
         const user = users.get(socket.id);
         if (!user || !data || !isNonEmptyStr(data.name, 60) || !isValidCoordPair(data.lat, data.lng) || !isValidRadius(data.radius)) return;
+        if (geofences.length >= MAX_GEOFENCES_TOTAL) return;
+        const mine = geofences.filter((f) => (user.deviceId ? f.ownerDeviceId === user.deviceId : f.ownerId === socket.id)).length;
+        if (mine >= MAX_GEOFENCES_PER_OWNER) return;
 
         const fence = {
-            id: generateId(), name: clampStr(data.name, 60), lat: data.lat, lng: data.lng,
-            radius: Math.round(data.radius), ownerId: socket.id, ownerName: user.name
+            id: generateId(), name: clampStr(data.name, 60).trim(), lat: data.lat, lng: data.lng,
+            radius: Math.round(data.radius), ownerId: socket.id, ownerName: user.name, ownerDeviceId: user.deviceId || null
         };
         geofences.push(fence);
-        stmt.insertGeofence.run(fence.id, fence.name, fence.lat, fence.lng, fence.radius, user.deviceId || null);
-        io.emit("loadGeofences", geofences);
+        stmt.insertGeofence.run(fence.id, fence.name, fence.lat, fence.lng, fence.radius, fence.ownerDeviceId);
+        io.emit("loadGeofences", geofences.map(publicFence));
     }));
 
     socket.on("removeGeofence", safeHandler(socket, (id) => {
-        if (!isNonEmptyStr(id, 60)) return;
+        const user = users.get(socket.id);
+        if (!user || !isNonEmptyStr(id, 60)) return;
         const fence = geofences.find((f) => f.id === id);
-        if (fence && fence.ownerId === socket.id) {
-            geofences = geofences.filter((f) => f.id !== id);
-            stmt.deleteGeofence.run(id);
-            io.emit("loadGeofences", geofences);
-        }
+        if (!fence) return;
+        // Ownership follows the DEVICE, so it survives reconnects and restarts.
+        const owns = fence.ownerDeviceId ? fence.ownerDeviceId === user.deviceId : fence.ownerId === socket.id;
+        if (!owns) return;
+        geofences = geofences.filter((f) => f.id !== id);
+        stmt.deleteGeofence.run(id);
+        io.emit("loadGeofences", geofences.map(publicFence));
     }));
 
-    // --- E. GROUP TRIP -------------------------------------------------------
+    // --- E. GROUP TRIP ----------------------------------------------------------
     socket.on("startTrip", safeHandler(socket, (data) => {
         const user = users.get(socket.id);
         if (!user || !data || !isNonEmptyStr(data.name, 80) || !isValidCoordPair(data.lat, data.lng)) return;
-        currentTrip = { id: generateId(), name: clampStr(data.name, 80), lat: data.lat, lng: data.lng, hostId: socket.id, members: [{ id: socket.id, name: user.name }] };
+        if (currentTrip && currentTrip.hostId !== socket.id) {
+            socket.emit("tripError", { reason: "trip-already-active" }); // no silent hijack of someone else's trip
+            return;
+        }
+        currentTrip = {
+            id: generateId(), name: clampStr(data.name, 80).trim(), lat: data.lat, lng: data.lng,
+            hostId: socket.id, members: [{ id: socket.id, name: user.name }]
+        };
         io.emit("tripData", currentTrip);
+        broadcastUserState(socket.id);
     }));
 
     socket.on("joinTrip", safeHandler(socket, () => {
@@ -476,66 +1013,64 @@ io.on("connection", (socket) => {
         if (currentTrip && user && !currentTrip.members.some((m) => m.id === socket.id)) {
             currentTrip.members.push({ id: socket.id, name: user.name });
             io.emit("tripData", currentTrip);
+            broadcastUserState(socket.id); // precision may rise from approx to exact
         }
     }));
 
     socket.on("leaveTrip", safeHandler(socket, () => {
-        if (!currentTrip) return;
-        if (currentTrip.hostId === socket.id) {
-            currentTrip = null;
-            io.emit("tripData", null);
-        } else {
-            currentTrip.members = currentTrip.members.filter((m) => m.id !== socket.id);
-            io.emit("tripData", currentTrip);
-        }
+        removeFromTrip(socket.id);
+        broadcastUserState(socket.id);     // precision may drop back to approx
     }));
 
-    // --- F. MEMORIES -----------------------------------------------------------
+    // --- F. MEMORIES ------------------------------------------------------------
     socket.on("uploadMemoryPhoto", safeHandler(socket, (data) => {
         const user = users.get(socket.id);
         if (!user || !data || !isValidCoordPair(data.lat, data.lng)) return;
-        if (typeof data.image !== "string" || !data.image.startsWith("data:image/") || data.image.length > MAX_MEMORY_IMAGE_B64_LEN) return;
+        if (typeof data.image !== "string" || data.image.length > MAX_MEMORY_IMAGE_B64_LEN || !IMAGE_DATA_URL_RE.test(data.image.slice(0, 40))) return;
 
-        const time = data.time && !isNaN(Date.parse(data.time)) ? data.time : new Date().toISOString();
+        const time = data.time && !isNaN(Date.parse(data.time)) ? new Date(data.time).toISOString() : new Date().toISOString();
         const memory = {
             id: generateId(), name: clampStr(data.name || user.name, 40), lat: data.lat, lng: data.lng,
-            image: data.image, time, deviceId: user.deviceId || null, tripId: currentTrip?.id || null
+            image: data.image, caption: clampStr(data.caption, 140), time,
+            deviceId: user.deviceId || null, tripId: currentTrip?.id || null
         };
         memories.push(memory);
-        stmt.insertMemory.run(memory.id, memory.deviceId, memory.name, memory.lat, memory.lng, memory.image, memory.tripId, Date.parse(time));
-        io.emit("newMemoryPin", memory);
+        if (memories.length > MAX_MEMORIES_IN_RAM) memories.shift();
+        stmt.insertMemory.run(memory.id, memory.deviceId, memory.name, memory.lat, memory.lng, memory.image, memory.caption, memory.tripId, Date.parse(time));
+        io.emit("newMemoryPin", publicMemory(memory));
     }));
 
-    // --- G. EMERGENCY SOS --------------------------------------------------------
+    // --- G. EMERGENCY SOS (deliberately exact — it is an emergency) -------------
     socket.on("sos-alert", safeHandler(socket, (data) => {
         const user = users.get(socket.id);
         if (!user || !data || !isValidCoordPair(data.lat, data.lng)) return;
+        if (!throttle(socket.id, "sos", 5000)) return;
         socket.broadcast.emit("sos-alert", {
-            name: clampStr(data.name || user.name, 40), lat: data.lat, lng: data.lng,
+            id: socket.id, name: clampStr(data.name || user.name, 40), lat: data.lat, lng: data.lng,
             alt: isFiniteNum(data.alt) ? data.alt : null
         });
     }));
 
-    // --- H. WEBRTC SIGNALING (1:1 — unchanged relay pattern) --------------------
+    // --- H. WEBRTC 1:1 SIGNALLING (payloads validated; sender attached) ----------
     socket.on("call-user", safeHandler(socket, (data) => {
-        if (!data || !isNonEmptyStr(data.to, 40) || !io.sockets.sockets.has(data.to)) return;
+        if (!users.has(socket.id) || !data || !isNonEmptyStr(data.to, 40) || !users.has(data.to) || !isSignalPayload(data.signal)) return;
         io.to(data.to).emit("incoming-call", { from: socket.id, name: clampStr(data.name || "", 40), signal: data.signal });
     }));
     socket.on("answer-call", safeHandler(socket, (data) => {
-        if (!data || !isNonEmptyStr(data.to, 40) || !io.sockets.sockets.has(data.to)) return;
-        io.to(data.to).emit("call-accepted", data.signal);
+        if (!users.has(socket.id) || !data || !isNonEmptyStr(data.to, 40) || !users.has(data.to) || !isSignalPayload(data.signal)) return;
+        // Extra 2nd arg carries the answerer's id; the old client ignores it.
+        io.to(data.to).emit("call-accepted", data.signal, socket.id);
     }));
     socket.on("end-call", safeHandler(socket, (data) => {
         if (!data || !isNonEmptyStr(data.to, 40)) return;
-        io.to(data.to).emit("call-ended");
+        io.to(data.to).emit("call-ended", socket.id);
     }));
 
-    // --- I. GROUP VOICE — REAL roster relay (de-fakes join-voice-squad) --------
-    // This server piece is a real, working roster broadcast. The actual N-way
-    // mesh (each client opening a 1:1 leg via call-user/answer-call to every
-    // existing member) is client-side orchestration — that lands in the
-    // features.js step. Until that ships, joining the roster is real but
-    // nothing calls anyone yet; don't advertise it as functional before then.
+    // --- I. GROUP VOICE — roster + per-peer signalling relay ---------------------
+    // The mesh is client-orchestrated (features.js): each newcomer opens one
+    // RTCPeerConnection per existing member and signals over `voice-signal`,
+    // which (unlike call-accepted) always carries `from`, so many simultaneous
+    // legs cannot be confused. Only members of the roster may signal each other.
     socket.on("join-voice-squad", safeHandler(socket, () => {
         const user = users.get(socket.id);
         if (!user) return;
@@ -545,213 +1080,364 @@ io.on("connection", (socket) => {
         socket.broadcast.emit("voice-squad-member-joined", { id: socket.id, name: user.name, avatar: user.avatar });
     }));
 
+    socket.on("voice-signal", safeHandler(socket, (data) => {
+        if (!data || !isNonEmptyStr(data.to, 40) || !isSignalPayload(data.signal)) return;
+        if (!voiceSquadMembers.has(socket.id) || !voiceSquadMembers.has(data.to)) return;
+        io.to(data.to).emit("voice-signal", { from: socket.id, signal: data.signal });
+    }));
+
     socket.on("leave-voice-squad", safeHandler(socket, () => {
-        if (voiceSquadMembers.delete(socket.id)) {
-            io.emit("voice-squad-member-left", { id: socket.id });
-        }
+        if (voiceSquadMembers.delete(socket.id)) io.emit("voice-squad-member-left", { id: socket.id });
     }));
 
-    // --- J. SESSION / SHARING CONTROL (privacy §15) -----------------------------
-    socket.on("startSession", safeHandler(socket, (data) => {
+    // --- J. SESSION + SHARING CONTROL (privacy) ----------------------------------
+    socket.on("startSession", safeHandler(socket, (data, ack) => {
         const user = users.get(socket.id);
-        if (!user) return;
-        user.sessionMode = ALLOWED_MODES.includes(data?.mode) ? data.mode : "drive";
-        users.set(socket.id, user);
-        socket.emit("sessionStarted", { mode: user.sessionMode });
+        if (!user) return typeof ack === "function" && ack({ ok: false, reason: "no-profile" });
+        user.sessionMode = normalizeMode(data?.mode);
+        user.sessionId = generateId();
+        user.sessionStartedAt = Date.now();
+        const payload = { mode: user.sessionMode, sessionId: user.sessionId, startedAt: user.sessionStartedAt };
+        socket.emit("sessionStarted", payload);
+        if (typeof ack === "function") ack({ ok: true, ...payload });
     }));
 
-    socket.on("endSession", safeHandler(socket, () => {
+    socket.on("endSession", safeHandler(socket, (_data, ack) => {
         const user = users.get(socket.id);
-        if (!user) return;
-        user.sessionMode = null;
-        users.set(socket.id, user);
-        socket.emit("sessionEnded", {});
+        if (!user) return typeof ack === "function" && ack({ ok: false, reason: "no-profile" });
+        const summary = { sessionId: user.sessionId, durationSec: user.sessionStartedAt ? Math.round((Date.now() - user.sessionStartedAt) / 1000) : 0 };
+        user.sessionMode = null; user.sessionId = null; user.sessionStartedAt = null;
+        socket.emit("sessionEnded", summary);
+        if (typeof ack === "function") ack({ ok: true, ...summary });
     }));
 
+    // setSharing: {mode: "exact"|"approx"|"off"}  (legacy {enabled:boolean} still works)
     socket.on("setSharing", safeHandler(socket, (data) => {
         const user = users.get(socket.id);
         if (!user) return;
-        user.sharing = data?.enabled !== false;
-        users.set(socket.id, user);
-        if (!user.sharing) socket.broadcast.emit("userOffline", { id: socket.id });
-        else socket.broadcast.emit("userOnline", publicUser(user));
+        const mode = SHARING_MODES.includes(data?.mode) ? data.mode : (data?.enabled === false ? "off" : "exact");
+        user.sharingMode = mode;
+        user.lastBroadcast = null;
+        if (mode === "off") {
+            user.lat = null; user.lng = null; user.lastFix = null; // do not retain a stale precise fix
+            socket.broadcast.emit("userOffline", { id: socket.id });
+        } else {
+            socket.broadcast.emit("userOnline", publicUser(user));
+        }
+        socket.emit("sharingChanged", { mode });
     }));
 
-    // --- K. MEETUP OPTIMIZATION (real road-network travel time, not a guess) ---
-    // Client calls: socket.emit('computeMeetup', {memberIds, strategy}, (res) => {...})
-    // Uses an ack callback rather than a broadcast 'meetupResult' event — this
-    // is a request scoped to one asker, not squad-wide news; an ack avoids
-    // broadcasting to everyone and avoids needing a correlation id client-side.
+    // --- K. MEETUP OPTIMISATION ---------------------------------------------------
+    // socket.emit('computeMeetup', {memberIds:["me", ...], strategy:"sum"|"minimax", extraCandidates?}, ack)
+    // Candidates: centroid + ring + REAL nearby venues (Overpass) + custom points.
+    // Both strategies are ranked from ONE OSRM matrix so the UI can flip between
+    // "Fastest overall" and "Fairest" without another network round-trip.
     socket.on("computeMeetup", safeHandler(socket, async (data, ack) => {
         if (typeof ack !== "function") return;
-        try {
-            const memberIds = Array.isArray(data?.memberIds) ? data.memberIds.slice(0, 8) : [];
-            const strategy = data?.strategy === "minimax" ? "minimax" : "sum";
+        const requester = users.get(socket.id);
+        if (!requester) return ack({ ok: false, reason: "no-profile" });
+        if (!throttle(socket.id, "meetup", 3000)) return ack({ ok: false, reason: "too-frequent" });
 
-            const members = memberIds
-                .map((id) => (id === "me" ? users.get(socket.id) : users.get(id)))
-                .filter((u) => u && isValidCoordPair(u.lat, u.lng) && u.sharing !== false);
+        const strategy = data?.strategy === "minimax" ? "minimax" : "sum";
+        const ids = Array.isArray(data?.memberIds) ? data.memberIds.filter((i) => typeof i === "string").slice(0, 8) : [];
+        const seen = new Set();
+        const members = ids
+            .map((id) => (id === "me" ? requester : users.get(id)))
+            .filter((u) => u && !seen.has(u.id) && seen.add(u.id) && isValidCoordPair(u.lat, u.lng) && effectiveMode(u) === "exact");
+        if (members.length < 2) return ack({ ok: false, reason: "need-at-least-2-located-members" });
 
-            if (members.length < 2) return ack({ ok: false, reason: "need-at-least-2-located-members" });
+        const extra = Array.isArray(data?.extraCandidates)
+            ? data.extraCandidates.filter((c) => isValidCoordPair(c?.lat, c?.lng)).slice(0, 4) : [];
 
-            const extraCandidates = Array.isArray(data?.extraCandidates)
-                ? data.extraCandidates.filter((c) => isValidCoordPair(c?.lat, c?.lng)).slice(0, 6)
-                : [];
-            const candidates = buildMeetupCandidates(members, extraCandidates);
-            const matrix = await fetchOsrmTable(members, candidates);
-            if (!matrix) return ack({ ok: false, reason: "routing-service-unavailable" });
-
-            const scored = candidates
-                .map((cand, ci) => {
-                    const perMember = members.map((m, mi) => ({
-                        id: m.id, name: m.name,
-                        durationSec: matrix.durations[mi][ci], distanceM: matrix.distances[mi][ci]
-                    }));
-                    if (perMember.some((p) => p.durationSec == null)) return null; // unreachable for someone
-                    return {
-                        lat: cand.lat, lng: cand.lng, label: cand.label,
-                        perMember,
-                        sumSec: perMember.reduce((a, p) => a + p.durationSec, 0),
-                        maxSec: Math.max(...perMember.map((p) => p.durationSec))
-                    };
-                })
-                .filter(Boolean);
-
-            if (scored.length === 0) return ack({ ok: false, reason: "no-reachable-candidate" });
-
-            scored.sort((a, b) => (strategy === "minimax" ? a.maxSec - b.maxSec : a.sumSec - b.sumSec));
-            ack({ ok: true, strategy, results: scored.slice(0, 3) });
-        } catch (err) {
-            console.error("computeMeetup error:", err);
-            ack({ ok: false, reason: "internal-error" });
+        const centroidLat = members.reduce((s, m) => s + m.lat, 0) / members.length;
+        const centroidLng = members.reduce((s, m) => s + m.lng, 0) / members.length;
+        let spreadKm = 1;
+        for (let i = 0; i < members.length; i++) for (let j = i + 1; j < members.length; j++) {
+            spreadKm = Math.max(spreadKm, distanceKm(members[i].lat, members[i].lng, members[j].lat, members[j].lng));
         }
+        const venues = await fetchVenues(centroidLat, centroidLng, Math.min(6000, Math.max(800, spreadKm * 500)));
+        const { candidates } = buildMeetupCandidates(members, venues, extra);
+
+        const table = await fetchOsrmTable(members, candidates);
+        if (!table) return ack({ ok: false, reason: "routing-service-unavailable" });
+
+        const scored = [];
+        candidates.forEach((cand, ci) => {
+            const snapDist = table.destinations?.[ci]?.distance;
+            // Drop centroid/ring points that snap >800 m to a road (lake, forest, ...).
+            if (cand.kind !== "venue" && cand.kind !== "custom" && isFiniteNum(snapDist) && snapDist > 800) return;
+            const perMember = members.map((m, mi) => ({
+                id: m.id, name: m.name,
+                durationSec: table.durations?.[mi]?.[ci] ?? null,
+                distanceM: table.distances?.[mi]?.[ci] ?? null
+            }));
+            if (perMember.some((p) => p.durationSec == null)) return;
+            const loc = table.destinations?.[ci]?.location;
+            scored.push({
+                lat: cand.lat, lng: cand.lng, label: cand.label, kind: cand.kind, category: cand.category || null,
+                snapped: Array.isArray(loc) ? { lat: loc[1], lng: loc[0] } : null,
+                perMember,
+                sumSec: perMember.reduce((a, p) => a + p.durationSec, 0),
+                maxSec: Math.max(...perMember.map((p) => p.durationSec)),
+                minSec: Math.min(...perMember.map((p) => p.durationSec))
+            });
+        });
+        if (scored.length === 0) return ack({ ok: false, reason: "no-reachable-candidate" });
+
+        scored.forEach((s) => { s.spreadSec = s.maxSec - s.minSec; });
+        // Minimum-sum tie-breaks on fairness; minimax tie-breaks on total time.
+        const bySum = [...scored].sort((a, b) => a.sumSec - b.sumSec || a.maxSec - b.maxSec).slice(0, 3);
+        const byMinimax = [...scored].sort((a, b) => a.maxSec - b.maxSec || a.sumSec - b.sumSec).slice(0, 3);
+        ack({
+            ok: true, strategy,
+            results: strategy === "minimax" ? byMinimax : bySum,
+            rankings: { sum: bySum, minimax: byMinimax },
+            venuesFound: venues.length
+        });
     }));
 
-    // --- L. CARPOOL PICKUP ORDERING (OSRM /trip — restricted TSP, solved for free) ---
-    // Client calls: socket.emit('carpoolOptimize', {start, pickups, destination}, (res)=>{...})
+    // --- L. CARPOOL ORDERING + FUEL SPLIT ------------------------------------------
+    // socket.emit('carpoolOptimize', {start, pickups:[{id,name,lat,lng}], destination, kmPerL?, fuelPricePerL?}, ack)
     socket.on("carpoolOptimize", safeHandler(socket, async (data, ack) => {
         if (typeof ack !== "function") return;
+        if (!users.has(socket.id)) return ack({ ok: false, reason: "no-profile" });
+        if (!throttle(socket.id, "carpool", 3000)) return ack({ ok: false, reason: "too-frequent" });
+
+        const start = data?.start, dest = data?.destination;
+        if (!isValidCoordPair(start?.lat, start?.lng) || !isValidCoordPair(dest?.lat, dest?.lng)) {
+            return ack({ ok: false, reason: "invalid-start-or-destination" });
+        }
+        const rawStops = Array.isArray(data?.pickups) ? data.pickups.slice(0, 8) : [];
+        if (rawStops.length === 0 || rawStops.some((s) => !isValidCoordPair(s?.lat, s?.lng))) {
+            return ack({ ok: false, reason: "invalid-pickup-coords" });
+        }
+        const stops = rawStops.map((s) => ({ id: clampStr(s.id, 60) || null, name: clampStr(s.name, 40), lat: s.lat, lng: s.lng }));
+        const kmPerL = clampNum(data?.kmPerL, 1, 100, 15);
+        const pricePerL = clampNum(data?.fuelPricePerL, 0, 10_000, 0);
+
+        let ordered = null, legMeters = null, geometry = null, approximate = false, durationSec = null;
         try {
-            const start = data?.start, dest = data?.destination;
-            const stops = Array.isArray(data?.pickups) ? data.pickups.slice(0, 8) : [];
-            if (!isValidCoordPair(start?.lat, start?.lng) || !isValidCoordPair(dest?.lat, dest?.lng)) {
-                return ack({ ok: false, reason: "invalid-start-or-destination" });
-            }
-            if (stops.length === 0 || stops.some((s) => !isValidCoordPair(s?.lat, s?.lng))) {
-                return ack({ ok: false, reason: "invalid-pickup-coords" });
-            }
-
             const coordStr = [start, ...stops, dest].map((p) => `${p.lng},${p.lat}`).join(";");
-            const url = `${OSRM_BASE}/trip/v1/driving/${coordStr}?source=first&destination=last&roundtrip=false&steps=false`;
+            const url = `${OSRM_BASE}/trip/v1/driving/${coordStr}?source=first&destination=last&roundtrip=false&overview=full&geometries=geojson&steps=false`;
             const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
-            if (!res.ok) return ack({ ok: false, reason: "routing-service-unavailable" });
-            const json = await res.json();
-            if (json.code !== "Ok" || !json.trips?.length) return ack({ ok: false, reason: "no-route-found" });
-
-            const trip = json.trips[0];
-            const pickupOrder = json.waypoints
-                .map((wp, originalIdx) => ({ originalIdx, tripOrder: wp.waypoint_index }))
-                .filter((w) => w.originalIdx > 0 && w.originalIdx <= stops.length) // exclude start(0) & destination(last)
-                .sort((a, b) => a.tripOrder - b.tripOrder)
-                .map((w) => stops[w.originalIdx - 1]);
-
-            ack({
-                ok: true, pickupOrder,
-                totalDistanceKm: +(trip.distance / 1000).toFixed(2),
-                totalDurationMin: Math.round(trip.duration / 60),
-                geometry: trip.geometry
-            });
-        } catch (err) {
-            console.error("carpoolOptimize error:", err);
-            ack({ ok: false, reason: "internal-error" });
-        }
-    }));
-
-    // --- M. TRIP ANALYTICS PERSISTENCE ------------------------------------------
-    // One event at trip end carrying a downsampled point log, NOT a DB write per
-    // GPS tick — the realtime layer is untouched by this.
-    socket.on("tripFinished", safeHandler(socket, (data) => {
-        const user = users.get(socket.id);
-        if (!user || !user.deviceId || !data) return;
-
-        const points = (Array.isArray(data.points) ? data.points : [])
-            .slice(0, 2000)
-            .filter((p) => isValidCoordPair(p?.lat, p?.lng) && isFiniteNum(p?.ts));
-
-        const tripId = generateId();
-        stmt.insertTrip.run(
-            tripId, user.deviceId, clampStr(data.name || "", 80),
-            ALLOWED_MODES.includes(data.mode) ? data.mode : "drive",
-            isFiniteNum(data.startedAt) ? data.startedAt : Date.now(),
-            isFiniteNum(data.endedAt) ? data.endedAt : Date.now(),
-            isFiniteNum(data.totalDistKm) ? data.totalDistKm : 0,
-            isFiniteNum(data.avgSpeed) ? data.avgSpeed : 0,
-            isFiniteNum(data.maxSpeed) ? data.maxSpeed : 0,
-            isFiniteNum(data.fuelUsedL) ? data.fuelUsedL : 0
-        );
-
-        const insertMany = db.transaction((pts) => {
-            for (const p of pts) {
-                stmt.insertTripPoint.run(tripId, p.ts, p.lat, p.lng, isFiniteNum(p.speedKmh) ? p.speedKmh : null, isFiniteNum(p.accuracy) ? p.accuracy : null);
-            }
-        });
-        insertMany(points);
-    }));
-
-    // --- N. PRIVACY: DELETE MY HISTORY ------------------------------------------
-    socket.on("deleteMyHistory", safeHandler(socket, (_data, ack) => {
-        const user = users.get(socket.id);
-        if (!user || !user.deviceId) {
-            if (typeof ack === "function") ack({ ok: false, reason: "no-device-identity" });
-            return;
-        }
-        const tripIds = stmt.tripIdsForDevice.all(user.deviceId).map((r) => r.id);
-        const del = db.transaction(() => {
-            for (const id of tripIds) stmt.deleteTripPointsFor.run(id);
-            stmt.deleteTripsForDevice.run(user.deviceId);
-            stmt.deleteMemoriesForDevice.run(user.deviceId);
-        });
-        del();
-        if (typeof ack === "function") ack({ ok: true, tripsDeleted: tripIds.length });
-    }));
-
-    // --- O. DISCONNECT -----------------------------------------------------------
-    socket.on("disconnect", () => {
-        console.log(`🔴 Disconnected: ${socket.id}`);
-        socketEventCounts.delete(socket.id);
-
-        if (voiceSquadMembers.delete(socket.id)) {
-            io.emit("voice-squad-member-left", { id: socket.id });
-        }
-
-        if (users.has(socket.id)) {
-            const user = users.get(socket.id);
-            user.online = false;
-
-            io.emit("userOffline", { id: socket.id });
-            io.emit("friendDisconnected", socket.id);
-
-            if (currentTrip) {
-                if (currentTrip.hostId === socket.id) {
-                    currentTrip = null;
-                    io.emit("tripData", null);
-                } else {
-                    currentTrip.members = currentTrip.members.filter((m) => m.id !== socket.id);
-                    io.emit("tripData", currentTrip);
+            if (res.ok) {
+                const json = await res.json();
+                const trip = json.code === "Ok" ? json.trips?.[0] : null;
+                if (trip && Array.isArray(trip.legs) && trip.legs.length === stops.length + 1) {
+                    const n = stops.length + 2;
+                    const posToInput = new Array(n).fill(null);
+                    json.waypoints.forEach((wp, inputIdx) => { posToInput[wp.waypoint_index] = inputIdx; });
+                    ordered = [];
+                    for (let pos = 1; pos <= n - 2; pos++) ordered.push(stops[posToInput[pos] - 1]);
+                    if (ordered.every(Boolean)) {
+                        legMeters = trip.legs.map((l) => l.distance);
+                        geometry = trip.geometry;
+                        durationSec = trip.duration;
+                    } else { ordered = null; }
                 }
             }
+        } catch (e) {
+            console.warn("OSRM /trip failed, using greedy+2-opt fallback:", e.message);
+        }
+        if (!ordered) {
+            const fb = orderPickupsFallback(start, stops, dest);
+            ordered = fb.ordered.map(({ _i, ...rest }) => rest);
+            legMeters = fb.legMeters;
+            approximate = true;
+        }
 
-            setTimeout(() => users.delete(socket.id), 5000);
+        const split = splitCarpoolCosts(ordered, legMeters, kmPerL, pricePerL);
+        const totalMeters = legMeters.reduce((a, b) => a + b, 0);
+        ack({
+            ok: true, approximate,
+            pickupOrder: ordered,
+            legs: legMeters.map((m) => +(m / 1000).toFixed(2)),
+            totalDistanceKm: +(totalMeters / 1000).toFixed(2),
+            totalDurationMin: durationSec != null ? Math.round(durationSec / 60) : null,
+            geometry,                                  // GeoJSON LineString (null in fallback)
+            assumptions: { kmPerL, fuelPricePerL: pricePerL, note: "Estimate: fuel split by distance actually ridden, shared equally per leg." },
+            driver: split.driver, riders: split.riders
+        });
+    }));
+
+    // --- M. TRIP ANALYTICS PERSISTENCE ---------------------------------------------
+    // One event at trip end with a downsampled log — no DB write per GPS tick.
+    // Trip row + points commit in ONE transaction (no half-written trips).
+    socket.on("tripFinished", safeHandler(socket, (data, ack) => {
+        const user = users.get(socket.id);
+        if (!user || !user.deviceId || !data) return typeof ack === "function" && ack({ ok: false, reason: "no-device-identity" });
+        if (!throttle(socket.id, "tripFinished", 5000)) return typeof ack === "function" && ack({ ok: false, reason: "too-frequent" });
+
+        const now = Date.now();
+        const points = (Array.isArray(data.points) ? data.points : [])
+            .slice(0, 2000)
+            .filter((p) => isValidCoordPair(p?.lat, p?.lng) && isFiniteNum(p?.ts) && p.ts > now - 8 * 86_400_000 && p.ts < now + 300_000);
+
+        const tripId = generateId();
+        const startedAt = isFiniteNum(data.startedAt) ? Math.min(data.startedAt, now) : now;
+        const endedAt = isFiniteNum(data.endedAt) ? Math.min(Math.max(data.endedAt, startedAt), now + 60_000) : now;
+
+        db.transaction(() => {
+            stmt.insertTrip.run(
+                tripId, user.deviceId, clampStr(data.name || "", 80), normalizeMode(data.mode), startedAt, endedAt,
+                clampNum(data.totalDistKm, 0, 5000, 0), clampNum(data.avgSpeed, 0, 300, 0),
+                clampNum(data.maxSpeed, 0, 300, 0), clampNum(data.fuelUsedL, 0, 500, 0)
+            );
+            for (const p of points) {
+                stmt.insertTripPoint.run(tripId, p.ts, p.lat, p.lng,
+                    isFiniteNum(p.speedKmh) ? clampNum(p.speedKmh, 0, 300, null) : null,
+                    isFiniteNum(p.accuracy) ? clampNum(p.accuracy, 0, 100000, null) : null);
+            }
+        })();
+        if (typeof ack === "function") ack({ ok: true, tripId, points: points.length });
+    }));
+
+    // Analytics reads — strictly scoped to the caller's own deviceId.
+    socket.on("listMyTrips", safeHandler(socket, (data, ack) => {
+        if (typeof ack !== "function") return;
+        const user = users.get(socket.id);
+        if (!user?.deviceId) return ack({ ok: false, reason: "no-device-identity" });
+        ack({ ok: true, trips: stmt.listTrips.all(user.deviceId, clampNum(data?.limit, 1, 100, 30)) });
+    }));
+
+    socket.on("getTripPoints", safeHandler(socket, (data, ack) => {
+        if (typeof ack !== "function") return;
+        const user = users.get(socket.id);
+        if (!user?.deviceId) return ack({ ok: false, reason: "no-device-identity" });
+        if (!isNonEmptyStr(data?.tripId, 60)) return ack({ ok: false, reason: "bad-trip-id" });
+        const owner = stmt.getTripOwner.get(data.tripId);
+        if (!owner || owner.host_device_id !== user.deviceId) return ack({ ok: false, reason: "not-found" });
+        ack({ ok: true, points: stmt.getTripPoints.all(data.tripId, 5000) });
+    }));
+
+    // --- N. PRIVACY: EXPORT + DELETE -----------------------------------------------
+    socket.on("exportMyData", safeHandler(socket, (_data, ack) => {
+        if (typeof ack !== "function") return;
+        const user = users.get(socket.id);
+        if (!user?.deviceId) return ack({ ok: false, reason: "no-device-identity" });
+        const trips = stmt.listTrips.all(user.deviceId, 1000).map((t) => ({
+            ...t, points: stmt.getTripPoints.all(t.id, 5000)
+        }));
+        ack({
+            ok: true, exportedAt: new Date().toISOString(),
+            profile: { name: user.name }, trips,
+            memories: stmt.listMemoriesMeta.all(user.deviceId),
+            geofences: stmt.listGeofencesForDevice.all(user.deviceId)
+        });
+    }));
+
+    // deleteMyHistory {includeIdentity?: boolean}
+    // Purges trips, breadcrumbs, memories and owned geofences from SQLite AND
+    // RAM, then checkpoints the WAL (secure_delete overwrites freed pages).
+    socket.on("deleteMyHistory", safeHandler(socket, (data, ack) => {
+        const user = users.get(socket.id);
+        if (!user || !user.deviceId) return typeof ack === "function" && ack({ ok: false, reason: "no-device-identity" });
+        const deviceId = user.deviceId;
+        const includeIdentity = data?.includeIdentity === true;
+
+        let tripsDeleted = 0, memoriesDeleted = 0, geofencesDeleted = 0;
+        db.transaction(() => {
+            stmt.deleteTripPointsForDevice.run(deviceId);
+            tripsDeleted = stmt.deleteTripsForDevice.run(deviceId).changes;
+            memoriesDeleted = stmt.deleteMemoriesForDevice.run(deviceId).changes;
+            geofencesDeleted = stmt.deleteGeofencesForDevice.run(deviceId).changes;
+            if (includeIdentity) stmt.deleteUser.run(deviceId);
+        })();
+        try { db.pragma("wal_checkpoint(TRUNCATE)"); } catch (e) { console.warn("WAL checkpoint skipped:", e.message); }
+
+        for (let i = memories.length - 1; i >= 0; i--) if (memories[i].deviceId === deviceId) memories.splice(i, 1);
+        geofences = geofences.filter((f) => f.ownerDeviceId !== deviceId);
+        if (includeIdentity) { user.deviceId = null; user.verified = false; deviceToSocket.delete(deviceId); }
+
+        io.emit("loadMemoryPhotos", memories.map(publicMemory));
+        io.emit("loadGeofences", geofences.map(publicFence));
+        if (typeof ack === "function") ack({ ok: true, tripsDeleted, memoriesDeleted, geofencesDeleted, identityDeleted: includeIdentity });
+    }));
+
+    // --- O. DISCONNECT (with reconnect grace) ---------------------------------------
+    socket.on("disconnect", () => {
+        console.log(`🔴 Disconnected: ${socket.id}`);
+        forgetSocketCounters(socket.id);
+        const user = users.get(socket.id);
+        if (!user) return; // already migrated to a newer socket
+        user.online = false;
+        io.emit("userOffline", { id: socket.id });
+
+        if (user.deviceId) {
+            // Hold trip role/roster for a grace window so a tunnel or an
+            // Wi-Fi<->LTE handover does not end the squad's trip.
+            const timer = setTimeout(() => finalizeDeparture(socket.id), RECONNECT_GRACE_MS);
+            timer.unref?.();
+            pendingDeparture.set(user.deviceId, timer);
+        } else {
+            setTimeout(() => finalizeDeparture(socket.id), 5000).unref?.();
         }
     });
 });
 
 // ==========================================================================
-// 9. START SERVER
+// 10. STARTUP: HYDRATE RAM FROM SQLITE, RETENTION JOB, START, SHUTDOWN
 // ==========================================================================
-const PORT = process.env.PORT || 3000;
+function hydrateFromDatabase() {
+    stmt.hydrateMemories.all(MAX_MEMORIES_IN_RAM).reverse().forEach((r) => {
+        memories.push({
+            id: r.id, name: r.name || "", lat: r.lat, lng: r.lng, image: r.image_ref, caption: r.caption || "",
+            time: new Date(r.created_at).toISOString(), deviceId: r.device_id || null, tripId: r.trip_id || null
+        });
+    });
+    geofences = stmt.hydrateGeofences.all().map((r) => ({
+        id: r.id, name: r.name, lat: r.lat, lng: r.lng, radius: r.radius,
+        ownerId: null, ownerName: r.owner_name || "", ownerDeviceId: r.owner_device_id || null
+    }));
+    console.log(`   Hydrated ${memories.length} memories and ${geofences.length} geofences from SQLite`);
+}
+
+function purgeExpiredTrips() {
+    if (TRIP_RETENTION_DAYS <= 0) return;
+    const cutoff = Date.now() - TRIP_RETENTION_DAYS * 86_400_000;
+    try {
+        const removed = db.transaction(() => {
+            stmt.purgeOldTripPoints.run(cutoff);
+            return stmt.purgeOldTrips.run(cutoff).changes;
+        })();
+        if (removed) console.log(`🗑️  Retention: purged ${removed} trip(s) older than ${TRIP_RETENTION_DAYS} days`);
+    } catch (e) {
+        console.error("Retention purge failed:", e.message);
+    }
+}
+
+hydrateFromDatabase();
+purgeExpiredTrips();
+setInterval(purgeExpiredTrips, 6 * 3600 * 1000).unref();
+
+// Keep the process alive through stray promise rejections; for a truly uncaught
+// exception process state is unknowable, so log and exit for the supervisor
+// (Render / systemd / pm2) to restart cleanly.
+process.on("unhandledRejection", (reason) => console.error("unhandledRejection:", reason));
+process.on("uncaughtException", (err) => { console.error("uncaughtException:", err); shutdown(1); });
+
+let shuttingDown = false;
+function shutdown(code = 0) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log("Shutting down…");
+    const force = setTimeout(() => process.exit(code || 1), 8000);
+    force.unref();
+    io.close(() => {
+        server.close(() => {
+            try { db.pragma("wal_checkpoint(TRUNCATE)"); db.close(); } catch { /* ignore */ }
+            process.exit(code);
+        });
+    });
+}
+process.on("SIGTERM", () => shutdown(0));
+process.on("SIGINT", () => shutdown(0));
+
 server.listen(PORT, "0.0.0.0", () => {
     console.log(`🚀 MapUnite Server running on http://localhost:${PORT}`);
     console.log(`   DB: ${DB_PATH}`);
     console.log(`   OSRM: ${OSRM_BASE}`);
+    console.log(`   CORS: ${CORS_ORIGIN === false ? "same-origin only" : JSON.stringify(CORS_ORIGIN)}`);
+    console.log(`   CSP: ${process.env.ENFORCE_CSP === "1" ? "enforced" : "report-only"}`);
+    if (!GOOGLE_KEY) console.log("   Places proxy: disabled (set GOOGLE_MAPS_SERVER_KEY to enable)");
 });
