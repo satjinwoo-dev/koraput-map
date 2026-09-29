@@ -501,6 +501,72 @@ emoji-picker { width: 100%; height: 320px; --background: #0e1724; --border-color
 #confirm-check-wrap { display: flex; align-items: center; gap: 10px; justify-content: center; margin: 0 0 14px; font-size: 13px; color: var(--soft); text-align: left; }
 #confirm-modal .btn-row { display: flex; gap: 10px; } #confirm-modal .btn-row button { flex: 1; }
 
+/* ---------- 9b. PHASE 3: analytics, replay, convoy, voice ---------- */
+.an-filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 2px 0 6px; }
+.an-filters .segmented { flex: 1 1 200px; }
+.an-window { margin: 12px 0 8px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+.stat-grid.four { grid-template-columns: repeat(2, 1fr); margin-top: 0; }
+@media (min-width: 440px) { .stat-grid.four { grid-template-columns: repeat(4, 1fr); } }
+.stat-grid.four .v { font-variant-numeric: normal; }          /* proportional figures for standalone values */
+.an-chart { position: relative; margin-top: 12px; min-height: 196px; transition: opacity var(--dur) var(--ease-out); }
+.an-chart.is-loading { opacity: .5; }                         /* refetch keeps the frame — no skeleton flash */
+.an-chart svg { display: block; max-width: 100%; height: auto; overflow: visible; }
+.an-tick, .an-xlabel { fill: var(--muted); font-size: 10.5px; font-family: var(--font-ui); font-variant-numeric: tabular-nums; }
+.an-peak { fill: var(--soft); font-size: 11px; font-weight: 700; font-family: var(--font-ui); }
+.an-empty { fill: var(--muted); font-size: 12.5px; font-family: var(--font-ui); }
+.an-bar { cursor: pointer; outline: none; }
+.an-bar .an-mark { transition: filter var(--dur-fast) var(--ease-out); }
+.an-bar:hover .an-mark, .an-bar:focus-visible .an-mark { filter: brightness(1.18); }
+.an-bar:focus-visible > rect { stroke: var(--mint); stroke-width: 1.5; }
+.an-tip { position: absolute; z-index: 2; pointer-events: none; display: flex; flex-direction: column; gap: 2px; padding: 8px 10px;
+  border-radius: 12px; background: var(--glass-solid); border: 1px solid var(--line-strong); box-shadow: var(--elev-2); white-space: nowrap; font-size: 12px; }
+.an-tip strong { font-family: var(--font-display); font-size: 14px; }
+.an-tip span { color: var(--soft); }
+.an-detail { margin: 6px 0 0; min-height: 18px; }
+.an-table-wrap { margin-top: 10px; }
+.an-table-wrap summary { cursor: pointer; font-size: 12.5px; color: var(--soft); padding: 6px 0; }
+.an-table-scroll { overflow-x: auto; }
+.an-table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.an-table th, .an-table td { padding: 6px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.an-table thead th { color: var(--muted); font-size: 11px; font-weight: 700; }
+.an-table th:first-child { text-align: left; font-weight: 600; }
+#analytics-notice { color: var(--c-warn); margin: 4px 0 0; }
+#analytics-trips .trip-row { margin: 0; gap: 12px; }
+
+/* Right edge stops short of the SOS / group-call / radar buttons stacked at bottom-right. */
+#replay-legend { display: none; position: fixed; left: 12px; right: 84px; max-width: 440px; bottom: calc(84px + var(--safe-b)); z-index: var(--z-sheet);
+  align-items: center; gap: 12px; padding: 10px 10px 10px 14px; border-radius: 20px; animation: sheetUp var(--dur-slow) var(--ease-spring); }
+#replay-legend .rl-body { flex: 1; min-width: 0; }
+#replay-title { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#replay-bands { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11.5px; color: var(--soft); }
+#replay-bands li { display: flex; align-items: center; gap: 6px; }
+#replay-bands .swatch { width: 18px; height: 4px; border-radius: 2px; box-shadow: 0 0 0 1.5px #0b1220; }
+#replay-clear-btn { flex: none; height: 36px; padding: 0 14px; font-size: 13px; }
+
+.convoy-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; }
+.convoy-label { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 700; margin-right: 2px; }
+.trip-member .chip { height: 22px; font-size: 11px; }
+.custom-friend-icon > div { transition: box-shadow var(--dur) var(--ease-out), filter var(--dur) var(--ease-out); }
+.custom-friend-icon[data-convoy="stopped"] > div { box-shadow: 0 0 0 3px var(--c-danger), 0 0 14px rgba(255,69,58,.55); }
+.custom-friend-icon[data-convoy="warn"] > div { box-shadow: 0 0 0 3px var(--c-warn), 0 0 12px rgba(255,176,32,.45); }
+.custom-friend-icon[data-convoy="silent"] > div { box-shadow: 0 0 0 3px var(--muted); filter: grayscale(.75); }
+
+.tool-btn.listening { background: var(--c-danger); color: #fff; --isl: var(--c-danger); animation: islandAlert 1.1s ease-in-out infinite; }
+
+/* Layout fixes found while screenshot-testing Phase 3 at 390 px:
+   - tall modals started under the floating status island;
+   - the always-on-top SOS button (z 9998) sat on scrollable content and on
+     the navigation sheet's status value;
+   - section-heading icons broke onto their own line;
+   - three bottom pills + two FABs don't fit a 390 px phone (the island
+     already says "Live", so that pill goes on narrow screens). */
+.modal { padding-top: calc(64px + var(--safe-t)); }
+.modal-card { max-height: calc(var(--app-h) - 84px - var(--safe-t)); }
+#analytics-modal .modal-card, #profile-settings-modal .modal-card { padding-bottom: 96px; }
+.form-section > h3 .i { display: inline-block; }
+body:has(#premium-nav-ui[style*="block"]) #sos-btn { bottom: calc(266px + var(--safe-b)) !important; }
+@media (max-width: 480px) { .bottom-pill.live { display: none; } }
+
 /* ---------- 10. MAP OVERRIDES ---------- */
 /* Attribution is REQUIRED by the tile licences (OSM / Esri / OpenTopoMap / Carto). Kept small, glassy, and clear of the FABs. */
 .leaflet-bottom.leaflet-right { right: 50%; transform: translateX(50%); bottom: calc(60px + var(--safe-b)); pointer-events: none; }
@@ -541,6 +607,7 @@ emoji-picker { width: 100%; height: 320px; --background: #0e1724; --border-color
     <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v13m0 0-4.5-4.5M12 16l4.5-4.5"/><path d="M4 19.5h16"/></symbol>
     <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4.5h6V7M6 7l1 13h10l1-13"/></symbol>
     <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 2.5 20 6v6c0 5-3.4 8.7-8 9.5-4.6-.8-8-4.5-8-9.5V6z"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3.5 20.5h17"/><path d="M6.5 20.5v-6"/><path d="M11 20.5V9"/><path d="M15.5 20.5v-8"/><path d="M20 20.5V5"/></symbol>
   </defs>
 </svg>
 
@@ -602,6 +669,8 @@ emoji-picker { width: 100%; height: 320px; --background: #0e1724; --border-color
   <button id="measure-btn" class="tool-btn" type="button" title="Measure" aria-label="Measure distance"><svg class="i"><use href="#i-ruler"/></svg></button>
   <button id="geofence-btn" class="tool-btn" type="button" title="Geofence" aria-label="Manage geofences"><svg class="i"><use href="#i-fence"/></svg></button>
   <button id="trip-btn" class="tool-btn" type="button" title="Group Trip" aria-label="Start or join a group trip"><svg class="i"><use href="#i-flag"/></svg></button>
+  <button id="analytics-btn" class="tool-btn" type="button" title="Your rides" aria-label="Open ride history and stats"><svg class="i"><use href="#i-chart"/></svg></button>
+  <button id="voice-cmd-map-btn" class="tool-btn" type="button" title="Voice command" aria-label="Voice command" aria-pressed="false"><svg class="i"><use href="#i-mic"/></svg></button>
 </div>
 <div id="map-style-menu" role="menu" aria-label="Map style">
   <button data-style="satellite" class="active" type="button" role="menuitemradio" aria-checked="true">Satellite</button>
@@ -644,6 +713,7 @@ emoji-picker { width: 100%; height: 320px; --background: #0e1724; --border-color
         <button class="btn-primary-nav" id="btn-start-nav" type="button">Start Drive</button>
         <button class="btn-danger-nav" id="btn-exit-nav" type="button">Stop</button>
         <button class="btn-secondary-nav" id="btn-reset-nav" type="button">Cancel</button>
+        <button class="btn-icon-nav" id="voice-cmd-btn" type="button" aria-label="Voice command" aria-pressed="false" title="Voice command"><svg class="i"><use href="#i-mic"/></svg></button>
       </div>
     </div>
 </div>
@@ -683,6 +753,31 @@ emoji-picker { width: 100%; height: 320px; --background: #0e1724; --border-color
       <canvas id="speed-graph-canvas"></canvas>
     </div>
 
+    <!-- Phase 3: voice-first Safe Drive (features.js VoiceAssistant) -->
+    <div class="form-section">
+      <h3><svg class="i sm" style="width:13px;height:13px;vertical-align:-2px;"><use href="#i-mic"/></svg> Voice</h3>
+      <div class="modal-row">
+        <label for="voice-alerts-toggle">Spoken alerts &amp; directions</label>
+        <input type="checkbox" id="voice-alerts-toggle" class="switch" checked>
+      </div>
+      <div class="modal-row">
+        <label for="voice-handsfree-toggle">Hands-free commands while driving</label>
+        <input type="checkbox" id="voice-handsfree-toggle" class="switch">
+      </div>
+      <p class="field-hint" id="voice-support-hint">Tap the microphone on the map or in navigation and say “help” to hear the commands.</p>
+      <button id="voice-test-btn" type="button" class="btn-secondary-nav btn-block">🔊 Test voice</button>
+    </div>
+
+    <!-- Phase 3: convoy intelligence (features.js ConvoyIntelligence) -->
+    <div class="form-section">
+      <h3><svg class="i sm" style="width:13px;height:13px;vertical-align:-2px;"><use href="#i-users"/></svg> Convoy</h3>
+      <div class="modal-row">
+        <label for="convoy-alerts-toggle">Convoy alerts</label>
+        <input type="checkbox" id="convoy-alerts-toggle" class="switch" checked>
+      </div>
+      <p class="field-hint">In a group trip or meetup: tells you when a rider falls 5+ minutes behind by road, stops for 3+ minutes, leaves their route, or loses signal.</p>
+    </div>
+
     <!-- Privacy — new hooks for Step 1's session-scoped sharing + zero-trace delete.
          Wired up in app.js (Step 3): setSharing / exportMyData / deleteMyHistory. -->
     <div class="form-section">
@@ -695,7 +790,7 @@ emoji-picker { width: 100%; height: 320px; --background: #0e1724; --border-color
         <button type="button" data-value="approx" aria-pressed="false">Approx.</button>
         <button type="button" data-value="off" aria-pressed="false">Off</button>
       </div>
-      <p class="field-hint" id="sharing-mode-hint">Exact: your squad sees your live position. Approx.: rounded to ~1&nbsp;km, hidden during an active group trip. Off: you appear offline.</p>
+      <p class="field-hint" id="sharing-mode-hint">Exact: everyone on the map sees your live position. Approx.: others see it rounded to ~1&nbsp;km — but riders in your active group trip still see your exact position. Off: you appear offline to everyone.</p>
     </div>
     <div class="form-section">
       <h3>Your Data</h3>
@@ -704,6 +799,57 @@ emoji-picker { width: 100%; height: 320px; --background: #0e1724; --border-color
       <p class="field-hint">Erases your trips, breadcrumbs, memories and geofences from this server. Your name stays unless you also remove your device identity.</p>
     </div>
   </div>
+</div>
+
+<!-- PHASE 3: TRIP ANALYTICS (app.js TripAnalytics) -->
+<div class="modal" id="analytics-modal" data-dismissable role="dialog" aria-modal="true" aria-labelledby="analytics-title">
+  <div class="modal-card wide">
+    <button class="close-modal" id="analytics-close" type="button" aria-label="Close"><svg class="i sm"><use href="#i-x"/></svg></button>
+    <h2 id="analytics-title">Your rides</h2>
+
+    <!-- One filter row, above everything it scopes -->
+    <div class="an-filters">
+      <div class="segmented" data-segment="analyticsPeriod" role="radiogroup" aria-label="Group rides by">
+        <button type="button" data-value="day" aria-pressed="true">Day</button>
+        <button type="button" data-value="week" aria-pressed="false">Week</button>
+        <button type="button" data-value="month" aria-pressed="false">Month</button>
+      </div>
+      <div class="segmented" data-segment="analyticsMetric" role="radiogroup" aria-label="Chart shows">
+        <button type="button" data-value="distance" aria-pressed="true">Distance</button>
+        <button type="button" data-value="duration" aria-pressed="false">Time</button>
+        <button type="button" data-value="fuel" aria-pressed="false">Fuel</button>
+      </div>
+    </div>
+    <p id="analytics-notice" class="field-hint" hidden></p>
+
+    <div class="an-window" id="analytics-window">Last 14 days</div>
+    <div class="stat-grid four" id="analytics-totals"></div>
+
+    <div class="an-chart" id="analytics-chart">
+      <div class="an-tip" id="analytics-tip" role="tooltip" hidden></div>
+    </div>
+    <p class="field-hint an-detail" id="analytics-detail" aria-live="polite">Tap a bar for that period's details.</p>
+
+    <details class="an-table-wrap">
+      <summary>Show as table</summary>
+      <div class="an-table-scroll"><table class="an-table" id="analytics-table"></table></div>
+    </details>
+
+    <div class="form-section">
+      <h3>Recent rides · tap to replay</h3>
+      <div id="analytics-trips"></div>
+    </div>
+    <p class="field-hint" id="analytics-footnote"></p>
+  </div>
+</div>
+
+<!-- PHASE 3: RIDE REPLAY LEGEND (text + swatch — never color alone) -->
+<div id="replay-legend" class="glass-strong" role="region" aria-label="Ride replay legend">
+  <div class="rl-body">
+    <div id="replay-title">Ride replay</div>
+    <ul id="replay-bands"></ul>
+  </div>
+  <button id="replay-clear-btn" class="btn-secondary-nav" type="button">Clear</button>
 </div>
 
 <!-- CONFIRM SHEET — generic Promise-based confirm() replacement (shell.js) -->
@@ -886,12 +1032,15 @@ emoji-picker { width: 100%; height: 320px; --background: #0e1724; --border-color
     <div id="carpool-results" class="form-section"></div>
   </div>
 </div>
-<div id="group-nav-active" class="modal" data-dismissable role="dialog" aria-modal="true">
-  <div class="modal-card">
-    <div class="modal-head">
+<!-- Phase 3: a bottom sheet, not a full-screen modal — the Step 2 modal blurred
+     the whole map, hiding the very routes this panel is about. -->
+<div id="group-nav-active" class="sheet" role="region" aria-label="Meeting point">
+  <div class="sheet-card glass-strong">
+    <div class="modal-head" style="padding-right:0;">
         <strong>Meeting Point</strong>
-        <button id="group-nav-stop-btn" class="btn-danger-nav" type="button">Stop</button>
+        <button id="group-nav-stop-btn" class="btn-danger-nav" type="button" style="flex:none;height:36px;">Stop</button>
     </div>
+    <div id="convoy-status-meetup" class="convoy-status" hidden></div>
     <div id="group-nav-stats-list"></div>
   </div>
 </div>
@@ -903,6 +1052,7 @@ emoji-picker { width: 100%; height: 320px; --background: #0e1724; --border-color
       <button id="trip-action-btn" class="btn-secondary-nav" type="button">Join</button>
   </div>
   <div id="trip-members-list"></div>
+  <div id="convoy-status" class="convoy-status" hidden></div>
 </div>
 
 <!-- HIDDEN ELEMENTS -->
@@ -966,7 +1116,7 @@ emoji-picker { width: 100%; height: 320px; --background: #0e1724; --border-color
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyASbmXgn0T-B4AQdCe1sp7dfJbDXKgDw5c&libraries=places&loading=async"></script>
 <script src="/shell.js"></script>
-<script src="app.js?v=20260929-refactor"></script>
-<script src="features.js"></script>
+<script src="app.js?v=20260929-phase3"></script>
+<script src="features.js?v=20260929-phase3"></script>
 </body>
 </html>
