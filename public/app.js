@@ -31,6 +31,25 @@
      - Two real bugs fixed: `TripDB.restoreTrip()` / `TripDB.restoreNavState()`
        don't exist on TripDB (features.js only exposes `restoreAll()`) — both
        call sites threw. Fixed to read through `restoreAll()`.
+
+   PHASE 3 (roadmap Sections 4 + 13) — additive:
+     - TripAnalytics: day / week / month rollups from the server's
+       `getTripRollups` (bucketed in the rider's LOCAL time via tzOffsetMin),
+       an accessible SVG bar chart + table twin, recent rides from
+       `listMyTrips`, and ride replay from `getTripPoints` drawn in the speed
+       tiers the alerts use.
+     - Offline-safe `tripFinished`: a finished ride is queued in localStorage
+       and flushed after `profileAccepted`, so a ride that ends out of signal
+       isn't lost.
+     - Voice bridge: `voiceAnnounce()` hands speed / navigation / geofence /
+       SOS cues to features.js's VoiceAssistant, and `mu:drive-state` events
+       tell it (and hands-free listening) when a drive starts or stops.
+     - Navigation now shows and speaks the NEXT maneuver ("In 200 metres, turn
+       left onto NH-26"). Before, the banner showed the maneuver just done.
+     - Fixed: the trip gear checklist never rendered (insertBefore() was given
+       a node that isn't a child of #trip-panel, and the throw was swallowed).
+     - Fixed: geofence / SOS island text was HTML-escaped and then set through
+       textContent, so "Tom & Jerry" displayed as "Tom &amp; Jerry".
    ============================================================================ */
 
 const socket = io({ transports: ["websocket", "polling"] });
@@ -222,6 +241,55 @@ async function confirmDialog(opts) {
 function islandShow(spec) { if (window.StatusIsland) return window.StatusIsland.show(spec); }
 function islandHide(id) { if (window.StatusIsland) window.StatusIsland.hide(id); }
 
+// ---- Voice bridge (Phase 3) ------------------------------------------------
+// Every spoken cue in app.js goes through here. features.js's VoiceAssistant
+// owns the policy (priority queue, mute, "spoken alerts" setting, echo guard
+// for hands-free listening). If features.js failed to load, fall back to a
+// plain utterance so safety-critical cues still get through.
+//   opts: { priority 0..100, key (dedupe), cooldownMs, category,
+//           drivingOnly (skip unless a drive is active), force (user-asked
+//           replies / SOS: bypass the settings toggle and mute), maxAgeMs }
+function voiceAnnounce(text, opts = {}) {
+    if (window.VoiceAssistant && typeof window.VoiceAssistant.announce === "function") {
+        return window.VoiceAssistant.announce(text, opts);
+    }
+    try {
+        if (!("speechSynthesis" in window) || !text) return false;
+        if ((opts.priority ?? 50) < 60 && !opts.force) return false;
+        window.speechSynthesis.speak(new SpeechSynthesisUtterance(String(text)));
+        return true;
+    } catch (e) { return false; }
+}
+
+// Live navigation state, read by voice commands ("how far?") and by
+// isDriving(). Updated only inside startSearchNavigation()/stopDrive().
+const navState = { ready: false, active: false, destName: "", remainingM: null, etaSec: null, nextManeuver: "" };
+
+// Broadcast drive start/stop so features.js can arm hands-free listening and
+// the convoy loop without app.js knowing about either.
+function isDriving() {
+    return Boolean((typeof SmartDrive !== "undefined" && SmartDrive.trip && SmartDrive.trip.active) || navState.active);
+}
+function emitDriveState() {
+    document.dispatchEvent(new CustomEvent("mu:drive-state", { detail: { driving: isDriving(), navigating: navState.active } }));
+}
+
+// Spoken-distance/time helpers shared with features.js.
+function spokenDistance(meters) {
+    if (!Number.isFinite(meters)) return "";
+    if (meters < 100) return `${Math.max(10, Math.round(meters / 10) * 10)} metres`;
+    if (meters < 1000) return `${Math.round(meters / 50) * 50} metres`;
+    const km = meters / 1000;
+    return `${km >= 10 ? Math.round(km) : km.toFixed(1).replace(/\.0$/, "")} kilometres`;
+}
+function spokenMinutes(min) {
+    const m = Math.max(0, Math.round(min));
+    if (m < 1) return "less than a minute";
+    if (m < 60) return `${m} minute${m === 1 ? "" : "s"}`;
+    const h = Math.floor(m / 60), r = m % 60;
+    return `${h} hour${h === 1 ? "" : "s"}${r ? ` ${r} minute${r === 1 ? "" : "s"}` : ""}`;
+}
+
 function ownIcon() {
     return L.divIcon({
         className: "custom-own-icon",
@@ -362,15 +430,20 @@ const SmartDrive = {
         const now = Date.now();
         if (tier <= this.lastAlertTier && now - this.lastAlertTime < 15000) return;
 
+        // Spoken cue (Phase 3): the rider shouldn't have to look down to learn
+        // why the phone beeped (roadmap Section 25). Tier 1 stays silent —
+        // speaking every 60 km/h crossing would train riders to ignore voice.
         if (tier === 3) {
             showToast("🚨 DANGER: Speed 100+ km/h! Slow Down!", 5000);
             this.triggerRedMap();
             this.beep(800, 3000);
             islandShow({ id: "speed", kind: "speed-danger", title: "Slow down", sub: "Over 100 km/h", meta: `${Math.round(speed)}`, ttl: 8000 });
+            voiceAnnounce("Slow down. You are over 100 kilometres per hour.", { priority: 90, key: "speed-3", cooldownMs: 15000, category: "speed", maxAgeMs: 4000 });
         } else if (tier === 2) {
             showToast("⚠️ WARNING: Crossing 80 km/h.", 4000);
             this.beep(600, 400);
             islandShow({ id: "speed", kind: "speed-warn", title: "Speed check", sub: "Over 80 km/h", meta: `${Math.round(speed)}`, ttl: 4500 });
+            voiceAnnounce("Speed check. Over 80.", { priority: 62, key: "speed-2", cooldownMs: 15000, category: "speed", drivingOnly: true, maxAgeMs: 4000 });
         } else {
             showToast("🟢 Alert: Speed above 60 km/h.", 3000);
             islandShow({ id: "speed", kind: "info", title: "Speed", sub: "Over 60 km/h", meta: `${Math.round(speed)}`, ttl: 3000, haptic: false });
@@ -476,6 +549,7 @@ const SmartDrive = {
         this.requestWakeLock();
         const mode = (typeof currentTravelMode !== "undefined" && currentTravelMode) || "drive";
         socket.emit("startSession", { mode: mode === "car" ? "drive" : mode });
+        emitDriveState();
     },
 
     endTrip() {
@@ -504,17 +578,22 @@ const SmartDrive = {
         if (rex) rex.textContent = extraFuelL > 0.01 ? `~${extraFuelL.toFixed(2)} L more than an efficient drive (est.)` : "Right around an efficient drive — nice.";
         safeShow("results-panel", "flex");
 
-        // Close the loop with Step 1's persistence layer — one compact record
-        // per trip, not a stream per tick (Section 13).
+        // Close the loop with the persistence layer — one compact record per
+        // trip, not a stream per tick (Section 13). Phase 3: routed through
+        // TripAnalytics' localStorage-backed queue, so a ride that ends in a
+        // dead zone is saved once the socket is back and verified, instead
+        // of being lost in a buffered emit that dies with the tab.
         if (this.trip.totalDist > 0.05) {
-            socket.emit("tripFinished", {
+            const travelMode = (typeof currentTravelMode !== "undefined" && currentTravelMode) || "drive";
+            TripAnalytics.submitFinishedTrip({
                 name: cityName ? `Ride near ${cityName}` : "Ride",
-                mode: (typeof currentTravelMode !== "undefined" && currentTravelMode === "car") ? "drive" : (currentTravelMode || "drive"),
+                mode: travelMode === "car" ? "drive" : travelMode,
                 startedAt: this.trip.startTime, endedAt: Date.now(),
                 totalDistKm: this.trip.totalDist, avgSpeed: avg, maxSpeed: this.trip.maxSpeed,
                 fuelUsedL: this.trip.actualFuel, points: this.trip.points
-            }, (res) => { if (res && res.ok) console.log(`[SmartDrive] Trip saved (${res.points} points).`); });
+            });
         }
+        emitDriveState();
     }
 };
 
@@ -536,6 +615,10 @@ function tripDbRestoreNav() {
 const GroupNavigation = {
     active: false, destination: null, selectedMembers: [], layerGroup: L.layerGroup().addTo(map),
     lastFetchedCoords: {}, colors: ['#18d6a3', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6'], recalcTimer: null,
+    // Phase 3: per-member road ETA ({distKm, timeMin, ts}) keyed like
+    // selectedMembers ("me" for self) — the convoy loop's "falling behind"
+    // signal reads this in meetup mode, as it reads tripRoadStats in trip mode.
+    memberStats: {},
 
     openSetup() {
         const list = $("group-nav-friend-list");
@@ -558,7 +641,7 @@ const GroupNavigation = {
         showToast("📍 Tap the map to set the common destination — or use “Find best meetup point” next time.", 5500);
     },
     async setDestination(latlng) {
-        this.active = true; this.destination = latlng; this.layerGroup.clearLayers(); this.lastFetchedCoords = {};
+        this.active = true; this.destination = latlng; this.layerGroup.clearLayers(); this.lastFetchedCoords = {}; this.memberStats = {};
 
         if (typeof TripDB !== "undefined" && typeof currentUser !== "undefined") {
             TripDB.saveSession(currentUser.name, { active: true, dest: latlng, members: this.selectedMembers });
@@ -619,6 +702,7 @@ const GroupNavigation = {
                     </div>`;
 
                     this.lastFetchedCoords[memberId] = { lat: coords.lat, lng: coords.lng };
+                    this.memberStats[memberId] = { distKm: r.distance / 1000, timeMin, ts: Date.now() };
                 } else {
                     statsHTML += `<div style="color:#ef4444; font-size:11px; padding:10px;">No road route for ${escapeHTML(name)}</div>`;
                 }
@@ -626,6 +710,7 @@ const GroupNavigation = {
         }
         if (statsList) statsList.innerHTML = statsHTML;
         if (validPaths.length > 0) map.fitBounds(L.featureGroup(validPaths).getBounds(), { padding: [40, 40] });
+        if (window.ConvoyIntelligence) window.ConvoyIntelligence.evaluateAll("routes");
     },
     onLiveUpdate() {
         if (!this.active || !this.destination) return;
@@ -646,7 +731,7 @@ const GroupNavigation = {
         }
     },
     stop() {
-        this.active = false; this.destination = null; this.selectedMembers = [];
+        this.active = false; this.destination = null; this.selectedMembers = []; this.memberStats = {};
         this.layerGroup.clearLayers(); safeHide("group-nav-active");
         if (myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
     }
@@ -696,7 +781,7 @@ async function updateGroupTripRoutes() {
                     const mileage = SmartDrive.baseMileage || 18;
                     const fuel = distKm / mileage;
 
-                    tripRoadStats[member.id] = { dist: distKm.toFixed(1), time: timeMin, fuel: fuel.toFixed(2) };
+                    tripRoadStats[member.id] = { dist: distKm.toFixed(1), time: timeMin, fuel: fuel.toFixed(2), ts: Date.now() };
                 }
             } catch (e) { /* one member's fetch failing shouldn't stall the others */ }
         }
@@ -704,6 +789,9 @@ async function updateGroupTripRoutes() {
 
     await Promise.all(promises);
     isFetchingGroupRoutes = false;
+    // Fresh road ETAs are exactly what the convoy "falling behind" check
+    // needs — evaluate before re-rendering so the badges are current.
+    if (window.ConvoyIntelligence) window.ConvoyIntelligence.evaluateAll("routes");
     updateTripPanel();
 }
 
@@ -725,7 +813,11 @@ function updateTripPanel() {
     Object.values(friendData).filter(f => f.online !== false && currentTrip.members.some(m => m.id === f.id)).forEach(f => {
         const stats = tripRoadStats[f.id] || { dist: '--', time: '--', fuel: '--' };
         if (stats.fuel !== '--') totalGroupFuel += Number(stats.fuel);
-        list.innerHTML += `<div class="trip-member" style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:8px;"><div><img src="${escapeHTML(f.avatar)}" style="${avatarStyle}"> ${escapeHTML(f.name)}</div> <span style="text-align:right;">${stats.dist} km<br><small style="color:var(--muted)">${stats.time} min • ⛽ ${stats.fuel} L</small></span></div>`;
+        // Phase 3: convoy badge (stopped / behind / off route / no signal) —
+        // text + tone dot, never color alone.
+        const badge = window.ConvoyIntelligence ? window.ConvoyIntelligence.badgeFor(f.id) : null;
+        const badgeHtml = badge ? `<br><span class="chip ${badge.tone}" style="margin-top:4px;">${escapeHTML(badge.text)}</span>` : "";
+        list.innerHTML += `<div class="trip-member" style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:8px;"><div><img src="${escapeHTML(f.avatar)}" style="${avatarStyle}"> ${escapeHTML(f.name)}${badgeHtml}</div> <span style="text-align:right;">${stats.dist} km<br><small style="color:var(--muted)">${stats.time} min • ⛽ ${stats.fuel} L</small></span></div>`;
     });
 
     if (list.innerHTML) list.innerHTML += `<div style="border-top:1px solid #333;margin-top:6px;padding-top:8px;font-size:12px;color:var(--mint);">Estimated group fuel: ${totalGroupFuel.toFixed(2)} L</div>`;
@@ -967,9 +1059,660 @@ const PrivacyControls = {
             locationHistory = [];
             try { localStorage.removeItem("koraput_history"); } catch (e) { /* ignore */ }
             historyPolyline.setLatLngs([]);
+            // Phase 3: zero-trace also means the not-yet-uploaded ride queue,
+            // the cached rollups and any replay on screen.
+            TripAnalytics.clearLocal();
             if (checked) DeviceIdentity.resetAfterRejection();
             showToast(`🗑️ Cleared ${res.tripsDeleted} trip(s), ${res.memoriesDeleted} memor${res.memoriesDeleted === 1 ? 'y' : 'ies'}, ${res.geofencesDeleted} geofence(s).`, 6000);
         });
+    }
+};
+
+// ============================================================================
+// TRIP ANALYTICS (Phase 3) — roadmap Section 13
+// ============================================================================
+// Server contract (server.js + Phase 3 server additions):
+//   tripFinished    {name, mode, startedAt, endedAt, totalDistKm, avgSpeed,
+//                    maxSpeed, fuelUsedL, points:[{ts,lat,lng,speedKmh,accuracy}]}
+//                   -> ack {ok, tripId, points} | {ok:false, reason}
+//   getTripRollups  {period:"day"|"week"|"month", tzOffsetMin, limit}
+//                   -> ack {ok, period, rows:[{bucket, trips, distanceKm,
+//                      durationMin, avgSpeed, maxSpeed, fuelL}], retentionDays}
+//   listMyTrips     {limit} -> ack {ok, trips:[{id, name, mode, started_at,
+//                      ended_at, total_dist_km, avg_speed, max_speed, fuel_used_l}]}
+//   getTripPoints   {tripId} -> ack {ok, points:[{ts, lat, lng, speed_kmh, accuracy}]}
+//
+// Buckets are computed server-side in the rider's LOCAL time: the server adds
+// tzOffsetMin to UTC, so tzOffsetMin must be minutes EAST of UTC (+330 for
+// IST) — the NEGATION of Date.getTimezoneOffset(). The client rebuilds the
+// same bucket keys (localDateKey / weekKeyFor / monthKeyFor) so empty days
+// show as zero-height bars instead of silently closing the gap.
+
+// Speed tiers for ride replay — the same thresholds as the speed alerts, so
+// the colors mean what the alerts meant. Validated palette (dataviz
+// validator, dark surface #0e1724): lightness band, chroma floor, CVD ΔE 8.6,
+// normal-vision ΔE 15.5, contrast ≥ 3:1 — all pass. Always shown with a text
+// legend, never color alone.
+const SPEED_BANDS = [
+    { label: "Under 80 km/h", color: "#24a684" },
+    { label: "80–100 km/h", color: "#ac8b26" },
+    { label: "100+ km/h", color: "#c2555a" }
+];
+const NO_SPEED_COLOR = "#8b9bab";
+const CHART_BAR_COLOR = "#34e0b4";        // single series -> the app accent
+const CHART_BAR_SELECTED = "#8ff2d6";
+
+// Ack-based emit with a timeout that works on any socket.io 4.x client
+// (socket.timeout() only exists from 4.4 on).
+function emitWithAck(event, payload, timeoutMs, cb) {
+    let done = false;
+    const timer = setTimeout(() => { if (!done) { done = true; cb(new Error("timeout")); } }, timeoutMs);
+    socket.emit(event, payload, (res) => { if (!done) { done = true; clearTimeout(timer); cb(null, res); } });
+}
+
+const pad2 = (n) => String(n).padStart(2, "0");
+// "YYYY-MM-DD" in LOCAL time — mirrors date(started_at/1000 + tz, 'unixepoch').
+function localDateKey(d) { return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
+// Monday on/before d, local — mirrors "... '-6 days', 'weekday 1'".
+function weekKeyFor(d) {
+    const monday = new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7));
+    return localDateKey(monday);
+}
+// "YYYY-MM" local — mirrors strftime('%Y-%m', ...).
+function monthKeyFor(d) { return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`; }
+
+// The `count` most recent bucket keys ending with the one containing `now`,
+// oldest first.
+function analyticsBucketKeys(period, count, now = new Date()) {
+    const keys = [];
+    for (let i = count - 1; i >= 0; i--) {
+        if (period === "month") keys.push(monthKeyFor(new Date(now.getFullYear(), now.getMonth() - i, 1)));
+        else if (period === "week") {
+            const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7) - 7 * i);
+            keys.push(localDateKey(monday));
+        } else keys.push(localDateKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - i)));
+    }
+    return keys;
+}
+
+function bucketLabel(period, key, style = "short") {
+    const parts = String(key).split("-").map(Number);
+    if (period === "month") {
+        const d = new Date(parts[0], parts[1] - 1, 1);
+        return style === "short" ? d.toLocaleDateString(undefined, { month: "short" }) : d.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+    }
+    const d = new Date(parts[0], parts[1] - 1, parts[2]);
+    if (period === "week") {
+        return style === "short" ? d.toLocaleDateString(undefined, { day: "numeric", month: "short" }) : `Week of ${d.toLocaleDateString(undefined, { day: "numeric", month: "long" })}`;
+    }
+    return style === "short" ? d.toLocaleDateString(undefined, { weekday: "short", day: "numeric" }) : d.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" });
+}
+
+const fmtNum = (v, digits) => Number(v || 0).toLocaleString(undefined, { maximumFractionDigits: digits, minimumFractionDigits: 0 });
+function fmtDuration(min) {
+    const m = Math.max(0, Math.round(min || 0));
+    if (m < 60) return `${m}m`;
+    return `${Math.floor(m / 60)}h ${pad2(m % 60)}m`;
+}
+
+// A round axis maximum with three gridlines (0, max/2, max).
+function niceAxisMax(maxValue, fallback) {
+    if (!(maxValue > 0)) return fallback;
+    const half = maxValue / 2;
+    const pow = Math.pow(10, Math.floor(Math.log10(half)));
+    for (const m of [1, 2, 2.5, 5, 10]) {
+        if (m * pow >= half) return 2 * m * pow;
+    }
+    return 2 * 10 * pow;
+}
+
+const TripAnalytics = {
+    PENDING_KEY: "mu_pending_trips",
+    MAX_PENDING: 5,
+    PENDING_MAX_AGE_MS: 7 * 86400000,       // same 7-day horizon as TripDB's local backup
+    PERIODS: {
+        day: { count: 14, windowLabel: "Last 14 days" },
+        week: { count: 8, windowLabel: "Last 8 weeks" },
+        month: { count: 6, windowLabel: "Last 6 months" }
+    },
+    METRICS: {
+        distance: { label: "Distance", pick: (r) => r.distanceKm, fmt: (v) => `${fmtNum(v, 1)} km`, axis: (v) => `${fmtNum(v, 0)}`, fallbackMax: 10 },
+        duration: { label: "Ride time", pick: (r) => r.durationMin, fmt: (v) => fmtDuration(v), axis: (v) => (v >= 60 ? `${fmtNum(v / 60, 1)}h` : `${fmtNum(v, 0)}m`), fallbackMax: 60 },
+        fuel: { label: "Fuel (est.)", pick: (r) => r.fuelL, fmt: (v) => `${fmtNum(v, 2)} L`, axis: (v) => `${fmtNum(v, 1)}`, fallbackMax: 1 }
+    },
+    period: "day",
+    metric: "distance",
+    rows: [],
+    trips: [],
+    retentionDays: null,
+    selectedKey: null,
+    loadingSeq: 0,
+    tripsSeq: 0,
+    profileVerified: false,
+    flushing: false,
+    flushTimer: null,
+    replayLayer: null,
+    resizeTimer: null,
+
+    init() {
+        this.replayLayer = L.layerGroup().addTo(map);
+
+        const openBtn = $("analytics-btn");
+        if (openBtn) openBtn.addEventListener("click", () => this.open());
+        const closeBtn = $("analytics-close");
+        if (closeBtn) closeBtn.addEventListener("click", () => this.close());
+
+        const periodSeg = document.querySelector('[data-segment="analyticsPeriod"]');
+        if (periodSeg) periodSeg.addEventListener("segment", (e) => {
+            if (!this.PERIODS[e.detail.value]) return;
+            this.period = e.detail.value;
+            this.selectedKey = null;
+            this.loadRollups();
+        });
+        const metricSeg = document.querySelector('[data-segment="analyticsMetric"]');
+        if (metricSeg) metricSeg.addEventListener("segment", (e) => {
+            if (!this.METRICS[e.detail.value]) return;
+            this.metric = e.detail.value;
+            this.renderChart();
+            this.renderDetail();
+        });
+
+        const clearReplayBtn = $("replay-clear-btn");
+        if (clearReplayBtn) clearReplayBtn.addEventListener("click", () => this.clearReplay());
+
+        // The server persists trips only for a verified device; losing the
+        // socket means waiting for the next profileAccepted before flushing.
+        socket.on("disconnect", () => { this.profileVerified = false; });
+
+        window.addEventListener("resize", () => {
+            clearTimeout(this.resizeTimer);
+            this.resizeTimer = setTimeout(() => { if (this.isOpen()) this.renderChart(); }, 150);
+        }, { passive: true });
+    },
+
+    tzOffsetMin() { return -new Date().getTimezoneOffset(); },
+    isOpen() { const m = $("analytics-modal"); return Boolean(m && m.style.display === "flex"); },
+
+    open() {
+        safeShow("analytics-modal", "flex");
+        this.render();              // paint whatever we already have (keeps the frame)
+        this.refresh();
+    },
+    close() { safeHide("analytics-modal"); this.hideTip(); },
+
+    refresh() {
+        this.loadRollups();
+        this.loadTrips();
+    },
+
+    setLoading(on) {
+        const host = $("analytics-chart");
+        if (host) host.classList.toggle("is-loading", Boolean(on));
+    },
+    setNotice(text) {
+        const el = $("analytics-notice");
+        if (!el) return;
+        el.textContent = text || "";
+        el.hidden = !text;
+    },
+
+    loadRollups(retriesLeft = 2) {
+        const seq = ++this.loadingSeq;
+        const cfg = this.PERIODS[this.period];
+        if (!socket.connected) {
+            this.setNotice("You're offline — showing the last numbers loaded.");
+            this.render();
+            return;
+        }
+        this.setLoading(true);
+        emitWithAck("getTripRollups", { period: this.period, tzOffsetMin: this.tzOffsetMin(), limit: cfg.count }, 8000, (err, res) => {
+            if (seq !== this.loadingSeq) return;            // a newer period click superseded this one
+            if (err) { this.setLoading(false); this.setNotice("Couldn't reach the server — try again in a moment."); return; }
+            if (!res || !res.ok) {
+                const reason = res && res.reason;
+                if ((reason === "too-frequent" || reason === "rate-limited") && retriesLeft > 0) {
+                    // Server throttles rollups to 1/s per socket; quick
+                    // period switches (or a laggy link bunching requests)
+                    // shouldn't surface as an error.
+                    setTimeout(() => { if (seq === this.loadingSeq) this.loadRollups(retriesLeft - 1); }, 1100);
+                    return;
+                }
+                this.setLoading(false);
+                this.setNotice(reason === "no-device-identity" ? "Join the map to start building your ride history." : "Couldn't load your ride stats right now.");
+                return;
+            }
+            this.setLoading(false);
+            this.rows = Array.isArray(res.rows) ? res.rows : [];
+            if (Number.isFinite(res.retentionDays)) this.retentionDays = res.retentionDays;
+            this.setNotice("");
+            this.render();
+        });
+    },
+
+    loadTrips() {
+        const seq = ++this.tripsSeq;
+        if (!socket.connected) { this.renderTrips(); return; }
+        emitWithAck("listMyTrips", { limit: 10 }, 8000, (err, res) => {
+            if (seq !== this.tripsSeq) return;
+            if (!err && res && res.ok && Array.isArray(res.trips)) this.trips = res.trips;
+            this.renderTrips();
+        });
+    },
+
+    // Window of bucket keys (oldest -> newest) joined with the server rows.
+    series() {
+        const cfg = this.PERIODS[this.period];
+        const metric = this.METRICS[this.metric];
+        const byKey = new Map(this.rows.map((r) => [r.bucket, r]));
+        return analyticsBucketKeys(this.period, cfg.count).map((key) => {
+            const row = byKey.get(key) || null;
+            return { key, row, value: row ? Number(metric.pick(row)) || 0 : 0 };
+        });
+    },
+
+    render() {
+        this.renderTotals();
+        this.renderChart();
+        this.renderDetail();
+        this.renderTable();
+        this.renderFootnote();
+    },
+
+    renderTotals() {
+        const host = $("analytics-totals");
+        if (!host) return;
+        const data = this.series();
+        const sum = (f) => data.reduce((a, d) => a + (d.row ? Number(f(d.row)) || 0 : 0), 0);
+        const tiles = [
+            ["Rides", fmtNum(sum((r) => r.trips), 0)],
+            ["Distance", `${fmtNum(sum((r) => r.distanceKm), 1)} km`],
+            ["Ride time", fmtDuration(sum((r) => r.durationMin))],
+            ["Fuel (est.)", `${fmtNum(sum((r) => r.fuelL), 1)} L`]
+        ];
+        host.textContent = "";
+        tiles.forEach(([label, value]) => {
+            const card = document.createElement("div");
+            card.className = "list-card";
+            const l = document.createElement("span"); l.className = "l"; l.textContent = label;
+            const v = document.createElement("span"); v.className = "v"; v.textContent = value;
+            card.appendChild(l); card.appendChild(v);
+            host.appendChild(card);
+        });
+        const win = $("analytics-window");
+        if (win) win.textContent = this.PERIODS[this.period].windowLabel;
+    },
+
+    renderChart() {
+        const host = $("analytics-chart");
+        if (!host) return;
+        const data = this.series();
+        const metric = this.METRICS[this.metric];
+        const NS = "http://www.w3.org/2000/svg";
+        const W = Math.max(260, Math.floor(host.clientWidth || 320));
+        const H = 196, padL = 38, padR = 8, padT = 24, padB = 26;
+        const plotW = W - padL - padR, plotH = H - padT - padB;
+        const maxV = Math.max(0, ...data.map((d) => d.value));
+        const yMax = niceAxisMax(maxV, metric.fallbackMax);
+        const y = (v) => padT + plotH - (v / yMax) * plotH;
+        const slot = plotW / data.length;
+        const barW = Math.min(24, Math.max(4, slot * 0.62));
+
+        const svg = document.createElementNS(NS, "svg");
+        svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+        svg.setAttribute("width", String(W));
+        svg.setAttribute("height", String(H));
+        svg.setAttribute("role", "group");
+        svg.setAttribute("aria-label", `${metric.label} per ${this.period}, ${this.PERIODS[this.period].windowLabel.toLowerCase()}`);
+
+        const mk = (tag, attrs) => { const el = document.createElementNS(NS, tag); Object.entries(attrs).forEach(([k, v]) => el.setAttribute(k, String(v))); return el; };
+        const txt = (x, yy, s, attrs = {}) => { const t = mk("text", { x, y: yy, ...attrs }); t.textContent = s; return t; };
+
+        // Recessive solid hairline grid + tick labels (0, half, max).
+        [0, yMax / 2, yMax].forEach((v) => {
+            const yy = Math.round(y(v)) + 0.5;
+            svg.appendChild(mk("line", { x1: padL, x2: W - padR, y1: yy, y2: yy, stroke: v === 0 ? "rgba(255,255,255,.22)" : "rgba(255,255,255,.08)", "stroke-width": 1 }));
+            svg.appendChild(txt(padL - 6, yy + 3.5, metric.axis(v), { "text-anchor": "end", class: "an-tick" }));
+        });
+
+        // X labels: thin them so they never collide; the newest bucket is always labeled.
+        const every = Math.max(1, Math.ceil(data.length / Math.max(1, Math.floor(plotW / 40))));
+        let maxIdx = -1;
+        data.forEach((d, i) => { if (d.value > 0 && (maxIdx < 0 || d.value > data[maxIdx].value)) maxIdx = i; });
+
+        data.forEach((d, i) => {
+            const cx = padL + slot * i + slot / 2;
+            const g = mk("g", { class: "an-bar", tabindex: 0, role: "button", "data-idx": i });
+            const label = bucketLabel(this.period, d.key, "long");
+            const rides = d.row ? d.row.trips : 0;
+            g.setAttribute("aria-label", `${label}: ${rides ? `${rides} ride${rides === 1 ? "" : "s"}, ${metric.fmt(d.value)}` : "no rides"}`);
+            if (this.selectedKey === d.key) g.setAttribute("aria-pressed", "true");
+
+            // Hit target: the whole column slot, bigger than the painted bar.
+            g.appendChild(mk("rect", { x: padL + slot * i, y: padT, width: slot, height: plotH, fill: "transparent" }));
+
+            if (d.value > 0) {
+                const top = y(d.value);
+                const h = Math.max(2, padT + plotH - top);
+                const x0 = cx - barW / 2, x1 = cx + barW / 2, yb = padT + plotH, yt = yb - h;
+                const r = Math.min(4, h, barW / 2);
+                // 4px rounded data-end, square at the baseline.
+                const path = `M${x0},${yb} L${x0},${yt + r} Q${x0},${yt} ${x0 + r},${yt} L${x1 - r},${yt} Q${x1},${yt} ${x1},${yt + r} L${x1},${yb} Z`;
+                g.appendChild(mk("path", { d: path, fill: this.selectedKey === d.key ? CHART_BAR_SELECTED : CHART_BAR_COLOR, class: "an-mark" }));
+            }
+            if (i === maxIdx) {
+                // Selective direct label: the peak only, in text ink.
+                g.appendChild(txt(cx, y(d.value) - 6, metric.fmt(d.value), { "text-anchor": "middle", class: "an-peak" }));
+            }
+            if ((data.length - 1 - i) % every === 0) {
+                g.appendChild(txt(cx, H - 8, bucketLabel(this.period, d.key, "short"), { "text-anchor": "middle", class: "an-xlabel" }));
+            }
+
+            const show = () => this.showTip(i, cx, d.value > 0 ? y(d.value) : padT + plotH);
+            g.addEventListener("pointerenter", show);
+            g.addEventListener("focus", show);
+            g.addEventListener("pointerleave", () => this.hideTip());
+            g.addEventListener("blur", () => this.hideTip());
+            g.addEventListener("click", () => this.select(d.key));
+            g.addEventListener("keydown", (e) => {
+                if (e.key === "Enter" || e.key === " ") { e.preventDefault(); this.select(d.key); }
+                else if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+                    e.preventDefault();
+                    const nextIdx = i + (e.key === "ArrowRight" ? 1 : -1);
+                    const target = host.querySelector(`.an-bar[data-idx="${nextIdx}"]`);
+                    if (target) target.focus();
+                }
+            });
+            svg.appendChild(g);
+        });
+
+        if (maxV === 0) {
+            svg.appendChild(txt(padL + plotW / 2, padT + plotH / 2, "No rides in this period yet", { "text-anchor": "middle", class: "an-empty" }));
+        }
+
+        host.querySelectorAll("svg").forEach((s) => s.remove());
+        host.insertBefore(svg, host.firstChild);
+        this._chartData = data;
+        this._chartW = W;
+    },
+
+    showTip(i, cx, topY) {
+        const tip = $("analytics-tip");
+        const d = this._chartData && this._chartData[i];
+        if (!tip || !d) return;
+        const metric = this.METRICS[this.metric];
+        tip.textContent = "";
+        const v = document.createElement("strong");
+        v.textContent = d.row ? metric.fmt(d.value) : "No rides";
+        const s = document.createElement("span");
+        const rides = d.row ? d.row.trips : 0;
+        s.textContent = `${bucketLabel(this.period, d.key, "long")}${rides ? ` · ${rides} ride${rides === 1 ? "" : "s"}` : ""}`;
+        tip.appendChild(v); tip.appendChild(s);
+        tip.hidden = false;
+        const tipW = tip.offsetWidth || 160;
+        const left = Math.min(Math.max(4, cx - tipW / 2), (this._chartW || 320) - tipW - 4);
+        tip.style.left = `${left}px`;
+        tip.style.top = `${Math.max(0, topY - 50)}px`;
+    },
+    hideTip() { const tip = $("analytics-tip"); if (tip) tip.hidden = true; },
+
+    select(key) {
+        this.selectedKey = this.selectedKey === key ? null : key;
+        this.renderChart();
+        this.renderDetail();
+        const again = $("analytics-chart")?.querySelector(`.an-bar[aria-pressed="true"]`);
+        if (again) again.focus({ preventScroll: true });
+    },
+
+    renderDetail() {
+        const el = $("analytics-detail");
+        if (!el) return;
+        const d = this.selectedKey && this.series().find((x) => x.key === this.selectedKey);
+        if (!d) { el.textContent = "Tap a bar for that period's details."; return; }
+        const label = bucketLabel(this.period, d.key, "long");
+        if (!d.row) { el.textContent = `${label} · no rides`; return; }
+        const r = d.row;
+        el.textContent = `${label} · ${r.trips} ride${r.trips === 1 ? "" : "s"} · ${fmtNum(r.distanceKm, 1)} km · ${fmtDuration(r.durationMin)} · avg ${fmtNum(r.avgSpeed, 0)} km/h · top ${fmtNum(r.maxSpeed, 0)} km/h · ~${fmtNum(r.fuelL, 2)} L fuel (est.)`;
+    },
+
+    // Table twin of the chart — every value reachable without hover.
+    renderTable() {
+        const table = $("analytics-table");
+        if (!table) return;
+        table.textContent = "";
+        const head = table.createTHead().insertRow();
+        ["Period", "Rides", "Distance", "Time", "Avg", "Top", "Fuel (est.)"].forEach((h) => {
+            const th = document.createElement("th"); th.scope = "col"; th.textContent = h; head.appendChild(th);
+        });
+        const body = table.createTBody();
+        this.series().slice().reverse().forEach((d) => {
+            const tr = body.insertRow();
+            const r = d.row;
+            [bucketLabel(this.period, d.key, "long"),
+                r ? fmtNum(r.trips, 0) : "0",
+                r ? `${fmtNum(r.distanceKm, 1)} km` : "—",
+                r ? fmtDuration(r.durationMin) : "—",
+                r ? `${fmtNum(r.avgSpeed, 0)} km/h` : "—",
+                r ? `${fmtNum(r.maxSpeed, 0)} km/h` : "—",
+                r ? `${fmtNum(r.fuelL, 2)} L` : "—"].forEach((c, idx) => {
+                    const cell = idx === 0 ? document.createElement("th") : tr.insertCell();
+                    if (idx === 0) { cell.scope = "row"; tr.appendChild(cell); }
+                    cell.textContent = c;
+                });
+        });
+    },
+
+    renderFootnote() {
+        const el = $("analytics-footnote");
+        if (!el) return;
+        const keep = this.retentionDays > 0 ? `Rides are kept on the server for ${this.retentionDays} days.` : "Rides are kept until you clear your history.";
+        el.textContent = `Distances and fuel come from GPS speed samples and your km/L setting — they're estimates, not odometer readings. ${keep}`;
+    },
+
+    renderTrips() {
+        const host = $("analytics-trips");
+        if (!host) return;
+        host.textContent = "";
+        const pending = this.loadPending().length;
+        if (pending) {
+            const p = document.createElement("div");
+            p.className = "list-card";
+            p.textContent = `⏳ ${pending} finished ride${pending === 1 ? "" : "s"} waiting to upload — they'll save automatically when you're back online.`;
+            host.appendChild(p);
+        }
+        if (!this.trips.length) {
+            const empty = document.createElement("p");
+            empty.className = "field-hint";
+            empty.textContent = "No saved rides yet. A ride is saved when a navigation drive or a group trip ends.";
+            host.appendChild(empty);
+            return;
+        }
+        const modeIcon = { drive: "🚗", bike: "🏍️", walk: "🚶" };
+        this.trips.forEach((t) => {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "list-card trip-row";
+            const left = document.createElement("div");
+            const name = document.createElement("strong");
+            name.textContent = `${modeIcon[t.mode] || "🚗"} ${t.name || "Ride"}`;
+            const when = document.createElement("div");
+            when.className = "field-hint";
+            when.style.margin = "2px 0 0";
+            const started = new Date(t.started_at);
+            const mins = t.ended_at ? Math.round((t.ended_at - t.started_at) / 60000) : 0;
+            when.textContent = `${started.toLocaleDateString(undefined, { day: "numeric", month: "short" })}, ${started.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · ${fmtDuration(mins)}`;
+            left.appendChild(name); left.appendChild(when);
+            const right = document.createElement("div");
+            right.style.textAlign = "right";
+            const dist = document.createElement("strong");
+            dist.textContent = `${fmtNum(t.total_dist_km, 1)} km`;
+            const sp = document.createElement("div");
+            sp.className = "field-hint";
+            sp.style.margin = "2px 0 0";
+            sp.textContent = `avg ${fmtNum(t.avg_speed, 0)} · top ${fmtNum(t.max_speed, 0)} km/h`;
+            right.appendChild(dist); right.appendChild(sp);
+            btn.appendChild(left); btn.appendChild(right);
+            btn.setAttribute("aria-label", `Replay ${t.name || "ride"} from ${started.toLocaleString()}`);
+            btn.addEventListener("click", () => this.replay(t));
+            host.appendChild(btn);
+        });
+    },
+
+    // ---- Ride replay ---------------------------------------------------------
+    replay(trip) {
+        emitWithAck("getTripPoints", { tripId: trip.id }, 10000, (err, res) => {
+            if (err || !res || !res.ok) { showToast("Couldn't load that ride's route."); return; }
+            const pts = (res.points || []).filter((p) => validCoord(p.lat, p.lng));
+            if (!pts.length) { showToast("This ride has no saved route points."); return; }
+            this.drawReplay(trip, pts);
+        });
+    },
+
+    drawReplay(trip, pts) {
+        this.replayLayer.clearLayers();
+        const latlngs = pts.map((p) => [p.lat, p.lng]);
+        const bandOf = (s) => (s == null || !Number.isFinite(Number(s)) ? -1 : Number(s) >= 100 ? 2 : Number(s) >= 80 ? 1 : 0);
+
+        // Each segment takes the band of the speed recorded at its END point;
+        // consecutive same-band segments merge into one polyline.
+        const segs = [];
+        for (let i = 1; i < pts.length; i++) {
+            const b = bandOf(pts[i].speed_kmh);
+            const last = segs[segs.length - 1];
+            if (last && last.band === b) last.latlngs.push(latlngs[i]);
+            else segs.push({ band: b, latlngs: [latlngs[i - 1], latlngs[i]] });
+        }
+        if (latlngs.length >= 2) {
+            // Dark casing so the colored line reads on satellite AND street tiles.
+            L.polyline(latlngs, { color: "#0b1220", weight: 8, opacity: 0.85, interactive: false, lineCap: "round", lineJoin: "round" }).addTo(this.replayLayer);
+        }
+        const present = new Set();
+        segs.forEach((s) => {
+            present.add(s.band);
+            L.polyline(s.latlngs, { color: s.band < 0 ? NO_SPEED_COLOR : SPEED_BANDS[s.band].color, weight: 4.5, opacity: 1, interactive: false, lineCap: "round", lineJoin: "round" }).addTo(this.replayLayer);
+        });
+        L.circleMarker(latlngs[0], { radius: 6, color: "#0b1220", weight: 2, fillColor: "#ffffff", fillOpacity: 1 }).bindTooltip("Start").addTo(this.replayLayer);
+        L.marker(latlngs[latlngs.length - 1], { icon: L.divIcon({ className: "geofence-marker", html: "🏁" }) }).bindTooltip("Finish").addTo(this.replayLayer);
+
+        if (latlngs.length >= 2) map.fitBounds(L.latLngBounds(latlngs), { padding: [60, 60] });
+        else map.flyTo(latlngs[0], 16);
+        this.close();
+
+        // Legend: swatch + text for every band actually on the map.
+        const title = $("replay-title");
+        if (title) {
+            const started = new Date(trip.started_at);
+            title.textContent = `${trip.name || "Ride"} · ${started.toLocaleDateString(undefined, { day: "numeric", month: "short" })} · top ${fmtNum(trip.max_speed, 0)} km/h`;
+        }
+        const list = $("replay-bands");
+        if (list) {
+            list.textContent = "";
+            const rows = SPEED_BANDS.map((b, i) => ({ ...b, i })).filter((b) => present.has(b.i));
+            if (present.has(-1)) rows.push({ label: "No speed data", color: NO_SPEED_COLOR, i: -1 });
+            rows.forEach((b) => {
+                const li = document.createElement("li");
+                const sw = document.createElement("span");
+                sw.className = "swatch";
+                sw.style.background = b.color;
+                const t = document.createElement("span");
+                t.textContent = b.label;
+                li.appendChild(sw); li.appendChild(t);
+                list.appendChild(li);
+            });
+        }
+        safeShow("replay-legend", "flex");
+    },
+
+    clearReplay() {
+        if (this.replayLayer) this.replayLayer.clearLayers();
+        safeHide("replay-legend");
+    },
+
+    // ---- Offline-safe tripFinished queue ------------------------------------
+    // Duplicate risk, stated honestly: if the server saves a ride but the ack
+    // is lost (disconnect in that instant), the retry saves it again — the
+    // server has no idempotency key for tripFinished. Rare, and preferable
+    // to silently losing rides that end in a dead zone.
+    loadPending() {
+        try {
+            const q = JSON.parse(localStorage.getItem(this.PENDING_KEY) || "[]");
+            if (!Array.isArray(q)) return [];
+            return q.filter((i) => i && i.payload && Date.now() - (i.queuedAt || 0) < this.PENDING_MAX_AGE_MS);
+        } catch (e) { return []; }
+    },
+
+    savePending(q) {
+        for (let attempt = 0; attempt < 4; attempt++) {
+            try {
+                if (q.length) localStorage.setItem(this.PENDING_KEY, JSON.stringify(q));
+                else localStorage.removeItem(this.PENDING_KEY);
+                return true;
+            } catch (e) {
+                // Storage full: shed breadcrumbs from the oldest ride first —
+                // the summary row is what the rollups need.
+                const victim = q.find((i) => Array.isArray(i.payload.points) && i.payload.points.length > 0);
+                if (!victim) return false;
+                victim.payload.points = victim.payload.points.length > 200 ? victim.payload.points.filter((_, idx) => idx % 4 === 0) : [];
+            }
+        }
+        return false;
+    },
+
+    submitFinishedTrip(payload) {
+        const q = this.loadPending();
+        const qid = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : DeviceIdentity._fallbackUuid();
+        q.push({ qid, queuedAt: Date.now(), attempts: 0, payload });
+        while (q.length > this.MAX_PENDING) q.shift();
+        this.savePending(q);
+        if (!socket.connected || !this.profileVerified) showToast("📴 Ride saved on this phone — it'll upload when you're back online.", 4500);
+        this.flushPending();
+    },
+
+    flushPending() {
+        if (this.flushing || !this.profileVerified || !socket.connected) return;
+        const q = this.loadPending();
+        if (!q.length) return;
+        const item = q[0];
+        this.flushing = true;
+        emitWithAck("tripFinished", item.payload, 15000, (err, res) => {
+            this.flushing = false;
+            if (err) return;                                   // no ack: keep it, retry on next profileAccepted
+            const q2 = this.loadPending();
+            const idx = q2.findIndex((i) => i.qid === item.qid);
+            if (res && res.ok) {
+                if (idx >= 0) q2.splice(idx, 1);
+                this.savePending(q2);
+                showToast(`💾 Ride saved to your history${Number.isFinite(res.points) ? ` (${res.points} route point${res.points === 1 ? "" : "s"})` : ""}.`, 3500);
+                if (this.isOpen()) this.refresh();
+                // The server throttles tripFinished to one per 5 s per socket.
+                if (q2.length) { clearTimeout(this.flushTimer); this.flushTimer = setTimeout(() => this.flushPending(), 5500); }
+                return;
+            }
+            const reason = res && res.reason;
+            if (reason === "too-frequent" || reason === "rate-limited") {
+                clearTimeout(this.flushTimer);
+                this.flushTimer = setTimeout(() => this.flushPending(), 5500);
+                return;
+            }
+            if (reason === "no-device-identity") { this.profileVerified = false; return; }
+            // Anything else (e.g. internal-error): count attempts so one bad
+            // record can't block the queue forever.
+            if (idx >= 0) {
+                q2[idx].attempts = (q2[idx].attempts || 0) + 1;
+                if (q2[idx].attempts >= 3) { q2.splice(idx, 1); showToast("A ride couldn't be saved to the server and was dropped.", 5000); }
+                this.savePending(q2);
+                if (q2.length) { clearTimeout(this.flushTimer); this.flushTimer = setTimeout(() => this.flushPending(), 5500); }
+            }
+        });
+    },
+
+    // Zero-trace: called after "Clear my history" succeeds.
+    clearLocal() {
+        try { localStorage.removeItem(this.PENDING_KEY); } catch (e) { /* ignore */ }
+        this.rows = [];
+        this.trips = [];
+        this.selectedKey = null;
+        this.clearReplay();
+        if (this.isOpen()) { this.render(); this.renderTrips(); }
     }
 };
 
@@ -996,6 +1739,11 @@ socket.on("profileAccepted", (data) => {
     if (data?.deviceToken) DeviceIdentity.storeIssuedToken(data.deviceToken);
     if (data?.sharingMode) PrivacyControls.setMode(data.sharingMode, { silent: true });
     if (data?.ownerKey) myOwnerKey = data.ownerKey;    // used to tell "my own geofence" apart, see renderGeofenceList()
+    if (Number.isFinite(data?.tripRetentionDays)) TripAnalytics.retentionDays = data.tripRetentionDays;
+    // The server only persists trips for a VERIFIED device, so this — not
+    // "connect" — is the moment queued rides can be uploaded.
+    TripAnalytics.profileVerified = true;
+    TripAnalytics.flushPending();
 });
 
 socket.on("profileRejected", () => {
@@ -1022,7 +1770,10 @@ function showToast(message, duration = 4000) {
 socket.on("geofenceAlert", (data) => {
     const action = data.type === "enter" ? "entered" : "left";
     showToast(`🔔 ${data.user} has ${action} ${data.fence}!`);
-    islandShow({ id: "geo", kind: "geofence", title: escapeHTML(data.fence), sub: `${escapeHTML(data.user)} ${action}`, ttl: 5500 });
+    // StatusIsland renders via textContent — pass raw strings (escaping here
+    // made "Tom & Jerry" display as "Tom &amp; Jerry").
+    islandShow({ id: "geo", kind: "geofence", title: String(data.fence || ""), sub: `${data.user || "Someone"} ${action}`, ttl: 5500 });
+    voiceAnnounce(`${data.user || "Someone"} ${action} ${data.fence || "a geofence"}.`, { priority: 40, key: `geo-${data.user}-${data.fence}-${data.type}`, cooldownMs: 60000, category: "hazard", drivingOnly: true });
 });
 
 function startGPS() {
@@ -1873,10 +2624,18 @@ function setupGoogleSearch() {
                                     distance: leg.distance.value,
                                     duration: leg.duration.value,
                                     legs: [{
+                                        // Phase 3: carry each step's start point as the
+                                        // maneuver location (a Google step's instruction
+                                        // describes the maneuver at its START), so turn-
+                                        // by-turn can advance and speak on Google routes
+                                        // too, not only on OSRM-sourced ones.
                                         steps: leg.steps.map(s => ({
-                                            maneuver: { type: s.instructions.replace(/<[^>]*>?/gm, ''), modifier: '' },
-                                            distance: s.distance.text,
-                                            location: null
+                                            maneuver: {
+                                                type: s.instructions.replace(/<[^>]*>?/gm, '').replace(/\s+/g, ' ').trim(),
+                                                modifier: googleManeuverModifier(s.maneuver),
+                                                location: s.start_location ? [s.start_location.lng(), s.start_location.lat()] : null
+                                            },
+                                            distance: s.distance.value
                                         }))
                                     }]
                                 };
@@ -1912,11 +2671,47 @@ const MANEUVER_PHRASES = {
     "end of road|left": "Turn left", "end of road|right": "Turn right",
     "on ramp|": "Take the ramp", "off ramp|": "Take the exit", "continue|": "Continue"
 };
+const ORDINALS = ["", "1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th"];
+const KNOWN_OSRM_TYPES = new Set(["turn", "new name", "depart", "arrive", "merge", "on ramp", "off ramp", "fork",
+    "end of road", "continue", "roundabout", "rotary", "roundabout turn", "exit roundabout", "exit rotary", "notification", "use lane"]);
+
 function maneuverPhrase(step) {
     const type = step?.maneuver?.type || "";
     const modifier = step?.maneuver?.modifier || "";
-    if (/[a-z].*\s/i.test(type)) return type;              // already plain text (Google path)
-    return MANEUVER_PHRASES[`${type}|${modifier}`] || MANEUVER_PHRASES[`${type}|`] || (type ? `${type} ${modifier}`.trim() : "Continue on route");
+    // Google path: the "type" slot already holds a plain-English instruction.
+    if (type && !KNOWN_OSRM_TYPES.has(type)) return type;
+    if (type === "arrive") return "Arrive at your destination";
+    if (type === "roundabout" || type === "rotary") {
+        const exit = step?.maneuver?.exit;
+        const base = exit && ORDINALS[exit] ? `At the roundabout, take the ${ORDINALS[exit]} exit` : "Enter the roundabout";
+        return step?.name ? `${base} onto ${step.name}` : base;
+    }
+    const phrase = MANEUVER_PHRASES[`${type}|${modifier}`] || MANEUVER_PHRASES[`${type}|`] || (type ? `${type} ${modifier}`.trim() : "Continue on route");
+    // OSRM gives the road name separately — worth hearing ("onto NH-26").
+    return step?.name && type !== "depart" ? `${phrase} onto ${step.name}` : phrase;
+}
+
+// Rotation for the banner's single up-arrow glyph, from an OSRM-style modifier.
+function maneuverRotation(step) {
+    const type = step?.maneuver?.type || "";
+    const m = step?.maneuver?.modifier || "";
+    if (type === "arrive") return 0;
+    return ({ "left": -90, "right": 90, "slight left": -40, "slight right": 40, "sharp left": -135, "sharp right": 135, "uturn": 180, "straight": 0 })[m] ?? 0;
+}
+
+// Google DirectionsStep.maneuver ("turn-slight-left", "roundabout-right",
+// "uturn-left", "keep-right", ...) -> the OSRM-style modifier used above.
+function googleManeuverModifier(g) {
+    const s = String(g || "");
+    if (!s) return "";
+    if (s.startsWith("uturn")) return "uturn";
+    if (s.includes("sharp-left")) return "sharp left";
+    if (s.includes("sharp-right")) return "sharp right";
+    if (s.includes("slight-left") || s === "keep-left" || s === "fork-left" || s === "ramp-left") return "slight left";
+    if (s.includes("slight-right") || s === "keep-right" || s === "fork-right" || s === "ramp-right") return "slight right";
+    if (s.endsWith("left")) return "left";
+    if (s.endsWith("right")) return "right";
+    return "straight";
 }
 
 // Perpendicular (great-circle-ish, planar-approximated — fine at road scale)
@@ -1951,14 +2746,19 @@ function shouldReroute(current, candidate, lastRerouteTime) {
     return timeSavedSec > 90 && distDeltaPct < 0.5 && cooldownOk;
 }
 
-function speak(text) {
-    try {
-        if (!("speechSynthesis" in window)) return;
-        const u = new SpeechSynthesisUtterance(text);
-        u.rate = 1.02; u.volume = 0.9;
-        window.speechSynthesis.speak(u);
-    } catch (e) { /* speech synthesis is a nice-to-have, never block on it */ }
+// Kept for existing call sites; routes through the Phase 3 voice policy so
+// navigation speech obeys mute / priority / hands-free echo guard like the rest.
+function speak(text, opts = {}) {
+    return voiceAnnounce(text, { priority: 65, category: "nav", drivingOnly: false, ...opts });
 }
+
+// Short on-screen distance ("350 m", "1.2 km").
+function formatDistanceShort(meters) {
+    if (!Number.isFinite(meters)) return "";
+    if (meters < 1000) return `${Math.max(10, Math.round(meters / 10) * 10)} m`;
+    return `${(meters / 1000).toFixed(meters < 10000 ? 1 : 0)} km`;
+}
+const lowerFirst = (s) => (s ? s.charAt(0).toLowerCase() + s.slice(1) : s);
 
 function startSearchNavigation(destLat, destLng, destName, routeData) {
     navigationLayer.clearLayers();
@@ -1978,9 +2778,22 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
     let fullPath = routeData.geometry.coordinates.map(c => [c[1], c[0]]);
     let activeRoute = { distanceM: routeData.distance, durationSec: routeData.duration };
     let steps = (routeData.legs && routeData.legs[0] && routeData.legs[0].steps) || [];
+    // stepIdx = the step the rider is currently ON. The banner shows and
+    // speaks steps[stepIdx + 1] — the NEXT maneuver. (Before Phase 3 the
+    // banner showed steps[stepIdx], i.e. the maneuver that had just happened.)
     let stepIdx = 0;
     let offRouteStreak = 0;
     let lastRerouteTime = 0;
+    let routeVersion = 0;                 // bumps on reroute so prompt keys never collide
+    const promptedPre = new Set();        // "In 200 metres, turn left" already spoken
+    const promptedNow = new Set();        // "Turn left" (late prompt) already spoken
+    let lastPos = myCoords ? [myCoords.lat, myCoords.lng] : null;
+
+    navState.ready = true;
+    navState.active = false;
+    navState.destName = destName;
+    navState.remainingM = routeData.distance;
+    navState.etaSec = routeData.duration;
 
     const dottedPath = L.polyline(fullPath, { color: '#4f46e5', weight: 8, opacity: 0.7, className: 'anim-dash' }).addTo(navigationLayer);
     const solidPath = L.polyline([], { color: '#34e0b4', weight: 8, opacity: 1, className: 'solid-trail' }).addTo(navigationLayer);
@@ -1993,25 +2806,58 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
 
     const startPos = myCoords ? [myCoords.lat, myCoords.lng] : fullPath[0];
     const userMarker = L.marker(startPos, { icon: userIcon, zIndexOffset: 1000 }).addTo(navigationLayer);
-    const destMarker = L.marker([destLat, destLng], { icon: L.divIcon({ className: 'geofence-marker', html: '📍' }) }).addTo(navigationLayer);
+    L.marker([destLat, destLng], { icon: L.divIcon({ className: 'geofence-marker', html: '📍' }) }).addTo(navigationLayer);
 
     const updateNavStats = (distMeters, durSec) => {
+        navState.remainingM = distMeters;
+        navState.etaSec = durSec;
         if ($("stat-dist")) $("stat-dist").innerHTML = (distMeters / 1000).toFixed(1) + "<small> km</small>";
         if ($("stat-eta")) $("stat-eta").innerHTML = Math.max(0, Math.round(durSec / 60)) + "<small> min</small>";
         const arrivalTime = new Date(Date.now() + Math.max(0, durSec) * 1000);
-        if ($("nav-arrival-time")) $("nav-arrival-time").innerHTML = arrivalTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
+        if ($("nav-arrival-time")) $("nav-arrival-time").textContent = arrivalTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
     };
     updateNavStats(routeData.distance, routeData.duration);
 
-    const updateStepDisplay = () => {
-        if (!steps.length) return;
-        const s = steps[Math.min(stepIdx, steps.length - 1)];
-        if ($("nav-step-text")) $("nav-step-text").textContent = maneuverPhrase(s);
-        if ($("nav-step-dist")) $("nav-step-dist").textContent = typeof s.distance === "string" ? s.distance : `${Math.round(s.distance || 0)}m`;
+    const maneuverLatLng = (s) => {
+        const loc = s && s.maneuver && s.maneuver.location;
+        return Array.isArray(loc) && validCoord(loc[1], loc[0]) ? [loc[1], loc[0]] : null;
     };
-    updateStepDisplay();
+    const nextManeuver = () => steps[stepIdx + 1] || null;
 
-    if ($("turn-name")) $("turn-name").textContent = "Heading to " + destName;
+    // Distance to the next maneuver: live from GPS when the step carries a
+    // location; otherwise the current step's own length as an estimate.
+    const distanceToNext = (fromPos) => {
+        const next = nextManeuver();
+        if (!next) return null;
+        const ll = maneuverLatLng(next);
+        if (ll && fromPos) return map.distance(fromPos, ll);
+        const cur = steps[stepIdx];
+        return cur && Number.isFinite(cur.distance) ? cur.distance : null;
+    };
+
+    const updateStepDisplay = (fromPos) => {
+        const next = nextManeuver();
+        const turnDist = $("turn-dist"), turnName = $("turn-name"), stepText = $("nav-step-text"), stepDist = $("nav-step-dist"), svg = $("turn-svg");
+        if (!next) {
+            if (turnDist) turnDist.textContent = Number.isFinite(navState.remainingM) ? `${formatDistanceShort(navState.remainingM)} to go` : "Follow the route";
+            if (turnName) turnName.textContent = `Heading to ${destName}`;
+            if (stepText) stepText.textContent = "";
+            if (stepDist) stepDist.textContent = "";
+            if (svg) svg.style.transform = "rotate(0deg)";
+            navState.nextManeuver = "";
+            return;
+        }
+        const phrase = maneuverPhrase(next);
+        const d = distanceToNext(fromPos);
+        if (turnDist) turnDist.textContent = Number.isFinite(d) ? `In ${formatDistanceShort(d)}` : "Next";
+        if (turnName) turnName.textContent = phrase;
+        if (svg) svg.style.transform = `rotate(${maneuverRotation(next)}deg)`;
+        const after = steps[stepIdx + 2];
+        if (stepText) stepText.textContent = after ? `Then ${lowerFirst(maneuverPhrase(after))}` : `Then arrive at ${destName}`;
+        if (stepDist) stepDist.textContent = Number.isFinite(next.distance) && next.distance > 0 && after ? `· after ${formatDistanceShort(next.distance)}` : "";
+        navState.nextManeuver = phrase;
+    };
+    updateStepDisplay(lastPos);
 
     map.fitBounds(dottedPath.getBounds(), { paddingBottomRight: [0, 350], paddingTopLeft: [50, 150] });
 
@@ -2026,8 +2872,8 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
         startBtn.style.color = "#062112";
     }
     if (resetBtn) resetBtn.style.display = "block";
-    if (exitBtn) exitBtn.style.display = "none";
-    if ($("stat-status")) $("stat-status").textContent = "Ready";
+    if (exitBtn) { exitBtn.style.display = "none"; exitBtn.textContent = "Stop"; exitBtn.style.background = ""; exitBtn.style.color = ""; }
+    if ($("stat-status")) { $("stat-status").textContent = "Ready"; $("stat-status").style.color = ""; }
     if ($("speed-n")) $("speed-n").textContent = "0";
 
     if (startBtn) {
@@ -2040,9 +2886,20 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
 
             if (myCoords) map.flyTo([myCoords.lat, myCoords.lng], 18, { animate: true, duration: 1.5 });
 
-            SmartDrive.startTrip();
+            navState.ready = false;
+            navState.active = true;
+            SmartDrive.startTrip();              // also emits mu:drive-state
             if (typeof TripDB !== "undefined") TripDB.saveNavState({ destLat, destLng, destName, active: true });
-            speak(`Navigation started. Heading to ${destName}.`);
+
+            // Opening line: destination, then the first real maneuver if we know it.
+            const first = nextManeuver();
+            const d0 = distanceToNext(lastPos);
+            let opening = `Navigation started. Heading to ${destName}.`;
+            if (first && Number.isFinite(d0)) {
+                opening += ` In ${spokenDistance(d0)}, ${lowerFirst(maneuverPhrase(first))}.`;
+                if (d0 <= 250) promptedPre.add(`${routeVersion}:${stepIdx + 1}`);
+            }
+            speak(opening, { priority: 70, key: `nav-start-${destLat}-${destLng}`, cooldownMs: 5000 });
 
             if (navigator.geolocation) {
                 let traveledCoords = [];
@@ -2050,6 +2907,7 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
                     const currentLat = pos.coords.latitude;
                     const currentLng = pos.coords.longitude;
                     const currentPos = [currentLat, currentLng];
+                    lastPos = currentPos;
 
                     const speedMps = pos.coords.speed || 0;
                     const speedKmh = Math.round(speedMps * 3.6);
@@ -2064,14 +2922,25 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
                     const remainingMeters = map.distance(currentPos, [destLat, destLng]);
                     updateNavStats(remainingMeters, activeRoute.durationSec * (remainingMeters / Math.max(1, activeRoute.distanceM)));
 
-                    // Advance the turn-by-turn step once the reported next
-                    // maneuver location is close (only OSRM-sourced steps carry
-                    // a location; Google's stay on the single instruction).
-                    const nextStep = steps[stepIdx + 1];
-                    if (nextStep?.maneuver?.location) {
-                        const [mLng, mLat] = nextStep.maneuver.location;
-                        if (map.distance(currentPos, [mLat, mLng]) < 35) { stepIdx++; updateStepDisplay(); }
+                    // --- Turn-by-turn prompts (Phase 3, voice-first Safe Drive) ---
+                    // One early prompt inside 250 m, one late prompt only if the
+                    // early one was missed (short step / sparse fixes), then
+                    // advance when within 35 m of the maneuver point.
+                    const next = nextManeuver();
+                    const nextLL = maneuverLatLng(next);
+                    if (next && nextLL) {
+                        const d = map.distance(currentPos, nextLL);
+                        const k = `${routeVersion}:${stepIdx + 1}`;
+                        if (d <= 250 && d > 60 && !promptedPre.has(k)) {
+                            promptedPre.add(k);
+                            speak(`In ${spokenDistance(d)}, ${lowerFirst(maneuverPhrase(next))}.`, { priority: 70, key: `man-pre-${k}`, cooldownMs: 30000, maxAgeMs: 5000 });
+                        } else if (d <= 60 && !promptedPre.has(k) && !promptedNow.has(k)) {
+                            promptedNow.add(k);
+                            speak(`${maneuverPhrase(next)}.`, { priority: 72, key: `man-now-${k}`, cooldownMs: 30000, maxAgeMs: 4000 });
+                        }
+                        if (d < 35) stepIdx++;
                     }
+                    updateStepDisplay(currentPos);
 
                     // --- Off-route detection + reroute (roadmap Section 7 + 10) ---
                     const offDist = pointToPolylineDistanceMeters(currentLat, currentLng, fullPath);
@@ -2087,21 +2956,24 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
                                 // Always resync the polyline once we're genuinely off it — silent
                                 // navigation off a route the rider can see is confusing either way.
                                 // shouldReroute() only decides whether to also call this out as a
-                                // "faster path found" cue vs. a quiet resync.
+                                // "faster path found" cue vs. a quiet resync. Either way the rider
+                                // HEARS it (roadmap Section 26: no silent rerouting).
                                 fullPath = cand.geometry.coordinates.map(c => [c[1], c[0]]);
                                 dottedPath.setLatLngs(fullPath);
                                 activeRoute = { distanceM: cand.distance, durationSec: cand.duration };
                                 steps = (cand.legs && cand.legs[0] && cand.legs[0].steps) || [];
-                                stepIdx = 0; updateStepDisplay();
+                                stepIdx = 0;
+                                routeVersion++;
+                                updateStepDisplay(currentPos);
                                 lastRerouteTime = Date.now();
                                 offRouteStreak = 0;
 
                                 if (shouldReroute(currentEstimate, candidate, 0)) {
                                     showToast("🔄 Faster route found — recalculating.", 4000);
-                                    speak("Recalculating a faster route.");
+                                    speak("Recalculating a faster route.", { priority: 66, key: "reroute", cooldownMs: 20000 });
                                 } else {
                                     showToast("🔄 Back on track — route updated.", 3000);
-                                    speak("Route updated.");
+                                    speak("Route updated.", { priority: 66, key: "reroute", cooldownMs: 20000 });
                                 }
                                 islandShow({ id: "reroute", kind: "info", title: "Rerouting", sub: "Path updated to your position", ttl: 4000 });
                             }
@@ -2113,11 +2985,20 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
                         if (exitBtn) { exitBtn.textContent = "Arrived"; exitBtn.style.background = "#3b82f6"; exitBtn.style.color = "white"; }
                         if ($("stat-status")) { $("stat-status").textContent = "Arrived"; $("stat-status").style.color = "var(--mint)"; }
                         if ($("turn-name")) $("turn-name").textContent = "Destination reached!";
-                        speak("You have arrived.");
+                        if ($("turn-dist")) $("turn-dist").textContent = destName;
+                        speak(`You have arrived at ${destName}.`, { priority: 70, key: "arrived", cooldownMs: 60000 });
                         setTimeout(() => stopDrive(), 3000);
                     }
-                }, (err) => { console.error("GPS Error during nav:", err); }, { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 });
+                }, (err) => {
+                    // TIMEOUT (3) is routine when stationary or under canopy — the
+                    // watch keeps running, so it isn't worth an error. Surface a
+                    // permission loss; log anything else quietly.
+                    if (err && err.code === 3) return;
+                    if (err && err.code === 1) { showToast("⚠️ Location permission was turned off — navigation can't follow you.", 6000); return; }
+                    console.warn("GPS error during nav:", err && err.message);
+                }, { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 });
             }
+            emitDriveState();
         };
     }
 
@@ -2127,6 +3008,7 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
 
 function stopDrive(cancelled = false) {
     if (navWatchId) navigator.geolocation.clearWatch(navWatchId);
+    navWatchId = null;
     navigationLayer.clearLayers();
     safeHide("premium-nav-ui");
     safeHide("nav-bottom-sheet");
@@ -2142,8 +3024,17 @@ function stopDrive(cancelled = false) {
 
     if (myCoords) map.flyTo([myCoords.lat, myCoords.lng], 16);
 
-    if (!cancelled) SmartDrive.endTrip();
-    else SmartDrive.releaseWakeLock();
+    navState.ready = false;
+    navState.active = false;
+    navState.destName = "";
+    navState.remainingM = null;
+    navState.etaSec = null;
+    navState.nextManeuver = "";
+    // Clear the saved nav state so a refresh doesn't resurrect a finished drive.
+    if (typeof TripDB !== "undefined") TripDB.saveNavState({ active: false });
+
+    if (!cancelled) SmartDrive.endTrip();     // emits mu:drive-state itself
+    else { SmartDrive.releaseWakeLock(); emitDriveState(); }
 }
 
 // ==========================================
@@ -2201,6 +3092,8 @@ function initCallButton(u) {
             return;
         }
         try {
+            // Phase 3: hand the mic over from hands-free voice commands first.
+            if (window.VoiceAssistant) window.VoiceAssistant.stopListening();
             localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
             peerConnection = new RTCPeerConnection(rtcConfig);
             localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
@@ -2246,6 +3139,7 @@ socket.on("incoming-call", async (data) => {
                 if (callDialog) callDialog.remove();
                 callDialog = null;
                 try {
+                    if (window.VoiceAssistant) window.VoiceAssistant.stopListening();
                     localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
                     peerConnection = new RTCPeerConnection(rtcConfig);
                     localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
@@ -2302,6 +3196,8 @@ function endLocalCall() {
     if (peerConnection) { peerConnection.close(); peerConnection = null; }
     if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
     incomingIceCandidates = [];
+    // Phase 3: the mic is free again — hands-free listening may resume.
+    if (window.VoiceAssistant) window.VoiceAssistant.updateHandsFree();
 }
 
 // ==========================================
@@ -2363,6 +3259,25 @@ window.TripChecklist = TripChecklist;
 // ==========================================
 // EMERGENCY SOS
 // ==========================================
+// Shared by the SOS button (after its confirm sheet) and the voice command
+// "send SOS" (after a spoken "confirm SOS") — one code path, one payload.
+function sendSOS() {
+    if (!myCoords) { showToast("❌ Waiting for GPS..."); return false; }
+    socket.emit("sos-alert", { name: currentUser.name, lat: myCoords.lat, lng: myCoords.lng, alt: myCoords.alt ?? null });
+    showToast("🚨 SOS BROADCASTED TO ALL FRIENDS!", 8000);
+    islandShow({ id: "sos", kind: "sos", title: "SOS sent", sub: "Your friends were alerted", ttl: 6000 });
+    return true;
+}
+
+// 8-point compass word from A to B ("north-east"), for spoken directions.
+function compassWord(lat1, lng1, lat2, lng2) {
+    const toRad = (d) => (d * Math.PI) / 180;
+    const y = Math.sin(toRad(lng2 - lng1)) * Math.cos(toRad(lat2));
+    const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) - Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(toRad(lng2 - lng1));
+    const deg = ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+    return ["north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west"][Math.round(deg / 45) % 8];
+}
+
 function setupSOS() {
     let sosBtn = $("sos-btn");
     if (!sosBtn) {
@@ -2380,9 +3295,7 @@ function setupSOS() {
             okLabel: "Send SOS", cancelLabel: "Cancel", danger: true
         });
         if (!ok) return;
-        socket.emit("sos-alert", { name: currentUser.name, lat: myCoords.lat, lng: myCoords.lng, alt: myCoords.alt ?? null });
-        showToast("🚨 SOS BROADCASTED TO ALL FRIENDS!", 8000);
-        islandShow({ id: "sos", kind: "sos", title: "SOS sent", sub: "Your friends were alerted", ttl: 6000 });
+        sendSOS();
     };
 
     socket.on("sos-alert", (data) => {
@@ -2390,8 +3303,17 @@ function setupSOS() {
         div.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(239,68,68,0.3);border:10px solid #ef4444;z-index:99999;pointer-events:none;animation:dangerPulse 1s infinite alternate;";
         document.body.appendChild(div);
 
-        showToast(`🚨 URGENT SOS FROM ${data.name.toUpperCase()}! Check Map!`, 15000);
-        islandShow({ id: "sos-in", kind: "sos", title: "SOS", sub: `${escapeHTML(data.name)} needs help`, ttl: 15000 });
+        const who = String(data.name || "A rider");
+        showToast(`🚨 URGENT SOS FROM ${who.toUpperCase()}! Check Map!`, 15000);
+        // StatusIsland uses textContent — raw string, not escapeHTML().
+        islandShow({ id: "sos-in", kind: "sos", title: "SOS", sub: `${who} needs help`, ttl: 15000 });
+        // Always spoken: an emergency bypasses mute and the "spoken alerts"
+        // toggle (stated next to that toggle in settings).
+        let where = "";
+        if (myCoords && validCoord(data.lat, data.lng)) {
+            where = ` ${spokenDistance(map.distance([myCoords.lat, myCoords.lng], [data.lat, data.lng]))} ${compassWord(myCoords.lat, myCoords.lng, data.lat, data.lng)} of you.`;
+        }
+        voiceAnnounce(`Emergency. ${who} sent an S O S.${where}`, { priority: 100, force: true, key: `sos-in-${data.id || who}`, cooldownMs: 10000, category: "sos" });
 
         L.marker([data.lat, data.lng], { icon: L.divIcon({ className: 'sos-marker', html: '<div style="font-size:30px;animation:dangerPulse 1s infinite alternate;">🚨</div>' }) })
             .bindPopup(`<b style="color:red;">EMERGENCY SOS: ${escapeHTML(data.name)}</b>`).addTo(map).openPopup();
@@ -2415,6 +3337,7 @@ function initApp() {
         { name: "Privacy Controls", fn: () => PrivacyControls.init() },
         { name: "Meetup Planner", fn: () => MeetupPlanner.init() },
         { name: "Carpool Planner", fn: () => CarpoolPlanner.init() },
+        { name: "Trip Analytics", fn: () => TripAnalytics.init() },
         { name: "GPS System", fn: startGPS },
         { name: "Google Search", fn: setupGoogleSearch },
         { name: "Emergency SOS", fn: setupSOS }
@@ -2426,11 +3349,15 @@ function initApp() {
 
     setTimeout(() => {
         try {
-            if ($("trip-panel") && !$("trip-checklist-container")) {
+            const panel = $("trip-panel");
+            if (panel && !$("trip-checklist-container")) {
                 const listDiv = document.createElement("div");
                 listDiv.id = "trip-checklist-container";
                 listDiv.style.cssText = "background:rgba(255,255,255,0.05); padding:10px; border-radius:10px; margin-top:10px;";
-                $("trip-panel").insertBefore(listDiv, $("trip-action-btn"));
+                // Fixed: this used insertBefore(listDiv, #trip-action-btn), but that
+                // button sits inside a row <div>, not directly in #trip-panel —
+                // insertBefore() threw NotFoundError and the checklist never showed.
+                panel.appendChild(listDiv);
                 TripChecklist.render();
             }
         } catch (e) { console.error(e); }
