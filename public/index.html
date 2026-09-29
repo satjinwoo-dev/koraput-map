@@ -1,16 +1,20 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="theme-color" content="#080e17">
+<meta name="color-scheme" content="dark">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="MapUnite">
+<meta name="description" content="Live squad map, safe-drive assistant, meetup and carpool planning.">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" type="image/png" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<title>MapUnite</title>
 
-<link rel="manifest" href="manifest.json">
-<link rel="apple-touch-icon" href="satyam.png">
-
-<title>mapunite</title>
-
-<!-- Fonts & Styles -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -18,148 +22,509 @@
 <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js"></script>
 
 <style>
-:root{
-  --ink:#080e17; --ink-2:#0e1724; --ink-3:#152131;
-  --glass:rgba(11,19,31,.74); --glass-solid:rgba(10,17,28,.94);
-  --line:rgba(255,255,255,.085); --line-strong:rgba(255,255,255,.16);
-  --text:#f2f6f8; --muted:#8b9bab; --soft:#c6d2db;
-  --mint:#34e0b4; --danger:#ff6b6b;
-  --font-ui:"Inter",system-ui,-apple-system,sans-serif;
-  --font-display:"Sora",sans-serif;
-  --shadow:0 18px 50px rgba(0,0,0,.5), 0 2px 8px rgba(0,0,0,.3);
-  --safe-t:env(safe-area-inset-top,0px); --safe-b:env(safe-area-inset-bottom,0px);
+/* ==========================================================================
+   MAPUNITE DESIGN SYSTEM  (OxygenOS / One UI / iOS-caliber motion language)
+   --------------------------------------------------------------------------
+   1. Tokens          colour, elevation, glass, motion, z-index ladder
+   2. Base            reset, focus, reduced-motion
+   3. Surfaces        glass + elevation utilities
+   4. HUD             header, search, tool rail, popovers, bottom pills, FABs
+   5. Status Island   adaptive capsule (idle / turn / speed / geofence / SOS)
+   6. Navigation      turn banner, speed dial, bottom sheet, chips, buttons
+   7. Panels          results, modals, sheets, settings controls
+   8. Social          chat, join, profile, memories, trip panel
+   9. Experimental    radar, analytics, carpool, dashcam
+  10. Map overrides   Leaflet attribution + popups
+   ========================================================================== */
+
+/* ---------- 1. TOKENS ---------- */
+:root {
+  color-scheme: dark;
+
+  /* colour */
+  --ink: #080e17; --ink-2: #0e1724; --ink-3: #152131;
+  --line: rgba(255,255,255,.085); --line-strong: rgba(255,255,255,.16);
+  --text: #f2f6f8; --text-hi: #f2f6f8; --text-lo: #8b9bab; --muted: #8b9bab; --soft: #c6d2db;
+  --mint: #34e0b4; --danger: #ff6b6b;
+  --c-safe: #34e0b4; --c-info: #5ac8fa; --c-turn: #7c8cff; --c-geo: #bf5af2;
+  --c-sensor: #ff9f0a; --c-warn: #ffb020; --c-danger: #ff453a; --c-sos: #ff2d55;
+
+  /* glass surfaces */
+  --glass: rgba(14,22,34,.58);
+  --glass-strong: rgba(12,19,30,.78);
+  --glass-solid: rgba(10,17,28,.94);
+  --blur: blur(24px) saturate(180%);
+  --inner: inset 0 1px 1px rgba(255,255,255,.1);
+
+  /* elevation ladder */
+  --elev-1: 0 1px 2px rgba(0,0,0,.35), 0 4px 12px rgba(0,0,0,.25);
+  --elev-2: 0 2px 6px rgba(0,0,0,.30), 0 12px 32px rgba(0,0,0,.40);
+  --elev-3: 0 4px 12px rgba(0,0,0,.35), 0 24px 64px rgba(0,0,0,.55);
+  --shadow: var(--elev-2);
+
+  /* motion tokens */
+  --ease-out: cubic-bezier(.2, .9, .3, 1);
+  --ease-spring: cubic-bezier(.32, .72, 0, 1);
+  --ease-overshoot: cubic-bezier(.34, 1.42, .64, 1);      /* fallback */
+  --dur-fast: 160ms; --dur: 320ms; --dur-slow: 520ms;
+
+  /* type + safe areas */
+  --font-ui: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Sora", "Inter", system-ui, sans-serif;
+  --safe-t: env(safe-area-inset-top, 0px); --safe-b: env(safe-area-inset-bottom, 0px);
+  --app-h: 100vh;                                          /* kept current by shell.js */
+
+  /* z-index ladder */
+  --z-hud: 1000; --z-search: 2000; --z-nav: 3000; --z-sheet: 4500; --z-modal: 5000;
+  --z-overlay: 8000; --z-toast: 9000; --z-island: 9200; --z-confirm: 9500; --z-join: 9999;
+}
+/* True spring (overshoot + settle) where linear() easing is supported. */
+@supports (transition-timing-function: linear(0, 1)) {
+  :root {
+    --ease-overshoot: linear(0, 0.009, 0.035 2.1%, 0.141 4.4%, 0.281 6.7%, 0.723 12.9%, 0.938 16.7%,
+      1.017 19.4%, 1.077 22%, 1.121 24.3%, 1.149 26.4%, 1.159 28.5%, 1.163 30.6%, 1.154 33.2%,
+      1.129 36.4%, 1.05 42.3%, 1.017 45.8%, 0.991 49.6%, 0.977 53.6%, 0.974 57.9%, 0.975 62.6%,
+      0.997 74.5%, 1.003 82%, 1.001 92%, 1);
+  }
 }
 
-*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{width:100%;height:100%;margin:0;overflow:hidden;background:var(--ink);color:var(--text);font-family:var(--font-ui);}
-button,input{font:inherit;color:inherit;outline:none;border:none;background:none;}
-button{cursor:pointer;transition:transform .15s;}
-button:active{transform:scale(.94)}
+/* ---------- 2. BASE ---------- */
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+[hidden] { display: none !important; }
+html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: var(--ink); color: var(--text);
+  font-family: var(--font-ui); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+  overscroll-behavior: none; }
+button, input, select, textarea { font: inherit; color: inherit; outline: none; border: none; background: none; }
+button { cursor: pointer; touch-action: manipulation;
+  transition: transform var(--dur-fast) var(--ease-out), background-color var(--dur) var(--ease-out),
+              color var(--dur) var(--ease-out), border-color var(--dur) var(--ease-out), opacity var(--dur) var(--ease-out); }
+button:active { transform: scale(.94); }
+:focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; border-radius: 10px; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+.i { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; display: block; flex: none; }
+.i.sm { width: 16px; height: 16px; } .i.lg { width: 24px; height: 24px; }
+#map { position: fixed; inset: 0; z-index: 1; background: var(--ink); }
 
-.i{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;display:block}
-.i.sm{width:16px;height:16px} .i.lg{width:24px;height:24px}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}
 
-#map{position:fixed;inset:0;z-index:1;background:var(--ink)}
-.leaflet-control-attribution{display:none}
+/* ---------- 3. SURFACES ---------- */
+.glass { background: var(--glass); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  border: 1px solid var(--line); box-shadow: var(--inner), var(--elev-2); }
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass, .glass-strong { background: var(--glass-solid); }
+}
+.glass-strong { background: var(--glass-strong); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  border: 1px solid var(--line-strong); box-shadow: var(--inner), var(--elev-3); }
 
-#speed-danger-overlay { position: fixed; inset: 0; z-index: 500; pointer-events: none; background: rgba(255,0,0,0.25); opacity: 0; transition: opacity 0.3s ease; }
-#speed-danger-overlay.active { opacity: 1; animation: dangerPulse 1s infinite alternate; }
-@keyframes dangerPulse { from { opacity: 0.1; } to { opacity: 0.6; } }
-
-/* TOP HUD */
-#top-header { position: fixed; top: calc(14px + var(--safe-t)); left: 14px; right: 14px; z-index: 1000; display: flex; justify-content: space-between; pointer-events: none; }
-#top-header > * { pointer-events: auto; }
-.brand-card { display: flex; align-items: center; gap: 11px; padding: 8px 14px 8px 14px; border-radius: 20px; background: var(--glass); border: 1px solid var(--line); backdrop-filter: blur(20px); box-shadow: var(--shadow); }
-.brand-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--mint); position: relative; }
-.brand-dot::after { content: ""; position: absolute; inset: -5px; border-radius: 50%; border: 1.5px solid var(--mint); opacity: 0; animation: ping 2.4s infinite; }
-@keyframes ping { 0% { transform: scale(.5); opacity: .8; } 80%, 100% { transform: scale(1.6); opacity: 0; } }
-.header-info { display: flex; flex-direction: column; line-height: 1.1; }
-.header-info strong { font-family: var(--font-display); font-size: 15px; font-weight: 700; color: #fff; }
-.header-info span { margin-top: 3px; color: var(--muted); font-size: 11px; }
-#header-avatar { display: none; width: 36px; height: 36px; object-fit: cover; border-radius: 50%; box-shadow: 0 0 0 2px var(--ink), 0 0 0 3.5px rgba(52,224,180,.7); }
-
-/* SEARCH BAR & TOOLS */
-#search-container { position: fixed; top: calc(76px + var(--safe-t)); left: 0; right: 0; margin: auto; width: min(90vw, 420px); height: 48px; z-index: 2000; display: flex; align-items: center; gap: 10px; padding: 0 16px; border-radius: 24px; background: var(--glass-solid); border: 1px solid var(--line-strong); backdrop-filter: blur(20px); box-shadow: var(--shadow); }
-#location-search-input { flex: 1; width: 100%; height: 100%; border: 0; background: transparent; color: #fff; font-size: 15px; }
-
-#map-tools { position: fixed; right: 14px; top: calc(134px + var(--safe-t)); z-index: 1000; display: flex; flex-direction: column; gap: 12px; padding: 8px; border-radius: 20px; background: var(--glass); border: 1px solid var(--line); backdrop-filter: blur(20px); box-shadow: var(--shadow); }
-.tool-btn { width: 42px; height: 42px; border-radius: 14px; color: var(--soft); display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.03); transition: .2s; }
-.tool-btn.active-tool, .tool-btn:hover { background: rgba(52,224,180,0.15); color: var(--mint); }
-
-#map-style-menu { position:fixed; right:76px; top:calc(134px + var(--safe-t)); z-index:1100; display:none; flex-direction:column; padding:6px; border-radius:18px; background:var(--glass-solid); border:1px solid var(--line-strong); }
-#map-style-menu button { padding: 10px; text-align:left; font-size:14px; width:120px; color:var(--soft); }
-
-/* BOTTOM INFO & ACTIONS */
-#bottom-info { position: fixed; left: 50%; bottom: calc(17px + var(--safe-b)); transform: translateX(-50%); z-index: 1000; display: flex; gap: 6px; pointer-events: none; }
-.bottom-pill { display: flex; align-items: center; gap: 7px; height: 38px; padding: 0 15px; border-radius: 999px; background: var(--glass); border: 1px solid var(--line); backdrop-filter: blur(20px); color: var(--text); font-size: 13px; font-weight: 600; pointer-events: auto; }
-.bottom-pill.live { color: var(--mint); gap: 8px; }
-.bottom-pill.live::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--mint); box-shadow: 0 0 0 0 rgba(52,224,180,.6); animation: livePulse 2s infinite; }
-
-.action-fab { position: absolute; bottom: calc(14px + var(--safe-b)); width: 54px; height: 54px; border-radius: 50%; background: var(--glass-solid); border: 1px solid var(--line-strong); display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow); z-index: 1000; color:#fff; }
-#chat-toggle-btn { right: 14px; background: linear-gradient(135deg, #3b82f6, #2563eb); border: none; }
-#memoryButton { left: 14px; border-radius: 18px; }
-#chat-unread-badge{position:absolute;right:-3px;top:-3px;display:none;min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:var(--danger);color:#fff;font-size:11px;font-weight:700;align-items:center;justify-content:center;}
-
-/* PREMIUM NAVIGATION UI */
-#premium-nav-ui { display: none; }
-.turn-banner { position: fixed; top: calc(65px + var(--safe-t)); left: 14px; right: 14px; background: var(--glass-solid); border: 1px solid var(--line-strong); border-radius: 18px; padding: 14px 16px; display: flex; align-items: center; gap: 14px; z-index: 3000; box-shadow: var(--shadow); }
-.turn-arrow-wrap { width: 44px; height: 44px; border-radius: 14px; background: rgba(88,101,242,0.15); display: flex; align-items: center; justify-content: center; color: #a5b4fc; }
-.turn-copy .d { font-size: 12px; color: var(--muted); font-weight: 600; margin-bottom: 2px; }
-.turn-copy .n { font-family: var(--font-display); font-size: 16px; font-weight: 700; }
-
-.nav-bottom-sheet { position: fixed; left: 0; right: 0; bottom: 0; background: var(--ink-2); border-top: 1px solid var(--line-strong); padding: 18px 18px calc(18px + var(--safe-b)); display: flex; flex-direction: column; gap: 16px; z-index: 3000; }
-.nav-stats { display: flex; justify-content: space-between; align-items: center; }
-.n-stat { display: flex; flex-direction: column; gap: 4px; }
-.n-stat .l { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; }
-.n-stat .v { font-family: var(--font-display); font-size: 22px; font-weight: 700; }
-.controls-row { display: flex; gap: 12px; }
-.btn-primary-nav { flex: 2; height: 50px; border-radius: 14px; background: linear-gradient(135deg, #34d399, #22c55e); color: #062112; font-family: var(--font-display); font-weight: 800; border:none; cursor:pointer;}
-.btn-secondary-nav { flex: 1; height: 50px; border-radius: 14px; background: rgba(255,255,255,0.08); color: var(--text-hi); font-family: var(--font-display); font-size: 15px; font-weight: 700; border:none; cursor:pointer;}
-.btn-danger-nav { flex: 1; height: 50px; border-radius: 14px; background: rgba(239,68,68,0.15); color: var(--danger); font-family: var(--font-display); font-size: 15px; font-weight: 700; border:none; cursor:pointer;}
-
-.speed-dial { position: fixed; left: 14px; bottom: calc(85px + var(--safe-b)); width: 70px; height: 70px; border-radius: 50%; z-index: 3000; background: var(--glass-solid); border: 2px solid var(--line-strong); display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: var(--shadow); }
-.speed-dial .n { font-family: var(--font-display); font-size: 24px; font-weight: 800; line-height: 1; }
-.speed-dial .u { font-size: 10px; color: var(--muted); font-weight: 700; margin-top: 2px; }
-.speed-dial.danger { border-color: var(--danger); color: var(--danger); background: rgba(239,68,68,0.15); }
-
-/* TRIP SUMMARY & MODALS */
-.results-panel { position: fixed; left: 14px; right: 14px; bottom: calc(14px + var(--safe-b)); z-index: 4000; background: var(--glass-solid); border: 1px solid var(--line-strong); border-radius: 24px; padding: 20px; box-shadow: var(--shadow); display: none; flex-direction: column; gap: 12px; }
-.results-panel h3 { font-family: var(--font-display); font-size: 18px; margin: 0; color: var(--mint); display: flex; align-items: center; gap: 8px; }
-.r-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-top: 1px solid rgba(255,255,255,0.04); }
-.r-row:first-of-type { border-top: none; }
-.r-label { font-size: 13px; color: var(--text-lo); font-weight: 500; }
-.r-val { font-family: var(--font-display); font-weight: 700; font-size: 15px; }
-.r-val.good { color: var(--mint); } .r-val.bad { color: var(--danger); }
-.fuel-estimate-box { margin-top: 10px; background: rgba(255,255,255,0.03); padding: 14px; border-radius: 14px; border-left: 3px solid #f59e0b; }
-
-/* SETTINGS MODAL */
-.modal { display: none; position: fixed; inset: 0; z-index: 5000; background: rgba(4,6,10,0.8); backdrop-filter: blur(8px); align-items: center; justify-content: center; padding: 20px; animation: fadeIn 0.3s ease; }
+/* shared entrance animations (re-run every time an element goes display:none -> shown) */
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-.modal-card { width: 100%; max-width: 360px; background: var(--ink-2); border: 1px solid rgba(255,255,255,0.1); border-radius: 24px; padding: 24px; box-shadow: var(--shadow); position: relative; }
-.modal-card h2 { margin: 0 0 20px; font-family: var(--font-display); font-size: 20px; }
-.close-modal { position: absolute; top: 16px; right: 16px; width: 32px; height: 32px; border-radius: 50%; background: rgba(255,255,255,0.08); display: flex; align-items: center; justify-content: center; color: #fff; border:none; cursor:pointer;}
-#speed-graph-canvas { width: 100%; height: 80px; background: rgba(255,255,255,0.02); border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); margin-top: 10px; display: none; }
+@keyframes cardIn { from { opacity: 0; transform: translateY(18px) scale(.94); } to { opacity: 1; transform: none; } }
+@keyframes sheetUp { from { opacity: 0; transform: translateY(40px); } to { opacity: 1; transform: none; } }
+@keyframes dropIn { from { opacity: 0; transform: translateY(-14px) scale(.97); } to { opacity: 1; transform: none; } }
+@keyframes popIn { from { opacity: 0; transform: scale(.86); } to { opacity: 1; transform: none; } }
+@keyframes ping { 0% { transform: scale(.5); opacity: .8; } 80%, 100% { transform: scale(1.6); opacity: 0; } }
+@keyframes livePulse { 0% { box-shadow: 0 0 0 0 rgba(52,224,180,.6); } 70%, 100% { box-shadow: 0 0 0 8px rgba(52,224,180,0); } }
+@keyframes dangerPulse { from { opacity: .1; } to { opacity: .6; } }   /* also used by app.js SOS overlay */
 
-/* CHAT, GEOFENCE, MEMORIES, PROFILE */
-#chat-container{position:fixed;right:18px;bottom:calc(18px + var(--safe-b));z-index:5000;width:min(400px,calc(100vw - 28px));height:min(620px,calc(100vh - 36px));display:none;flex-direction:column;overflow:hidden;border:1px solid var(--line-strong);border-radius:28px;background:var(--glass-solid);box-shadow:var(--shadow);backdrop-filter:blur(24px);}
-#chat-header{height:64px;display:flex;align-items:center;justify-content:space-between;padding:0 12px 0 18px;border-bottom:1px solid var(--line)}
-#chat-messages{flex:1;overflow-y:auto;padding:16px 14px;display:flex;flex-direction:column;gap:8px;}
-.chat-row{display:flex;max-width:82%;flex-direction:column;}
-.chat-row.mine{align-self:flex-end}
-.chat-message{padding:9px 12px;border-radius:18px;font-size:14.5px;line-height:1.42;overflow-wrap:anywhere}
-.msg-mine{background:linear-gradient(145deg,#1fcfa3,#0e9c7c);color:#04241b;border-bottom-right-radius:6px}
-.msg-theirs{background:rgba(255,255,255,.08);border:1px solid var(--line);border-bottom-left-radius:6px}
-#chatInput{width:100%;height:44px;padding:0 16px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.06);color:#fff;font-size:15px;}
-.chat-icon-btn{width:40px;height:40px;border-radius:14px;color:var(--muted);display:flex;align-items:center;justify-content:center}
+/* ---------- 4. HUD ---------- */
+#speed-danger-overlay { position: fixed; inset: 0; z-index: 500; pointer-events: none; opacity: 0;
+  background: radial-gradient(ellipse at center, rgba(255,69,58,0) 42%, rgba(255,69,58,.5) 100%);
+  transition: opacity var(--dur) var(--ease-out); }
+#speed-danger-overlay.active { opacity: 1; animation: dangerPulse 1s ease-in-out infinite alternate; }
 
-#join-screen{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;background:var(--ink);}
-.join-card{width:min(400px,100%);padding:32px 26px 26px;border:1px solid var(--line-strong);border-radius:32px;background:rgba(10,17,28,.72);backdrop-filter:blur(26px);text-align:center;}
+#top-header { position: fixed; top: calc(10px + var(--safe-t)); left: 12px; right: 12px; z-index: var(--z-hud);
+  display: flex; justify-content: space-between; align-items: center; gap: 8px; pointer-events: none; }
+#top-header > * { pointer-events: auto; }
+.brand-card { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 8px 0 14px; border-radius: 22px; }
+.brand-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--mint); position: relative; flex: none; }
+.brand-dot::after { content: ""; position: absolute; inset: -5px; border-radius: 50%; border: 1.5px solid var(--mint); opacity: 0; animation: ping 2.4s infinite; }
+.header-info { display: none; flex-direction: column; line-height: 1.1; padding-right: 4px; }
+.header-info strong { font-family: var(--font-display); font-size: 14px; font-weight: 700; color: #fff; }
+.header-info span { margin-top: 3px; color: var(--muted); font-size: 11px; }
+@media (min-width: 520px) { .header-info { display: flex; } }
+#header-avatar { display: none; width: 32px; height: 32px; object-fit: cover; border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--ink), 0 0 0 3.5px rgba(52,224,180,.7); }
+#profile-open-btn { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 14px; border-radius: 22px;
+  font-size: 13px; font-weight: 600; color: var(--soft); }
+#profile-open-btn .lbl { display: none; }
+@media (min-width: 440px) { #profile-open-btn .lbl { display: inline; } }
+#profile-open-btn:hover { color: var(--mint); }
 
-#phase3-memory-overlay{position:fixed;inset:0;z-index:8000;display:none;background:rgba(3,7,12,.65);backdrop-filter:blur(10px);}
-#phase3-memory-panel{position:absolute;inset:0;margin:auto;width:min(780px,calc(100vw - 24px));height:min(700px,calc(100vh - 30px));display:flex;flex-direction:column;background:var(--ink-2);border:1px solid var(--line-strong);border-radius:28px;}
-.p3-head{display:flex;justify-content:space-between;padding:18px 20px 14px}
-#phase3-memory-content{flex:1;overflow-y:auto;padding:4px 16px 20px}
-#phase3-memory-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
-.p3-card{position:relative;width:100%;padding-top:100%;border-radius:20px;overflow:hidden;cursor:pointer;}
-.p3-card img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}
+#search-container { position: fixed; top: calc(66px + var(--safe-t)); left: 0; right: 0; margin: auto; width: min(90vw, 420px);
+  height: 48px; z-index: var(--z-search); display: flex; align-items: center; gap: 10px; padding: 0 8px 0 16px; border-radius: 24px;
+  background: var(--glass-strong); border: 1px solid var(--line-strong); box-shadow: var(--inner), var(--elev-2);
+  -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  transition: box-shadow var(--dur) var(--ease-out), border-color var(--dur) var(--ease-out), transform var(--dur) var(--ease-spring); }
+#search-container:focus-within { border-color: rgba(52,224,180,.55); box-shadow: var(--inner), 0 0 0 4px rgba(52,224,180,.12), var(--elev-3); transform: translateY(1px) scale(1.01); }
+#location-search-input { flex: 1; min-width: 0; height: 100%; color: #fff; font-size: 15px; }
+#location-search-input::placeholder { color: var(--muted); }
+#location-search-clear { display: none; width: 32px; height: 32px; border-radius: 50%; align-items: center; justify-content: center; color: var(--muted); background: rgba(255,255,255,.06); }
 
-#profile-popup { display:none; }
+#top-weather { display: none; position: fixed; top: calc(122px + var(--safe-t)); left: 12px; z-index: var(--z-hud); height: 32px; padding: 0 12px;
+  border-radius: 16px; align-items: center; font-size: 12px; font-weight: 600; color: var(--soft); }
+
+#map-tools { position: fixed; right: 12px; top: calc(122px + var(--safe-t)); z-index: var(--z-hud); display: flex; flex-direction: column; gap: 6px;
+  padding: 6px; border-radius: 20px; max-height: calc(var(--app-h) - 122px - var(--safe-t) - 100px - var(--safe-b)); overflow-y: auto; scrollbar-width: none;
+  background: var(--glass); border: 1px solid var(--line); box-shadow: var(--inner), var(--elev-2);
+  -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); }
+#map-tools::-webkit-scrollbar { display: none; }
+.tool-btn { width: 40px; height: 40px; flex: none; border-radius: 14px; color: var(--soft); display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.03); }
+.tool-btn:hover, .tool-btn.active-tool, .tool-btn[aria-expanded="true"] { background: rgba(52,224,180,.16); color: var(--mint); }
+
+/* popovers: map style menu (display-toggled by app.js) + toolbox (class-toggled by shell.js) */
+#map-style-menu { position: fixed; right: 66px; top: calc(218px + var(--safe-t)); z-index: 1100; display: none; flex-direction: column; padding: 6px; border-radius: 18px;
+  background: var(--glass-solid); border: 1px solid var(--line-strong); box-shadow: var(--inner), var(--elev-3); animation: popIn var(--dur) var(--ease-overshoot); transform-origin: right center; }
+#map-style-menu button { padding: 10px 14px; text-align: left; font-size: 14px; width: 132px; color: var(--soft); border-radius: 12px; }
+#map-style-menu button:hover { background: rgba(255,255,255,.06); }
+#map-style-menu button.active { color: var(--mint); background: rgba(52,224,180,.12); font-weight: 600; }
+
+.popover { position: fixed; right: 66px; top: calc(122px + var(--safe-t)); z-index: 1100; width: 236px; padding: 10px; border-radius: 22px;
+  background: var(--glass-solid); border: 1px solid var(--line-strong); box-shadow: var(--inner), var(--elev-3);
+  opacity: 0; visibility: hidden; pointer-events: none; transform: translateX(14px) scale(.94); transform-origin: right top;
+  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-spring), visibility 0s linear var(--dur); }
+.popover.open { opacity: 1; visibility: visible; pointer-events: auto; transform: none; transition-delay: 0s; }
+.pop-label { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 700; padding: 6px 8px 4px; }
+.dock-item { width: 100%; display: flex; align-items: center; gap: 12px; padding: 10px 10px; border-radius: 14px; font-size: 14px; font-weight: 500; color: var(--soft); text-align: left; }
+.dock-item:hover { background: rgba(255,255,255,.06); color: #fff; }
+.dock-item .ico { width: 32px; height: 32px; border-radius: 10px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.06); flex: none; }
+.dock-item.live { color: #fff; } .dock-item.live .ico { background: rgba(255,69,58,.85); }
+
+/* segmented controls (shell.js keeps aria-pressed / .on in sync) */
+.segmented { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 3px; padding: 3px; border-radius: 14px; background: rgba(255,255,255,.06); }
+.segmented button { height: 36px; border-radius: 11px; font-size: 13px; font-weight: 600; color: var(--muted); display: flex; align-items: center; justify-content: center; gap: 6px; padding: 0 8px; }
+.segmented button[aria-pressed="true"], .segmented button.on { background: var(--mint); color: #04241b; box-shadow: 0 2px 10px rgba(52,224,180,.3); }
+
+#bottom-info { position: fixed; left: 50%; bottom: calc(17px + var(--safe-b)); transform: translateX(-50%); z-index: var(--z-hud); display: flex; gap: 6px; pointer-events: none; }
+.bottom-pill { display: flex; align-items: center; gap: 7px; height: 38px; padding: 0 14px; border-radius: 999px; font-size: 13px; font-weight: 600; pointer-events: auto; white-space: nowrap;
+  background: var(--glass); border: 1px solid var(--line); box-shadow: var(--inner), var(--elev-1); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); }
+.bottom-pill.live { color: var(--mint); gap: 8px; }
+.bottom-pill.live::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--mint); animation: livePulse 2s infinite; }
+#city-name-text { max-width: 26vw; overflow: hidden; text-overflow: ellipsis; }
+
+.action-fab { position: fixed; bottom: calc(14px + var(--safe-b)); width: 54px; height: 54px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: var(--glass-strong); border: 1px solid var(--line-strong); box-shadow: var(--inner), var(--elev-2); z-index: var(--z-hud); color: #fff;
+  -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); }
+#chat-toggle-btn { right: 14px; background: linear-gradient(135deg, #3b82f6, #2563eb); border: none; box-shadow: var(--inner), 0 8px 24px rgba(37,99,235,.45); }
+#memoryButton { left: 14px; border-radius: 18px; }
+#chat-unread-badge { position: absolute; right: -3px; top: -3px; display: none; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px;
+  background: var(--danger); color: #fff; font-size: 11px; font-weight: 700; align-items: center; justify-content: center; animation: popIn var(--dur) var(--ease-overshoot); }
+.sos-fab { position: fixed; right: 20px; bottom: calc(80px + var(--safe-b)); width: 46px; height: 46px; border-radius: 50%; z-index: var(--z-hud);
+  background: linear-gradient(145deg, #ff5a52, #e0281f); color: #fff; font-family: var(--font-display); font-weight: 800; font-size: 11px; letter-spacing: .04em;
+  box-shadow: 0 6px 20px rgba(239,68,68,.5), var(--inner); }
+#install-app-btn { display: none; position: fixed; left: 50%; bottom: calc(64px + var(--safe-b)); transform: translateX(-50%); z-index: var(--z-hud); align-items: center; gap: 8px;
+  height: 40px; padding: 0 16px; border-radius: 20px; font-size: 13px; font-weight: 700; color: #04241b; background: var(--mint); box-shadow: 0 8px 24px rgba(52,224,180,.35); animation: popIn var(--dur) var(--ease-overshoot); }
+#install-app-btn:active { transform: translateX(-50%) scale(.95); }
+
+#toast-container { position: fixed; left: 0; right: 0; bottom: calc(66px + var(--safe-b)); z-index: var(--z-toast); display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; padding: 0 16px; }
+body:has(#premium-nav-ui[style*="block"]) #toast-container { bottom: calc(250px + var(--safe-b)); }
+.toast { max-width: min(92vw, 420px); padding: 11px 16px; border-radius: 16px; font-size: 13.5px; font-weight: 500; line-height: 1.35; text-align: center;
+  background: var(--glass-strong); border: 1px solid var(--line-strong); box-shadow: var(--inner), var(--elev-2); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  animation: sheetUp var(--dur) var(--ease-spring); transition: opacity .3s ease; }
+
+/* ---------- 5. STATUS ISLAND ---------- */
+#status-island { --isl: var(--c-safe);
+  position: fixed; left: 0; right: 0; margin-inline: auto; top: calc(10px + var(--safe-t)); z-index: var(--z-island);
+  width: clamp(128px, 36vw, 176px); height: 44px; padding: 0 14px 0 8px; border-radius: 22px; overflow: hidden;
+  display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; -webkit-user-select: none;
+  color: var(--text); background: rgba(10,16,26,.74); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  border: 1px solid var(--line); box-shadow: var(--inner), var(--elev-2);
+  transition: width var(--dur-slow) var(--ease-spring), height var(--dur-slow) var(--ease-spring), border-radius var(--dur-slow) var(--ease-spring),
+              background-color var(--dur) var(--ease-out), border-color var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out); }
+#status-island[data-size="expanded"] { width: min(calc(100vw - 24px), 400px); height: 68px; border-radius: 30px; padding: 0 12px 0 10px; }
+#status-island[data-state]:not([data-state="idle"]) {
+  background: rgba(10,16,26,.82);
+  background: color-mix(in srgb, var(--isl) 20%, rgba(10,16,26,.84));
+  border-color: color-mix(in srgb, var(--isl) 45%, transparent);
+  box-shadow: var(--inner), 0 0 0 1px color-mix(in srgb, var(--isl) 18%, transparent), 0 10px 40px color-mix(in srgb, var(--isl) 30%, rgba(0,0,0,.4));
+  animation: islandPop .62s var(--ease-overshoot); }
+#status-island[data-state="turn"]         { --isl: var(--c-turn); }
+#status-island[data-state="safe"]         { --isl: var(--c-safe); }
+#status-island[data-state="info"]         { --isl: var(--c-info); }
+#status-island[data-state="geofence"]     { --isl: var(--c-geo); }
+#status-island[data-state="sensor"]       { --isl: var(--c-sensor); }
+#status-island[data-state="speed-warn"]   { --isl: var(--c-warn); }
+#status-island[data-state="speed-danger"] { --isl: var(--c-danger); animation: islandPop .62s var(--ease-overshoot), islandAlert 1.1s ease-in-out .62s infinite; }
+#status-island[data-state="sos"]          { --isl: var(--c-sos);    animation: islandPop .62s var(--ease-overshoot), islandAlert .8s ease-in-out .62s infinite; }
+@keyframes islandPop { 0% { transform: scale(.82); opacity: .4; } 100% { transform: none; opacity: 1; } }
+@keyframes islandAlert { 0%, 100% { box-shadow: var(--inner), 0 0 0 0 color-mix(in srgb, var(--isl) 55%, transparent), 0 10px 40px color-mix(in srgb, var(--isl) 30%, rgba(0,0,0,.4)); }
+                         50% { box-shadow: var(--inner), 0 0 0 9px color-mix(in srgb, var(--isl) 0%, transparent), 0 10px 46px color-mix(in srgb, var(--isl) 50%, rgba(0,0,0,.4)); } }
+.island-icon { width: 28px; height: 28px; flex: none; border-radius: 50%; display: grid; place-items: center; font-size: 15px; line-height: 1;
+  background: color-mix(in srgb, var(--isl) 28%, transparent); color: #fff; transition: transform var(--dur) var(--ease-overshoot); }
+#status-island[data-size="expanded"] .island-icon { width: 44px; height: 44px; font-size: 22px; border-radius: 16px; }
+#status-island[data-state="idle"] .island-icon { font-size: 0; width: 8px; height: 8px; margin: 0 4px 0 10px; background: var(--mint); box-shadow: 0 0 0 0 rgba(52,224,180,.6); animation: livePulse 2s infinite; }
+#status-island[data-state="idle"][data-tone="warn"] .island-icon { background: var(--c-sensor); animation: none; }
+.island-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 2px; transition: opacity 90ms linear, filter 90ms linear; }
+.island-title { font-family: var(--font-display); font-size: 13.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#status-island[data-size="expanded"] .island-title { font-size: 15.5px; }
+.island-sub { font-size: 12px; color: var(--soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.island-meta { font-family: var(--font-display); font-size: 17px; font-weight: 800; flex: none; }
+.island-action { flex: none; height: 34px; padding: 0 14px; border-radius: 17px; font-size: 13px; font-weight: 700; color: #04141a; background: #fff; }
+#status-island.is-swapping .island-copy, #status-island.is-swapping .island-meta { opacity: 0; filter: blur(4px); }
+#status-island[data-state="idle"] .island-title { font-size: 12.5px; color: var(--soft); font-weight: 600; }
+@supports not (background: color-mix(in srgb, red 20%, blue)) {
+  #status-island[data-state]:not([data-state="idle"]) { background: rgba(10,16,26,.92); }
+  .island-icon { background: rgba(255,255,255,.14); }
+}
+
+/* ---------- 6. NAVIGATION ---------- */
+#premium-nav-ui { display: none; }
+.turn-banner { position: fixed; top: calc(66px + var(--safe-t)); left: 12px; right: 12px; z-index: var(--z-nav); padding: 12px 16px; border-radius: 24px;
+  display: flex; align-items: center; gap: 14px; animation: dropIn var(--dur-slow) var(--ease-spring); }
+.turn-arrow-wrap { width: 46px; height: 46px; flex: none; border-radius: 16px; display: flex; align-items: center; justify-content: center;
+  background: rgba(124,140,255,.18); color: #b4bfff; box-shadow: var(--inner); }
+#turn-svg { width: 24px; height: 24px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+  transition: transform var(--dur-slow) var(--ease-spring); }
+.turn-copy { min-width: 0; flex: 1; }
+.turn-copy .d { font-size: 12px; color: var(--muted); font-weight: 600; margin-bottom: 2px; font-variant-numeric: tabular-nums; }
+.turn-copy .n { font-family: var(--font-display); font-size: 16px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.turn-then { display: none; margin-top: 3px; font-size: 12px; color: var(--soft); }
+.turn-then.on { display: block; }
+
+.speed-dial { position: fixed; left: 14px; bottom: calc(210px + var(--safe-b)); width: 72px; height: 72px; border-radius: 50%; z-index: var(--z-nav);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: var(--glass-strong); border: 2px solid var(--line-strong); box-shadow: var(--inner), var(--elev-2);
+  -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  transition: border-color var(--dur) var(--ease-out), background-color var(--dur) var(--ease-out), color var(--dur) var(--ease-out), transform var(--dur) var(--ease-overshoot); }
+.speed-dial .n { font-family: var(--font-display); font-size: 25px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.speed-dial .u { font-size: 10px; color: var(--muted); font-weight: 700; margin-top: 2px; }
+.speed-dial.warn { border-color: var(--c-warn); color: var(--c-warn); background: rgba(255,176,32,.14); transform: scale(1.05); }
+.speed-dial.danger { border-color: var(--c-danger); color: var(--c-danger); background: rgba(255,69,58,.18); transform: scale(1.08); }
+.speed-dial.lowconf { border-style: dashed; opacity: .78; }
+
+.nav-bottom-sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: var(--z-nav); display: flex; flex-direction: column; gap: 14px;
+  padding: 16px 16px calc(16px + var(--safe-b)); border-radius: 28px 28px 0 0; animation: sheetUp var(--dur-slow) var(--ease-spring);
+  background: var(--glass-strong); border-top: 1px solid var(--line-strong); box-shadow: var(--inner), 0 -12px 48px rgba(0,0,0,.5);
+  -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); }
+.nav-bottom-sheet::before { content: ""; align-self: center; width: 38px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.2); margin-top: -6px; }
+.nav-stats { display: flex; justify-content: space-between; align-items: flex-end; gap: 6px; }
+.n-stat { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.n-stat .l { font-size: 10.5px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+.n-stat .v { font-family: var(--font-display); font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.n-stat .v small { font-size: 12px; font-weight: 600; color: var(--soft); }
+.nav-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 13px; font-size: 11.5px; font-weight: 600; color: var(--soft); background: rgba(255,255,255,.07); }
+.chip::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+.chip.ok::before { background: var(--mint); } .chip.warn::before { background: var(--c-warn); } .chip.bad::before { background: var(--c-danger); }
+.controls-row { display: flex; gap: 10px; }
+.btn-primary-nav, .btn-secondary-nav, .btn-danger-nav { height: 50px; border-radius: 16px; font-family: var(--font-display); font-size: 15px; font-weight: 700; padding: 0 16px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.btn-primary-nav { flex: 2; background: linear-gradient(135deg, #34d399, #22c55e); color: #062112; font-weight: 800; box-shadow: 0 6px 20px rgba(34,197,94,.3), var(--inner); }
+.btn-secondary-nav { flex: 1; background: rgba(255,255,255,.09); color: var(--text-hi); box-shadow: var(--inner); }
+.btn-danger-nav { flex: 1; background: rgba(239,68,68,.16); color: var(--danger); box-shadow: var(--inner); }
+.btn-icon-nav { flex: none; width: 50px; height: 50px; border-radius: 16px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.09); box-shadow: var(--inner); }
+.btn-icon-nav.listening { background: var(--c-danger); color: #fff; animation: islandAlert 1.1s ease-in-out infinite; --isl: var(--c-danger); }
+
+/* ---------- 7. PANELS ---------- */
+.results-panel { position: fixed; left: 12px; right: 12px; bottom: calc(12px + var(--safe-b)); z-index: 4000; max-width: 460px; margin-inline: auto; max-height: calc(var(--app-h) - 90px);
+  overflow-y: auto; display: none; flex-direction: column; gap: 6px; padding: 20px; border-radius: 28px; animation: sheetUp var(--dur-slow) var(--ease-spring);
+  background: var(--glass-strong); border: 1px solid var(--line-strong); box-shadow: var(--inner), var(--elev-3); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); }
+.results-panel h3 { font-family: var(--font-display); font-size: 18px; margin: 0 0 6px; color: var(--mint); display: flex; align-items: center; gap: 8px; }
+.r-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; border-top: 1px solid rgba(255,255,255,.05); }
+.results-panel h3 + .r-row { border-top: none; }
+.r-label { font-size: 13px; color: var(--text-lo); font-weight: 500; }
+.r-val { font-family: var(--font-display); font-weight: 700; font-size: 15px; font-variant-numeric: tabular-nums; }
+.r-val.good { color: var(--mint); } .r-val.bad { color: var(--danger); }
+.fuel-estimate-box { margin: 8px 0; background: rgba(255,255,255,.04); padding: 14px; border-radius: 16px; border-left: 3px solid var(--c-warn); font-size: 13.5px; line-height: 1.5; }
+.fuel-estimate-box p { margin: 0 0 6px; } .fuel-estimate-box p:last-child { margin: 0; }
+.estimate-note { font-size: 11.5px; color: var(--muted); }
+.results-panel #close-results-btn { flex: none; width: 100%; margin-top: 6px; }
+
+.modal { display: none; position: fixed; inset: 0; z-index: var(--z-modal); align-items: center; justify-content: center; padding: 20px;
+  background: rgba(4,6,10,.62); -webkit-backdrop-filter: blur(12px) saturate(140%); backdrop-filter: blur(12px) saturate(140%); animation: fadeIn var(--dur) var(--ease-out); }
+.modal-card { width: 100%; max-width: 380px; max-height: calc(var(--app-h) - 40px); overflow-y: auto; position: relative; padding: 24px; border-radius: 28px;
+  background: var(--ink-2); border: 1px solid rgba(255,255,255,.1); box-shadow: var(--inner), var(--elev-3); animation: cardIn var(--dur-slow) var(--ease-overshoot); scrollbar-width: thin; }
+.modal-card h2 { margin: 0 0 18px; font-family: var(--font-display); font-size: 20px; }
+.modal-card > p { color: var(--soft); font-size: 14px; line-height: 1.5; margin: 0 0 14px; }
+.modal-card.wide { max-width: 520px; }
+.close-modal { position: absolute; top: 16px; right: 16px; width: 32px; height: 32px; border-radius: 50%; background: rgba(255,255,255,.08); display: flex; align-items: center; justify-content: center; color: #fff; z-index: 2; }
+.modal-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; }
+.modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; padding-right: 40px; }
+.modal-head strong { font-family: var(--font-display); font-size: 17px; }
+.form-section { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+.form-section > h3 { margin: 0 0 8px; font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+.field-hint { font-size: 12px; color: var(--muted); line-height: 1.45; margin: 6px 0 0; }
+.num-input { width: 92px; height: 38px; padding: 0 12px; border-radius: 12px; text-align: right; background: rgba(255,255,255,.07); border: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.num-input:focus { border-color: rgba(52,224,180,.6); }
+.text-input { width: 100%; height: 44px; padding: 0 14px; border-radius: 14px; background: rgba(255,255,255,.07); border: 1px solid var(--line); font-size: 15px; }
+.text-input:focus { border-color: rgba(52,224,180,.6); }
+
+/* iOS-style switch */
+input[type="checkbox"].switch { appearance: none; -webkit-appearance: none; flex: none; width: 50px; height: 30px; border-radius: 15px; position: relative; cursor: pointer; background: rgba(255,255,255,.16);
+  transition: background-color var(--dur) var(--ease-out); }
+input[type="checkbox"].switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,.4);
+  transition: transform var(--dur) var(--ease-overshoot), width var(--dur-fast) var(--ease-out); }
+input[type="checkbox"].switch:checked { background: var(--mint); }
+input[type="checkbox"].switch:checked::after { transform: translateX(20px); }
+input[type="checkbox"].switch:active::after { width: 28px; }
+input[type="checkbox"].switch:checked:active::after { transform: translateX(16px); }
+input[type="checkbox"].switch:focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; }
+
+#speed-graph-canvas { width: 100%; height: 80px; background: rgba(255,255,255,.02); border-radius: 12px; border: 1px solid rgba(255,255,255,.1); margin-top: 10px; display: none; }
+.btn-block { display: flex; width: 100%; height: 46px; margin-top: 8px; flex: none; }
+.btn-warn-outline { color: var(--c-danger); background: rgba(255,69,58,.1); border: 1px solid rgba(255,69,58,.35); }
+
+/* bottom sheet without backdrop (meetup results) */
+.sheet { display: none; position: fixed; left: 12px; right: 12px; bottom: calc(12px + var(--safe-b)); margin-inline: auto; max-width: 480px; z-index: var(--z-sheet); flex-direction: column; }
+.sheet-card { max-height: 62vh; overflow-y: auto; padding: 18px; border-radius: 28px; animation: sheetUp var(--dur-slow) var(--ease-spring); }
+#group-nav-stats-list, #group-nav-friend-list, #geofence-items, #carpool-riders, #carpool-results, #analytics-trips { display: flex; flex-direction: column; gap: 8px; }
+#group-nav-friend-list { max-height: 34vh; overflow-y: auto; margin-bottom: 12px; padding: 10px; border-radius: 16px; background: rgba(255,255,255,.04); }
+.list-card { padding: 12px 14px; border-radius: 16px; background: rgba(255,255,255,.05); border: 1px solid var(--line); font-size: 13.5px; }
+.list-card.pick { border-color: rgba(52,224,180,.5); background: rgba(52,224,180,.08); }
+.list-card strong { font-family: var(--font-display); }
+
+/* ---------- 8. SOCIAL ---------- */
+#chat-container { position: fixed; right: 16px; bottom: calc(16px + var(--safe-b)); z-index: var(--z-modal); width: min(400px, calc(100vw - 28px)); height: min(620px, calc(var(--app-h) - 36px));
+  display: none; flex-direction: column; overflow: hidden; border-radius: 28px; animation: cardIn var(--dur-slow) var(--ease-overshoot); transform-origin: bottom right;
+  background: var(--glass-solid); border: 1px solid var(--line-strong); box-shadow: var(--inner), var(--elev-3); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); }
+@media (max-width: 520px) { #chat-container { right: 0; left: 0; bottom: 0; width: 100%; height: min(82vh, calc(var(--app-h) - 60px)); border-radius: 28px 28px 0 0; animation: sheetUp var(--dur-slow) var(--ease-spring); } }
+#chat-header { min-height: 64px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px 0 18px; border-bottom: 1px solid var(--line); }
+#chat-header strong { font-family: var(--font-display); }
+#chat-subtitle { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
+#chat-header button { width: 40px; height: 40px; border-radius: 14px; color: var(--muted); display: inline-flex; align-items: center; justify-content: center; }
+#chat-header button:hover { color: var(--mint); background: rgba(255,255,255,.05); }
+#online-list { display: none; flex-direction: column; gap: 4px; padding: 8px 12px; max-height: 30%; overflow-y: auto; border-bottom: 1px solid var(--line); background: rgba(255,255,255,.03); }
+.online-friend { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 12px; text-align: left; font-size: 14px; }
+.online-friend:hover { background: rgba(255,255,255,.06); }
+.online-friend img { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; }
+#chat-messages { flex: 1; overflow-y: auto; padding: 16px 14px; display: flex; flex-direction: column; gap: 8px; overscroll-behavior: contain; scroll-behavior: smooth; }
+.chat-row { display: flex; max-width: 82%; flex-direction: column; animation: popIn var(--dur) var(--ease-out); }
+.chat-row.mine { align-self: flex-end; }
+.chat-message { padding: 9px 12px; border-radius: 18px; font-size: 14.5px; line-height: 1.42; overflow-wrap: anywhere; }
+.chat-message img, .chat-message video { max-width: 100%; border-radius: 12px; display: block; }
+.msg-mine { background: linear-gradient(145deg, #1fcfa3, #0e9c7c); color: #04241b; border-bottom-right-radius: 6px; }
+.msg-theirs { background: rgba(255,255,255,.08); border: 1px solid var(--line); border-bottom-left-radius: 6px; }
+.message-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.action-btn { font-size: 12px; padding: 3px 9px; border-radius: 10px; background: rgba(255,255,255,.09); color: var(--soft); }
+.action-btn:hover { background: rgba(255,255,255,.16); color: #fff; }
+.reaction-row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; font-size: 12px; }
+#typing-indicator { min-height: 18px; padding: 0 18px 4px; font-size: 12px; color: var(--muted); }
+#reply-bar { display: none; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 16px; font-size: 13px; color: var(--soft); background: rgba(255,255,255,.05); border-top: 1px solid var(--line); }
+#reply-preview { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#attachment-menu { display: none; position: absolute; left: 12px; bottom: 70px; z-index: 5; flex-direction: column; padding: 6px; border-radius: 18px; background: var(--glass-solid); border: 1px solid var(--line-strong); box-shadow: var(--elev-3); animation: popIn var(--dur) var(--ease-overshoot); transform-origin: bottom left; }
+#attachment-menu button { padding: 10px 16px; text-align: left; font-size: 14px; border-radius: 12px; }
+#attachment-menu button:hover { background: rgba(255,255,255,.07); }
+#emoji-picker-container { display: none; position: absolute; left: 8px; right: 8px; bottom: 68px; z-index: 5; animation: popIn var(--dur) var(--ease-overshoot); transform-origin: bottom center; }
+emoji-picker { width: 100%; height: 320px; --background: #0e1724; --border-color: rgba(255,255,255,.1); --input-border-color: rgba(255,255,255,.14); --indicator-color: #34e0b4; }
+#chatForm { display: flex; align-items: center; gap: 4px; padding: 10px 10px calc(10px + var(--safe-b)); border-top: 1px solid var(--line); }
+#chatForm button { width: 40px; height: 40px; flex: none; border-radius: 14px; color: var(--muted); display: flex; align-items: center; justify-content: center; }
+#chatForm button:hover { color: var(--mint); }
+#chat-send { background: var(--mint); color: #04241b !important; border-radius: 50% !important; }
+#chatInput { flex: 1; min-width: 0; height: 44px; padding: 0 16px; border: 1px solid var(--line); border-radius: 999px; background: rgba(255,255,255,.06); color: #fff; font-size: 15px; }
+#chatInput:focus { border-color: rgba(52,224,180,.55); }
+
+#join-screen { position: fixed; inset: 0; z-index: var(--z-join); display: flex; align-items: center; justify-content: center; padding: 20px;
+  background: radial-gradient(120% 80% at 50% 0%, #10283a 0%, var(--ink) 60%); }
+.join-card { width: min(400px, 100%); padding: 30px 26px 26px; border-radius: 34px; text-align: center; animation: cardIn var(--dur-slow) var(--ease-overshoot);
+  background: rgba(10,17,28,.72); border: 1px solid var(--line-strong); box-shadow: var(--inner), var(--elev-3); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); }
+.join-card h1 { margin: 12px 0 4px; font-family: var(--font-display); font-size: 26px; }
+.join-card .tag { margin: 0 0 20px; color: var(--soft); font-size: 14px; }
+.join-card form { display: flex; flex-direction: column; gap: 12px; align-items: stretch; }
+.join-card .privacy-line { margin: 16px 0 0; font-size: 12px; line-height: 1.5; color: var(--muted); }
+.avatar-pick { align-self: center; width: 92px; height: 92px; border-radius: 50%; display: grid; place-items: center; cursor: pointer; overflow: hidden; font-size: 28px;
+  background: rgba(255,255,255,.06); border: 1.5px dashed var(--line-strong); transition: transform var(--dur) var(--ease-overshoot), border-color var(--dur) var(--ease-out); }
+.avatar-pick:hover, .avatar-pick:focus-within { border-color: var(--mint); transform: scale(1.05); }
+.avatar-pick img { width: 100%; height: 100%; object-fit: cover; }
+#nameInput { height: 50px; padding: 0 16px; border-radius: 16px; background: rgba(255,255,255,.07); border: 1px solid var(--line); font-size: 16px; text-align: center; }
+#nameInput:focus { border-color: rgba(52,224,180,.6); }
+#join-submit { flex: none; width: 100%; }
+
+#profile-popup .modal-card { text-align: center; max-width: 340px; }
+#profile-popup-avatar { width: 88px; height: 88px; border-radius: 50%; object-fit: cover; margin: 6px auto 0; display: block; box-shadow: 0 0 0 3px var(--ink-2), 0 0 0 5px rgba(52,224,180,.7); }
+#profile-popup-name { margin: 12px 0 2px !important; }
+#profile-popup-status { color: var(--mint); font-size: 13px; font-weight: 600; }
+#profile-popup-distance, #profile-popup-weather { color: var(--soft); font-size: 13px; margin-top: 4px; }
+#profile-popup .btn-row { display: flex; gap: 8px; margin-top: 18px; }
+#profile-popup .btn-row button { flex: 1; height: 44px; font-size: 13.5px; padding: 0 10px; }
+
+#phase3-memory-overlay { z-index: var(--z-overlay); padding: 0; }
+#phase3-memory-panel { position: absolute; inset: 0; margin: auto; width: min(780px, calc(100vw - 24px)); height: min(700px, calc(var(--app-h) - 30px)); max-width: none; max-height: none; padding: 0;
+  display: flex; flex-direction: column; overflow: hidden; }
+.p3-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 18px 20px 12px; }
+.p3-head h2 { margin: 0; } .p3-head small { color: var(--muted); }
+.p3-head .btn-row { display: flex; gap: 8px; } .p3-head .btn-row button { flex: none; height: 40px; padding: 0 14px; font-size: 13.5px; }
+.p3-filters { display: flex; align-items: center; gap: 6px; padding: 0 20px 10px; flex-wrap: wrap; }
+.phase3-filter { height: 34px; padding: 0 14px; border-radius: 17px; font-size: 13px; font-weight: 600; color: var(--soft); background: rgba(255,255,255,.07); }
+.phase3-filter.active { background: var(--mint); color: #04241b; }
+#phase3-memory-search { flex: 1; min-width: 120px; height: 34px; padding: 0 14px; border-radius: 17px; background: rgba(255,255,255,.07); border: 1px solid var(--line); font-size: 13px; }
+#phase3-memory-content { flex: 1; overflow-y: auto; padding: 4px 16px 20px; }
+#phase3-memory-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+#phase3-memory-empty { padding: 36px 12px; text-align: center; color: var(--muted); }
+.p3-section-title { margin: 20px 4px 8px; font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+.p3-card { position: relative; width: 100%; padding-top: 100%; border-radius: 20px; overflow: hidden; cursor: pointer; background: var(--ink-3); transition: transform var(--dur) var(--ease-spring), box-shadow var(--dur) var(--ease-out); }
+.p3-card:hover { transform: translateY(-2px) scale(1.02); box-shadow: var(--elev-2); }
+.p3-card img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.p3-time-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; margin-bottom: 6px; border-radius: 14px; background: rgba(255,255,255,.04); font-size: 13px; cursor: pointer; }
+.p3-open-map-memory { padding: 6px 12px; border-radius: 10px; font-size: 12px; font-weight: 600; background: rgba(52,224,180,.14); color: var(--mint); }
+#phase3-photo-viewer { z-index: 8500; }
+#phase3-photo-viewer .modal-card { max-width: 560px; padding: 0; overflow: hidden; }
+#p3-view-image { width: 100%; max-height: 62vh; object-fit: contain; background: #000; display: block; }
+.viewer-meta { padding: 16px 18px 18px; }
+.viewer-meta h3 { margin: 0; font-family: var(--font-display); } .viewer-meta small { color: var(--muted); }
+.viewer-meta .btn-row { display: flex; gap: 8px; margin-top: 12px; } .viewer-meta .btn-row button { height: 44px; font-size: 13.5px; }
+
+#trip-panel { display: none; position: fixed; top: calc(164px + var(--safe-t)); left: 12px; width: min(calc(100vw - 84px), 300px); z-index: var(--z-hud); flex-direction: column; gap: 10px; padding: 14px; border-radius: 22px;
+  animation: dropIn var(--dur-slow) var(--ease-spring); }
+#trip-title { font-family: var(--font-display); font-size: 15px; }
+#trip-members-list { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--soft); max-height: 24vh; overflow-y: auto; }
+#trip-checklist-container { font-size: 13px; }
+#trip-action-btn { flex: none; height: 40px; font-size: 13.5px; }
+
+/* ---------- 9. EXPERIMENTAL / TOOLBOX ---------- */
+#radar-panel { display: none; position: fixed; left: 12px; right: 12px; bottom: calc(84px + var(--safe-b)); margin-inline: auto; max-width: 380px; z-index: var(--z-sheet); padding: 16px; border-radius: 28px;
+  animation: sheetUp var(--dur-slow) var(--ease-spring); }
+.radar-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.radar-head strong { font-family: var(--font-display); }
+#close-radar { width: 32px; height: 32px; border-radius: 50%; background: rgba(255,255,255,.08); display: flex; align-items: center; justify-content: center; }
+#radar-canvas { width: 100%; max-width: 280px; aspect-ratio: 1; display: block; margin: 8px auto; border-radius: 50%; background: radial-gradient(circle, rgba(52,224,180,.08), rgba(52,224,180,0) 70%); }
+#radar-status { margin: 4px 0 8px; font-size: 12.5px; color: var(--soft); text-align: center; }
+#peer-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+#peer-list li { padding: 8px 12px; border-radius: 12px; background: rgba(255,255,255,.05); }
+
+#dashcam-video { display: none; position: fixed; left: 12px; bottom: calc(300px + var(--safe-b)); width: 112px; height: 150px; object-fit: cover; z-index: 2500; border-radius: 18px;
+  border: 1.5px solid rgba(255,59,48,.85); box-shadow: var(--elev-3); background: #000; }
+
+.analytics-canvas { width: 100%; height: 130px; border-radius: 14px; background: rgba(255,255,255,.03); border: 1px solid var(--line); display: block; margin-top: 8px; }
+.stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.stat-grid .list-card { text-align: center; padding: 10px 6px; }
+.stat-grid .v { display: block; font-family: var(--font-display); font-size: 17px; font-weight: 700; margin-top: 2px; }
+.stat-grid .l { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
+.trip-row { display: flex; justify-content: space-between; align-items: center; width: 100%; text-align: left; }
+.trip-row:hover { border-color: rgba(52,224,180,.4); }
+
+#confirm-modal { z-index: var(--z-confirm); }
+#confirm-modal .modal-card { max-width: 340px; text-align: center; padding: 26px 22px 20px; }
+#confirm-modal h2 { margin-bottom: 8px; }
+#confirm-body { color: var(--soft); font-size: 14px; line-height: 1.5; margin: 0 0 14px; }
+#confirm-check-wrap { display: flex; align-items: center; gap: 10px; justify-content: center; margin: 0 0 14px; font-size: 13px; color: var(--soft); text-align: left; }
+#confirm-modal .btn-row { display: flex; gap: 10px; } #confirm-modal .btn-row button { flex: 1; }
+
+/* ---------- 10. MAP OVERRIDES ---------- */
+/* Attribution is REQUIRED by the tile licences (OSM / Esri / OpenTopoMap / Carto). Kept small, glassy, and clear of the FABs. */
+.leaflet-bottom.leaflet-right { right: 50%; transform: translateX(50%); bottom: calc(60px + var(--safe-b)); pointer-events: none; }
+.leaflet-control-attribution { pointer-events: auto; margin: 0 !important; padding: 2px 10px !important; border-radius: 10px !important; white-space: nowrap; max-width: 92vw; overflow: hidden; text-overflow: ellipsis;
+  font-size: 9.5px !important; color: var(--soft) !important; background: rgba(10,17,28,.6) !important; -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+.leaflet-control-attribution a { color: var(--mint) !important; }
+.leaflet-popup-content-wrapper { border-radius: 16px; box-shadow: var(--elev-3); }
+.leaflet-popup-content { font-family: var(--font-ui); }
+.sos-marker { background: none; border: none; }
 </style>
 </head>
 <body>
-
 <!-- SVG SPRITES -->
-<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+<svg width="0" height="0" aria-hidden="true" focusable="false">
   <defs>
     <symbol id="i-locate" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="7.5"/><path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3"/></symbol>
     <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 12.5 9 5 9-5"/><path d="m3 17 9 5 9-5" opacity=".55"/></symbol>
     <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20.5 20.5-4.6-4.6"/></symbol>
     <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
-    <symbol id="i-fuel" viewBox="0 0 24 24"><path d="M3 22v-8c0-1.1.9-2 2-2h4c1.1 0 2 .9 2 2v8"/><path d="M11 5h2a2 2 0 0 1 2 2v5c0 1.1-.9 2-2 2h-2"/><path d="M3 5v17h8V5z"/><path d="M15 12h2a4 4 0 0 0 4-4V5h-2v3a2 2 0 0 1-2 2h-2"/><circle cx="7" cy="9" r="1.5"/></symbol>
+    <symbol id="i-fuel" viewBox="0 0 24 24"><path d="M3 22v-8c0-1.1.9-2 2-2h4c1.1 0 2 .9 2 2v8"/><path d="M11 5h2a2 2 0 0 1 2 2v5c0 1.1-.9 2-2 2h-2"/><path d="M3 5v17h8V5z"/><path d="M15 12h2a4 4 0 0 0 4-4V5h-2v3a2 2 0 0 1-2 2h-2"/></symbol>
     <symbol id="i-chat" viewBox="0 0 24 24"><path d="M20.5 12a8 8 0 0 1-11.6 7.1L3.5 20.5l1.5-4.6A8 8 0 1 1 20.5 12z"/></symbol>
     <symbol id="i-camera" viewBox="0 0 24 24"><path d="M3.5 8.5a2 2 0 0 1 2-2h2l1.6-2.5h5.8l1.6 2.5h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="3.6"/></symbol>
     <symbol id="i-turn" viewBox="0 0 24 24"><path d="M12 19V5M12 5l-6 6M12 5l6 6"/></symbol>
-    <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9.6 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 5.29 15a1.65 1.65 0 0 0-1.51-1H3.5a2 2 0 0 1 0-4h.18A1.65 1.65 0 0 0 5.2 8.6a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9.5 4.29c.13 0 .26 0 .39-.01A1.65 1.65 0 0 0 11 2.6V2.5a2 2 0 0 1 4 0v.09c.63.14 1.15.5 1.5 1a1.65 1.65 0 0 0 1.82.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.71 9.5c0 .13 0 .26.01.39a1.65 1.65 0 0 0 1.68 1.11h.1a2 2 0 0 1 0 4h-.09c-.63.14-1.15.5-1.5 1z"/></symbol>
     <symbol id="i-converge" viewBox="0 0 24 24"><circle cx="6" cy="5.5" r="2.5"/><circle cx="18" cy="5.5" r="2.5"/><circle cx="12" cy="19" r="2.5"/><path d="M6 8c0 5 6 4.5 6 8.5M18 8c0 5-6 4.5-6 8.5"/></symbol>
     <symbol id="i-ruler" viewBox="0 0 24 24"><path d="M3.5 16.5 16.5 3.5l4 4-13 13z"/><path d="m8 12 2 2M11 9l2 2M14 6l2 2"/></symbol>
     <symbol id="i-fence" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5" stroke-dasharray="3.2 3.2"/><circle cx="12" cy="12" r="2.6"/></symbol>
@@ -171,341 +536,393 @@ button:active{transform:scale(.94)}
     <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11.5a7 7 0 0 0 14 0M12 18.5V22"/></symbol>
     <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21.5s7-6 7-12a7 7 0 1 0-14 0c0 6 7 12 7 12z"/><circle cx="12" cy="9.5" r="2.5"/></symbol>
     <symbol id="i-temp" viewBox="0 0 24 24"><path d="M14 14.8V5a2 2 0 1 0-4 0v9.8a4 4 0 1 0 4 0z"/></symbol>
+    <symbol id="i-dots" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></symbol>
+    <symbol id="i-tool" viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 1-5.4 5.4L4 17l3 3 5.3-5.3a4 4 0 0 1 5.4-5.4L21 6l-3-3z"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v13m0 0-4.5-4.5M12 16l4.5-4.5"/><path d="M4 19.5h16"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4.5h6V7M6 7l1 13h10l1-13"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 2.5 20 6v6c0 5-3.4 8.7-8 9.5-4.6-.8-8-4.5-8-9.5V6z"/></symbol>
   </defs>
 </svg>
-<!-- PWA Install Button -->
-<button id="install-app-btn" style="display:none; position:fixed; top:20px; left:50%; transform:translateX(-50%); z-index:9999; background:#18d6a3; color:#071018; border:none; padding:10px 24px; border-radius:30px; font-weight:900; font-size:14px; cursor:pointer; box-shadow:0 10px 25px rgba(24, 214, 163, 0.4);">
-    📥 Install App
-</button>
-<div id="toast-container"></div>
-<div id="map"></div>
 
-<!-- SPEED ALERT OVERLAY -->
-<div id="speed-danger-overlay"></div>
+<!-- STATUS ISLAND (adaptive floating capsule — driven by shell.js `StatusIsland`) -->
+<div id="status-island" data-state="idle" data-size="pill" data-tone="ok" role="status" aria-live="polite" tabindex="0">
+  <span class="island-icon" id="island-icon" aria-hidden="true">●</span>
+  <div class="island-copy">
+    <span class="island-title" id="island-title">Live</span>
+    <span class="island-sub" id="island-sub" hidden></span>
+  </div>
+  <span class="island-meta" id="island-meta" hidden></span>
+  <button type="button" class="island-action" id="island-action" hidden></button>
+</div>
+
+<!-- PWA install prompt (shown by app.js via the browser's beforeinstallprompt) -->
+<button id="install-app-btn" type="button">
+  <svg class="i sm"><use href="#i-download"/></svg> Install App
+</button>
+
+<div id="toast-container" aria-live="polite"></div>
+<div id="map" role="application" aria-label="Live squad map"></div>
+<div id="speed-danger-overlay" aria-hidden="true"></div>
 
 <!-- TOP HUD -->
 <div class="top-hud" id="top-header">
   <div class="brand-card glass">
-    <div class="brand-dot"></div>
+    <div class="brand-dot" aria-hidden="true"></div>
     <div class="header-info">
-      <strong id="header-app-title">Koraput Map</strong>
+      <strong id="header-app-title">MapUnite</strong>
       <span>Sharing live location</span>
     </div>
     <img id="header-avatar" src="satyam.png" alt="Your profile">
   </div>
-  <button id="profile-open-btn" style="pointer-events:auto; display:flex; align-items:center; gap:6px; background:linear-gradient(145deg,#34d399,#22c55e); color:#062112; border-radius:20px; padding:0 14px; font-weight:800; font-size:13px; box-shadow:var(--shadow); border:none;">
-    <svg class="i sm"><use href="#i-settings"/></svg> Safe Drive
+  <button id="profile-open-btn" class="glass" type="button">
+    <svg class="i sm"><use href="#i-settings"/></svg><span class="lbl">Safe Drive</span>
   </button>
 </div>
 
 <!-- SEARCH -->
 <div id="search-container">
-  <svg class="i" style="color:var(--text-lo)"><use href="#i-search"/></svg>
-  <input type="text" id="location-search-input" placeholder="Search destination..." autocomplete="off">
-  <button id="location-search-clear" style="display:none; color:var(--text-lo)"><svg class="i sm"><use href="#i-x"/></svg></button>
+  <svg class="i"><use href="#i-search"/></svg>
+  <input type="text" id="location-search-input" placeholder="Search destination…" autocomplete="off" inputmode="search">
+  <button id="location-search-clear" type="button" aria-label="Clear search"><svg class="i sm"><use href="#i-x"/></svg></button>
+</div>
+
+<!-- WEATHER PILL (shown by app.js; element existed only as a safeShow() target originally) -->
+<div id="top-weather" class="glass">
+  <svg class="i sm"><use href="#i-temp"/></svg>
+  <span id="top-weather-text">--°C</span>
 </div>
 
 <!-- MAP TOOLS -->
 <div id="map-tools">
-  <button id="my-location-btn" class="tool-btn" title="My Location"><svg class="i"><use href="#i-locate"/></svg></button>
-  <button id="compass-btn" class="tool-btn" title="Compass"><span id="compass-icon"><svg class="i"><use href="#i-locate"/></svg></span></button>
-  <button id="map-style-btn" class="tool-btn" title="Layers"><svg class="i"><use href="#i-layers"/></svg></button>
-  <button id="phase3-gallery-btn" class="tool-btn" title="Memories"><svg class="i"><use href="#i-camera"/></svg></button>
-  <button id="group-nav-btn" class="tool-btn" title="Meet up"><svg class="i"><use href="#i-converge"/></svg></button>
-  <button id="measure-btn" class="tool-btn" title="Measure"><svg class="i"><use href="#i-ruler"/></svg></button>
-  <button id="geofence-btn" class="tool-btn" title="Geofence"><svg class="i"><use href="#i-fence"/></svg></button>
-  <button id="trip-btn" class="tool-btn" title="Group Trip"><svg class="i"><use href="#i-flag"/></svg></button>
+  <button id="my-location-btn" class="tool-btn" type="button" title="My Location" aria-label="Centre on my location"><svg class="i"><use href="#i-locate"/></svg></button>
+  <button id="compass-btn" class="tool-btn" type="button" title="Compass" aria-label="Reset bearing"><span id="compass-icon"><svg class="i"><use href="#i-locate"/></svg></span></button>
+  <button id="map-style-btn" class="tool-btn" type="button" title="Layers" aria-label="Change map style" aria-haspopup="true" aria-expanded="false"><svg class="i"><use href="#i-layers"/></svg></button>
+  <button id="phase3-gallery-btn" class="tool-btn" type="button" title="Memories" aria-label="Open memories"><svg class="i"><use href="#i-camera"/></svg></button>
+  <button id="group-nav-btn" class="tool-btn" type="button" title="Meet up" aria-label="Plan a meetup"><svg class="i"><use href="#i-converge"/></svg></button>
+  <button id="measure-btn" class="tool-btn" type="button" title="Measure" aria-label="Measure distance"><svg class="i"><use href="#i-ruler"/></svg></button>
+  <button id="geofence-btn" class="tool-btn" type="button" title="Geofence" aria-label="Manage geofences"><svg class="i"><use href="#i-fence"/></svg></button>
+  <button id="trip-btn" class="tool-btn" type="button" title="Group Trip" aria-label="Start or join a group trip"><svg class="i"><use href="#i-flag"/></svg></button>
 </div>
-
-<div id="map-style-menu">
-  <button data-style="satellite" class="active">Satellite</button>
-  <button data-style="street">Street</button>
-  <button data-style="dark">Dark</button>
-  <button data-style="terrain">Terrain</button>
+<div id="map-style-menu" role="menu" aria-label="Map style">
+  <button data-style="satellite" class="active" type="button" role="menuitemradio" aria-checked="true">Satellite</button>
+  <button data-style="street" type="button" role="menuitemradio" aria-checked="false">Street</button>
+  <button data-style="dark" type="button" role="menuitemradio" aria-checked="false">Dark</button>
+  <button data-style="terrain" type="button" role="menuitemradio" aria-checked="false">Terrain</button>
 </div>
 
 <!-- ACTIONS & BOTTOM INFO -->
-<button id="memoryButton" class="action-fab"><svg class="i lg"><use href="#i-camera"/></svg></button>
-<button id="chat-toggle-btn" class="action-fab"><svg class="i lg"><use href="#i-chat"/></svg><span id="chat-unread-badge">0</span></button>
-
+<button id="memoryButton" class="action-fab" type="button" aria-label="Add memory photo"><svg class="i lg"><use href="#i-camera"/></svg></button>
+<button id="chat-toggle-btn" class="action-fab" type="button" aria-label="Open group chat"><svg class="i lg"><use href="#i-chat"/></svg><span id="chat-unread-badge">0</span></button>
 <div id="bottom-info">
-  <div class="bottom-pill" id="pill-city"><svg class="i"><use href="#i-pin"/></svg><span id="city-name-text">Locating…</span></div>
-  <div class="bottom-pill"><svg class="i"><use href="#i-temp"/></svg><span id="map-temp-display">--°C</span></div>
+  <div class="bottom-pill" id="pill-city"><svg class="i sm"><use href="#i-pin"/></svg><span id="city-name-text">Locating…</span></div>
+  <div class="bottom-pill"><svg class="i sm"><use href="#i-temp"/></svg><span id="map-temp-display">--°C</span></div>
   <div class="bottom-pill live">Live</div>
 </div>
 
 <!-- PREMIUM NAVIGATION UI -->
-<div id="premium-nav-ui" style="display:none;">
-    <div class="turn-banner" id="turn-banner">
+<div id="premium-nav-ui">
+    <div class="turn-banner glass-strong" id="turn-banner">
       <div class="turn-arrow-wrap"><svg id="turn-svg"><use href="#i-turn"/></svg></div>
       <div class="turn-copy">
         <div class="d" id="turn-dist">Calculating...</div>
         <div class="n" id="turn-name">Finding route</div>
       </div>
     </div>
-
     <div class="speed-dial" id="speed-dial">
       <div class="n" id="speed-n">0</div>
       <div class="u">KM/H</div>
     </div>
-
     <div class="nav-bottom-sheet" id="nav-bottom-sheet">
       <div class="nav-stats">
         <div class="n-stat"><div class="l">Distance</div><div class="v" id="stat-dist">--<small> km</small></div></div>
         <div class="n-stat"><div class="l">ETA</div><div class="v" id="stat-eta">--<small> min</small></div></div>
-        <div class="n-stat" style="text-align:right;"><div class="l">Status</div><div class="v" id="stat-status" style="font-size:16px; color:var(--mint);">Ready</div></div>
+        <div class="n-stat"><div class="l">Status</div><div class="v" id="stat-status">Ready</div></div>
       </div>
       <div class="controls-row">
-        <button class="btn-primary-nav" id="btn-start-nav">Start Drive</button>
-        <button class="btn-danger-nav" id="btn-exit-nav" style="display:none;">Stop</button>
-        <button class="btn-secondary-nav" id="btn-reset-nav">Cancel</button>
+        <button class="btn-primary-nav" id="btn-start-nav" type="button">Start Drive</button>
+        <button class="btn-danger-nav" id="btn-exit-nav" type="button">Stop</button>
+        <button class="btn-secondary-nav" id="btn-reset-nav" type="button">Cancel</button>
       </div>
     </div>
 </div>
 
-<!-- CHATGPT: TRIP SUMMARY -->
-<div class="results-panel" id="results-panel">
+<!-- TRIP SUMMARY -->
+<div class="results-panel glass-strong" id="results-panel">
   <h3><svg class="i"><use href="#i-fuel"/></svg> Trip Summary</h3>
   <div class="r-row"><span class="r-label">Total Distance</span><span class="r-val" id="res-dist">0 km</span></div>
   <div class="r-row"><span class="r-label">Avg Speed</span><span class="r-val" id="res-avg-speed">0 km/h</span></div>
   <div class="r-row"><span class="r-label">Efficient (40-60)</span><span class="r-val good" id="res-eff-time">0 min</span></div>
-  <div class="r-row"><span class="r-label">Inefficient (>80)</span><span class="r-val bad" id="res-ineff-time">0 min</span></div>
+  <div class="r-row"><span class="r-label">Inefficient (&gt;80)</span><span class="r-val bad" id="res-ineff-time">0 min</span></div>
   <div class="fuel-estimate-box">
-    <p>At <strong id="res-base-mlg" style="color:#fff;">15 km/l</strong>, you used approx <strong id="res-actual-fuel" style="color:var(--danger); font-size:15px;">0 L</strong>.</p>
+    <p>At <strong id="res-base-mlg">15 km/l</strong>, you used approx <strong id="res-actual-fuel">0 L</strong>.</p>
+    <p class="estimate-note">Estimate from GPS speed samples — not a substitute for your odometer.</p>
   </div>
-  <button id="close-results-btn" class="btn-secondary-nav" style="width:100%; margin-top:8px; height:40px;">Dismiss</button>
+  <button id="close-results-btn" class="btn-secondary-nav" type="button">Dismiss</button>
 </div>
 
-<!-- CHATGPT: FUEL & SPEED SETTINGS MODAL -->
-<div class="modal" id="profile-settings-modal">
+<!-- SMART DRIVE SETTINGS + PRIVACY -->
+<div class="modal" id="profile-settings-modal" data-dismissable role="dialog" aria-modal="true" aria-labelledby="settings-modal-title">
   <div class="modal-card">
-    <button class="close-modal" id="close-settings-btn"><svg class="i sm"><use href="#i-x"/></svg></button>
-    <h2>Smart Drive Settings</h2>
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; font-size:14px;">
-      <span style="color:var(--text-lo);">Record Trip Graph</span>
-      <input type="checkbox" id="speed-record-toggle" style="width:20px; height:20px;">
+    <button class="close-modal" id="close-settings-btn" type="button" aria-label="Close"><svg class="i sm"><use href="#i-x"/></svg></button>
+    <h2 id="settings-modal-title">Smart Drive Settings</h2>
+
+    <div class="modal-row">
+      <span>Record Trip Graph</span>
+      <input type="checkbox" id="speed-record-toggle" class="switch">
     </div>
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; font-size:14px;">
-      <span style="color:var(--text-lo);">Mileage (km/L)</span>
-      <input type="number" id="fuel-input-val" value="18" min="1" max="100" style="background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:#fff; padding:8px; border-radius:10px; width:80px; text-align:center;">
+    <div class="modal-row">
+      <span>Mileage (km/L)</span>
+      <input type="number" id="fuel-input-val" class="num-input" value="18" min="1" max="100">
     </div>
-    <div style="font-size:12px; color:var(--text-lo); margin-top:10px;">Live Speed Graph</div>
-    <canvas id="speed-graph-canvas" style="width:100%; height:80px; background:rgba(0,0,0,0.5); border-radius:10px; margin-top:8px; display:none;"></canvas>
+    <div style="margin-top:14px;">
+      <span style="font-size:13px;color:var(--soft);">Live Speed Graph</span>
+      <canvas id="speed-graph-canvas"></canvas>
+    </div>
+
+    <!-- Privacy — new hooks for Step 1's session-scoped sharing + zero-trace delete.
+         Wired up in app.js (Step 3): setSharing / exportMyData / deleteMyHistory. -->
+    <div class="form-section">
+      <h3><svg class="i sm" style="width:13px;height:13px;vertical-align:-2px;"><use href="#i-shield"/></svg> Privacy</h3>
+      <div class="modal-row">
+        <span>Location sharing</span>
+      </div>
+      <div class="segmented" data-segment="sharingMode" role="radiogroup" aria-label="Location sharing mode">
+        <button type="button" data-value="exact" aria-pressed="true">Exact</button>
+        <button type="button" data-value="approx" aria-pressed="false">Approx.</button>
+        <button type="button" data-value="off" aria-pressed="false">Off</button>
+      </div>
+      <p class="field-hint" id="sharing-mode-hint">Exact: your squad sees your live position. Approx.: rounded to ~1&nbsp;km, hidden during an active group trip. Off: you appear offline.</p>
+    </div>
+    <div class="form-section">
+      <h3>Your Data</h3>
+      <button id="export-data-btn" type="button" class="btn-secondary-nav btn-block"><svg class="i sm"><use href="#i-download"/></svg>&nbsp; Export my data</button>
+      <button id="clear-history-btn" type="button" class="btn-warn-outline btn-block"><svg class="i sm"><use href="#i-trash"/></svg>&nbsp; Clear my history</button>
+      <p class="field-hint">Erases your trips, breadcrumbs, memories and geofences from this server. Your name stays unless you also remove your device identity.</p>
+    </div>
   </div>
 </div>
 
-<!-- CHAT, GEOFENCE, MEMORIES, PROFILE -->
+<!-- CONFIRM SHEET — generic Promise-based confirm() replacement (shell.js) -->
+<div class="modal" id="confirm-modal" data-dismissable role="alertdialog" aria-modal="true" aria-labelledby="confirm-title">
+  <div class="modal-card">
+    <h2 id="confirm-title">Are you sure?</h2>
+    <p id="confirm-body"></p>
+    <div id="confirm-check-wrap" hidden>
+      <input type="checkbox" id="confirm-check" class="switch">
+      <label id="confirm-check-label" for="confirm-check"></label>
+    </div>
+    <div class="btn-row">
+      <button id="confirm-cancel" type="button" class="btn-secondary-nav">Cancel</button>
+      <button id="confirm-ok" type="button" class="btn-danger-nav">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- JOIN -->
 <div id="join-screen">
   <div class="join-card">
-    <h1 style="margin:0;font-size:32px;">Join Map</h1>
+    <div class="brand-dot" style="margin:0 auto 6px;"></div>
+    <h1>Join Map</h1>
+    <p class="tag">See your squad, share the road, stay found.</p>
     <form id="join-form">
-      <input id="nameInput" style="width:100%;height:52px;padding:0 16px;border-radius:16px;background:rgba(255,255,255,.05);border:1px solid var(--line-strong);color:#fff;margin-top:22px;" placeholder="Your name" required>
-      <input id="avatarInput" type="file" accept="image/*" style="display:none;">
-      <button id="join-submit" class="btn-primary-nav" style="width:100%;margin-top:16px;" type="submit">Join</button>
+      <label class="avatar-pick" for="avatarInput" id="avatar-pick-label">
+        <img id="avatar-preview" alt="" hidden>
+        <span id="avatar-placeholder" aria-hidden="true">📷</span>
+      </label>
+      <input id="avatarInput" type="file" accept="image/*" class="sr-only">
+      <input id="nameInput" placeholder="Your name" required maxlength="40" autocomplete="name">
+      <button id="join-submit" class="btn-primary-nav" type="submit">Join</button>
     </form>
+    <p class="privacy-line">Your live location is shared with people on this map while you're joined. You can switch to approximate or off anytime in Safe Drive settings.</p>
   </div>
 </div>
 
+<!-- CHAT -->
 <div id="chat-container">
   <div id="chat-header">
-    <div class="chat-title-wrapper"><strong>Group Chat</strong> <span id="chat-subtitle" style="font-size:11px; margin-left:10px; color:#aaa;">0 online</span></div>
-    <div style="display:flex; gap:10px;">
-      <button id="online-btn" style="color:#fff; border:none; background:transparent;"><svg class="i"><use href="#i-users"/></svg></button>
-      <button id="chat-minimize-btn" style="color:#fff; border:none; background:transparent;"><svg class="i"><use href="#i-x"/></svg></button>
+    <div class="chat-title-wrapper"><strong>Group Chat</strong><span id="chat-subtitle">0 online</span></div>
+    <div style="display:flex;gap:4px;">
+      <button id="online-btn" type="button" aria-label="Toggle online list"><svg class="i"><use href="#i-users"/></svg></button>
+      <button id="chat-minimize-btn" type="button" aria-label="Minimize chat"><svg class="i"><use href="#i-x"/></svg></button>
     </div>
   </div>
-  <div id="online-list" style="display:none; position:absolute; right:10px; top:60px; background:#111; padding:10px; border-radius:10px; z-index:100;"></div>
+  <div id="online-list"></div>
   <div id="chat-messages"></div>
-  <div id="typing-indicator" style="font-size:11px; padding:5px 10px; color:#aaa; display:none;"></div>
-  <div id="reply-bar" style="display:none; padding:5px 10px; background:#222; font-size:12px; justify-content:space-between;"><span id="reply-preview"></span><button id="reply-cancel" style="color:#fff; border:none; background:transparent;">x</button></div>
-  <div id="attachment-menu" style="display:none; position:absolute; bottom:60px; left:10px; background:#222; padding:10px; border-radius:10px; flex-direction:column; gap:10px;">
-    <button id="att-media" style="color:#fff; border:none; background:transparent;">Photo/Video</button>
-    <button id="att-doc" style="color:#fff; border:none; background:transparent;">Document</button>
-    <button id="att-audio" style="color:#fff; border:none; background:transparent;">Audio</button>
+  <div id="typing-indicator"></div>
+  <div id="reply-bar"><span id="reply-preview"></span><button id="reply-cancel" type="button" aria-label="Cancel reply">✕</button></div>
+  <div id="attachment-menu" role="menu">
+    <button id="att-media" type="button" role="menuitem">🖼️ Photo/Video</button>
+    <button id="att-doc" type="button" role="menuitem">📄 Document</button>
+    <button id="att-audio" type="button" role="menuitem">🎤 Audio</button>
   </div>
-  <div id="emoji-picker-container" style="display:none; position:absolute; bottom:60px; right:10px; z-index:100;"><emoji-picker id="emojiPicker"></emoji-picker></div>
-  <form id="chatForm" style="display:flex; padding:10px; border-top:1px solid #333; gap:5px; margin:0;">
-    <button id="chat-attach-btn" type="button" style="color:#aaa; border:none; background:transparent;"><svg class="i sm"><use href="#i-plus"/></svg></button>
-    <button id="emojiButton" type="button" style="color:#aaa; border:none; background:transparent;"><svg class="i sm"><use href="#i-smile"/></svg></button>
-    <input id="chatInput" type="text" placeholder="Message..." autocomplete="off" style="flex:1; border-radius:20px; padding:10px; background:#222; border:none; color:#fff; height:auto;">
-    <button id="voiceButton" type="button" style="color:#aaa; border:none; background:transparent;"><svg class="i sm"><use href="#i-mic"/></svg></button>
-    <button id="chat-send" type="submit" style="display:none; color:#34d399; border:none; background:transparent;"><svg class="i sm"><use href="#i-send"/></svg></button>
+  <div id="emoji-picker-container"><emoji-picker id="emojiPicker"></emoji-picker></div>
+  <form id="chatForm">
+    <button id="chat-attach-btn" type="button" aria-label="Attach"><svg class="i sm"><use href="#i-plus"/></svg></button>
+    <button id="emojiButton" type="button" aria-label="Emoji"><svg class="i sm"><use href="#i-smile"/></svg></button>
+    <input id="chatInput" type="text" placeholder="Message…" autocomplete="off">
+    <button id="voiceButton" type="button" aria-label="Voice message"><svg class="i sm"><use href="#i-mic"/></svg></button>
+    <button id="chat-send" type="submit" aria-label="Send"><svg class="i sm"><use href="#i-send"/></svg></button>
   </form>
   <input id="chatFileInput" type="file" hidden>
 </div>
 
-<div id="profile-popup" class="modal">
-  <div class="modal-card" style="text-align:center;">
-    <button id="profile-popup-close" class="close-modal"><svg class="i sm"><use href="#i-x"/></svg></button>
-    <img id="profile-popup-avatar" src="" style="width:80px;height:80px;border-radius:50%;object-fit:cover;margin:0 auto;display:block;">
-    <h2 id="profile-popup-name" style="margin:10px 0;">Friend</h2>
-    <div id="profile-popup-status" style="font-size:12px; margin-bottom:5px;">Online</div>
-    <div id="profile-popup-distance" style="color:var(--muted); margin-bottom:10px; font-size:12px;">-- km</div>
-    <div id="profile-popup-weather" style="color:var(--muted); margin-bottom:15px; font-size:12px;">--°C</div>
-    <div style="display:flex; gap:10px;">
-        <button id="profile-call-btn" class="btn-primary-nav" style="flex:1; height:40px;"><svg class="i sm" style="display:inline; margin-right:5px;"><use href="#i-mic"/></svg>Call</button>
-        <button id="profile-nav-btn" class="btn-secondary-nav" style="flex:1; height:40px;">Route</button>
-        <button id="profile-focus-btn" class="btn-secondary-nav" style="flex:1; height:40px;">Locate</button>
+<!-- PROFILE POPUP -->
+<div id="profile-popup" class="modal" data-dismissable role="dialog" aria-modal="true" aria-labelledby="profile-popup-name">
+  <div class="modal-card">
+    <button id="profile-popup-close" class="close-modal" type="button" aria-label="Close"><svg class="i sm"><use href="#i-x"/></svg></button>
+    <img id="profile-popup-avatar" src="" alt="">
+    <h2 id="profile-popup-name">Friend</h2>
+    <div id="profile-popup-status">Online</div>
+    <div id="profile-popup-distance">-- km</div>
+    <div id="profile-popup-weather">--°C</div>
+    <div class="btn-row">
+        <button id="profile-call-btn" class="btn-primary-nav" type="button"><svg class="i sm"><use href="#i-mic"/></svg>Call</button>
+        <button id="profile-nav-btn" class="btn-secondary-nav" type="button">Route</button>
+        <button id="profile-focus-btn" class="btn-secondary-nav" type="button">Locate</button>
     </div>
   </div>
 </div>
 
-<div id="phase3-memory-overlay" class="modal" style="background:rgba(3,7,12,.8);">
-  <div id="phase3-memory-panel" class="modal-card" style="width:95vw; max-width:780px; height:95vh; max-height:700px; display:flex; flex-direction:column; padding:0;">
-    <div class="p3-head" style="padding:18px 20px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--line-strong);">
-      <div><h2 style="margin:0; font-family:var(--font-display);">Memories</h2><small id="phase3-memory-count" style="color:var(--muted);">0 memories</small></div>
-      <div style="display:flex; gap:10px;">
-          <button id="p3-add-memory-btn" class="btn-primary-nav" style="height:36px; padding:0 15px; font-size:12px;">+ Add Photo</button>
-          <button id="phase3-memory-close" class="btn-secondary-nav" style="height:36px; width:36px; padding:0; display:flex; align-items:center; justify-content:center;"><svg class="i sm"><use href="#i-x"/></svg></button>
+<!-- MEMORIES -->
+<div id="phase3-memory-overlay" class="modal" data-dismissable role="dialog" aria-modal="true">
+  <div id="phase3-memory-panel" class="modal-card">
+    <div class="p3-head">
+      <div><h2>Memories</h2><small id="phase3-memory-count">0 memories</small></div>
+      <div class="btn-row">
+          <button id="p3-add-memory-btn" class="btn-primary-nav" type="button">+ Add Photo</button>
+          <button id="phase3-memory-close" class="btn-secondary-nav" type="button" aria-label="Close"><svg class="i sm"><use href="#i-x"/></svg></button>
       </div>
     </div>
-    <div style="padding:10px 20px; display:flex; gap:10px;">
-      <button class="phase3-filter active" data-filter="all" style="color:#fff; background:rgba(255,255,255,0.1); border:none; padding:5px 10px; border-radius:10px;">All</button>
-      <button class="phase3-filter" data-filter="today" style="color:#aaa; background:transparent; border:none; padding:5px 10px;">Today</button>
-      <button class="phase3-filter" data-filter="mine" style="color:#aaa; background:transparent; border:none; padding:5px 10px;">Mine</button>
-      <input id="phase3-memory-search" type="text" placeholder="Search..." style="background:#222; border-radius:10px; padding:5px 10px; color:#fff; border:none;">
+    <div class="p3-filters">
+      <button class="phase3-filter active" data-filter="all" type="button">All</button>
+      <button class="phase3-filter" data-filter="today" type="button">Today</button>
+      <button class="phase3-filter" data-filter="mine" type="button">Mine</button>
+      <input id="phase3-memory-search" type="text" placeholder="Search…">
     </div>
-    <div id="phase3-memory-content" style="flex:1; overflow-y:auto; padding:10px 20px;">
-      <div id="phase3-memory-grid" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:10px;"></div>
-      <div id="phase3-memory-empty" style="color:#aaa; text-align:center; padding:20px; display:none;">No memories yet.</div>
-      <div style="margin-top:20px; font-weight:bold;">Timeline</div>
-      <div id="phase3-timeline-list" style="display:flex; flex-direction:column; gap:10px; margin-top:10px;"></div>
+    <div id="phase3-memory-content">
+      <div id="phase3-memory-grid"></div>
+      <div id="phase3-memory-empty">No memories yet.</div>
+      <div class="p3-section-title">Timeline</div>
+      <div id="phase3-timeline-list"></div>
     </div>
   </div>
 </div>
-
-<div id="phase3-photo-viewer" class="modal" style="background:rgba(0,0,0,0.9);">
-  <div class="modal-card" style="width:100%; max-width:600px; padding:10px;">
-    <img id="p3-view-image" src="" style="width:100%; max-height:60vh; object-fit:contain; border-radius:10px;">
-    <div style="padding:15px 5px 5px;">
-        <h3 id="p3-view-name" style="margin:0;">Name</h3>
-        <small id="p3-view-date" style="color:#aaa;">Date</small>
-        <div style="display:flex; gap:10px; margin-top:15px;">
-            <button id="p3-view-focus" class="btn-primary-nav" style="flex:1; height:40px;">View on Map</button>
-            <button id="p3-view-close" class="btn-secondary-nav" style="flex:1; height:40px;">Close</button>
+<div id="phase3-photo-viewer" class="modal" data-dismissable role="dialog" aria-modal="true">
+  <div class="modal-card">
+    <img id="p3-view-image" src="" alt="">
+    <div class="viewer-meta">
+        <h3 id="p3-view-name">Name</h3>
+        <small id="p3-view-date">Date</small>
+        <div class="btn-row">
+            <button id="p3-view-focus" class="btn-primary-nav" type="button">View on Map</button>
+            <button id="p3-view-close" class="btn-secondary-nav" type="button">Close</button>
         </div>
     </div>
   </div>
 </div>
 
 <!-- GEOFENCE & MEETUP UI -->
-<div id="geofence-list-modal" class="modal">
+<div id="geofence-list-modal" class="modal" data-dismissable role="dialog" aria-modal="true">
   <div class="modal-card">
-    <div style="display:flex; justify-content:space-between; margin-bottom:15px;">
-        <strong style="font-size:18px;">Geofences</strong>
-        <button id="geofence-list-close" class="close-modal" style="position:static;"><svg class="i sm"><use href="#i-x"/></svg></button>
+    <div class="modal-head">
+        <strong>Geofences</strong>
+        <button id="geofence-list-close" class="close-modal" type="button" aria-label="Close"><svg class="i sm"><use href="#i-x"/></svg></button>
     </div>
-    <div id="geofence-items" style="display:flex;flex-direction:column;gap:8px;max-height:300px;overflow-y:auto"></div>
+    <div id="geofence-items"></div>
   </div>
 </div>
-
-<div id="group-nav-setup" class="modal">
+<div id="group-nav-setup" class="modal" data-dismissable role="dialog" aria-modal="true">
   <div class="modal-card">
-    <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
-        <strong style="font-size:18px;">Meet up</strong>
-        <button id="group-nav-close-btn" class="close-modal" style="position:static;"><svg class="i sm"><use href="#i-x"/></svg></button>
+    <div class="modal-head">
+        <strong>Meet up</strong>
+        <button id="group-nav-close-btn" class="close-modal" type="button" aria-label="Close"><svg class="i sm"><use href="#i-x"/></svg></button>
     </div>
-    <p style="font-size:13px; color:#aaa; margin-bottom:15px;">Select friends to meet.</p>
-    <div id="group-nav-friend-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:15px;max-height:200px;overflow-y:auto;"></div>
-    <button id="group-nav-next-btn" class="btn-primary-nav" style="width:100%; height:45px;">Choose Point</button>
+    <p>Select friends to meet.</p>
+    <div id="group-nav-friend-list"></div>
+    <button id="group-nav-next-btn" class="btn-primary-nav btn-block" type="button">Choose Point</button>
+  </div>
+</div>
+<div id="group-nav-active" class="modal" data-dismissable role="dialog" aria-modal="true">
+  <div class="modal-card">
+    <div class="modal-head">
+        <strong>Meeting Point</strong>
+        <button id="group-nav-stop-btn" class="btn-danger-nav" type="button">Stop</button>
+    </div>
+    <div id="group-nav-stats-list"></div>
   </div>
 </div>
 
-<div id="group-nav-active" class="modal" style="top:auto; bottom:20px; align-items:flex-end;">
-  <div class="modal-card" style="margin-bottom:20px;">
-    <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
-        <strong style="color:var(--mint);">Meeting Point</strong>
-        <button id="group-nav-stop-btn" class="btn-danger-nav" style="height:30px; width:60px; border:none;">Stop</button>
-    </div>
-    <div id="group-nav-stats-list" style="display:flex;flex-direction:column;gap:8px;max-height:200px;overflow-y:auto;"></div>
-  </div>
-</div>
-
-<div id="trip-panel" style="display:none; position:fixed; top:90px; left:14px; background:var(--glass-solid); padding:15px; border-radius:15px; z-index:1000; width:220px; border:1px solid #333;">
-  <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #333; padding-bottom:10px; margin-bottom:10px;">
+<!-- GROUP TRIP -->
+<div id="trip-panel" class="glass-strong">
+  <div class="modal-row" style="padding-top:0;">
       <strong id="trip-title">Trip</strong>
-      <button id="trip-action-btn" class="btn-secondary-nav" style="height:30px; font-size:11px; padding:0 10px;">Join</button>
+      <button id="trip-action-btn" class="btn-secondary-nav" type="button">Join</button>
   </div>
-  <div id="trip-members-list" style="display:flex; flex-direction:column; gap:8px;"></div>
+  <div id="trip-members-list"></div>
 </div>
 
 <!-- HIDDEN ELEMENTS -->
 <input id="memoryPhotoInput" type="file" accept="image/*" hidden>
 <audio id="remote-audio" autoplay playsinline hidden></audio>
 
+<!-- GROUP VOICE CALL (features.js) -->
+<button id="group-call-btn" class="tool-btn" type="button" title="Group voice call" aria-label="Join group voice call"
+  style="position:fixed; bottom:calc(146px + var(--safe-b)); right:14px; z-index:999; width:52px; height:52px; border-radius:50%; background:var(--mint); color:#071018;">
+  <svg class="i lg"><use href="#i-mic"/></svg>
+</button>
+
+<!-- DEAD-ZONE P2P RADAR (features.js) — real Web Bluetooth scan, with a clearly-labelled
+     offline-mesh fallback when the browser/OS has no BLE central support. -->
+<button id="p2p-radar-btn" class="tool-btn" type="button" title="Dead-zone radar" aria-label="Scan for nearby squad devices"
+  style="position:fixed; bottom:calc(206px + var(--safe-b)); right:14px; z-index:999; width:52px; height:52px; border-radius:50%; background:var(--c-sensor); color:#071018;">
+  <svg class="i lg"><use href="#i-locate"/></svg>
+</button>
+<div id="radar-panel" class="glass-strong" role="dialog" aria-label="Dead-zone radar">
+    <div class="radar-head"><strong>📡 Offline Squad Radar</strong><button id="close-radar" type="button" aria-label="Close">✕</button></div>
+    <canvas id="radar-canvas" width="280" height="280" aria-hidden="true"></canvas>
+    <p id="radar-status">Scanning for nearby offline peers…</p>
+    <ul id="peer-list"><li style="color:var(--muted);">No devices nearby</li></ul>
+</div>
+
+<!-- SKUNKWORKS: travel mode + AI dashcam -->
+<div id="skunkworks-menu">
+    <button id="skunkworks-toggle-btn" class="tool-btn glass-strong" type="button" data-action="toggleSkunkworks"
+      style="width:46px;height:46px;border-radius:50%;" aria-label="Sensor tools" aria-haspopup="true">
+        <svg class="i"><use href="#i-tool"/></svg>
+    </button>
+    <div id="skunkworks-panel" class="glass-strong" style="border-radius:20px;padding:14px;">
+        <div class="segmented" role="radiogroup" aria-label="Travel mode" style="min-width:150px;">
+            <button id="mode-car" type="button" data-action="setTravelMode" data-arg="car" aria-pressed="false">🚗</button>
+            <button id="mode-bike" type="button" data-action="setTravelMode" data-arg="bike" aria-pressed="true">🏍️</button>
+            <button id="mode-walk" type="button" data-action="setTravelMode" data-arg="walk" aria-pressed="false">🚶</button>
+        </div>
+        <div class="modal-row" style="padding-bottom:0;">
+            <span style="font-size:13px;">AI Dashcam</span>
+            <button id="ai-dashcam-btn" class="tool-btn" type="button" data-action="toggleAIDashcam" aria-label="Toggle AI dashcam" style="width:36px;height:36px;border:2px solid var(--line-strong);border-radius:50%;">📷</button>
+        </div>
+    </div>
+</div>
+<video id="dashcam-video" autoplay playsinline muted></video>
+
+<!-- SETTINGS / EXPORT MENU -->
+<div style="position:fixed; top:calc(122px + var(--safe-t)); right:calc(60px + var(--safe-t) * 0); left:auto; z-index:1000;">
+    <button id="settings-menu-btn" class="tool-btn glass-strong" type="button" data-popover="settings-dropdown"
+      style="width:44px;height:44px;border-radius:50%;position:fixed;top:calc(122px + var(--safe-t));right:60px;" aria-haspopup="true" aria-expanded="false" aria-label="More options">
+        <svg class="i"><use href="#i-dots"/></svg>
+    </button>
+    <div id="settings-dropdown" class="popover" style="right:60px;top:calc(122px + var(--safe-t) + 50px);width:200px;" role="menu">
+        <button type="button" role="menuitem" class="btn-primary-nav btn-block" data-action="TripDB.downloadDetailedInfo">
+            <svg class="i sm"><use href="#i-download"/></svg>&nbsp; Download Data
+        </button>
+        <p class="field-hint" style="text-align:center;margin-top:8px;">Auto-deletes after 7 days</p>
+    </div>
+</div>
+
 <script src="/socket.io/socket.io.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<!-- API KEY -->
-<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyASbmXgn0T-B4AQdCe1sp7dfJbDXKgDw5c&libraries=places"></script>
-<!-- CACHE BUSTER ADDED HERE -->
-<script src="app.js?v=20260925-FINAL"></script>
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyASbmXgn0T-B4AQdCe1sp7dfJbDXKgDw5c&libraries=places&loading=async"></script>
+<script src="/shell.js"></script>
+<script src="app.js?v=20260929-refactor"></script>
 <script src="features.js"></script>
-  <button id="group-call-btn" style="position:fixed; bottom:90px; right:20px; z-index:999; background:#18d6a3; color:#071018; border:none; padding:12px 18px; border-radius:50px; font-weight:900; cursor:pointer; box-shadow:0 4px 15px rgba(0,0,0,0.3);">
-    🎙️ Group Call
-</button>
-<audio id="remote-audio" autoplay style="display:none;"></audio>
-  <!-- Dead-Zone P2P Radar Button & Panel -->
-<button id="p2p-radar-btn" style="position:fixed; bottom:150px; right:20px; z-index:999; background:#ff9f43; color:#071018; border:none; padding:12px 18px; border-radius:50px; font-weight:900; cursor:pointer; box-shadow:0 4px 15px rgba(0,0,0,0.3);">
-    📡 P2P Radar
-</button>
-
-<div id="radar-panel" style="display:none; position:fixed; bottom:210px; right:20px; z-index:1000; background:rgba(7,16,24,0.95); border:1px solid #ff9f43; padding:15px; border-radius:15px; width:250px; color:#fff; box-shadow:0 10px 30px rgba(0,0,0,0.5);">
-    <strong style="color:#ff9f43; display:block; margin-bottom:8px;">📡 Offline Squad Radar</strong>
-    <p id="radar-status" style="font-size:12px; margin:0 0 10px 0; color:#ccc;">Scanning for nearby offline peers...</p>
-    <ul id="peer-list" style="list-style:none; padding:0; margin:0; font-size:13px; max-height:100px; overflow-y:auto;">
-        <li style="color:#888;">No devices nearby</li>
-    </ul>
-    <button id="close-radar" style="margin-top:10px; width:100%; background:#333; color:#fff; border:none; padding:6px; border-radius:8px; cursor:pointer;">Close</button>
-</div>
- <!-- 🛠️ SKUNKWORKS / SENSORS MENU (LEFT SIDE) -->
-<div id="skunkworks-menu" style="position: fixed; top: 140px; left: 15px; z-index: 1000; display: flex; flex-direction: column; gap: 10px; align-items: flex-start;">
-    
-    <!-- Main Toggle Button (इसे दबाने पर मेनू खुलेगा) -->
-    <button onclick="toggleSkunkworks()" style="background: #18d6a3; color: black; border: none; border-radius: 50%; width: 45px; height: 45px; font-size: 20px; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.5);">
-        🛠️
-    </button>
-
-    <!-- Hidden Panel containing Modes & Camera -->
-    <div id="skunkworks-panel" style="display: none; flex-direction: column; gap: 15px; background: rgba(20, 20, 20, 0.9); padding: 15px; border-radius: 15px; border: 1px solid #333; backdrop-filter: blur(10px);">
-        
-        <!-- Travel Modes -->
-        <div style="display: flex; gap: 10px; border-bottom: 1px solid #444; padding-bottom: 10px;">
-            <button id="mode-car" onclick="setTravelMode('car')" style="background: transparent; border: 1px solid gray; padding: 8px 12px; border-radius: 20px; font-size: 18px; cursor: pointer; transition: 0.3s;">🚗</button>
-            <button id="mode-bike" onclick="setTravelMode('bike')" style="background: #18d6a3; border: 1px solid #18d6a3; padding: 8px 12px; border-radius: 20px; font-size: 18px; cursor: pointer; transition: 0.3s;">🏍️</button>
-            <button id="mode-walk" onclick="setTravelMode('walk')" style="background: transparent; border: 1px solid gray; padding: 8px 12px; border-radius: 20px; font-size: 18px; cursor: pointer; transition: 0.3s;">🚶</button>
-        </div>
-
-        <!-- AI Dashcam Toggle -->
-        <div style="display: flex; align-items: center; gap: 10px; color: white; font-size: 14px;">
-            <button id="ai-dashcam-btn" onclick="toggleAIDashcam()" style="background: transparent; color: white; padding: 8px; border-radius: 50%; border: 2px solid gray; cursor: pointer; font-size: 18px;">📷</button>
-            <span style="font-family: sans-serif;">AI Dashcam</span>
-        </div>
-        
-    </div>
-</div>
-
-<!-- Video Preview (Hidden default) -->
-<video id="dashcam-video" autoplay playsinline muted style="display: none; width: 150px; height: auto; position: fixed; bottom: 100px; left: 20px; z-index: 1000; border: 2px solid #18d6a3; border-radius: 10px; box-shadow: 0px 4px 10px rgba(0,0,0,0.5);"></video>
-  <!-- ⋮ SETTINGS & DOWNLOAD MENU (RIGHT SIDE) -->
-<div style="position: fixed; top: 140px; right: 15px; z-index: 1000;">
-    
-    <!-- 3 Dots Button -->
-    <button onclick="const dd = document.getElementById('settings-dropdown'); dd.style.display = dd.style.display === 'none' ? 'block' : 'none';" style="background: rgba(20, 20, 20, 0.9); color: white; border: 1px solid #444; border-radius: 50%; width: 45px; height: 45px; font-size: 22px; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.5); backdrop-filter: blur(5px);">
-        ⋮
-    </button>
-
-    <!-- Dropdown Menu -->
-    <div id="settings-dropdown" style="display: none; position: absolute; top: 55px; right: 0; background: rgba(20, 20, 20, 0.95); padding: 12px; border-radius: 12px; border: 1px solid #444; width: 180px; backdrop-filter: blur(10px); box-shadow: 0 5px 15px rgba(0,0,0,0.7);">
-        
-        <button onclick="TripDB.downloadDetailedInfo()" style="width: 100%; background: #18d6a3; color: black; border: none; padding: 10px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 14px; transition: 0.2s;">
-            ⬇️ Download Data
-        </button>
-        
-        <p style="color: #888; font-size: 11px; margin: 10px 0 0 0; text-align: center;">
-            Auto-deletes after 7 days
-        </p>
-    </div>
-    
-</div>
 </body>
 </html>
