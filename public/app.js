@@ -523,6 +523,217 @@ const RoutePrefs = {
 };
 RoutePrefs.load();
 
+// ---- Road speed limits from OpenStreetMap (roadmap Section 8) -------------
+// The server hands out ~1.1 km tiles of drivable roads (cached 24 h, shared
+// by every rider); the phone matches EACH accepted GPS fix to a road itself —
+// no request per fix, and it keeps working between tiles.
+//   Matching: nearest road segment within max(20, min(40, accuracy)) m. When
+//   moving, the segment must also point the way you're going (±40° for a
+//   two-way road; with the flow for a one-way), so a parallel service road or
+//   a flyover's slip road doesn't steal the match. A NEW road must win two
+//   fixes in a row (junction flicker), three misses or 30 s without a match
+//   drop back to "unknown".
+//   Limit: direction-specific (maxspeed:forward/backward) and motorcycle
+//   (maxspeed:motorcycle when riding a bike) values win over plain maxspeed.
+//   Unknown limit -> SmartDrive keeps its flat 60/80/100 thresholds. The app
+//   never invents a legal limit from the road class.
+const SpeedLimits = {
+    KEY: "mu_speed_limits",
+    enabled: true,
+    TILE_DEG: 0.01, EDGE_PREFETCH_M: 250, MAX_TILES: 60, RETRY_FAILED_MS: 60000, REQUEST_GAP_MS: 450,
+    MATCH_BASE_M: 20, MATCH_MAX_M: 40, CONFIRM_FIXES: 2, LOSE_AFTER: 3, STALE_MS: 30000,
+    tiles: new Map(),          // key -> { ways, at } | { failedAt }
+    queue: [], pumping: false,
+    current: null,             // { wayId, limit, raw, name, hw, forward, at }
+    pending: null, pendingCount: 0, missCount: 0,
+    last: null, heading: null,
+
+    init() {
+        try { this.enabled = localStorage.getItem(this.KEY) !== "0"; } catch (e) { /* default on */ }
+        const t = $("speed-limits-toggle");
+        if (t) {
+            t.checked = this.enabled;
+            t.addEventListener("change", () => {
+                this.enabled = t.checked;
+                try { localStorage.setItem(this.KEY, this.enabled ? "1" : "0"); } catch (e) { /* ignore */ }
+                if (!this.enabled) this.setCurrent(null);
+            });
+        }
+        if (typeof socket !== "undefined") socket.on("connect", () => this.pump());   // resume queued tiles after a drop
+    },
+
+    keyFor(lat, lng) { return `${Math.floor(lat / this.TILE_DEG)}:${Math.floor(lng / this.TILE_DEG)}`; },
+    neighbourKeys(lat, lng) {
+        const a = Math.floor(lat / this.TILE_DEG), b = Math.floor(lng / this.TILE_DEG), keys = [];
+        for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) keys.push(`${a + i}:${b + j}`);
+        return keys;
+    },
+
+    // Own tile always; a neighbour when we're within EDGE_PREFETCH_M of that edge.
+    ensureTiles(lat, lng) {
+        const a = Math.floor(lat / this.TILE_DEG), b = Math.floor(lng / this.TILE_DEG);
+        const fy = lat / this.TILE_DEG - a, fx = lng / this.TILE_DEG - b;
+        const my = (this.EDGE_PREFETCH_M / 110540) / this.TILE_DEG, mx = (this.EDGE_PREFETCH_M / (111320 * Math.max(0.2, Math.cos(lat * Math.PI / 180)))) / this.TILE_DEG;
+        const di = [0], dj = [0];
+        if (fy < my) di.push(-1); if (fy > 1 - my) di.push(1);
+        if (fx < mx) dj.push(-1); if (fx > 1 - mx) dj.push(1);
+        di.forEach((i) => dj.forEach((j) => this.request(`${a + i}:${b + j}`)));
+    },
+    request(key) {
+        const t = this.tiles.get(key);
+        if (t && (t.ways || Date.now() - t.failedAt < this.RETRY_FAILED_MS)) return;
+        if (this.queue.includes(key)) return;
+        this.queue.push(key);
+        this.pump();
+    },
+    pump() {
+        if (this.pumping || !this.queue.length) return;
+        if (typeof socket === "undefined" || !socket.connected) return;
+        this.pumping = true;
+        const key = this.queue.shift();
+        socket.emit("getRoadTile", { key }, (res) => {
+            if (res && res.ok && Array.isArray(res.ways)) {
+                this.tiles.set(key, { ways: res.ways, at: Date.now() });
+                while (this.tiles.size > this.MAX_TILES) this.tiles.delete(this.tiles.keys().next().value);
+            } else if (res && (res.reason === "busy" || res.reason === "too-frequent" || res.reason === "no-profile")) {
+                setTimeout(() => this.request(key), 2000);
+            } else {
+                this.tiles.set(key, { failedAt: Date.now() });
+            }
+            setTimeout(() => { this.pumping = false; this.pump(); }, this.REQUEST_GAP_MS);
+        });
+    },
+
+    // Heading: the device's own when moving, else from our last position.
+    updateHeading(lat, lng, headingDeg, speedKmh) {
+        if (Number.isFinite(headingDeg) && speedKmh > 5) this.heading = headingDeg;
+        else if (this.last) {
+            const dy = (lat - this.last.lat) * 110540, dx = (lng - this.last.lng) * 111320 * Math.cos(lat * Math.PI / 180);
+            if (Math.hypot(dx, dy) >= 8) this.heading = (Math.atan2(dx, dy) * 180 / Math.PI + 360) % 360;
+            else return;
+        }
+        this.last = { lat, lng };
+    },
+
+    match(lat, lng, accuracyM, speedKmh) {
+        const cosLat = Math.cos(lat * Math.PI / 180);
+        const X = (g) => (g - lng) * 111320 * cosLat, Y = (a) => (a - lat) * 110540;
+        const radius = Math.max(this.MATCH_BASE_M, Math.min(this.MATCH_MAX_M, Number.isFinite(accuracyM) ? accuracyM : this.MATCH_MAX_M));
+        const useHeading = Number.isFinite(this.heading) && speedKmh >= 10;
+        let best = null;
+        this.neighbourKeys(lat, lng).forEach((k) => {
+            const tile = this.tiles.get(k);
+            if (!tile || !tile.ways) return;
+            tile.ways.forEach((w) => (w.runs || []).forEach((r) => {
+                for (let i = 0; i + 3 < r.length; i += 2) {
+                    const ax = X(r[i + 1]), ay = Y(r[i]), bx = X(r[i + 3]), by = Y(r[i + 2]);
+                    const vx = bx - ax, vy = by - ay, len2 = vx * vx + vy * vy;
+                    if (len2 < 0.01) continue;
+                    const tt = Math.max(0, Math.min(1, -(ax * vx + ay * vy) / len2));
+                    const d = Math.hypot(ax + tt * vx, ay + tt * vy);
+                    if (d > radius) continue;
+                    const segBearing = (Math.atan2(vx, vy) * 180 / Math.PI + 360) % 360;
+                    let forward = true, angPenalty = 0;
+                    if (useHeading) {
+                        const diff = Math.abs(((this.heading - segBearing) + 540) % 360 - 180);   // 0..180
+                        forward = diff <= 90;
+                        if (w.ow === 1 && diff > 60) continue;                 // against a one-way: not this road
+                        if (w.ow === -1 && diff < 120) continue;
+                        const along = Math.min(diff, 180 - diff);
+                        if (w.ow === 0 && along > 40) continue;                // crossing road, not the one we're on
+                        angPenalty = along * 0.25;
+                    }
+                    const sticky = this.current && this.current.wayId === w.id ? 5 : 0;
+                    const score = d + angPenalty - sticky;
+                    if (!best || score < best.score) best = { way: w, dist: d, forward: w.ow === -1 ? !forward : forward, score };
+                }
+            }));
+        });
+        return best;
+    },
+
+    limitFor(m) {
+        const w = m.way;
+        const bike = (window.currentTravelMode || "bike") === "bike";
+        const dir = m.forward ? w.fwd : w.bwd;
+        const limit = (bike && Number.isFinite(w.mc) ? w.mc : null) ?? (Number.isFinite(dir) ? dir : null) ?? (Number.isFinite(w.lim) ? w.lim : null);
+        return { limit, raw: w.raw || null };
+    },
+
+    // Called by processLocation() for every ACCEPTED fix, before SmartDrive.tick().
+    onFix({ lat, lng, speedKmh, accuracyM, headingDeg }) {
+        if (!this.enabled || !validCoord(lat, lng)) return;
+        this.updateHeading(lat, lng, headingDeg, speedKmh || 0);
+        this.ensureTiles(lat, lng);
+        const m = this.match(lat, lng, accuracyM, speedKmh || 0);
+        if (!m) {
+            this.missCount++;
+            if (this.missCount >= this.LOSE_AFTER) this.setCurrent(null);
+            return;
+        }
+        this.missCount = 0;
+        if (this.current && this.current.wayId === m.way.id) {
+            this.pending = null; this.pendingCount = 0;
+            this.setCurrent(m);                                  // refresh time; direction may have flipped
+            return;
+        }
+        if (this.pending && this.pending.way.id === m.way.id) this.pendingCount++;
+        else { this.pending = m; this.pendingCount = 1; }
+        if (!this.current || this.pendingCount >= this.CONFIRM_FIXES) { this.setCurrent(m); this.pending = null; this.pendingCount = 0; }
+    },
+
+    setCurrent(m) {
+        const prevLimit = this.current ? this.current.limit : null;
+        if (!m) this.current = null;
+        else {
+            const { limit, raw } = this.limitFor(m);
+            this.current = { wayId: m.way.id, limit, raw, name: m.way.name || "", hw: m.way.hw, forward: m.forward, at: Date.now() };
+        }
+        const limit = this.current ? this.current.limit : null;
+        if (limit !== prevLimit) {
+            // A new limit starts its own alert ladder: a 40-zone alert must not be
+            // swallowed by the cooldown of a 60-zone one a few seconds earlier.
+            if (typeof SmartDrive !== "undefined") { SmartDrive.lastAlertTier = 0; SmartDrive.lastAlertTime = 0; }
+            document.dispatchEvent(new CustomEvent("mu:speed-limit", { detail: { limit, name: this.current ? this.current.name : "" } }));
+        }
+        this.renderSign();
+    },
+
+    known() {
+        return Boolean(this.enabled && this.current && Number.isFinite(this.current.limit) && Date.now() - this.current.at < this.STALE_MS);
+    },
+    // Road-based alert levels: over the limit (+ a small GPS grace), well over
+    // (+15), far over (+30). null -> unknown. SmartDrive only ever uses these
+    // to make an alert EARLIER than its own 60/80/100 ladder, never later: OSM
+    // limits are usually the car limit (motorcycles often have lower legal
+    // limits in India), and a high posted limit must not switch off the app's
+    // own safety alerts.
+    thresholds() {
+        if (!this.known()) return null;
+        const L = this.current.limit;
+        return { limit: L, t1: L + Math.max(3, Math.round(L * 0.05)), t2: L + 15, t3: L + 30 };
+    },
+
+    renderSign() {
+        const sign = $("speed-limit-sign"), n = $("speed-limit-n");
+        if (!sign || !n) return;
+        const show = this.known();
+        sign.hidden = !show;
+        if (show) {
+            n.textContent = String(this.current.limit);
+            sign.setAttribute("aria-label", `Speed limit ${this.current.limit} kilometres per hour${this.current.name ? ` on ${this.current.name}` : ""}, from OpenStreetMap`);
+            sign.title = `Limit ${this.current.limit} km/h${this.current.raw && /mph/i.test(this.current.raw) ? ` (${this.current.raw})` : ""} · OpenStreetMap`;
+        }
+    },
+
+    describe() {
+        if (!this.enabled) return "Road speed limits are turned off in settings.";
+        if (this.known()) return `The limit here is ${this.current.limit} kilometres per hour${this.current.name ? ` on ${this.current.name}` : ""}, according to OpenStreetMap. Road signs always win.`;
+        if (this.current) return "This road has no speed limit in OpenStreetMap, so I'm using the standard 60, 80 and 100 alerts.";
+        return "I don't know the speed limit here yet.";
+    }
+};
+
 // ---- Voice bridge (Phase 3) ------------------------------------------------
 // Every spoken cue in app.js goes through here. features.js's VoiceAssistant
 // owns the policy (priority queue, mute, "spoken alerts" setting, echo guard
@@ -705,40 +916,69 @@ const SmartDrive = {
     // know the new alert was more severe. Fix: only a cooldown from an
     // EQUAL-OR-HIGHER tier blocks a new alert.
     checkSafetyLimits(speed, confidence) {
+        // Road-limit-aware thresholds when OpenStreetMap knows this road's limit
+        // (SpeedLimits); the original flat 60/80/100 ladder everywhere else.
+        // Tighten-only: each level is the lower of the flat ladder and the
+        // road-based level, and the message names whichever one is binding.
+        const lim = typeof SpeedLimits !== "undefined" ? SpeedLimits.thresholds() : null;
+        const FLAT = [60, 80, 100];
+        const byRoad = lim ? [lim.t1, lim.t2, lim.t3] : null;
+        const [t1, t2, t3] = FLAT.map((f, i) => (byRoad ? Math.min(f, byRoad[i]) : f));
+        const roadBinding = (tierNo) => Boolean(byRoad && byRoad[tierNo - 1] <= FLAT[tierNo - 1]);
         const dial = $("speed-dial");
         if (dial) {
             if (speed > 3) {
                 dial.style.display = "flex";
                 const sn = $("speed-n"); if (sn) sn.textContent = Math.round(speed);
-                dial.className = "speed-dial " + (speed >= 100 ? "danger" : (speed >= 80 ? "warn" : "")) + (confidence < 0.6 ? " lowconf" : "");
+                dial.className = "speed-dial " + (speed >= t3 ? "danger" : (speed >= t2 ? "warn" : (lim && speed >= lim.t1 ? "over" : ""))) + (confidence < 0.6 ? " lowconf" : "");
             } else { dial.style.display = "none"; }
         }
 
         if (confidence < 0.4) return;                    // don't act on low-confidence data — display only, above
 
-        const tier = speed >= 100 ? 3 : speed >= 80 ? 2 : speed >= 60 ? 1 : 0;
+        const tier = speed >= t3 ? 3 : speed >= t2 ? 2 : speed >= t1 ? 1 : 0;
         if (tier === 0) { this.lastAlertTier = 0; return; }
 
         const now = Date.now();
         if (tier <= this.lastAlertTier && now - this.lastAlertTime < 15000) return;
 
         // Spoken cue (Phase 3): the rider shouldn't have to look down to learn
-        // why the phone beeped (roadmap Section 25). Tier 1 stays silent —
-        // speaking every 60 km/h crossing would train riders to ignore voice.
-        if (tier === 3) {
+        // why the phone beeped (roadmap Section 25). On the flat ladder tier 1
+        // stays silent (every 60 km/h crossing would train riders to ignore
+        // voice); over a KNOWN posted limit it's worth one short sentence.
+        const v = Math.round(speed);
+        if (roadBinding(tier)) {
+            const L = lim.limit;
+            if (tier === 3) {
+                showToast(`🚨 Far over the ${L} km/h limit — slow down!`, 5000);
+                this.triggerRedMap();
+                this.beep(800, 3000);
+                islandShow({ id: "speed", kind: "speed-danger", title: "Slow down", sub: `Limit ${L} km/h here`, meta: `${v}`, ttl: 8000 });
+                voiceAnnounce(`Slow down. The limit here is ${L}.`, { priority: 90, key: `speed-3-${L}`, cooldownMs: 15000, category: "speed", maxAgeMs: 4000 });
+            } else if (tier === 2) {
+                showToast(`⚠️ Over the ${L} km/h limit.`, 4000);
+                this.beep(600, 400);
+                islandShow({ id: "speed", kind: "speed-warn", title: "Speed check", sub: `Limit ${L} km/h here`, meta: `${v}`, ttl: 4500 });
+                voiceAnnounce(`Speed check. Limit ${L}.`, { priority: 62, key: `speed-2-${L}`, cooldownMs: 15000, category: "speed", drivingOnly: true, maxAgeMs: 4000 });
+            } else {
+                showToast(`🔵 Speed limit ${L} km/h (OpenStreetMap).`, 3000);
+                islandShow({ id: "speed", kind: "info", title: `Limit ${L}`, sub: "You're just over it", meta: `${v}`, ttl: 3000, haptic: false });
+                voiceAnnounce(`Speed limit ${L}.`, { priority: 58, key: `speed-1-${L}`, cooldownMs: 60000, category: "speed", drivingOnly: true, maxAgeMs: 4000 });
+            }
+        } else if (tier === 3) {
             showToast("🚨 DANGER: Speed 100+ km/h! Slow Down!", 5000);
             this.triggerRedMap();
             this.beep(800, 3000);
-            islandShow({ id: "speed", kind: "speed-danger", title: "Slow down", sub: "Over 100 km/h", meta: `${Math.round(speed)}`, ttl: 8000 });
+            islandShow({ id: "speed", kind: "speed-danger", title: "Slow down", sub: "Over 100 km/h", meta: `${v}`, ttl: 8000 });
             voiceAnnounce("Slow down. You are over 100 kilometres per hour.", { priority: 90, key: "speed-3", cooldownMs: 15000, category: "speed", maxAgeMs: 4000 });
         } else if (tier === 2) {
             showToast("⚠️ WARNING: Crossing 80 km/h.", 4000);
             this.beep(600, 400);
-            islandShow({ id: "speed", kind: "speed-warn", title: "Speed check", sub: "Over 80 km/h", meta: `${Math.round(speed)}`, ttl: 4500 });
+            islandShow({ id: "speed", kind: "speed-warn", title: "Speed check", sub: "Over 80 km/h", meta: `${v}`, ttl: 4500 });
             voiceAnnounce("Speed check. Over 80.", { priority: 62, key: "speed-2", cooldownMs: 15000, category: "speed", drivingOnly: true, maxAgeMs: 4000 });
         } else {
             showToast("🟢 Alert: Speed above 60 km/h.", 3000);
-            islandShow({ id: "speed", kind: "info", title: "Speed", sub: "Over 60 km/h", meta: `${Math.round(speed)}`, ttl: 3000, haptic: false });
+            islandShow({ id: "speed", kind: "info", title: "Speed", sub: "Over 60 km/h", meta: `${v}`, ttl: 3000, haptic: false });
         }
         this.lastAlertTime = now;
         this.lastAlertTier = tier;
@@ -3067,6 +3307,9 @@ function startGPS() {
             });
         }
 
+        // Which road am I on, and its posted limit (OpenStreetMap)? Accepted
+        // fixes only — a weak fix could snap to the wrong road.
+        if (fix.accepted) SpeedLimits.onFix({ lat, lng, speedKmh: fix.smoothedKmh, accuracyM: acc, headingDeg: p.coords.heading == null ? NaN : Number(p.coords.heading) });
         // The verdict carries the real accuracy/dt/distance from the last GOOD fix.
         SmartDrive.tick(fix);
 
@@ -4968,6 +5211,7 @@ function initApp() {
         { name: "SmartDrive", fn: () => SmartDrive.init() },
         { name: "Privacy Controls", fn: () => PrivacyControls.init() },
         { name: "Route Options", fn: () => RoutePrefs.bindUI() },
+        { name: "Speed Limits", fn: () => SpeedLimits.init() },
         { name: "Meetup Planner", fn: () => MeetupPlanner.init() },
         { name: "Carpool Planner", fn: () => CarpoolPlanner.init() },
         { name: "Trip Analytics", fn: () => TripAnalytics.init() },
