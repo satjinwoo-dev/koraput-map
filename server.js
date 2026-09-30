@@ -93,6 +93,7 @@ const CORS_ORIGIN = process.env.CORS_ORIGIN
 const REACTION_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
 const ALLOWED_MSG_TYPES = ["text", "image", "video", "audio", "document"];
 const ALLOWED_MODES = ["drive", "bike", "walk"];
+const MEETUP_STRATEGIES = ["sum", "minimax", "fuel"];
 const SHARING_MODES = ["exact", "approx", "off"];
 const MAX_AVATAR_B64_LEN = 3_000_000;
 const MAX_MEMORY_IMAGE_B64_LEN = 6_000_000;
@@ -861,6 +862,29 @@ function orderPickupsFallback(start, stops, dest) {
 // Fair, distance-proportional fuel split. Leg k runs stop k -> stop k+1; every
 // rider picked up at or before stop k is aboard, so each leg's fuel is split
 // equally among the driver and the riders actually aboard for it.
+// ---- Fuel-aware meetup (roadmap Section 11, third strategy) -------------------
+// Same U-shaped model the app's SmartDrive uses for a live ride (Section 9),
+// applied to each rider's OSRM leg: rated km/L, degraded below 40 km/h
+// (stop-start) and above 60 km/h (drag), judged by the leg's average speed.
+// Walkers burn nothing. A rider who never set a mileage is costed at the
+// app's default and NAMED in the result, so the estimate says what it assumed.
+const DEFAULT_KM_PER_L = 18;               // SmartDrive's default mileage
+function legFuelL(distanceM, durationSec, kmPerL) {
+    if (!isFiniteNum(distanceM) || distanceM <= 0) return 0;
+    const km = distanceM / 1000;
+    const vKmh = isFiniteNum(durationSec) && durationSec > 0 ? km / (durationSec / 3600) : 40;
+    let eff = kmPerL;
+    if (vKmh > 60) eff -= (vKmh - 60) * 0.005 * kmPerL;
+    else if (vKmh < 40) eff -= (40 - vKmh) * 0.004 * kmPerL;
+    eff = Math.max(Math.min(5, kmPerL), eff);
+    return km / eff;
+}
+function riderFuelProfile(u) {
+    if (u.sessionMode === "walk") return { kmPerL: null, motorised: false, assumed: false };
+    const set = isFiniteNum(u.kmPerL) && u.kmPerL >= 1 && u.kmPerL <= 100;
+    return { kmPerL: set ? u.kmPerL : DEFAULT_KM_PER_L, motorised: true, assumed: !set };
+}
+
 function splitCarpoolCosts(ordered, legMeters, kmPerL, pricePerL) {
     const driver = { distanceKm: 0, fuelL: 0, cost: 0 };
     const riders = ordered.map((s) => ({ id: s.id || null, name: s.name || "", distanceKm: 0, fuelL: 0, cost: 0 }));
@@ -1400,18 +1424,30 @@ io.on("connection", (socket) => {
         socket.emit("sharingChanged", { mode });
     }));
 
+    // The rider's own stated mileage (km/L) — the app's fuel-efficiency setting.
+    // Kept on the live user only (re-sent after every profileAccepted), used by
+    // the fuel-aware meetup strategy. Never broadcast.
+    socket.on("setMileage", safeHandler(socket, (data) => {
+        const user = users.get(socket.id);
+        if (!user || !data) return;
+        if (data.kmPerL === null) { user.kmPerL = null; return; }
+        if (!isFiniteNum(data.kmPerL) || data.kmPerL < 1 || data.kmPerL > 100) return;
+        user.kmPerL = Math.round(data.kmPerL * 10) / 10;
+    }));
+
     // --- K. MEETUP OPTIMISATION ---------------------------------------------------
-    // socket.emit('computeMeetup', {memberIds:["me", ...], strategy:"sum"|"minimax", extraCandidates?}, ack)
+    // socket.emit('computeMeetup', {memberIds:["me", ...], strategy:"sum"|"minimax"|"fuel", extraCandidates?}, ack)
     // Candidates: centroid + ring + REAL nearby venues (Overpass) + custom points.
-    // Both strategies are ranked from ONE OSRM matrix so the UI can flip between
-    // "Fastest overall" and "Fairest" without another network round-trip.
+    // All three strategies are ranked from ONE OSRM matrix so the UI can flip
+    // between "Fastest overall", "Fair to all" and "Least fuel" without another
+    // network round-trip.
     socket.on("computeMeetup", safeHandler(socket, async (data, ack) => {
         if (typeof ack !== "function") return;
         const requester = users.get(socket.id);
         if (!requester) return ack({ ok: false, reason: "no-profile" });
         if (!throttle(socket.id, "meetup", 3000)) return ack({ ok: false, reason: "too-frequent" });
 
-        const strategy = data?.strategy === "minimax" ? "minimax" : "sum";
+        const strategy = MEETUP_STRATEGIES.includes(data?.strategy) ? data.strategy : "sum";
         const ids = Array.isArray(data?.memberIds) ? data.memberIds.filter((i) => typeof i === "string").slice(0, 8) : [];
         const seen = new Set();
         const members = ids
@@ -1433,23 +1469,30 @@ io.on("connection", (socket) => {
 
         const table = await fetchOsrmTable(members, candidates);
         if (!table) return ack({ ok: false, reason: "routing-service-unavailable" });
+        const fuelProfiles = members.map(riderFuelProfile);
 
         const scored = [];
         candidates.forEach((cand, ci) => {
             const snapDist = table.destinations?.[ci]?.distance;
             // Drop centroid/ring points that snap >800 m to a road (lake, forest, ...).
             if (cand.kind !== "venue" && cand.kind !== "custom" && isFiniteNum(snapDist) && snapDist > 800) return;
-            const perMember = members.map((m, mi) => ({
-                id: m.id, name: m.name,
-                durationSec: table.durations?.[mi]?.[ci] ?? null,
-                distanceM: table.distances?.[mi]?.[ci] ?? null
-            }));
+            const perMember = members.map((m, mi) => {
+                const durationSec = table.durations?.[mi]?.[ci] ?? null;
+                const distanceM = table.distances?.[mi]?.[ci] ?? null;
+                const fp = fuelProfiles[mi];
+                // No distance from OSRM (shouldn't happen with annotations=distance):
+                // fuel unknown for this rider, so this candidate can't be fuel-ranked.
+                const fuelL = !fp.motorised ? 0 : (isFiniteNum(distanceM) ? legFuelL(distanceM, durationSec, fp.kmPerL) : null);
+                return { id: m.id, name: m.name, durationSec, distanceM, fuelL: fuelL === null ? null : Math.round(fuelL * 1000) / 1000 };
+            });
             if (perMember.some((p) => p.durationSec == null)) return;
+            const fuelKnown = perMember.every((p) => p.fuelL !== null);
             const loc = table.destinations?.[ci]?.location;
             scored.push({
                 lat: cand.lat, lng: cand.lng, label: cand.label, kind: cand.kind, category: cand.category || null,
                 snapped: Array.isArray(loc) ? { lat: loc[1], lng: loc[0] } : null,
                 perMember,
+                fuelL: fuelKnown ? Math.round(perMember.reduce((a, p) => a + p.fuelL, 0) * 1000) / 1000 : null,
                 sumSec: perMember.reduce((a, p) => a + p.durationSec, 0),
                 maxSec: Math.max(...perMember.map((p) => p.durationSec)),
                 minSec: Math.min(...perMember.map((p) => p.durationSec))
@@ -1461,10 +1504,20 @@ io.on("connection", (socket) => {
         // Minimum-sum tie-breaks on fairness; minimax tie-breaks on total time.
         const bySum = [...scored].sort((a, b) => a.sumSec - b.sumSec || a.maxSec - b.maxSec).slice(0, 3);
         const byMinimax = [...scored].sort((a, b) => a.maxSec - b.maxSec || a.sumSec - b.sumSec).slice(0, 3);
+        // Least total estimated fuel; ties go to the faster, then the fairer point.
+        const byFuel = scored.filter((c) => c.fuelL !== null)
+            .sort((a, b) => a.fuelL - b.fuelL || a.sumSec - b.sumSec || a.maxSec - b.maxSec).slice(0, 3);
+        const rankings = { sum: bySum, minimax: byMinimax, fuel: byFuel };
         ack({
             ok: true, strategy,
-            results: strategy === "minimax" ? byMinimax : bySum,
-            rankings: { sum: bySum, minimax: byMinimax },
+            results: rankings[strategy].length ? rankings[strategy] : bySum,
+            rankings,
+            fuelAssumptions: {
+                defaultKmPerL: DEFAULT_KM_PER_L,
+                assumedFor: members.filter((m, i) => fuelProfiles[i].assumed).map((m) => m.name),
+                walking: members.filter((m, i) => !fuelProfiles[i].motorised).map((m) => m.name),
+                note: "Estimate from road distance, average leg speed and each rider's stated km/L."
+            },
             venuesFound: venues.length
         });
     }));
