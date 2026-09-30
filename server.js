@@ -1016,7 +1016,30 @@ function removeFromTrip(socketId) {
     } else if (currentTrip.members.some((m) => m.id === socketId)) {
         currentTrip.members = currentTrip.members.filter((m) => m.id !== socketId);
         io.emit("tripData", currentTrip);
+        pushTripFuelProfiles();
     }
+}
+
+// Each trip member's own fuel profile (stated km/L, "not set" -> default and
+// flagged, walkers burn nothing), sent ONLY to the members of the trip so each
+// phone's trip panel can cost every rider at their own km/L. Re-sent when the
+// roster, anyone's km/L or anyone's Walk session changes.
+function tripFuelProfiles() {
+    if (!currentTrip) return null;
+    const profiles = {};
+    currentTrip.members.forEach((m) => {
+        const u = users.get(m.id);
+        if (!u) return;
+        const fp = riderFuelProfile(u);
+        profiles[m.id] = { kmPerL: fp.motorised ? fp.kmPerL : null, assumed: fp.assumed, walking: !fp.motorised };
+    });
+    return profiles;
+}
+function pushTripFuelProfiles() {
+    const profiles = tripFuelProfiles();
+    if (!profiles) return;
+    const payload = { tripId: currentTrip.id, profiles, defaultKmPerL: DEFAULT_KM_PER_L };
+    currentTrip.members.forEach((m) => io.to(m.id).emit("tripFuelProfiles", payload));
 }
 
 // Mobile sockets get a NEW id on every reconnect. Carry trip role / roster
@@ -1400,6 +1423,7 @@ io.on("connection", (socket) => {
             hostId: socket.id, members: [{ id: socket.id, name: user.name }]
         };
         io.emit("tripData", currentTrip);
+        pushTripFuelProfiles();
         broadcastUserState(socket.id);
     }));
 
@@ -1408,6 +1432,7 @@ io.on("connection", (socket) => {
         if (currentTrip && user && !currentTrip.members.some((m) => m.id === socket.id)) {
             currentTrip.members.push({ id: socket.id, name: user.name });
             io.emit("tripData", currentTrip);
+            pushTripFuelProfiles();
             broadcastUserState(socket.id); // precision may rise from approx to exact
         }
     }));
@@ -1492,6 +1517,7 @@ io.on("connection", (socket) => {
         const user = users.get(socket.id);
         if (!user) return typeof ack === "function" && ack({ ok: false, reason: "no-profile" });
         user.sessionMode = normalizeMode(data?.mode);
+        if (isInActiveTrip(socket.id)) pushTripFuelProfiles();     // walking burns no fuel
         user.sessionId = generateId();
         user.sessionStartedAt = Date.now();
         const payload = { mode: user.sessionMode, sessionId: user.sessionId, startedAt: user.sessionStartedAt };
@@ -1504,6 +1530,7 @@ io.on("connection", (socket) => {
         if (!user) return typeof ack === "function" && ack({ ok: false, reason: "no-profile" });
         const summary = { sessionId: user.sessionId, durationSec: user.sessionStartedAt ? Math.round((Date.now() - user.sessionStartedAt) / 1000) : 0 };
         user.sessionMode = null; user.sessionId = null; user.sessionStartedAt = null;
+        if (isInActiveTrip(socket.id)) pushTripFuelProfiles();
         socket.emit("sessionEnded", summary);
         if (typeof ack === "function") ack({ ok: true, ...summary });
     }));
@@ -1530,9 +1557,13 @@ io.on("connection", (socket) => {
     socket.on("setMileage", safeHandler(socket, (data) => {
         const user = users.get(socket.id);
         if (!user || !data) return;
-        if (data.kmPerL === null) { user.kmPerL = null; return; }
-        if (!isFiniteNum(data.kmPerL) || data.kmPerL < 1 || data.kmPerL > 100) return;
-        user.kmPerL = Math.round(data.kmPerL * 10) / 10;
+        if (data.kmPerL === null) user.kmPerL = null;
+        else if (isFiniteNum(data.kmPerL) && data.kmPerL >= 1 && data.kmPerL <= 100) user.kmPerL = Math.round(data.kmPerL * 10) / 10;
+        else return;
+        // Trip-mates' panels cost this rider at their own km/L; also sent after
+        // every (re)connect, which is how a reconnected rider's new socket id
+        // gets its profile back into the trip.
+        if (isInActiveTrip(socket.id)) pushTripFuelProfiles();
     }));
 
     // --- K. MEETUP OPTIMISATION ---------------------------------------------------
