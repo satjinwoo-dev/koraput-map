@@ -670,6 +670,14 @@ const VOICE_COMMANDS = [
     { name: "unmute", test: (t) => /\b(unmute|un mute|voice on|alerts on|sound on|speak again)\b/.test(t) },
     { name: "mute", test: (t) => /\b(mute|quiet|silence|shut up|chup|alerts off|voice off)\b/.test(t) },
     { name: "stopNav", test: (t, ctx) => /\b(stop|end|cancel|exit|finish)\b.*\b(navigation|navigating|drive|ride|trip|route|directions)\b/.test(t) || (ctx.mode === "ptt" && /^(stop|ruko|band karo|end)$/.test(t)) },
+    { name: "routeAvoid", test: (t) => {
+        const R = "(tolls?|toll roads?|highways?|motorways?|expressways?)";
+        const m = new RegExp(`^(?:please\\s+)?(avoid|no|skip|allow|use)\\s+(?:the\\s+)?${R}(?:\\s+(?:and|or)\\s+${R})?$`).exec(t);
+        if (!m) return false;
+        const cls = (w) => (w && /^toll/.test(w) ? "toll" : w ? "motorway" : null);
+        const list = [cls(m[2]), cls(m[3])].filter(Boolean);
+        return `${/^(allow|use)$/.test(m[1]) ? "allow" : "avoid"}:${[...new Set(list)].join(",")}`;
+    } },
     { name: "navigateTo", test: (t) => { const m = /\b(?:navigate|take me|directions|route me|drive me|go|get me|chalo)\s+to\s+(.+)$/.exec(t); return m ? m[1] : false; } },
     { name: "startNav", test: (t) => /\b(start|begin|resume)\b.*\b(navigation|navigating|drive|ride|route|trip)\b|\blet'?s go\b|\bchalo\b|^go$/.test(t) },
     { name: "whereAmI", test: (t) => /\bwhere am i\b|\bmain kahan hu\b/.test(t) },
@@ -1091,7 +1099,7 @@ const VoiceAssistant = {
     execute(cmd) {
         switch (cmd.name) {
             case "help":
-                this.reply("You can say: how far, where is, then a name, squad status, radio status, regroup, who's approaching, navigate to, then a place, start navigation, stop navigation, where am I, mute, or send S O S.");
+                this.reply("You can say: how far, where is, then a name, squad status, radio status, regroup, who's approaching, avoid tolls, navigate to, then a place, start navigation, stop navigation, where am I, mute, or send S O S.");
                 break;
             case "mute":
                 this.mutedUntil = Date.now() + this.MUTE_MS;
@@ -1132,6 +1140,18 @@ const VoiceAssistant = {
             case "regroup":
                 this.reply(Phase5UI.regroupSummary());
                 break;
+            case "routeAvoid": {
+                if (typeof RoutePrefs === "undefined" || !cmd.arg) { this.reply("Route options aren't available right now."); break; }
+                const [verb, list] = cmd.arg.split(":");
+                const on = verb === "avoid";
+                list.split(",").forEach((c) => { if (c === "toll") RoutePrefs.avoidTolls = on; if (c === "motorway") RoutePrefs.avoidHighways = on; });
+                RoutePrefs.lastNoticeAt = 0;
+                RoutePrefs.save();
+                const what = RoutePrefs.describe(list.split(","));
+                const later = typeof navState !== "undefined" && navState.active ? " Your current route stays as it is; the next route will follow this." : "";
+                this.reply(on ? `OK. Routes will avoid ${what}.${later}` : `OK. Routes can use ${what} again.${later}`);
+                break;
+            }
             case "approaching":
                 this.reply(Phase5UI.motionSummary());
                 break;
@@ -1210,13 +1230,22 @@ const VoiceAssistant = {
         if (!place) { this.reply(`I couldn't find ${q}.`); return; }
         let route = null;
         try {
-            const r = await fetch(`https://router.project-osrm.org/route/v1/driving/${myCoords.lng},${myCoords.lat};${place.lng},${place.lat}?overview=full&geometries=geojson&steps=true`);
-            const data = await r.json();
+            // Honours the rider's avoid-highways/tolls setting (app.js RoutePrefs).
+            const url = `https://router.project-osrm.org/route/v1/driving/${myCoords.lng},${myCoords.lat};${place.lng},${place.lat}?overview=full&geometries=geojson&steps=true`;
+            const data = typeof RoutePrefs !== "undefined" ? await RoutePrefs.fetchRoute(url) : await (await fetch(url)).json();
             route = data && data.routes && data.routes[0];
+            if (route) route.avoidInfo = data.avoid || null;
         } catch (e) { route = null; }
         if (!route) { this.reply(`I found ${place.name}, but couldn't get a road route there.`); return; }
         startSearchNavigation(place.lat, place.lng, place.name, route);
-        this.reply(`${place.name}. ${spokenDistance(route.distance)}, about ${spokenMinutes(route.duration / 60)}. Say start navigation to go.`);
+        // The rider isn't looking at a toast: SAY when the avoid setting couldn't be met.
+        const av = route.avoidInfo;
+        let caveat = "";
+        if (av && av.requested.length) {
+            const missed = av.requested.filter((c) => !av.applied.includes(c));
+            caveat = missed.length ? ` This route can't avoid ${RoutePrefs.describe(missed)}.` : ` Avoiding ${RoutePrefs.describe(av.requested)}.`;
+        }
+        this.reply(`${place.name}. ${spokenDistance(route.distance)}, about ${spokenMinutes(route.duration / 60)}.${caveat} Say start navigation to go.`);
     },
 
     // Google Places (already loaded, key referrer-restricted) first; free
