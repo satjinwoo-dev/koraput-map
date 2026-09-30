@@ -777,6 +777,105 @@ async function fetchVenues(lat, lng, radiusM) {
     }
 }
 
+// ---- Road speed limits (roadmap Section 8: "Overpass maxspeed, cached aggressively")
+// The app asks for ~1.1 km tiles of DRIVABLE roads around the rider; each
+// tile is fetched from Overpass once and shared by every rider for 24 h.
+// Only what the phone needs to match itself to a road is sent: class, the
+// PARSED limit (km/h) per direction and for motorcycles, oneway, geometry.
+// A value OSM doesn't give as a number ("IN:urban", "none", "signals",
+// "walk", conditional tags) is NOT turned into an invented number: the road
+// is sent with limit null and the app keeps its flat 60/80/100 alerts there.
+const ROAD_TILE_DEG = 0.01;
+const ROAD_TILE_TTL_MS = 24 * 60 * 60 * 1000;
+const ROAD_TILE_FAIL_TTL_MS = 60 * 1000;
+const ROAD_TILE_MAX = 400;
+const ROAD_TILE_MAX_INFLIGHT = 2;
+const ROAD_TILE_KEY_RE = /^-?\d{1,5}:-?\d{1,5}$/;
+const DRIVABLE_HIGHWAY_RE = "^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|road|motorway_link|trunk_link|primary_link|secondary_link|tertiary_link)$";
+const roadTileCache = new Map();          // key -> { ts, ways } | { ts, failed: true }
+const roadTileInflight = new Map();       // key -> Promise
+
+function parseMaxspeed(v) {
+    if (typeof v !== "string" || !v.trim()) return null;
+    const parts = v.split(";").map((x) => x.trim()).filter(Boolean);
+    const vals = parts.map((x) => {
+        const m = /^(\d{1,3}(?:\.\d+)?)\s*(km\/h|kmh|kph|mph|knots)?$/i.exec(x);
+        if (!m) return null;
+        let n = parseFloat(m[1]);
+        if (/mph/i.test(m[2] || "")) n *= 1.609344;
+        else if (/knots/i.test(m[2] || "")) n *= 1.852;
+        return n >= 5 && n <= 150 ? Math.round(n) : null;
+    });
+    if (!vals.length || vals.some((x) => x === null)) return null;
+    return Math.min(...vals);                 // "60;40" (lanes/vehicles) -> the stricter value
+}
+
+function roadTileBounds(key) {
+    const [a, b] = key.split(":").map(Number);
+    const s = a * ROAD_TILE_DEG, w = b * ROAD_TILE_DEG;
+    return { s: +s.toFixed(5), w: +w.toFixed(5), n: +(s + ROAD_TILE_DEG).toFixed(5), e: +(w + ROAD_TILE_DEG).toFixed(5) };
+}
+
+function compactRoadWay(el) {
+    const t = el.tags || {};
+    const hw = String(t.highway || "");
+    let ow = 0;
+    if (/^(yes|1|true)$/i.test(t.oneway || "") || (hw === "motorway" && !/^no$/i.test(t.oneway || "")) || t.junction === "roundabout") ow = 1;
+    else if (/^(-1|reverse)$/i.test(t.oneway || "")) ow = -1;
+    // Geometry may contain nulls where the way leaves the tile: keep each run separately.
+    const runs = [];
+    let cur = [];
+    (el.geometry || []).forEach((g) => {
+        if (g && isFiniteNum(g.lat) && isFiniteNum(g.lon)) cur.push(+g.lat.toFixed(5), +g.lon.toFixed(5));
+        else { if (cur.length >= 4) runs.push(cur); cur = []; }
+    });
+    if (cur.length >= 4) runs.push(cur);
+    if (!runs.length) return null;
+    const lim = parseMaxspeed(t.maxspeed);
+    return {
+        id: el.id, hw, name: clampStr(t.name || t.ref || "", 60), ow,
+        lim, fwd: parseMaxspeed(t["maxspeed:forward"]), bwd: parseMaxspeed(t["maxspeed:backward"]),
+        mc: parseMaxspeed(t["maxspeed:motorcycle"]),
+        raw: t.maxspeed ? clampStr(t.maxspeed, 30) : null,
+        runs
+    };
+}
+
+async function fetchRoadTile(key) {
+    const hit = roadTileCache.get(key);
+    if (hit && Date.now() - hit.ts < (hit.failed ? ROAD_TILE_FAIL_TTL_MS : ROAD_TILE_TTL_MS)) return hit;
+    if (roadTileInflight.has(key)) return roadTileInflight.get(key);
+    if (roadTileInflight.size >= ROAD_TILE_MAX_INFLIGHT) return { busy: true };
+    const b = roadTileBounds(key);
+    const q = `[out:json][timeout:20];way(${b.s},${b.w},${b.n},${b.e})[highway~"${DRIVABLE_HIGHWAY_RE}"];out tags geom(${b.s},${b.w},${b.n},${b.e});`;
+    const job = (async () => {
+        try {
+            const res = await fetch(OVERPASS_URL, {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "MapUnite/1.0 (squad riding app; speed-limit tiles)" },
+                body: "data=" + encodeURIComponent(q),
+                signal: AbortSignal.timeout(25000)
+            });
+            if (!res.ok) throw new Error(`Overpass HTTP ${res.status}`);
+            const json = await res.json();
+            const ways = (json.elements || []).filter((e) => e.type === "way").map(compactRoadWay).filter(Boolean);
+            const entry = { ts: Date.now(), ways };
+            if (roadTileCache.size >= ROAD_TILE_MAX) roadTileCache.delete(roadTileCache.keys().next().value);   // oldest first
+            roadTileCache.set(key, entry);
+            return entry;
+        } catch (e) {
+            console.warn(`Road tile ${key} failed:`, e.message);
+            const entry = { ts: Date.now(), failed: true };
+            roadTileCache.set(key, entry);
+            return entry;
+        } finally {
+            roadTileInflight.delete(key);
+        }
+    })();
+    roadTileInflight.set(key, job);
+    return job;
+}
+
 function buildMeetupCandidates(members, venues, extra) {
     const cLat = members.reduce((s, m) => s + m.lat, 0) / members.length;
     const cLng = members.reduce((s, m) => s + m.lng, 0) / members.length;
@@ -1521,6 +1620,23 @@ io.on("connection", (socket) => {
             },
             venuesFound: venues.length
         });
+    }));
+
+    // --- M. ROAD SPEED-LIMIT TILES ---------------------------------------------------
+    // socket.emit('getRoadTile', { key: "<floor(lat/0.01)>:<floor(lng/0.01)>" }, ack)
+    // -> { ok, key, ways:[{id, hw, name, ow, lim, fwd, bwd, mc, raw, runs:[[lat,lng,lat,lng,...]]}], fetchedAt }
+    socket.on("getRoadTile", safeHandler(socket, async (data, ack) => {
+        if (typeof ack !== "function") return;
+        if (!users.has(socket.id)) return ack({ ok: false, reason: "no-profile" });
+        const key = typeof data?.key === "string" ? data.key : "";
+        if (!ROAD_TILE_KEY_RE.test(key)) return ack({ ok: false, reason: "bad-key" });
+        const b = roadTileBounds(key);
+        if (!isValidCoordPair(b.s, b.w) || !isValidCoordPair(b.n, b.e)) return ack({ ok: false, reason: "bad-key" });
+        if (!throttle(socket.id, "roadTile", 400)) return ack({ ok: false, reason: "too-frequent" });
+        const tile = await fetchRoadTile(key);
+        if (tile.busy) return ack({ ok: false, reason: "busy" });
+        if (tile.failed) return ack({ ok: false, reason: "overpass-unavailable" });
+        ack({ ok: true, key, ways: tile.ways, fetchedAt: tile.ts, source: "openstreetmap" });
     }));
 
     // --- L. CARPOOL ORDERING + FUEL SPLIT ------------------------------------------
