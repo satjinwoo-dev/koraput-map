@@ -76,6 +76,8 @@
        identified was dropped, so a stationary rider showed no position until
        they moved; the trip panel asked OSRM for routes from "null,null"; an
        SOS pressed offline went out before re-identification and was lost.
+     - UI: the compass button ("reset bearing" on a map that never rotates)
+       is now "Follow me" — keeps the map centred on you, off when you drag.
    ============================================================================ */
 
 const socket = io({ transports: ["websocket", "polling"] });
@@ -2614,6 +2616,7 @@ function applyEstimatedPosition(est) {
     if (!accuracyCircle) accuracyCircle = L.circle([est.lat, est.lng], { radius: est.radius, color: "#ff9f0a", weight: 2, dashArray: "6 6", fillOpacity: 0.07 }).addTo(map);
     else { accuracyCircle.setLatLng([est.lat, est.lng]); accuracyCircle.setRadius(est.radius); }
     setOwnMarkerEstimated(true);
+    followIfOn(est.lat, est.lng);
 
     // Speed dial shows the estimate, flagged low-confidence; no alerts fire on it.
     if (!est.lost) SmartDrive.checkSafetyLimits(est.speedKmh, 0.3);
@@ -2750,6 +2753,7 @@ function startGPS() {
             ownMarker.setLatLng([lat, lng]);
         }
         setOwnMarkerEstimated(false);          // a real fix: back to the solid marker + green circle
+        followIfOn(lat, lng);
 
         if (acc > 0 && acc < 100000) {
             if (!accuracyCircle) accuracyCircle = L.circle([lat, lng], { radius: acc, color: "#10b981", weight: 2, fillOpacity: .15 }).addTo(map);
@@ -2983,6 +2987,17 @@ if (gflc) gflc.addEventListener("click", () => safeHide("geofence-list-modal"));
 // stable, non-reversible per-device tag, so "is this mine?" survives socket
 // reconnects, unlike the old ownerId===socket.id check.
 
+let followMe = false;
+function setFollowMe(on, { quiet = false } = {}) {
+    followMe = Boolean(on);
+    const b = $("compass-btn");
+    if (b) { b.setAttribute("aria-pressed", followMe ? "true" : "false"); b.title = followMe ? "Following you — tap to stop" : "Follow me"; }
+    if (!quiet) islandShow({ id: "follow", kind: "info", icon: "➤", title: followMe ? "Following you" : "Follow off", sub: followMe ? "Drag the map to stop" : "", ttl: 2500, haptic: false });
+}
+function followIfOn(lat, lng) {
+    if (followMe && !navState.active && validCoord(lat, lng)) map.panTo([lat, lng], { animate: true });
+}
+
 function setupBasicControlsSafe() {
     const locBtn = $("my-location-btn");
     if (locBtn) locBtn.onclick = () => {
@@ -2990,11 +3005,26 @@ function setupBasicControlsSafe() {
         else showToast("📍 Waiting for GPS location...");
     };
 
+    // "Follow me" (was a compass whose "reset bearing" did nothing — this
+    // map never rotates). On: the map re-centres on every new position (GPS
+    // or tunnel-mode estimate). Dragging the map turns it off, as in any
+    // navigation app. Navigation keeps its own camera, so it's skipped there.
     const compassBtn = $("compass-btn");
     if (compassBtn) compassBtn.onclick = () => {
-        map.setView(map.getCenter(), map.getZoom(), { animate: true });
-        const ci = $("compass-icon"); if (ci) ci.style.transform = "rotate(0deg)";
+        setFollowMe(!followMe);
+        if (followMe && myCoords) map.flyTo([myCoords.lat, myCoords.lng], Math.max(map.getZoom(), 16), { animate: true, duration: .8 });
+        else if (followMe) showToast("📍 Waiting for GPS location...");
     };
+    map.on("dragstart", () => { if (followMe) setFollowMe(false, { quiet: true }); });
+
+    // Tool rail: fade the bottom edge while more buttons are scrolled out of view.
+    const rail = $("map-tools");
+    if (rail) {
+        const updateRailFade = () => rail.classList.toggle("more-below", rail.scrollTop + rail.clientHeight < rail.scrollHeight - 4);
+        rail.addEventListener("scroll", updateRailFade, { passive: true });
+        window.addEventListener("resize", updateRailFade, { passive: true });
+        setTimeout(updateRailFade, 0);
+    }
 
     const styleBtn = $("map-style-btn");
     const sm = $("map-style-menu");
@@ -3018,11 +3048,6 @@ function setupBasicControlsSafe() {
         };
     }
 
-    if (window.DeviceOrientationEvent) window.addEventListener("deviceorientation", e => {
-        const icon = $("compass-icon"); if (!icon) return;
-        if (typeof e.webkitCompassHeading === "number") icon.style.transform = `rotate(${-e.webkitCompassHeading}deg)`;
-        else if (typeof e.alpha === "number") icon.style.transform = `rotate(${e.alpha}deg)`;
-    }, true);
 
     window.addEventListener("offline", () => showToast("📶 You are offline. Data saved locally."));
     window.addEventListener("online", () => {
