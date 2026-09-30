@@ -11,7 +11,7 @@
        and only place that registers /sw.js (fixes the SW teardown/rebuild race).
      - Satellite/terrain tiles swapped off the unofficial mt0.google.com/vt path
        onto Esri World Imagery + OpenTopoMap (roadmap Section 20).
-     - GpsFilter + gpsConfidence(): real EMA smoothing, spike rejection and a
+     - GpsFilter + gpsConfidence(): moving-average smoothing, spike rejection and a
        transparent 0..1 confidence score computed from ACTUAL accuracy/dt, not
        the hardcoded accuracy=10/dtSec=1 stand-ins the shipped build used
        (roadmap Sections 8 + 14).
@@ -154,16 +154,36 @@ const DeviceIdentity = {
 DeviceIdentity.init();
 
 // ---- GPS FILTER + CONFIDENCE (roadmap Sections 8 + 14) ---------------------
-// Sits in front of SmartDrive.tick(): smooths raw fixes, scores each fix's
-// plausibility, and gates alerts/graph points on that score instead of trusting
-// every fix (or silently clamping a spoofed one) like the original build did.
+// Sits in front of SmartDrive.tick(): scores every raw fix FIRST, and only a
+// fix that passes the gate is allowed to touch anything that persists — the
+// speed average, trip distance/fuel, the graph, the trail, the broadcast
+// speed. (Audit fix: the first v2 build smoothed BEFORE scoring, so one
+// rejected 300 km/h spike sat in the 8-sample average and produced ~7 s of
+// "64 km/h" at 0.92 confidence — false alerts from a fix it had rejected.)
+//
+//   accepted     conf >= GATE: becomes the new anchor, feeds the average.
+//   rejected     conf <  GATE (weak accuracy, implausible acceleration): the
+//                map still shows it (accuracy circle says how much to trust
+//                it), but speed/stats hold their last good values.
+//   hardReject   physically impossible jump from the last good fix: not
+//                shown, not stored, not broadcast.
+//   reanchored   REANCHOR_AFTER hard-rejected fixes that agree with EACH
+//                OTHER mean the old anchor was the bad one (stale cached
+//                fix, a wild first fix): accept them, credit no distance for
+//                the jump, restart the average. Nothing can lock us out.
+// Distances here are exact metres — the shared distanceKm() rounds to 10 m,
+// which at 1 Hz quantised derived speed into 36 km/h steps and dropped every
+// sub-10 m step from trip distance.
 const GpsFilter = {
-    history: [],           // recent smoothed speeds, for the moving average
+    history: [],           // recent speeds of ACCEPTED fixes, for the moving average
     MAX_HISTORY: 8,
-    lastSmoothed: 0,
-    lastFixTs: 0,
-    lastFixLat: null,
-    lastFixLng: null,
+    lastSmoothed: 0,       // read by features.js ("how fast am I going", where am I)
+    GATE: 0.4,             // same threshold checkSafetyLimits() acts on
+    STALE_GAP_SEC: 10,     // a longer gap between good fixes restarts the average
+    REANCHOR_AFTER: 3,
+    anchor: null,          // last ACCEPTED fix { lat, lng, t, speedKmh }
+    pending: [],           // consecutive hard-rejected fixes that agree with each other
+    stats: { accepted: 0, rejected: 0, hardRejected: 0, reanchored: 0 },
 
     smooth(rawSpeedKmh) {
         this.history.push(rawSpeedKmh);
@@ -186,7 +206,93 @@ const GpsFilter = {
         return "drive";
     },
 
-    reset() { this.history = []; this.lastSmoothed = 0; this.lastFixTs = 0; this.lastFixLat = null; this.lastFixLng = null; }
+    metres(lat1, lng1, lat2, lng2) {
+        const r = Math.PI / 180;
+        const h = Math.sin((lat2 - lat1) * r / 2) ** 2 + Math.cos(lat1 * r) * Math.cos(lat2 * r) * Math.sin((lng2 - lng1) * r / 2) ** 2;
+        return 12742000 * Math.asin(Math.min(1, Math.sqrt(h)));
+    },
+
+    // The time a fix was TAKEN. A warm-start fix served from the OS cache can
+    // be minutes old; timing it "now" would make the first live fix look like
+    // a teleport from wherever the phone was last seen.
+    fixTime(p) {
+        const now = Date.now();
+        const t = Number(p && p.timestamp);
+        return Number.isFinite(t) && t > 0 && t <= now + 5000 ? Math.min(t, now) : now;
+    },
+
+    // One raw fix in, one verdict out. Pure bookkeeping — no DOM, no sockets.
+    //   fix: { lat, lng, t, accuracyM, gpsSpeedKmh (null when the device
+    //          reported none / zero) }
+    assess(fix) {
+        const acc = Number.isFinite(fix.accuracyM) && fix.accuracyM > 0 ? fix.accuracyM : 100;
+        const accScore = Math.max(0, 1 - acc / 100);
+        const a = this.anchor;
+        const out = { accepted: false, hardReject: false, reanchored: false, confidence: 0, accuracyM: acc,
+            speedKmh: 0, smoothedKmh: this.lastSmoothed, distKm: 0, dtSec: 1 };
+
+        let jumpM = 0, dtSec = 1, speed = Number.isFinite(fix.gpsSpeedKmh) && fix.gpsSpeedKmh >= 0 ? fix.gpsSpeedKmh : null;
+        if (a) {
+            jumpM = this.metres(a.lat, a.lng, fix.lat, fix.lng);
+            dtSec = Math.max(0.001, (fix.t - a.t) / 1000);
+            if (speed === null) speed = dtSec > 0.5 ? (jumpM / 1000) / dtSec * 3600 : 0;
+        } else if (speed === null) speed = 0;
+        out.speedKmh = speed;
+        out.dtSec = dtSec;
+
+        const conf = a
+            ? gpsConfidence({ accuracyM: acc, prevSpeedKmh: a.speedKmh, newSpeedKmh: speed, dtSec, jumpDistanceKm: jumpM / 1000 })
+            : accScore;                                           // first fix: nothing to compare against yet
+        const teleport = Boolean(a) && jumpM / 1000 >= (300 / 3600) * dtSec;
+        out.confidence = conf;
+
+        if (conf >= this.GATE) {
+            this.pending = [];
+            if (dtSec > this.STALE_GAP_SEC) this.history = [];
+            out.accepted = true;
+            out.distKm = jumpM / 1000;
+        } else if (teleport && accScore >= this.GATE) {
+            // Accurate-looking but impossible from the anchor: is the ANCHOR the outlier?
+            const last = this.pending[this.pending.length - 1];
+            const agrees = last && (fix.t - last.t) > 0 &&
+                this.metres(last.lat, last.lng, fix.lat, fix.lng) / 1000 < (300 / 3600) * Math.max(1, (fix.t - last.t) / 1000);
+            this.pending = agrees ? this.pending.concat([{ lat: fix.lat, lng: fix.lng, t: fix.t }]) : [{ lat: fix.lat, lng: fix.lng, t: fix.t }];
+            if (this.pending.length >= this.REANCHOR_AFTER) {
+                // Speed of the re-anchored stretch comes from the agreeing fixes, never from the jump.
+                if (!(Number.isFinite(fix.gpsSpeedKmh) && fix.gpsSpeedKmh >= 0)) {
+                    const prev = this.pending[this.pending.length - 2];
+                    const dt = (fix.t - prev.t) / 1000;
+                    out.speedKmh = dt > 0.5 ? this.metres(prev.lat, prev.lng, fix.lat, fix.lng) / 1000 / dt * 3600 : 0;
+                }
+                this.pending = [];
+                this.history = [];
+                out.accepted = true; out.reanchored = true;
+                out.confidence = accScore;
+                out.distKm = 0;                                   // the jump itself is never credited
+                this.stats.reanchored++;
+            } else {
+                out.hardReject = true;
+            }
+        } else if (teleport) {
+            this.pending = [];
+            out.hardReject = true;
+        } else {
+            this.pending = [];
+        }
+
+        if (out.accepted) {
+            this.anchor = { lat: fix.lat, lng: fix.lng, t: fix.t, speedKmh: out.speedKmh };
+            this.lastSmoothed = this.smooth(out.speedKmh);
+            out.smoothedKmh = this.lastSmoothed;
+            this.stats.accepted++;
+        } else if (out.hardReject) this.stats.hardRejected++;
+        else this.stats.rejected++;
+        return out;
+    },
+
+    // Trip start: restart the average, keep the anchor (a fresh trip must not
+    // lose teleport protection on its first fix).
+    reset() { this.history = []; this.lastSmoothed = 0; this.pending = []; }
 };
 
 // Transparent 0..1 implausibility-aware confidence score. Not "spoof-proof" —
@@ -410,7 +516,7 @@ const SmartDrive = {
         const sgc = $("speed-graph-canvas");
         if (sgc) sgc.style.display = this.isRecording ? "block" : "none";
 
-        if (fiv) fiv.addEventListener("change", (e) => { this.baseMileage = parseFloat(e.target.value) || 18; localStorage.setItem("sd_mileage", this.baseMileage); });
+        if (fiv) fiv.addEventListener("change", (e) => { this.baseMileage = parseFloat(e.target.value) || 18; localStorage.setItem("sd_mileage", this.baseMileage); this.shareMileage(); });
         if (srt) srt.addEventListener("change", (e) => { this.isRecording = e.target.checked; localStorage.setItem("sd_record", this.isRecording ? "1" : "0"); const sgc2 = $("speed-graph-canvas"); if (sgc2) sgc2.style.display = this.isRecording ? "block" : "none"; if (!this.isRecording) this.speedHistory = []; });
 
         const pob = $("profile-open-btn");
@@ -443,6 +549,16 @@ const SmartDrive = {
             overlay.classList.add("active"); clearTimeout(this.overlayTimer);
             this.overlayTimer = setTimeout(() => overlay.classList.remove("active"), 10000);
         }
+    },
+
+    // Tell the server this rider's stated km/L so the fuel-aware meetup can
+    // cost THEIR leg with THEIR vehicle. null = never set: the server then
+    // uses its default and names this rider as "assumed" in the result.
+    shareMileage() {
+        let stated = null;
+        try { stated = localStorage.getItem("sd_mileage") !== null ? this.baseMileage : null; } catch (e) { /* storage blocked */ }
+        const kmPerL = Number.isFinite(stated) && stated >= 1 && stated <= 100 ? stated : null;
+        if (socket && socket.connected) socket.emit("setMileage", { kmPerL });
     },
 
     async requestWakeLock() {
@@ -497,19 +613,17 @@ const SmartDrive = {
         this.lastAlertTier = tier;
     },
 
-    // rawSpeedKmh/accuracyM/dtSec/jumpKm come from the real GPS fix in
-    // startGPS() — no more hardcoded accuracy=10 / dtSec=1 stand-ins.
-    tick(rawSpeedKmh, distKm, { accuracyM, dtSec, jumpKm } = {}) {
-        const prevSmoothed = GpsFilter.lastSmoothed;
-        const smoothedSpeed = GpsFilter.smooth(rawSpeedKmh);
-        const dt = Number.isFinite(dtSec) ? dtSec : 1;
-
-        const conf = gpsConfidence({
-            accuracyM: Number.isFinite(accuracyM) ? accuracyM : 100,
-            prevSpeedKmh: prevSmoothed, newSpeedKmh: smoothedSpeed, dtSec: dt,
-            jumpDistanceKm: Number.isFinite(jumpKm) ? jumpKm : 0
-        });
-        GpsFilter.lastSmoothed = smoothedSpeed;
+    // `fix` is GpsFilter.assess()'s verdict for the real GPS fix from
+    // startGPS(). Only an ACCEPTED fix reaches the average, the graph and the
+    // trip stats; a rejected one only refreshes the dial (held speed, marked
+    // low-confidence) so the rider can see the app isn't trusting it.
+    tick(fix) {
+        if (!fix) return;
+        const smoothedSpeed = fix.smoothedKmh;
+        const conf = fix.accepted ? fix.confidence : Math.min(fix.confidence, GpsFilter.GATE - 0.01);
+        const dt = Number.isFinite(fix.dtSec) ? fix.dtSec : 1;
+        const distKm = fix.distKm;
+        const accuracyM = fix.accuracyM;
 
         const walking = typeof currentTravelMode !== "undefined" && currentTravelMode === "walk";
         if (!walking) this.checkSafetyLimits(smoothedSpeed, conf);
@@ -517,14 +631,14 @@ const SmartDrive = {
         // Low-confidence fixes don't get to shape the recorded graph either —
         // "feed it to the map for display, but don't let it drive an alert or
         // a graph point" (Section 14).
-        if (conf > 0.4 && this.isRecording) {
+        if (!fix.accepted) return;                        // …nor the trip stats below
+        if (this.isRecording) {
             this.speedHistory.push(smoothedSpeed);
             if (this.speedHistory.length > 120) this.speedHistory.shift();
             this.drawGraph();
         }
 
         if (!this.trip.active) return;
-        if (conf <= 0.4) return;                          // don't let a bad fix corrupt trip stats either
 
         this.trip.ticks += 1;
         if (distKm > 0) {
@@ -928,6 +1042,19 @@ const MeetupPlanner = {
 
         meetupLayer.clearLayers();
         resultsList.innerHTML = "";
+        const fuelMode = this.strategy === "fuel";
+        if (fuelMode) {
+            // Say what the estimate assumed, next to the numbers (roadmap Section 9).
+            const a = this.lastResult.fuelAssumptions || {};
+            const note = document.createElement("div");
+            note.className = "meetup-fuel-note";
+            let text = "⛽ Estimated fuel from road distance, average speed and each rider's km/L setting.";
+            if (a.assumedFor && a.assumedFor.length) text += ` No km/L set for ${a.assumedFor.join(", ")} — assumed ${a.defaultKmPerL} km/L.`;
+            if (a.walking && a.walking.length) text += ` ${a.walking.join(", ")} walking: no fuel.`;
+            note.textContent = text;
+            resultsList.appendChild(note);
+        }
+        const nameFor = (p) => (p.id === socket.id ? "You" : p.name);
         candidates.forEach((c, i) => {
             L.marker([c.lat, c.lng], { icon: L.divIcon({ className: 'geofence-marker', html: i === 0 ? '🏆' : '📍' }) })
                 .bindTooltip(c.label, { permanent: false, direction: "top" }).addTo(meetupLayer);
@@ -937,8 +1064,8 @@ const MeetupPlanner = {
             const worst = Math.round(c.maxSec / 60), total = Math.round(c.sumSec / 60);
             card.innerHTML = `<strong>${escapeHTML(c.label)}</strong>${c.kind === "venue" ? ' <span style="color:var(--muted);font-size:11px;">real venue</span>' : ''}
                 <div style="margin-top:4px;color:var(--soft);font-size:12.5px;">
-                    ${this.strategy === "minimax" ? `Worst rider: ${worst} min` : `Total: ${total} min`} · Spread: ${Math.round(c.spreadSec / 60)} min
-                </div>`;
+                    ${fuelMode && Number.isFinite(c.fuelL) ? `⛽ ${c.fuelL.toFixed(2)} L total · ${total} min` : this.strategy === "minimax" ? `Worst rider: ${worst} min` : `Total: ${total} min`} · Spread: ${Math.round(c.spreadSec / 60)} min
+                </div>${fuelMode && Array.isArray(c.perMember) ? `<div class="meetup-fuel-split">${c.perMember.map((p) => `${escapeHTML(nameFor(p))} ${Number.isFinite(p.fuelL) ? p.fuelL.toFixed(2) : "?"} L`).join(" · ")}</div>` : ""}`;
             const pickBtn = document.createElement("button");
             pickBtn.type = "button"; pickBtn.className = "btn-primary-nav btn-block"; pickBtn.style.marginTop = "8px"; pickBtn.textContent = "Meet here";
             pickBtn.onclick = () => {
@@ -2665,6 +2792,7 @@ socket.on("profileAccepted", (data) => {
     // "connect" — is the moment queued rides can be uploaded.
     TripAnalytics.profileVerified = true;
     TripAnalytics.flushPending();
+    SmartDrive.shareMileage();                          // fuel-aware meetup needs each rider's own km/L
     // Fixed: a fix taken before the socket was identified was dropped by the
     // server (unknown socket), so a rider standing still showed NO position
     // to the squad until they moved. Re-send the current fix now.
@@ -2728,17 +2856,26 @@ function startGPS() {
         if (DeadReckoning.onGpsFix(p) === "suppress") return;
         const lat = Number(p.coords.latitude), lng = Number(p.coords.longitude), acc = Number(p.coords.accuracy);
         const alt = p.coords.altitude ? Math.round(p.coords.altitude) : null;
-        let speedKmh = 0; let dist = 0; let dtSec = 1;
-
-        if (p.coords.speed != null && p.coords.speed >= 0) speedKmh = p.coords.speed * 3.6;
-        if (lastFixCoords && lastFixTime) {
-            dist = Number(distanceKm(lastFixCoords.lat, lastFixCoords.lng, lat, lng)) || 0;
-            dtSec = (Date.now() - lastFixTime) / 1000;
-            if (!p.coords.speed && dtSec > 0.5) speedKmh = (dist / dtSec) * 3600;
-        }
-        speedKmh = Math.min(speedKmh, 300);
-
         if (!validCoord(lat, lng)) return;
+
+        // Score the fix BEFORE it touches anything (audit fix, Phase 1). A zero
+        // device speed is treated as "not reported" and derived from movement,
+        // as the original build did.
+        const fix = GpsFilter.assess({
+            lat, lng, accuracyM: acc, t: GpsFilter.fixTime(p),
+            gpsSpeedKmh: p.coords.speed != null && p.coords.speed > 0 ? p.coords.speed * 3.6 : null
+        });
+        if (fix.hardReject) {
+            // Physically impossible from the last good fix: the dial shows the
+            // held speed as low-confidence; the marker, trail, broadcast and
+            // stats all stay where the last good fix put them.
+            SmartDrive.tick(fix);
+            return;
+        }
+        if (fix.accepted) { lastFixCoords = { lat, lng }; lastFixTime = Date.now(); }
+        // Everything downstream (friends, convoy, radar, voice) gets the
+        // filtered speed, never a raw spike.
+        const speedKmh = fix.smoothedKmh;
         myCoords = { lat, lng, alt, speedKmh };
 
         locationHistory.push([lat, lng]);
@@ -2790,11 +2927,8 @@ function startGPS() {
             });
         }
 
-        // Real inputs for the confidence gate — no more hardcoded accuracy=10 / dtSec=1.
-        const jumpKm = dist;
-        SmartDrive.tick(speedKmh, dist, { accuracyM: acc, dtSec, jumpKm });
-
-        lastFixCoords = { lat, lng }; lastFixTime = Date.now();
+        // The verdict carries the real accuracy/dt/distance from the last GOOD fix.
+        SmartDrive.tick(fix);
 
         socket.emit("updateLocation", { lat, lng, alt, speedKmh, accuracy: acc, weather: myWeather });
         updateFriendBadges();
