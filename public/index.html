@@ -612,6 +612,19 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 #dr-log li.dr-log-empty { color: var(--muted); background: none; padding-left: 0; }
 #dr-status { color: var(--soft); }
 
+/* Tool rail vs. the floating buttons (call / radio / SOS stack up to ~258 px
+   from the bottom). Phones: the rail stops above that stack and scrolls, with
+   a fade while there's more below. Wider screens: the stack moves beside the
+   rail instead, so the rail keeps its full height. */
+#map-tools { max-height: calc(var(--app-h) - 122px - var(--safe-t) - 270px - var(--safe-b)); }
+#map-tools.more-below { -webkit-mask-image: linear-gradient(#000 calc(100% - 30px), transparent); mask-image: linear-gradient(#000 calc(100% - 30px), transparent); }
+@media (min-width: 600px) {
+  #map-tools { max-height: calc(var(--app-h) - 122px - var(--safe-t) - 100px - var(--safe-b)); }
+  #group-call-btn, #p2p-radar-btn { right: 82px !important; }
+  #sos-btn { right: 82px !important; }
+}
+#compass-btn[aria-pressed="true"] { background: rgba(52,224,180,.16); color: var(--mint); }
+
 /* ---------- 10. MAP OVERRIDES ---------- */
 /* Attribution is REQUIRED by the tile licences (OSM / Esri / OpenTopoMap / Carto). Kept small, glassy, and clear of the FABs. */
 .leaflet-bottom.leaflet-right { right: 50%; transform: translateX(50%); bottom: calc(60px + var(--safe-b)); pointer-events: none; }
@@ -652,6 +665,7 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
     <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v13m0 0-4.5-4.5M12 16l4.5-4.5"/><path d="M4 19.5h16"/></symbol>
     <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4.5h6V7M6 7l1 13h10l1-13"/></symbol>
     <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 2.5 20 6v6c0 5-3.4 8.7-8 9.5-4.6-.8-8-4.5-8-9.5V6z"/></symbol>
+    <symbol id="i-follow" viewBox="0 0 24 24"><path d="M12 2.8 19.2 20.4 12 16.6 4.8 20.4z"/></symbol>
     <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3.5 20.5h17"/><path d="M6.5 20.5v-6"/><path d="M11 20.5V9"/><path d="M15.5 20.5v-8"/><path d="M20 20.5V5"/></symbol>
   </defs>
 </svg>
@@ -713,7 +727,7 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <!-- MAP TOOLS -->
 <div id="map-tools">
   <button id="my-location-btn" class="tool-btn" type="button" title="My Location" aria-label="Centre on my location"><svg class="i"><use href="#i-locate"/></svg></button>
-  <button id="compass-btn" class="tool-btn" type="button" title="Compass" aria-label="Reset bearing"><span id="compass-icon"><svg class="i"><use href="#i-locate"/></svg></span></button>
+  <button id="compass-btn" class="tool-btn" type="button" title="Follow me" aria-label="Follow my position" aria-pressed="false"><span id="compass-icon"><svg class="i"><use href="#i-follow"/></svg></span></button>
   <button id="map-style-btn" class="tool-btn" type="button" title="Layers" aria-label="Change map style" aria-haspopup="true" aria-expanded="false"><svg class="i"><use href="#i-layers"/></svg></button>
   <button id="phase3-gallery-btn" class="tool-btn" type="button" title="Memories" aria-label="Open memories"><svg class="i"><use href="#i-camera"/></svg></button>
   <button id="group-nav-btn" class="tool-btn" type="button" title="Meet up" aria-label="Plan a meetup"><svg class="i"><use href="#i-converge"/></svg></button>
@@ -1165,25 +1179,11 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 </div>
 <video id="dashcam-video" autoplay playsinline muted></video>
 
-<!-- SETTINGS / EXPORT MENU -->
-<div style="position:fixed; top:calc(122px + var(--safe-t)); right:calc(60px + var(--safe-t) * 0); left:auto; z-index:1000;">
-    <button id="settings-menu-btn" class="tool-btn glass-strong" type="button" data-popover="settings-dropdown"
-      style="width:44px;height:44px;border-radius:50%;position:fixed;top:calc(122px + var(--safe-t));right:60px;" aria-haspopup="true" aria-expanded="false" aria-label="More options">
-        <svg class="i"><use href="#i-dots"/></svg>
-    </button>
-    <div id="settings-dropdown" class="popover" style="right:60px;top:calc(122px + var(--safe-t) + 50px);width:200px;" role="menu">
-        <button type="button" role="menuitem" class="btn-primary-nav btn-block" data-action="TripDB.downloadDetailedInfo">
-            <svg class="i sm"><use href="#i-download"/></svg>&nbsp; Download Data
-        </button>
-        <p class="field-hint" style="text-align:center;margin-top:8px;">Auto-deletes after 7 days</p>
-    </div>
-</div>
-
 <script src="/socket.io/socket.io.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyASbmXgn0T-B4AQdCe1sp7dfJbDXKgDw5c&libraries=places&loading=async"></script>
 <script src="/shell.js"></script>
-<script src="app.js?v=20260930-phase4"></script>
-<script src="features.js?v=20260930-phase4"></script>
+<script src="app.js?v=20260930-phase4b"></script>
+<script src="features.js?v=20260930-phase4b"></script>
 </body>
 </html>
