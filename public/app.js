@@ -392,6 +392,137 @@ async function confirmDialog(opts) {
 function islandShow(spec) { if (window.StatusIsland) return window.StatusIsland.show(spec); }
 function islandHide(id) { if (window.StatusIsland) window.StatusIsland.hide(id); }
 
+// ---- Route options: avoid highways / tolls (roadmap Section 4) ------------
+// One rider preference, applied to EVERY route this app draws — search route
+// (Google avoidHighways/avoidTolls), navigation + its reroutes, voice
+// "navigate to", route-to-friend, measurement, group trip, meetup routes,
+// restored navigation and the carpool plan (OSRM `exclude=`).
+//
+// What OSRM can and can't do, stated plainly in the UI too:
+//   - "highways" = OSM highway=motorway (expressways). Most Indian national
+//     highways are tagged `trunk`, which OSRM's car profile has no class for,
+//     so they are NOT avoided on OSRM routes. Google search routes use
+//     Google's own, broader definition.
+//   - Some OSRM servers can exclude motorway OR toll but not both at once.
+//     Then we exclude one and pick an alternative whose steps carry none of
+//     the other class (step intersections report `classes`).
+//   - If no route avoids them, or the server can't exclude at all, the normal
+//     route is used and the rider is TOLD — never a silent "no route".
+// fetchRoute(url) is a drop-in for `fetch(url).then(r => r.json())` and adds
+// `avoid: { requested, applied, reason }` to the JSON.
+const RoutePrefs = {
+    KEY: "mu_route_avoid",
+    avoidHighways: false,
+    avoidTolls: false,
+    support: { exclude: null, combo: null },   // learned from the routing server this session
+    lastNoticeAt: 0,
+    NAMES: { motorway: "highways", toll: "tolls" },
+
+    load() {
+        try {
+            const v = JSON.parse(localStorage.getItem(this.KEY) || "{}");
+            this.avoidHighways = v.highways === true;
+            this.avoidTolls = v.tolls === true;
+        } catch (e) { /* storage blocked or corrupt — defaults */ }
+    },
+    save() {
+        try { localStorage.setItem(this.KEY, JSON.stringify({ highways: this.avoidHighways, tolls: this.avoidTolls })); } catch (e) { /* ignore */ }
+        document.dispatchEvent(new CustomEvent("mu:route-prefs", { detail: { highways: this.avoidHighways, tolls: this.avoidTolls } }));
+    },
+    classes() {
+        const c = [];
+        if (this.avoidHighways) c.push("motorway");
+        if (this.avoidTolls) c.push("toll");
+        return c;
+    },
+    describe(list = this.classes()) { return list.map((c) => this.NAMES[c] || c).join(" and "); },
+
+    // Query params are appended as plain text: URLSearchParams would encode the
+    // comma in "motorway,toll", and OSRM expects it literally.
+    withParams(url, params) {
+        let u = String(url);
+        for (const k of Object.keys(params)) u = u.replace(new RegExp(`([?&])${k}=[^&]*&?`), "$1").replace(/[?&]$/, "");
+        const q = Object.entries(params).map(([k, v]) => `${k}=${v}`).join("&");
+        return u + (u.includes("?") ? "&" : "?") + q;
+    },
+    routeHas(route, cls) {
+        return Boolean(route && Array.isArray(route.legs) && route.legs.some((l) => Array.isArray(l.steps) &&
+            l.steps.some((s) => Array.isArray(s.intersections) && s.intersections.some((i) => Array.isArray(i.classes) && i.classes.includes(cls)))));
+    },
+    async getJson(url) {
+        const r = await fetch(url);                   // network errors propagate, exactly like the old call sites
+        try { return await r.json(); } catch (e) { return { code: r.ok ? "BadResponse" : `Http${r.status}` }; }
+    },
+
+    async fetchRoute(url) {
+        const requested = this.classes();
+        if (!requested.length) return this.done(await this.getJson(url), requested, [], null);
+        const ok = (j) => j && j.code === "Ok" && Array.isArray(j.routes) && j.routes.length > 0;
+        const unsupported = (j) => j && /^(InvalidValue|InvalidOptions|InvalidQuery)$/.test(j.code);
+
+        // 1. Everything at once.
+        if (this.support.exclude !== false && (requested.length === 1 || this.support.combo !== false)) {
+            const j = await this.getJson(this.withParams(url, { exclude: requested.join(",") }));
+            if (ok(j)) {
+                this.support.exclude = true;
+                if (requested.length > 1) this.support.combo = true;
+                return this.done(j, requested, requested, null);
+            }
+            if (unsupported(j)) { if (requested.length > 1) this.support.combo = false; else this.support.exclude = false; }
+            else if (requested.length === 1) return this.done(await this.getJson(url), requested, [], "no-route");
+        }
+        // 2. Server can't combine the two: exclude one, keep an alternative free of the other.
+        if (requested.length > 1 && this.support.exclude !== false) {
+            let partial = null;
+            for (const cls of requested) {
+                const j = await this.getJson(this.withParams(url, { exclude: cls, alternatives: "true", steps: "true" }));
+                if (unsupported(j)) { this.support.exclude = false; break; }
+                this.support.exclude = true;
+                if (!ok(j)) continue;
+                const others = requested.filter((c) => c !== cls);
+                const clean = j.routes.find((r) => others.every((o) => !this.routeHas(r, o)));
+                if (clean) { j.routes = [clean]; return this.done(j, requested, requested, null); }
+                if (!partial) { j.routes = [j.routes[0]]; partial = { j, applied: [cls] }; }
+            }
+            if (partial) return this.done(partial.j, requested, partial.applied, "partial");
+        }
+        return this.done(await this.getJson(url), requested, [], this.support.exclude === false ? "unsupported" : "no-route");
+    },
+
+    done(json, requested, applied, reason) {
+        const j = json && typeof json === "object" ? json : { code: "BadResponse" };
+        j.avoid = { requested, applied, reason };
+        if (reason && j.code === "Ok") this.notify(j.avoid);
+        return j;
+    },
+    notify(a) {
+        if (Date.now() - this.lastNoticeAt < 60000) return;       // once a minute, not once per rider route
+        this.lastNoticeAt = Date.now();
+        const missed = a.requested.filter((c) => !a.applied.includes(c));
+        const msg = a.reason === "unsupported"
+            ? `The routing server can't avoid ${this.describe(a.requested)} — showing the normal route.`
+            : a.reason === "partial"
+                ? `Avoided ${this.describe(a.applied)}, but no route here also avoids ${this.describe(missed)}.`
+                : `No route here avoids ${this.describe(a.requested)} — showing the normal route.`;
+        showToast(`🛣️ ${msg}`, 5000);
+    },
+
+    // Google DirectionsService request options for the search route.
+    googleOptions() { return { avoidHighways: this.avoidHighways, avoidTolls: this.avoidTolls }; },
+
+    bindUI() {
+        const hw = $("avoid-highways-toggle"), tl = $("avoid-tolls-toggle");
+        if (hw) { hw.checked = this.avoidHighways; hw.addEventListener("change", () => { this.avoidHighways = hw.checked; this.lastNoticeAt = 0; this.save(); }); }
+        if (tl) { tl.checked = this.avoidTolls; tl.addEventListener("change", () => { this.avoidTolls = tl.checked; this.lastNoticeAt = 0; this.save(); }); }
+        // Keep the switches truthful when the voice command changes the setting.
+        document.addEventListener("mu:route-prefs", (e) => {
+            if (hw) hw.checked = Boolean(e.detail.highways);
+            if (tl) tl.checked = Boolean(e.detail.tolls);
+        });
+    }
+};
+RoutePrefs.load();
+
 // ---- Voice bridge (Phase 3) ------------------------------------------------
 // Every spoken cue in app.js goes through here. features.js's VoiceAssistant
 // owns the policy (priority queue, mute, "spoken alerts" setting, echo guard
@@ -832,8 +963,7 @@ const GroupNavigation = {
             }
 
             try {
-                const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${coords.lng},${coords.lat};${this.destination.lng},${this.destination.lat}?overview=full&geometries=geojson&alternatives=true`);
-                const data = await res.json();
+                const data = await RoutePrefs.fetchRoute(`https://router.project-osrm.org/route/v1/driving/${coords.lng},${coords.lat};${this.destination.lng},${this.destination.lat}?overview=full&geometries=geojson&alternatives=true`);
                 if (data.routes && data.routes.length > 0) {
                     const r = data.routes.reduce((a, b) => b.distance < a.distance ? b : a, data.routes[0]);
                     const pathCoords = r.geometry.coordinates.map(c => [c[1], c[0]]);
@@ -923,8 +1053,7 @@ async function updateGroupTripRoutes() {
             if (last && distanceKm(last.lat, last.lng, coords.lat, coords.lng) < 0.1) return;
 
             try {
-                const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${coords.lng},${coords.lat};${currentTrip.lng},${currentTrip.lat}?geometries=geojson&alternatives=true`);
-                const data = await res.json();
+                const data = await RoutePrefs.fetchRoute(`https://router.project-osrm.org/route/v1/driving/${coords.lng},${coords.lat};${currentTrip.lng},${currentTrip.lat}?geometries=geojson&alternatives=true`);
 
                 if (data.routes && data.routes.length > 0) {
                     const r = data.routes.reduce((a, b) => b.distance < a.distance ? b : a, data.routes[0]);
@@ -1147,12 +1276,23 @@ const CarpoolPlanner = {
         safeShow("carpool-modal", "flex");
 
         socket.emit("carpoolOptimize", {
-            start: myCoords, destination: this.destination, pickups: this.pickups, kmPerL, fuelPricePerL: pricePerL
+            start: myCoords, destination: this.destination, pickups: this.pickups, kmPerL, fuelPricePerL: pricePerL,
+            avoid: RoutePrefs.classes()            // the driver's avoid-highways/tolls setting
         }, (res) => {
             if (!res || !res.ok) { if (resultsBox) resultsBox.innerHTML = `<div style="color:#ef4444;font-size:12px;">Couldn't plan the carpool right now.</div>`; return; }
             this.lastResult = res;
             this.render(res);
         });
+    },
+
+    // Route-options outcome, only when the driver asked to avoid something.
+    avoidLine(a) {
+        if (!a || !Array.isArray(a.requested) || !a.requested.length) return "";
+        const missed = a.requested.filter((c) => !(a.applied || []).includes(c));
+        const text = missed.length === 0 ? `🛣️ Avoiding ${RoutePrefs.describe(a.requested)}`
+            : (a.applied || []).length ? `🛣️ Avoided ${RoutePrefs.describe(a.applied)} — couldn't also avoid ${RoutePrefs.describe(missed)}`
+                : `🛣️ Couldn't avoid ${RoutePrefs.describe(missed)} on this plan`;
+        return `<div class="carpool-avoid${missed.length ? " warn" : ""}">${escapeHTML(text)}</div>`;
     },
 
     render(res) {
@@ -1172,7 +1312,7 @@ const CarpoolPlanner = {
         if (!resultsBox) return;
         const order = res.pickupOrder.map((p) => escapeHTML(p.name)).join(" → ");
         let html = `<div class="list-card"><strong>Pickup order</strong><div style="margin-top:4px;color:var(--soft);font-size:12.5px;">You → ${order} → Drop-off</div>
-            <div style="margin-top:6px;color:var(--soft);font-size:12.5px;">${res.totalDistanceKm} km${res.totalDurationMin != null ? ` · ${res.totalDurationMin} min` : ''}${res.approximate ? ' · <span style="color:var(--c-warn);">approximate ordering</span>' : ''}</div></div>`;
+            <div style="margin-top:6px;color:var(--soft);font-size:12.5px;">${res.totalDistanceKm} km${res.totalDurationMin != null ? ` · ${res.totalDurationMin} min` : ''}${res.approximate ? ' · <span style="color:var(--c-warn);">approximate ordering</span>' : ''}</div>${this.avoidLine(res.avoid)}</div>`;
         html += `<div class="list-card"><strong>You (driver)</strong><div style="margin-top:4px;color:var(--soft);font-size:12.5px;">${res.driver.distanceKm} km · ⛽ ${res.driver.fuelL} L${res.assumptions.fuelPricePerL ? ` · ${(res.driver.cost).toFixed(2)}` : ''}</div></div>`;
         res.riders.forEach((r) => {
             html += `<div class="list-card"><strong>${escapeHTML(r.name)}</strong><div style="margin-top:4px;color:var(--soft);font-size:12.5px;">${r.distanceKm} km ridden · ⛽ ${r.fuelL} L share${res.assumptions.fuelPricePerL ? ` · ${r.cost.toFixed(2)}` : ''}</div></div>`;
@@ -3067,8 +3207,7 @@ function showProfilePopup(u) {
         pnb.onclick = () => {
             if (validCoord(u.lat, u.lng) && myCoords) {
                 safeHide("profile-popup");
-                fetch(`https://router.project-osrm.org/route/v1/driving/${myCoords.lng},${myCoords.lat};${u.lng},${u.lat}?steps=true&geometries=geojson&overview=full`)
-                    .then(res => res.json())
+                RoutePrefs.fetchRoute(`https://router.project-osrm.org/route/v1/driving/${myCoords.lng},${myCoords.lat};${u.lng},${u.lat}?steps=true&geometries=geojson&overview=full`)
                     .then(data => {
                         if (data.routes && data.routes.length > 0) {
                             startSearchNavigation(u.lat, u.lng, u.name, data.routes[0]);
@@ -3276,8 +3415,7 @@ function setupAdvancedToolsSafe() {
                 const p1 = measurePoints[0], p2 = measurePoints[1];
                 showToast("📏 Calculating road distance...", 2000);
 
-                fetch(`https://router.project-osrm.org/route/v1/driving/${p1.lng},${p1.lat};${p2.lng},${p2.lat}?overview=full&geometries=geojson&alternatives=true`)
-                    .then(r => r.json())
+                RoutePrefs.fetchRoute(`https://router.project-osrm.org/route/v1/driving/${p1.lng},${p1.lat};${p2.lng},${p2.lat}?overview=full&geometries=geojson&alternatives=true`)
                     .then(data => {
                         measureLayer.clearLayers();
                         if (data.routes && data.routes.length > 0) {
@@ -3761,7 +3899,8 @@ function setupGoogleSearch() {
                     ds.route({
                         origin: new google.maps.LatLng(myCoords.lat, myCoords.lng),
                         destination: new google.maps.LatLng(destLat, destLng),
-                        travelMode: 'DRIVING'
+                        travelMode: 'DRIVING',
+                        ...RoutePrefs.googleOptions()
                     }, (res, status) => {
                         const infoDiv = document.getElementById("search-route-info");
                         const navBtn = document.getElementById("search-nav-btn");
@@ -3774,7 +3913,9 @@ function setupGoogleSearch() {
                             L.polyline(coords, { color: '#34e0b4', weight: 6, opacity: 0.8, className: 'nav-path-animated' }).addTo(navigationLayer);
                             map.fitBounds(L.polyline(coords).getBounds(), { padding: [50, 50] });
 
-                            infoDiv.innerHTML = `<span style="color:#000; font-size:15px; font-weight:900;">🚗 ${leg.distance.text}</span> <br> <span style="color:#000; font-size:15px; font-weight:900;">⏱️ ${leg.duration.text}</span>`;
+                            const avoiding = RoutePrefs.describe();
+                            infoDiv.innerHTML = `<span style="color:#000; font-size:15px; font-weight:900;">🚗 ${leg.distance.text}</span> <br> <span style="color:#000; font-size:15px; font-weight:900;">⏱️ ${leg.duration.text}</span>` +
+                                (avoiding ? `<br><span class="route-avoid-note">🛣️ Avoiding ${escapeHTML(avoiding)}</span>` : "");
                             navBtn.style.opacity = "1";
                             navBtn.disabled = false;
 
@@ -3947,6 +4088,7 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
     let stepIdx = 0;
     let offRouteStreak = 0;
     let lastRerouteTime = 0;
+    let rerouteInFlight = false;
     let routeVersion = 0;                 // bumps on reroute so prompt keys never collide
     const promptedPre = new Set();        // "In 200 metres, turn left" already spoken
     const promptedNow = new Set();        // "Turn left" (late prompt) already spoken
@@ -4115,10 +4257,14 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
                     // --- Off-route detection + reroute (roadmap Section 7 + 10) ---
                     const offDist = pointToPolylineDistanceMeters(currentLat, currentLng, fullPath);
                     offRouteStreak = offDist > 40 ? offRouteStreak + 1 : 0;
-                    if (offRouteStreak >= 2 && Date.now() - lastRerouteTime > 60_000) {
+                    // One reroute request at a time: the next fix used to arrive while
+                    // the first request was still in flight and fire a duplicate.
+                    if (offRouteStreak >= 2 && Date.now() - lastRerouteTime > 60_000 && !rerouteInFlight) {
+                        rerouteInFlight = true;
                         try {
-                            const r = await fetch(`https://router.project-osrm.org/route/v1/driving/${currentLng},${currentLat};${destLng},${destLat}?overview=full&geometries=geojson&steps=true&alternatives=false`);
-                            const data = await r.json();
+                            // Same avoid-highways/tolls preference as the original route —
+                            // a reroute must not quietly put the rider back on a toll road.
+                            const data = await RoutePrefs.fetchRoute(`https://router.project-osrm.org/route/v1/driving/${currentLng},${currentLat};${destLng},${destLat}?overview=full&geometries=geojson&steps=true&alternatives=false`);
                             const cand = data.routes && data.routes[0];
                             if (cand) {
                                 const currentEstimate = { distanceM: remainingMeters, durationSec: activeRoute.durationSec * (remainingMeters / Math.max(1, activeRoute.distanceM)) };
@@ -4149,6 +4295,7 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
                                 islandShow({ id: "reroute", kind: "info", title: "Rerouting", sub: "Path updated to your position", ttl: 4000 });
                             }
                         } catch (e) { /* OSRM demo instance hiccup — just try again next off-route streak */ }
+                        finally { rerouteInFlight = false; }
                     }
 
                     if (remainingMeters < 30) {
@@ -4562,6 +4709,7 @@ function initApp() {
         { name: "Memories", fn: setupMemoriesSafe },
         { name: "SmartDrive", fn: () => SmartDrive.init() },
         { name: "Privacy Controls", fn: () => PrivacyControls.init() },
+        { name: "Route Options", fn: () => RoutePrefs.bindUI() },
         { name: "Meetup Planner", fn: () => MeetupPlanner.init() },
         { name: "Carpool Planner", fn: () => CarpoolPlanner.init() },
         { name: "Trip Analytics", fn: () => TripAnalytics.init() },
@@ -4605,8 +4753,7 @@ setTimeout(() => {
         // which crashed immediately on routeData.geometry.coordinates — a real
         // route has to be fetched first.
         if (myCoords) {
-            fetch(`https://router.project-osrm.org/route/v1/driving/${myCoords.lng},${myCoords.lat};${savedNav.destLng},${savedNav.destLat}?overview=full&geometries=geojson&steps=true`)
-                .then(r => r.json())
+            RoutePrefs.fetchRoute(`https://router.project-osrm.org/route/v1/driving/${myCoords.lng},${myCoords.lat};${savedNav.destLng},${savedNav.destLat}?overview=full&geometries=geojson&steps=true`)
                 .then(data => {
                     const route = data.routes && data.routes[0];
                     if (!route) return;
