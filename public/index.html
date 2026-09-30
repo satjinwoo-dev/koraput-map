@@ -33,7 +33,7 @@
    6. Navigation      turn banner, speed dial, bottom sheet, chips, buttons
    7. Panels          results, modals, sheets, settings controls
    8. Social          chat, join, profile, memories, trip panel
-   9. Experimental    radar, analytics, carpool, dashcam
+   9. Experimental    radar, analytics, carpool, dashcam (9b Phase 3, 9c Phase 4)
   10. Map overrides   Leaflet attribution + popups
    ========================================================================== */
 
@@ -567,6 +567,51 @@ emoji-picker { width: 100%; height: 320px; --background: #0e1724; --border-color
 body:has(#premium-nav-ui[style*="block"]) #sos-btn { bottom: calc(266px + var(--safe-b)) !important; }
 @media (max-width: 480px) { .bottom-pill.live { display: none; } }
 
+/* ---------- 9c. PHASE 4: tunnel mode, radio relay ---------- */
+/* Status chips (centre-top, between the weather pill and the tool rail). Hidden
+   during navigation: the island and the nav sheet's "No GPS" status say it there. */
+#p4-chips { position: fixed; top: calc(122px + var(--safe-t)); left: 50%; transform: translateX(-50%); z-index: var(--z-hud);
+  display: flex; gap: 6px; pointer-events: none; }
+#p4-chips > * { pointer-events: auto; }
+body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
+.p4-chip { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 16px; font-size: 12px; font-weight: 600;
+  color: var(--soft); white-space: nowrap; animation: dropIn var(--dur) var(--ease-spring); }
+.p4-chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: none; }
+#dr-chip .dot { background: var(--c-sensor); animation: livePulse 1.6s infinite; }
+#dr-chip[data-state="lost"] .dot { background: var(--c-danger); animation: none; }
+#relay-chip[data-state="on"] .dot { background: var(--c-sensor); }
+#relay-chip[data-state="reconnecting"] .dot { background: var(--muted); }
+
+/* Own marker while dead-reckoning: dashed amber ring = "estimate, not GPS". */
+.custom-own-icon.dr-est > div { border-style: dashed !important; border-color: var(--c-sensor) !important; box-shadow: 0 0 12px rgba(255,159,10,.55) !important; }
+.nav-avatar-marker.dr-est img { border-style: dashed !important; border-color: var(--c-sensor) !important; }
+/* Friends: estimated position / heard over the radio. Text badges carry the
+   same meaning (tooltip, trip panel, popup) — never colour alone. */
+.custom-friend-icon.est-marker > div { border-style: dashed !important; border-color: var(--c-sensor) !important; }
+.custom-friend-icon.radio-marker > div { border-color: var(--c-sensor) !important; }
+.custom-friend-icon.radio-marker::after { content: "📻"; position: absolute; right: -7px; bottom: -7px; font-size: 13px; line-height: 1;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,.6)); }
+.online-friend .status-dot { margin-left: auto; width: 8px; height: 8px; border-radius: 50%; background: var(--mint); flex: none; }
+.online-friend .status-dot.radio { background: var(--c-sensor); }
+.online-friend small { color: var(--c-sensor); font-weight: 600; }
+
+/* Radio radar panel */
+.radar-sub { margin: 0 0 4px; font-size: 11.5px; color: var(--muted); text-align: center; }
+#relay-connect-btn { height: 44px; margin: 4px 0 8px; }
+#relay-connect-btn:disabled { opacity: .6; }
+#relay-warn { margin: 0 0 8px; padding: 8px 10px; border-radius: 12px; background: rgba(255,176,32,.12); color: var(--c-warn); font-size: 12px; line-height: 1.4; }
+#peer-list li.peer.radio { border-left: 3px solid var(--c-sensor); }
+#peer-list li.peer.network { border-left: 3px solid var(--c-info); }
+#peer-list li.peer.sos { border-left-color: var(--c-sos); background: rgba(255,45,85,.12); }
+#peer-list li.peer.empty { color: var(--muted); }
+#peer-list { max-height: 22vh; overflow-y: auto; }
+
+/* Settings: GPS-outage log */
+#dr-log { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--soft); }
+#dr-log li { padding: 6px 10px; border-radius: 10px; background: rgba(255,255,255,.04); }
+#dr-log li.dr-log-empty { color: var(--muted); background: none; padding-left: 0; }
+#dr-status { color: var(--soft); }
+
 /* ---------- 10. MAP OVERRIDES ---------- */
 /* Attribution is REQUIRED by the tile licences (OSM / Esri / OpenTopoMap / Carto). Kept small, glassy, and clear of the FABs. */
 .leaflet-bottom.leaflet-right { right: 50%; transform: translateX(50%); bottom: calc(60px + var(--safe-b)); pointer-events: none; }
@@ -657,6 +702,12 @@ body:has(#premium-nav-ui[style*="block"]) #sos-btn { bottom: calc(266px + var(--
 <div id="top-weather" class="glass">
   <svg class="i sm"><use href="#i-temp"/></svg>
   <span id="top-weather-text">--°C</span>
+</div>
+
+<!-- PHASE 4 STATUS CHIPS: tunnel-mode estimate + radio relay (app.js DeadReckoning, features.js P2PRadar) -->
+<div id="p4-chips">
+  <div id="dr-chip" class="p4-chip glass" role="status" aria-live="polite" hidden><span class="dot" aria-hidden="true"></span><span id="dr-chip-text">Estimated position</span></div>
+  <button id="relay-chip" class="p4-chip glass" type="button" hidden><span class="dot" aria-hidden="true"></span><span id="relay-chip-text">Radio</span></button>
 </div>
 
 <!-- MAP TOOLS -->
@@ -776,6 +827,19 @@ body:has(#premium-nav-ui[style*="block"]) #sos-btn { bottom: calc(266px + var(--
         <input type="checkbox" id="convoy-alerts-toggle" class="switch" checked>
       </div>
       <p class="field-hint">In a group trip or meetup: tells you when a rider falls 5+ minutes behind by road, stops for 3+ minutes, leaves their route, or loses signal.</p>
+    </div>
+
+    <!-- Phase 4: tunnel mode (app.js DeadReckoning). The radio relay lives in the radar panel. -->
+    <div class="form-section">
+      <h3><svg class="i sm" style="width:13px;height:13px;vertical-align:-2px;"><use href="#i-locate"/></svg> Tunnel mode · experimental</h3>
+      <div class="modal-row">
+        <label for="dr-toggle">Keep estimating my position when GPS drops</label>
+        <input type="checkbox" id="dr-toggle" class="switch" checked>
+      </div>
+      <p class="field-hint" id="dr-status">Starts on its own when a drive or group trip begins.</p>
+      <button id="dr-permission-btn" type="button" class="btn-secondary-nav btn-block" hidden>🧭 Allow motion sensors</button>
+      <p class="field-hint">Uses the phone's motion sensors (and your route, if you're navigating) to keep the marker moving through tunnels and cuttings, with an uncertainty circle that grows the longer GPS is gone. Nothing leaves the phone except the estimated position itself, marked as an estimate. Last outages, and how far off the estimate was when GPS came back:</p>
+      <ul id="dr-log" aria-label="Recent GPS outages"></ul>
     </div>
 
     <!-- Privacy — new hooks for Step 1's session-scoped sharing + zero-trace delete.
@@ -1065,17 +1129,20 @@ body:has(#premium-nav-ui[style*="block"]) #sos-btn { bottom: calc(266px + var(--
   <svg class="i lg"><use href="#i-mic"/></svg>
 </button>
 
-<!-- DEAD-ZONE P2P RADAR (features.js) — real Web Bluetooth scan, with a clearly-labelled
-     offline-mesh fallback when the browser/OS has no BLE central support. -->
-<button id="p2p-radar-btn" class="tool-btn" type="button" title="Dead-zone radar" aria-label="Scan for nearby squad devices"
+<!-- RADIO RELAY RADAR (features.js P2PRadar + ConvoyRelay, Phase 4) — riders heard over a paired
+     Meshtastic LoRa radio, plus riders known via the network, each labelled with how we know. -->
+<button id="p2p-radar-btn" class="tool-btn" type="button" title="Radio relay" aria-label="Open the radio relay radar"
   style="position:fixed; bottom:calc(206px + var(--safe-b)); right:14px; z-index:999; width:52px; height:52px; border-radius:50%; background:var(--c-sensor); color:#071018;">
   <svg class="i lg"><use href="#i-locate"/></svg>
 </button>
-<div id="radar-panel" class="glass-strong" role="dialog" aria-label="Dead-zone radar">
-    <div class="radar-head"><strong>📡 Offline Squad Radar</strong><button id="close-radar" type="button" aria-label="Close">✕</button></div>
+<div id="radar-panel" class="glass-strong" role="dialog" aria-label="Radio relay">
+    <div class="radar-head"><strong>📻 Radio relay · experimental</strong><button id="close-radar" type="button" aria-label="Close">✕</button></div>
+    <p class="radar-sub">Keeps the squad connected with no mobile data, through a Meshtastic LoRa radio. Works inside a group trip.</p>
     <canvas id="radar-canvas" width="280" height="280" aria-hidden="true"></canvas>
-    <p id="radar-status">Scanning for nearby offline peers…</p>
-    <ul id="peer-list"><li style="color:var(--muted);">No devices nearby</li></ul>
+    <p id="radar-status" role="status" aria-live="polite">Pair a Meshtastic LoRa radio to keep the squad connected with no mobile data.</p>
+    <p id="relay-warn" hidden></p>
+    <button id="relay-connect-btn" class="btn-primary-nav btn-block" type="button">Connect radio</button>
+    <ul id="peer-list" aria-label="Riders nearby"><li class="peer empty">No riders nearby.</li></ul>
 </div>
 
 <!-- SKUNKWORKS: travel mode + AI dashcam -->
@@ -1116,7 +1183,7 @@ body:has(#premium-nav-ui[style*="block"]) #sos-btn { bottom: calc(266px + var(--
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyASbmXgn0T-B4AQdCe1sp7dfJbDXKgDw5c&libraries=places&loading=async"></script>
 <script src="/shell.js"></script>
-<script src="app.js?v=20260929-phase3"></script>
-<script src="features.js?v=20260929-phase3"></script>
+<script src="app.js?v=20260930-phase4"></script>
+<script src="features.js?v=20260930-phase4"></script>
 </body>
 </html>
