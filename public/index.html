@@ -127,7 +127,7 @@ button:active { transform: scale(.94); }
 @keyframes popIn { from { opacity: 0; transform: scale(.86); } to { opacity: 1; transform: none; } }
 @keyframes ping { 0% { transform: scale(.5); opacity: .8; } 80%, 100% { transform: scale(1.6); opacity: 0; } }
 @keyframes livePulse { 0% { box-shadow: 0 0 0 0 rgba(52,224,180,.6); } 70%, 100% { box-shadow: 0 0 0 8px rgba(52,224,180,0); } }
-@keyframes dangerPulse { from { opacity: .1; } to { opacity: .6; } }   /* also used by app.js SOS overlay */
+@keyframes dangerPulse { from { opacity: .1; } to { opacity: .6; } }   /* also used by the SOS overlay (js/sos.js) */
 
 /* ---------- 4. HUD ---------- */
 #speed-danger-overlay { position: fixed; inset: 0; z-index: 500; pointer-events: none; opacity: 0;
@@ -174,7 +174,7 @@ button:active { transform: scale(.94); }
 .tool-btn { width: 40px; height: 40px; flex: none; border-radius: 14px; color: var(--soft); display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.03); }
 .tool-btn:hover, .tool-btn.active-tool, .tool-btn[aria-expanded="true"] { background: rgba(52,224,180,.16); color: var(--mint); }
 
-/* popovers: map style menu (display-toggled by app.js) + toolbox (class-toggled by shell.js) */
+/* popovers: map style menu (display-toggled by js/controls.js) + toolbox (class-toggled by shell.js) */
 #map-style-menu { position: fixed; right: 66px; top: calc(218px + var(--safe-t)); z-index: 1100; display: none; flex-direction: column; padding: 6px; border-radius: 18px;
   background: var(--glass-solid); border: 1px solid var(--line-strong); box-shadow: var(--inner), var(--elev-3); animation: popIn var(--dur) var(--ease-overshoot); transform-origin: right center; }
 #map-style-menu button { padding: 10px 14px; text-align: left; font-size: 14px; width: 132px; color: var(--soft); border-radius: 12px; }
@@ -670,12 +670,89 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 
 /* ---------- 9c1. Route options (roadmap Section 4) ---------- */
 .route-avoid-note { display: inline-block; margin-top: 4px; font-size: 12px; font-weight: 700; color: #065f46; }
+.gn-directions { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
+#group-nav-directions summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--soft); padding: 4px 0; }
+#group-nav-directions ol { margin: 6px 0 0; padding-left: 22px; font-size: 12.5px; color: var(--soft); max-height: 22vh; overflow-y: auto; }
+#group-nav-directions li { padding: 3px 0; }
+#group-nav-directions .gn-dist { color: var(--muted); }
+.route-traffic-note { display: inline-block; margin-top: 4px; font-size: 12px; font-weight: 700; color: #92400e; }
+.eta-note { font-size: 9.5px; font-weight: 700; color: var(--c-warn); text-transform: none; letter-spacing: 0; }
 .carpool-avoid { margin-top: 6px; font-size: 12px; color: var(--soft); }
+.carpool-orders .co-line { margin-top: 4px; font-size: 12.5px; color: var(--soft); }
+.co-muted { color: var(--muted); }
 .carpool-avoid.warn { color: var(--c-warn); }
 
 /* ---------- 9c2. Fuel-aware meetup (roadmap Section 11) ---------- */
 .meetup-fuel-note { font-size: 12px; line-height: 1.45; color: var(--soft); background: rgba(255,255,255,.05); border-radius: 12px; padding: 8px 10px; margin-bottom: 8px; }
 .meetup-fuel-split { margin-top: 3px; font-size: 11.5px; color: var(--muted); }
+
+/* ---------- 9c4. Batch 2: privacy status, circles, recall, chat files ---------- */
+.privacy-status { margin: 10px 0 0; padding: 8px 10px; border-radius: 12px; font-size: 12.5px; line-height: 1.4; background: rgba(52,224,180,.10); color: var(--soft); border: 1px solid rgba(52,224,180,.25); }
+.privacy-status[data-tone="paused"] { background: rgba(245,165,36,.10); border-color: rgba(245,165,36,.3); }
+.privacy-status[data-tone="off"] { background: rgba(255,255,255,.05); border-color: var(--line); color: var(--muted); }
+.circles-list { display: grid; gap: 8px; margin: 6px 0 10px; }
+.circles-empty { margin: 0; }
+.circle-card { padding: 10px 12px; border-radius: 14px; background: rgba(255,255,255,.04); border: 1px solid var(--line); }
+.circle-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.circle-name { font-size: 14px; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.circle-count { font-size: 11.5px; color: var(--muted); flex: none; }
+.circle-code-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.circle-code-label { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.circle-code { font: 700 14px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .08em; padding: 5px 8px; border-radius: 8px; background: rgba(255,255,255,.07); color: var(--mint); user-select: all; }
+.circle-members { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 2px; }
+.circle-member { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--soft); min-height: 28px; }
+.circle-member .cm-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); opacity: .5; flex: none; }
+.circle-member.online .cm-dot { background: var(--mint); opacity: 1; }
+.circle-member .cm-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.circle-member .cm-badge { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 1px 5px; }
+.circle-member .cm-remove { margin-left: auto; width: 28px; height: 28px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); cursor: pointer; font: inherit; }
+.circle-member .cm-remove:hover { background: rgba(255,255,255,.08); color: var(--text); }
+.circle-actions { display: flex; gap: 6px; justify-content: flex-end; margin-top: 8px; flex-wrap: wrap; }
+.btn-mini { height: 30px; padding: 0 10px; border-radius: 9px; border: 1px solid var(--line); background: rgba(255,255,255,.05); color: var(--soft); font: 600 12px/1 inherit; cursor: pointer; }
+.btn-mini:hover { background: rgba(255,255,255,.1); color: var(--text); }
+.btn-mini.danger { color: var(--danger); border-color: rgba(255,107,107,.35); }
+.btn-mini:focus-visible, .cm-remove:focus-visible { outline: 2px solid var(--mint); outline-offset: 1px; }
+.circle-form { display: flex; gap: 8px; margin-top: 8px; }
+.circle-form .text-input { flex: 1; min-width: 0; }
+.circle-form .btn-secondary-nav { flex: none; width: auto; padding: 0 16px; }
+.select-input { width: 100%; height: 44px; padding: 0 12px; border-radius: 14px; background: rgba(255,255,255,.07); border: 1px solid var(--line); color: var(--text); font-size: 14px; }
+.select-input:disabled { opacity: .55; }
+.select-input:focus { border-color: rgba(52,224,180,.6); outline: none; }
+.recall-note { margin: -4px 0 10px; padding: 6px 8px; border-radius: 8px; background: #eef6ff; color: #1e3a5f; font-size: 12px; line-height: 1.35; text-align: left; }
+.chat-document { display: inline-block; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reaction-chip.mine { outline: 1px solid rgba(52,224,180,.6); }
+
+/* ---------- 9c3. Meetup strategy comparison + trip fuel split + fuel curve ---------- */
+.meetup-compare { margin-bottom: 10px; border-radius: 14px; background: rgba(255,255,255,.04); border: 1px solid var(--line); overflow: hidden; }
+.meetup-compare .mc-row { display: grid; grid-template-columns: minmax(0, 1.8fr) repeat(3, minmax(0, 1fr)); gap: 6px; align-items: center; width: 100%; padding: 8px 10px; font: inherit; font-size: 12px; color: var(--soft); text-align: right; background: transparent; border: 0; border-top: 1px solid var(--line); cursor: pointer; font-variant-numeric: tabular-nums; }
+.meetup-compare .mc-row > span:first-child { text-align: left; }
+.meetup-compare .mc-head { border-top: 0; cursor: default; font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.meetup-compare .mc-row.on { background: rgba(52,224,180,.10); box-shadow: inset 3px 0 0 var(--mint); }
+.meetup-compare button.mc-row:hover { background: rgba(255,255,255,.06); }
+.meetup-compare .mc-row:focus-visible { outline: 2px solid var(--mint); outline-offset: -2px; }
+.meetup-compare .mc-name { display: flex; flex-direction: column; min-width: 0; }
+.meetup-compare .mc-name strong { color: var(--text); font-size: 12.5px; }
+.meetup-compare .mc-name em { font-style: normal; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.meetup-compare .mc-best { color: var(--mint); font-weight: 700; }
+.meetup-compare .mc-verdict { padding: 8px 10px; font-size: 11.5px; line-height: 1.4; color: var(--muted); border-top: 1px solid var(--line); }
+.fuel-split { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 2px 0 8px; }
+.fuel-split .fs-cell { display: flex; flex-direction: column; padding: 6px 10px; border-radius: 10px; background: rgba(255,255,255,.05); }
+.fuel-split .fs-label { font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.fuel-split .fs-val { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.fc-bands { display: grid; gap: 4px; margin: 8px 0 4px; }
+.fc-band { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: baseline; font-size: 12.5px; padding: 5px 10px; border-radius: 10px; background: rgba(255,255,255,.04); font-variant-numeric: tabular-nums; }
+.fc-b-label { color: var(--soft); }
+.fc-b-val { font-weight: 700; }
+.fc-b-gen { font-size: 11px; color: var(--muted); }
+.fc-log { margin-top: 6px; }
+.fc-fill-list { display: grid; gap: 4px; margin: 8px 0 2px; }
+.fc-fill-row { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; gap: 8px; align-items: center; font-size: 12px; padding: 5px 4px 5px 10px; border-radius: 10px; background: rgba(255,255,255,.04); font-variant-numeric: tabular-nums; }
+.fc-fill-when { color: var(--soft); }
+.fc-fill-l { font-weight: 700; }
+.fc-fill-note { color: var(--muted); font-size: 11px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fc-fill-del { width: 28px; height: 28px; border-radius: 8px; border: 0; background: transparent; color: var(--muted); cursor: pointer; font: inherit; }
+.fc-fill-del:hover { background: rgba(255,255,255,.08); color: var(--text); }
+#fuel-curve-reset-btn { margin-top: 8px; }
 
 /* ---------- 9d. PHASE 5: relative motion + regroup ---------- */
 #profile-popup-motion { margin-top: 6px; font-size: 13px; font-weight: 600; color: var(--c-info); }
@@ -748,7 +825,7 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
   <button type="button" class="island-action" id="island-action" hidden></button>
 </div>
 
-<!-- PWA install prompt (shown by app.js via the browser's beforeinstallprompt) -->
+<!-- PWA install prompt (shown by js/pwa.js via the browser's beforeinstallprompt) -->
 <button id="install-app-btn" type="button">
   <svg class="i sm"><use href="#i-download"/></svg> Install App
 </button>
@@ -779,13 +856,13 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
   <button id="location-search-clear" type="button" aria-label="Clear search"><svg class="i sm"><use href="#i-x"/></svg></button>
 </div>
 
-<!-- WEATHER PILL (shown by app.js; element existed only as a safeShow() target originally) -->
+<!-- WEATHER PILL (shown by js/gps.js; element existed only as a safeShow() target originally) -->
 <div id="top-weather" class="glass">
   <svg class="i sm"><use href="#i-temp"/></svg>
   <span id="top-weather-text">--°C</span>
 </div>
 
-<!-- PHASE 4 STATUS CHIPS: tunnel-mode estimate + radio relay (app.js DeadReckoning, features.js P2PRadar) -->
+<!-- PHASE 4 STATUS CHIPS: tunnel-mode estimate + radio relay (js/deadreckoning.js DeadReckoning, js/radio.js P2PRadar) -->
 <div id="p4-chips">
   <div id="dr-chip" class="p4-chip glass" role="status" aria-live="polite" hidden><span class="dot" aria-hidden="true"></span><span id="dr-chip-text">Estimated position</span></div>
   <button id="relay-chip" class="p4-chip glass" type="button" hidden><span class="dot" aria-hidden="true"></span><span id="relay-chip-text">Radio</span></button>
@@ -832,7 +909,7 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
         <div class="turn-then on"><span id="nav-step-text"></span> <span id="nav-step-dist" style="color:var(--muted);"></span></div>
       </div>
     </div>
-    <!-- Posted limit for the road you're on (app.js SpeedLimits, OpenStreetMap) -->
+    <!-- Posted limit for the road you're on (js/gps.js SpeedLimits, OpenStreetMap) -->
     <div class="speed-limit-sign" id="speed-limit-sign" role="img" aria-label="" hidden><span id="speed-limit-n"></span></div>
     <div class="speed-dial" id="speed-dial">
       <div class="n" id="speed-n">0</div>
@@ -841,7 +918,7 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
     <div class="nav-bottom-sheet" id="nav-bottom-sheet">
       <div class="nav-stats">
         <div class="n-stat"><div class="l">Distance</div><div class="v" id="stat-dist">--<small> km</small></div></div>
-        <div class="n-stat"><div class="l">ETA</div><div class="v" id="stat-eta">--<small> min</small></div></div>
+        <div class="n-stat"><div class="l">ETA <span id="stat-eta-note" class="eta-note"></span></div><div class="v" id="stat-eta">--<small> min</small></div></div>
         <div class="n-stat"><div class="l">Arrival</div><div class="v" id="nav-arrival-time" style="font-size:15px;">--</div></div>
         <div class="n-stat"><div class="l">Status</div><div class="v" id="stat-status">Ready</div></div>
       </div>
@@ -864,7 +941,12 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
   <div class="r-row"><span class="r-label">Inefficient (&gt;80)</span><span class="r-val bad" id="res-ineff-time">0 min</span></div>
   <div class="fuel-estimate-box">
     <p>At <strong id="res-base-mlg">15 km/l</strong>, you used approx <strong id="res-actual-fuel">0 L</strong>.</p>
+    <div class="fuel-split">
+      <div class="fs-cell"><span class="fs-label">Moving</span><span class="fs-val" id="res-moving-fuel">0 L</span></div>
+      <div class="fs-cell"><span class="fs-label">Idling</span><span class="fs-val" id="res-idle-fuel">none</span></div>
+    </div>
     <p id="res-extra-fuel" class="estimate-note" style="color:var(--c-warn);"></p>
+    <p id="res-model-note" class="estimate-note"></p>
     <p class="estimate-note">Estimate from GPS speed samples — not a substitute for your odometer.</p>
   </div>
   <button id="close-results-btn" class="btn-secondary-nav" type="button">Dismiss</button>
@@ -890,6 +972,11 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
     </div>
     <p class="field-hint">Uses the posted limit from OpenStreetMap for the road you’re on, where it’s mapped, so a 30 or 40 zone warns you early. It only ever makes alerts earlier — the usual 60 / 80 / 100 km/h alerts still apply everywhere. Map data can be missing or out of date: road signs always win.</p>
     <div class="modal-row">
+      <label for="auto-mode-toggle">Detect walking / riding</label>
+      <input type="checkbox" id="auto-mode-toggle" class="switch" checked>
+    </div>
+    <p class="field-hint">Switches from Walk back to your bike or car by itself once you’re clearly riding (30 s above ~25 km/h), so speed alerts come back on. It only suggests switching to Walk — a slow crawl in traffic looks the same. Your own choice always wins for 10 minutes.</p>
+    <div class="modal-row">
       <label for="gps-saver-toggle">Battery saver when parked</label>
       <input type="checkbox" id="gps-saver-toggle" class="switch" checked>
     </div>
@@ -899,7 +986,36 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
       <canvas id="speed-graph-canvas"></canvas>
     </div>
 
-    <!-- Phase 3: voice-first Safe Drive (features.js VoiceAssistant) -->
+    <!-- Personal fuel curve (roadmap Section 6 / Section 30 #10): js/smartdrive.js FuelCurve -->
+    <div class="form-section" id="fuel-curve-section">
+      <h3><svg class="i sm" style="width:13px;height:13px;vertical-align:-2px;"><use href="#i-fuel"/></svg> My fuel curve</h3>
+      <p class="field-hint" id="fuel-curve-status">Log each fill-up (fill to full) and the app learns how your vehicle really burns fuel at each speed.</p>
+      <div id="fuel-curve-bands" class="fc-bands" style="display:none;"></div>
+      <div class="modal-row">
+        <label for="fuel-curve-toggle">Use my curve for trip fuel</label>
+        <input type="checkbox" id="fuel-curve-toggle" class="switch" checked>
+      </div>
+      <div class="fc-log">
+        <div class="modal-row">
+          <label for="fillup-litres">Litres put in</label>
+          <input type="number" id="fillup-litres" class="num-input" min="0.1" max="300" step="0.01" inputmode="decimal" placeholder="0.00">
+        </div>
+        <div class="modal-row">
+          <label for="fillup-odo">Odometer (km, optional)</label>
+          <input type="number" id="fillup-odo" class="num-input" min="0" step="1" inputmode="numeric" placeholder="—">
+        </div>
+        <div class="modal-row">
+          <label for="fillup-full">Filled the tank to full</label>
+          <input type="checkbox" id="fillup-full" class="switch" checked>
+        </div>
+        <button id="fillup-log-btn" type="button" class="btn-secondary-nav btn-block">⛽ Log a fill-up</button>
+      </div>
+      <div id="fillup-list" class="fc-fill-list"></div>
+      <p class="field-hint">Litres between two full tanks, matched with the drives the app recorded in between, tell it your real km/L below 40, at 40–60, 60–80 and over 80 km/h, and your idle burn. It needs 3 full-to-full tanks, and it's only used when it predicts your fill-ups better than the generic curve. The odometer lets it spot tanks where you drove without the app. Stays on this phone.</p>
+      <button id="fuel-curve-reset-btn" type="button" class="btn-secondary-nav btn-block">Clear fill-up history</button>
+    </div>
+
+    <!-- Phase 3: voice-first Safe Drive (js/voice.js VoiceAssistant) -->
     <div class="form-section">
       <h3><svg class="i sm" style="width:13px;height:13px;vertical-align:-2px;"><use href="#i-mic"/></svg> Voice</h3>
       <div class="modal-row">
@@ -914,9 +1030,14 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
       <button id="voice-test-btn" type="button" class="btn-secondary-nav btn-block">🔊 Test voice</button>
     </div>
 
-    <!-- Route options (roadmap Section 4): app.js RoutePrefs -->
+    <!-- Route options (roadmap Section 4): js/navigation.js RoutePrefs -->
     <div class="form-section">
       <h3><svg class="i sm" style="width:13px;height:13px;vertical-align:-2px;"><use href="#i-turn"/></svg> Route options</h3>
+      <div class="modal-row">
+        <label for="traffic-eta-toggle">Live traffic (Google)</label>
+        <input type="checkbox" id="traffic-eta-toggle" class="switch" checked>
+      </div>
+      <p class="field-hint">Search ETAs include current traffic, and while navigating the route is re-checked every 3 minutes; if traffic makes another road clearly faster (over 1½ minutes saved) you’re told and switched. Traffic-aware requests cost more on your Google Maps bill (about 20 an hour of navigation). Off: the free router still checks for a faster road, without traffic.</p>
       <div class="modal-row">
         <label for="avoid-highways-toggle">Avoid highways</label>
         <input type="checkbox" id="avoid-highways-toggle" class="switch">
@@ -928,7 +1049,7 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
       <p class="field-hint">Used for every route this phone draws — search, navigation and its reroutes, “navigate to” by voice, group trip and meetup routes — and for carpools you drive. Choosing a meetup point still compares everyone on normal roads. On the free map router, “highways” means motorways/expressways; most national highways aren’t marked as motorways there, so they can still be used. Search routes use Google’s broader definition. If no route can avoid them, you’re told and get the normal route. You can also say “avoid tolls”.</p>
     </div>
 
-    <!-- Phase 3: convoy intelligence (features.js ConvoyIntelligence) -->
+    <!-- Phase 3: convoy intelligence (js/convoy.js ConvoyIntelligence) -->
     <div class="form-section">
       <h3><svg class="i sm" style="width:13px;height:13px;vertical-align:-2px;"><use href="#i-users"/></svg> Convoy</h3>
       <div class="modal-row">
@@ -943,7 +1064,7 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
       <p class="field-hint">When the convoy spreads out, suggests who should ease off or take a short break so everyone closes up — and where. Never suggests riding faster than the road's usual pace, or above 75&nbsp;km/h.</p>
     </div>
 
-    <!-- Phase 4: tunnel mode (app.js DeadReckoning). The radio relay lives in the radar panel. -->
+    <!-- Phase 4: tunnel mode (js/deadreckoning.js DeadReckoning). The radio relay lives in the radar panel. -->
     <div class="form-section">
       <h3><svg class="i sm" style="width:13px;height:13px;vertical-align:-2px;"><use href="#i-locate"/></svg> Tunnel mode · experimental</h3>
       <div class="modal-row">
@@ -957,7 +1078,7 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
     </div>
 
     <!-- Privacy — new hooks for Step 1's session-scoped sharing + zero-trace delete.
-         Wired up in app.js (Step 3): setSharing / exportMyData / deleteMyHistory. -->
+         Wired up in js/privacy.js: setSharing / exportMyData / deleteMyHistory. -->
     <div class="form-section">
       <h3><svg class="i sm" style="width:13px;height:13px;vertical-align:-2px;"><use href="#i-shield"/></svg> Privacy</h3>
       <div class="modal-row">
@@ -968,18 +1089,58 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
         <button type="button" data-value="approx" aria-pressed="false">Approx.</button>
         <button type="button" data-value="off" aria-pressed="false">Off</button>
       </div>
-      <p class="field-hint" id="sharing-mode-hint">Exact: everyone on the map sees your live position. Approx.: others see it rounded to ~1&nbsp;km — but riders in your active group trip still see your exact position. Off: you appear offline to everyone.</p>
+      <p class="field-hint" id="sharing-mode-hint">Exact: your live position. Approx.: rounded to ~1&nbsp;km — riders in your active group trip still see it exactly. Off: you appear offline to everyone.</p>
+      <p class="privacy-status" id="privacy-status" role="status" aria-live="polite" data-tone="live">Sharing your live position with everyone on the map.</p>
+      <div class="modal-row" style="margin-top:10px;">
+        <span>Who can see me</span>
+      </div>
+      <div class="segmented" data-segment="visibilityScope" role="radiogroup" aria-label="Who can see my location">
+        <button type="button" data-value="everyone" aria-pressed="true">Everyone</button>
+        <button type="button" data-value="circles" aria-pressed="false">My circles</button>
+      </div>
+      <p class="field-hint" id="visibility-hint">My circles: nobody sees you until you create or join a circle — except riders in the same trip.</p>
+      <div class="modal-row">
+        <label for="share-trip-only-toggle">Share only during a trip or ride</label>
+        <input type="checkbox" id="share-trip-only-toggle" class="switch">
+      </div>
+      <p class="field-hint">When on, your position is sent only while you're recording a Drive / Bike / Walk ride or you're in a group trip. The rest of the time nothing leaves your phone and others see you as “not sharing”.</p>
+      <div class="modal-row">
+        <label for="recall-toggle">Remind me of places I've been</label>
+        <input type="checkbox" id="recall-toggle" class="switch" checked>
+      </div>
+      <p class="field-hint">“You've been here before”: under a searched place, when you arrive, and when you park somewhere you've ridden to. Uses only your own saved rides and memories.</p>
+    </div>
+
+    <!-- Batch 2: friend circles (js/privacy.js Circles) -->
+    <div class="form-section" id="circles-section">
+      <h3><svg class="i sm" style="width:13px;height:13px;vertical-align:-2px;"><use href="#i-users"/></svg> Circles</h3>
+      <div id="circles-list" class="circles-list"></div>
+      <div class="circle-form">
+        <input type="text" id="circle-name-input" class="text-input" maxlength="40" placeholder="New circle name" autocomplete="off" aria-label="New circle name">
+        <button id="circle-create-btn" type="button" class="btn-secondary-nav">Create</button>
+      </div>
+      <div class="circle-form">
+        <input type="text" id="circle-code-input" class="text-input" maxlength="12" placeholder="Invite code, e.g. ABCD-EF23" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Invite code">
+        <button id="circle-join-btn" type="button" class="btn-secondary-nav">Join</button>
+      </div>
+      <div class="modal-row">
+        <label for="trip-audience-select">Trips I start are visible to</label>
+      </div>
+      <select id="trip-audience-select" class="select-input" aria-label="Who can see trips you start" disabled>
+        <option value="">Everyone on the map</option>
+      </select>
+      <p class="field-hint">A circle trip is only offered to that circle. Several groups can run their own trips at the same time.</p>
     </div>
     <div class="form-section">
       <h3>Your Data</h3>
       <button id="export-data-btn" type="button" class="btn-secondary-nav btn-block"><svg class="i sm"><use href="#i-download"/></svg>&nbsp; Export my data</button>
       <button id="clear-history-btn" type="button" class="btn-warn-outline btn-block"><svg class="i sm"><use href="#i-trash"/></svg>&nbsp; Clear my history</button>
-      <p class="field-hint">Erases your trips, breadcrumbs, memories and geofences from this server. Your name stays unless you also remove your device identity.</p>
+      <p class="field-hint">Erases your trips, breadcrumbs, memories (and their photos), geofences and chat messages (and their files) from this server. Your name and circles stay unless you also remove your device identity.</p>
     </div>
   </div>
 </div>
 
-<!-- PHASE 3: TRIP ANALYTICS (app.js TripAnalytics) -->
+<!-- PHASE 3: TRIP ANALYTICS (js/analytics.js TripAnalytics) -->
 <div class="modal" id="analytics-modal" data-dismissable role="dialog" aria-modal="true" aria-labelledby="analytics-title">
   <div class="modal-card wide">
     <button class="close-modal" id="analytics-close" type="button" aria-label="Close"><svg class="i sm"><use href="#i-x"/></svg></button>
@@ -1022,7 +1183,7 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 </div>
 
 <!-- PHASE 3: RIDE REPLAY LEGEND (text + swatch — never color alone) -->
-<!-- MEMORY HEATMAP controls + legend + table view (app.js MemoryHeatmap) -->
+<!-- MEMORY HEATMAP controls + legend + table view (js/memories.js MemoryHeatmap) -->
 <div id="mem-heat-panel" class="glass-strong" role="region" aria-label="Memory heatmap" hidden>
   <div class="mh-head">
     <div class="mh-titles"><strong>Memory heatmap</strong><small id="mem-heat-summary" aria-live="polite"></small></div>
@@ -1231,6 +1392,18 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
       <div><span style="font-size:12px;color:var(--soft);">km/L</span><br><input id="carpool-kmpl" type="number" class="num-input" value="15" min="1" max="100"></div>
       <div><span style="font-size:12px;color:var(--soft);">Price/L</span><br><input id="carpool-price" type="number" class="num-input" value="0" min="0"></div>
     </div>
+    <div class="form-section">
+      <h3>Pickup order</h3>
+      <div class="segmented" data-segment="carpoolOrder" role="radiogroup" aria-label="Pickup order">
+        <button type="button" data-value="shortest" aria-pressed="true" title="Least total driving time">Shortest total</button>
+        <button type="button" data-value="fair" aria-pressed="false" title="Least extra time in the car for the worst-off rider">Fairest for riders</button>
+      </div>
+      <h3 style="margin-top:10px;">Fuel split</h3>
+      <div class="segmented" data-segment="carpoolSplit" role="radiogroup" aria-label="Fuel split">
+        <button type="button" data-value="leg" aria-pressed="true" title="Each leg's fuel shared equally by everyone aboard">Per leg</button>
+        <button type="button" data-value="shapley" aria-pressed="false" title="Shapley value: each person pays their average extra cost, compared with going alone">Shapley (fairest)</button>
+      </div>
+    </div>
     <button id="carpool-run-btn" class="btn-primary-nav btn-block" type="button">Plan pickups</button>
     <div id="carpool-results" class="form-section"></div>
   </div>
@@ -1266,13 +1439,13 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <input id="memoryPhotoInput" type="file" accept="image/*" hidden>
 <audio id="remote-audio" autoplay playsinline hidden></audio>
 
-<!-- GROUP VOICE CALL (features.js) -->
+<!-- GROUP VOICE CALL (js/calls.js VoiceSquad) -->
 <button id="group-call-btn" class="tool-btn" type="button" title="Group voice call" aria-label="Join group voice call"
   style="position:fixed; bottom:calc(146px + var(--safe-b)); right:14px; z-index:999; width:52px; height:52px; border-radius:50%; background:var(--mint); color:#071018;">
   <svg class="i lg"><use href="#i-mic"/></svg>
 </button>
 
-<!-- RADIO RELAY RADAR (features.js P2PRadar + ConvoyRelay, Phase 4) — riders heard over a paired
+<!-- RADIO RELAY RADAR (js/radio.js P2PRadar + ConvoyRelay, Phase 4) — riders heard over a paired
      Meshtastic LoRa radio, plus riders known via the network, each labelled with how we know. -->
 <button id="p2p-radar-btn" class="tool-btn" type="button" title="Radio relay" aria-label="Open the radio relay radar"
   style="position:fixed; bottom:calc(206px + var(--safe-b)); right:14px; z-index:999; width:52px; height:52px; border-radius:50%; background:var(--c-sensor); color:#071018;">
@@ -1309,10 +1482,30 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <video id="dashcam-video" autoplay playsinline muted></video>
 
 <script src="/socket.io/socket.io.js"></script>
+<script src="/config.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyASbmXgn0T-B4AQdCe1sp7dfJbDXKgDw5c&libraries=places&loading=async"></script>
 <script src="/shell.js"></script>
-<script src="app.js?v=20260930-tripfuel"></script>
-<script src="features.js?v=20260930-tripfuel"></script>
+<!-- App scripts, split by concern (Batch 2). Order matters: core first, boot last. -->
+<script src="js/core.js?v=20260930-batch2"></script>
+<script src="js/voice.js?v=20260930-batch2"></script>
+<script src="js/gps.js?v=20260930-batch2"></script>
+<script src="js/navigation.js?v=20260930-batch2"></script>
+<script src="js/smartdrive.js?v=20260930-batch2"></script>
+<script src="js/groupnav.js?v=20260930-batch2"></script>
+<script src="js/privacy.js?v=20260930-batch2"></script>
+<script src="js/analytics.js?v=20260930-batch2"></script>
+<script src="js/deadreckoning.js?v=20260930-batch2"></script>
+<script src="js/presence.js?v=20260930-batch2"></script>
+<script src="js/controls.js?v=20260930-batch2"></script>
+<script src="js/chat.js?v=20260930-batch2"></script>
+<script src="js/memories.js?v=20260930-batch2"></script>
+<script src="js/calls.js?v=20260930-batch2"></script>
+<script src="js/sos.js?v=20260930-batch2"></script>
+<script src="js/pwa.js?v=20260930-batch2"></script>
+<script src="js/skunkworks.js?v=20260930-batch2"></script>
+<script src="js/radio.js?v=20260930-batch2"></script>
+<script src="js/convoy.js?v=20260930-batch2"></script>
+<script src="js/boot.js?v=20260930-batch2"></script>
 </body>
 </html>
