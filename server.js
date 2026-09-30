@@ -94,6 +94,7 @@ const REACTION_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
 const ALLOWED_MSG_TYPES = ["text", "image", "video", "audio", "document"];
 const ALLOWED_MODES = ["drive", "bike", "walk"];
 const MEETUP_STRATEGIES = ["sum", "minimax", "fuel"];
+const ROUTE_AVOID_CLASSES = ["motorway", "toll"];      // OSRM car-profile exclude classes
 const SHARING_MODES = ["exact", "approx", "off"];
 const MAX_AVATAR_B64_LEN = 3_000_000;
 const MAX_MEMORY_IMAGE_B64_LEN = 6_000_000;
@@ -1523,7 +1524,10 @@ io.on("connection", (socket) => {
     }));
 
     // --- L. CARPOOL ORDERING + FUEL SPLIT ------------------------------------------
-    // socket.emit('carpoolOptimize', {start, pickups:[{id,name,lat,lng}], destination, kmPerL?, fuelPricePerL?}, ack)
+    // socket.emit('carpoolOptimize', {start, pickups:[{id,name,lat,lng}], destination, kmPerL?, fuelPricePerL?, avoid?:["motorway","toll"]}, ack)
+    // `avoid` is the DRIVER's route preference (OSRM exclude classes). Tried
+    // together, then one at a time (some OSRM builds can't combine them), then
+    // not at all — the reply says which were actually applied.
     socket.on("carpoolOptimize", safeHandler(socket, async (data, ack) => {
         if (typeof ack !== "function") return;
         if (!users.has(socket.id)) return ack({ ok: false, reason: "no-profile" });
@@ -1541,14 +1545,26 @@ io.on("connection", (socket) => {
         const kmPerL = clampNum(data?.kmPerL, 1, 100, 15);
         const pricePerL = clampNum(data?.fuelPricePerL, 0, 10_000, 0);
 
+        const avoidRequested = Array.isArray(data?.avoid) ? [...new Set(data.avoid.filter((c) => ROUTE_AVOID_CLASSES.includes(c)))] : [];
+        let avoidApplied = [];
+
         let ordered = null, legMeters = null, geometry = null, approximate = false, durationSec = null;
         try {
             const coordStr = [start, ...stops, dest].map((p) => `${p.lng},${p.lat}`).join(";");
-            const url = `${OSRM_BASE}/trip/v1/driving/${coordStr}?source=first&destination=last&roundtrip=false&overview=full&geometries=geojson&steps=false`;
-            const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
-            if (res.ok) {
-                const json = await res.json();
-                const trip = json.code === "Ok" ? json.trips?.[0] : null;
+            const base = `${OSRM_BASE}/trip/v1/driving/${coordStr}?source=first&destination=last&roundtrip=false&overview=full&geometries=geojson&steps=false`;
+            const attempts = avoidRequested.length > 1 ? [avoidRequested, ...avoidRequested.map((c) => [c]), []]
+                : avoidRequested.length === 1 ? [avoidRequested, []] : [[]];
+            let json = null;
+            for (const ex of attempts) {
+                const res = await fetch(ex.length ? `${base}&exclude=${ex.join(",")}` : base, { signal: AbortSignal.timeout(8000) });
+                let body = null;
+                try { body = await res.json(); } catch { body = null; }
+                if (body && body.code === "Ok" && body.trips?.[0]) { json = body; avoidApplied = ex; break; }
+                // Anything but "can't do this exclude" / "no route that way" is a real outage: stop, use the fallback.
+                if (!body || !/^(InvalidValue|InvalidOptions|InvalidQuery|NoTrips|NoRoute)$/.test(body.code)) break;
+            }
+            if (json) {
+                const trip = json.trips[0];
                 if (trip && Array.isArray(trip.legs) && trip.legs.length === stops.length + 1) {
                     const n = stops.length + 2;
                     const posToInput = new Array(n).fill(null);
@@ -1570,6 +1586,7 @@ io.on("connection", (socket) => {
             ordered = fb.ordered.map(({ _i, ...rest }) => rest);
             legMeters = fb.legMeters;
             approximate = true;
+            avoidApplied = [];                     // straight-line fallback knows nothing about road classes
         }
 
         const split = splitCarpoolCosts(ordered, legMeters, kmPerL, pricePerL);
@@ -1582,6 +1599,7 @@ io.on("connection", (socket) => {
             totalDurationMin: durationSec != null ? Math.round(durationSec / 60) : null,
             geometry,                                  // GeoJSON LineString (null in fallback)
             assumptions: { kmPerL, fuelPricePerL: pricePerL, note: "Estimate: fuel split by distance actually ridden, shared equally per leg." },
+            avoid: { requested: avoidRequested, applied: avoidApplied },
             driver: split.driver, riders: split.riders
         });
     }));
