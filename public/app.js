@@ -2948,6 +2948,11 @@ function showProfilePopup(u) {
 
     if (typeof initCallButton === "function") initCallButton(u);
 
+    // Phase 5: live relative-motion line (features.js keeps it fresh while open).
+    const pp = $("profile-popup");
+    if (pp) pp.dataset.friendId = u.id || "";
+    if (window.Phase5UI) window.Phase5UI.fillPopup(u.id);
+
     safeShow("profile-popup", "flex");
     const fb = $("profile-focus-btn");
     if (fb) fb.onclick = () => { if (validCoord(u.lat, u.lng)) map.flyTo([u.lat, u.lng], 16); safeHide("profile-popup"); };
