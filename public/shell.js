@@ -3,9 +3,9 @@
 /* ============================================================================
    MapUnite UI shell — shell.js
    ==============================================================================
-   Loaded BEFORE app.js / features.js. Owns everything that is presentation
+   Loaded BEFORE the app scripts (js/*.js). Owns everything that is presentation
    plumbing so the HTML needs no inline scripts (CSP-safe) and app logic can
-   stay in app.js / features.js:
+   stay in the app scripts (js/*.js):
 
      1. Service-worker registration      (the ONLY place that registers /sw.js)
      2. StatusIsland                     priority-aware adaptive status capsule
@@ -13,7 +13,7 @@
                                          data-open / data-close / data-action,
                                          popovers, viewport-height variable
 
-   Public API (stable contract for app.js / features.js):
+   Public API (stable contract for the app scripts in js/):
      StatusIsland.show({ id, kind, title, sub, icon, meta, priority, ttl,
                          sticky, action:{label,onClick}, haptic })   -> id
      StatusIsland.hide(id)          StatusIsland.clear(kind?)
