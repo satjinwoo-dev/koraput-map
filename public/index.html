@@ -625,6 +625,11 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 }
 #compass-btn[aria-pressed="true"] { background: rgba(52,224,180,.16); color: var(--mint); }
 
+/* ---------- 9c1. Route options (roadmap Section 4) ---------- */
+.route-avoid-note { display: inline-block; margin-top: 4px; font-size: 12px; font-weight: 700; color: #065f46; }
+.carpool-avoid { margin-top: 6px; font-size: 12px; color: var(--soft); }
+.carpool-avoid.warn { color: var(--c-warn); }
+
 /* ---------- 9c2. Fuel-aware meetup (roadmap Section 11) ---------- */
 .meetup-fuel-note { font-size: 12px; line-height: 1.45; color: var(--soft); background: rgba(255,255,255,.05); border-radius: 12px; padding: 8px 10px; margin-bottom: 8px; }
 .meetup-fuel-split { margin-top: 3px; font-size: 11.5px; color: var(--muted); }
@@ -850,6 +855,20 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
       </div>
       <p class="field-hint" id="voice-support-hint">Tap the microphone on the map or in navigation and say “help” to hear the commands.</p>
       <button id="voice-test-btn" type="button" class="btn-secondary-nav btn-block">🔊 Test voice</button>
+    </div>
+
+    <!-- Route options (roadmap Section 4): app.js RoutePrefs -->
+    <div class="form-section">
+      <h3><svg class="i sm" style="width:13px;height:13px;vertical-align:-2px;"><use href="#i-turn"/></svg> Route options</h3>
+      <div class="modal-row">
+        <label for="avoid-highways-toggle">Avoid highways</label>
+        <input type="checkbox" id="avoid-highways-toggle" class="switch">
+      </div>
+      <div class="modal-row">
+        <label for="avoid-tolls-toggle">Avoid tolls</label>
+        <input type="checkbox" id="avoid-tolls-toggle" class="switch">
+      </div>
+      <p class="field-hint">Used for every route this phone draws — search, navigation and its reroutes, “navigate to” by voice, group trip and meetup routes — and for carpools you drive. Choosing a meetup point still compares everyone on normal roads. On the free map router, “highways” means motorways/expressways; most national highways aren’t marked as motorways there, so they can still be used. Search routes use Google’s broader definition. If no route can avoid them, you’re told and get the normal route. You can also say “avoid tolls”.</p>
     </div>
 
     <!-- Phase 3: convoy intelligence (features.js ConvoyIntelligence) -->
@@ -1211,7 +1230,7 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyASbmXgn0T-B4AQdCe1sp7dfJbDXKgDw5c&libraries=places&loading=async"></script>
 <script src="/shell.js"></script>
-<script src="app.js?v=20260930-fuelmeet"></script>
-<script src="features.js?v=20260930-fuelmeet"></script>
+<script src="app.js?v=20260930-routeopts"></script>
+<script src="features.js?v=20260930-routeopts"></script>
 </body>
 </html>
