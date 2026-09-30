@@ -1,0 +1,11 @@
+<!--
+  MapUnite — add these inside <resources> in
+  android/app/src/main/res/values/strings.xml (keep the existing app_name etc.).
+  They style the notification shown while location is shared in the background.
+  Create the icon first: Android Studio → right-click res → New → Image Asset →
+  Icon type "Notification Icons", name ic_stat_mapunite (a white, transparent
+  shape — a full-colour launcher icon shows as a grey square).
+-->
+<string name="capacitor_background_geolocation_notification_channel_name">Ride sharing</string>
+<string name="capacitor_background_geolocation_notification_icon">drawable/ic_stat_mapunite</string>
+<string name="capacitor_background_geolocation_notification_color">#34E0B4</string>

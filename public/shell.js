@@ -61,6 +61,8 @@
 
         function boot() {
             if (!("serviceWorker" in navigator) || window.__muSwBooted) return;
+            // Android app: the pages are bundled into the app — no service worker.
+            if (window.MU_SERVER_ORIGIN) return;
             window.__muSwBooted = true;
 
             // A reload on controllerchange is right ONLY for an update. The very

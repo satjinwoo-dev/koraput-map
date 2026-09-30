@@ -1,0 +1,24 @@
+{
+  "appId": "com.mapunite.app",
+  "appName": "MapUnite",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https",
+    "hostname": "localhost"
+  },
+  "android": {
+    "useLegacyBridge": true,
+    "allowMixedContent": false,
+    "webContentsDebuggingEnabled": false
+  },
+  "plugins": {
+    "BluetoothLe": {
+      "displayStrings": {
+        "scanning": "Looking for your radio…",
+        "cancel": "Cancel",
+        "availableDevices": "Meshtastic radios nearby",
+        "noDeviceFound": "No radio found — is it switched on and in pairing range?"
+      }
+    }
+  }
+}

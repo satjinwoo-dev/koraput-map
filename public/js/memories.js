@@ -75,8 +75,9 @@ function setupMemoriesSafe() {
         });
     }
     const memoriesChanged = () => document.dispatchEvent(new CustomEvent("mu:memories-changed", { detail: { count: memories.size } }));
-    socket.on("loadMemoryPhotos", l => { memories.clear(); l.forEach(m => memories.set(m.id, m)); renderPins(); memoriesChanged(); });
-    socket.on("newMemoryPin", m => { memories.set(m.id, m); renderPins(); const pmo = $("phase3-memory-overlay"); if (pmo && pmo.style.display === "block") renderMemGallery(); memoriesChanged(); });
+    // serverUrl(): photo links are /media/… on the server — absolute in the Android app.
+    socket.on("loadMemoryPhotos", l => { memories.clear(); l.forEach(m => memories.set(m.id, { ...m, image: serverUrl(m.image) })); renderPins(); memoriesChanged(); });
+    socket.on("newMemoryPin", m => { m = { ...m, image: serverUrl(m.image) }; memories.set(m.id, m); renderPins(); const pmo = $("phase3-memory-overlay"); if (pmo && pmo.style.display === "block") renderMemGallery(); memoriesChanged(); });
     socket.on("memoryRejected", (d) => showToast(d?.reason === "type-mismatch" ? "📸 That file isn't a photo we can pin." : d?.reason === "too-large" ? "📸 Photo too large to pin." : "📸 Couldn't pin that memory — try again.", 4000));
     // The heatmap opens a memory with the same viewer the gallery uses.
     window.MemoryUI = { open: openViewer, closeGallery: () => safeHide("phase3-memory-overlay") };

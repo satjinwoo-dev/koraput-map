@@ -1,0 +1,41 @@
+<!--
+  MapUnite — add these to android/app/src/main/AndroidManifest.xml, inside
+  <manifest> and ABOVE <application>. The plugins merge their own entries
+  automatically (background location: ACCESS_FINE/COARSE_LOCATION,
+  FOREGROUND_SERVICE, FOREGROUND_SERVICE_LOCATION, POST_NOTIFICATIONS,
+  WAKE_LOCK and the location foreground service; bluetooth-le:
+  BLUETOOTH_SCAN, BLUETOOTH_CONNECT and the pre-Android-12 BLUETOOTH /
+  BLUETOOTH_ADMIN). These are the ones only MapUnite itself needs.
+
+  Deliberately NOT added: ACCESS_BACKGROUND_LOCATION. Background sharing
+  runs as a foreground service started while the app is open (during a
+  ride or trip), which Android allows with the normal "while using the app"
+  location permission — and it avoids Google Play's strict background-
+  location review.
+-->
+
+<!-- Bluetooth "peripheral": advertise the per-trip proximity beacon (Android 12+ runtime "Nearby devices") -->
+<uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
+
+<!-- Voice calls, voice squad and voice commands (WebRTC / speech recognition), dashcam -->
+<uses-permission android:name="android.permission.RECORD_AUDIO" />
+<uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+<uses-permission android:name="android.permission.CAMERA" />
+
+<!-- Haptic feedback on alerts (navigator.vibrate) -->
+<uses-permission android:name="android.permission.VIBRATE" />
+
+<!-- Speech recognition: lets Android find the system recognizer on Android 11+ -->
+<queries>
+    <intent>
+        <action android:name="android.speech.RecognitionService" />
+    </intent>
+    <intent>
+        <action android:name="android.intent.action.TTS_SERVICE" />
+    </intent>
+</queries>
+
+<!-- Features the app can live without (keeps the Play Store from hiding it on phones that lack them) -->
+<uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
+<uses-feature android:name="android.hardware.camera" android:required="false" />
+<uses-feature android:name="android.hardware.microphone" android:required="false" />

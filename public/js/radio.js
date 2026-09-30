@@ -124,6 +124,9 @@ const P2PRadar = {
         const list = document.getElementById("peer-list");
         const radio = this.viaRadio();
         const net = this.nearbyViaNetwork().filter((n) => !radio.some((r) => r.name === n.name));
+        // Android app only: trip-mates whose phones are within Bluetooth range
+        // (js/native/bridge.js NativeProximity — phones advertise a per-trip id).
+        const ble = window.NativeProximity ? window.NativeProximity.list() : [];
         if (list) {
             list.textContent = "";
             const add = (cls, text) => { const li = document.createElement("li"); li.className = cls; li.textContent = text; list.appendChild(li); };
@@ -137,7 +140,8 @@ const P2PRadar = {
                 const mo = Phase5UI.motionFor(n.id);
                 add("peer network", `📶 ${n.name}${n.est ? " (estimated)" : ""} — ${n.km.toFixed(1)} km ${n.bearing} · via network${mo ? ` · ${mo.text}` : ""}`);
             });
-            if (!radio.length && !net.length) add("peer empty", MeshtasticLink.state === "ready" ? "No riders heard on the radio yet." : "No riders nearby.");
+            ble.forEach((p) => add("peer ble", `📡 ${p.name} — ${p.label} · Bluetooth, ${agoText(p.at)}`));
+            if (!radio.length && !net.length && !ble.length) add("peer empty", MeshtasticLink.state === "ready" ? "No riders heard on the radio yet." : "No riders nearby.");
         }
         this.drawCanvas(radio.concat(net));
     },

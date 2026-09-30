@@ -596,6 +596,9 @@ function startGPS() {
         if (typeof triggerGroupRouteUpdate === 'function') triggerGroupRouteUpdate();
         if (typeof GroupNavigation !== 'undefined') GroupNavigation.onLiveUpdate();
     };
+    // Android app: fixes from the native background-location service enter
+    // the same pipeline while the WebView's own GPS is paused (js/native/bridge.js).
+    window.__muProcessLocation = processLocation;
 
     let lastGpsErrorToast = 0;
     const handleGpsError = (e) => {

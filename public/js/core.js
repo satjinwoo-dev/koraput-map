@@ -188,7 +188,14 @@ const OSRM_BASE = typeof MU_CONFIG.osrmBase === "string" && /^https?:\/\//.test(
 // autoConnect: false — the app is split into several script files, and
 // boot.js (loaded last) calls socket.connect() once every file has run, so
 // no server event can reach a handler whose module isn't loaded yet.
-const socket = io({ transports: Array.isArray(MU_CONFIG.socketTransports) && MU_CONFIG.socketTransports.length ? MU_CONFIG.socketTransports : ["websocket", "polling"], autoConnect: false });
+// Android app (Capacitor): the pages are bundled and served from
+// https://localhost, so the server's own address comes from the native build
+// (scripts/build-native.mjs sets window.MU_SERVER_ORIGIN). Empty on the web.
+const MU_SERVER_ORIGIN = typeof window.MU_SERVER_ORIGIN === "string" && /^https?:\/\/[^/\s]+$/.test(window.MU_SERVER_ORIGIN) ? window.MU_SERVER_ORIGIN : "";
+const socketOptions = { transports: Array.isArray(MU_CONFIG.socketTransports) && MU_CONFIG.socketTransports.length ? MU_CONFIG.socketTransports : ["websocket", "polling"], autoConnect: false };
+const socket = MU_SERVER_ORIGIN ? io(MU_SERVER_ORIGIN, socketOptions) : io(socketOptions);
+// Server-relative links (/media/…) resolved against the server in the app.
+function serverUrl(u) { return MU_SERVER_ORIGIN && typeof u === "string" && u.startsWith("/media/") ? MU_SERVER_ORIGIN + u : u; }
 const DEFAULT_CENTER = [22.2475, 84.8828];
 const DEFAULT_AVATAR = "satyam.png";
 const MAX_NAME = 40;

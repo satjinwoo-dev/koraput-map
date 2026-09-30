@@ -85,7 +85,12 @@ function setupChatSafe() {
     // by the device's ownerKey (stable), not the socket id (new every reconnect).
     const isMine = (m) => m.senderId === socket.id || Boolean(m.senderKey && myOwnerKey && m.senderKey === myOwnerKey);
     // Attachments are server URLs (/media/chat/…); older ones may be data-URLs.
-    const safeMediaSrc = (v) => (typeof v === "string" && (/^\/media\/chat\/[0-9a-f-]{36}\.[a-z0-9]{2,5}$/.test(v) || /^data:(image|video|audio|application|text)\/[a-z0-9.+-]+(;[a-z0-9=._+-]+)*;base64,/i.test(v)) ? v : "");
+    // In the Android app they're resolved against the server (serverUrl).
+    const safeMediaSrc = (v) => {
+        if (typeof v !== "string") return "";
+        if (/^\/media\/chat\/[0-9a-f-]{36}\.[a-z0-9]{2,5}$/.test(v)) return serverUrl(v);
+        return /^data:(image|video|audio|application|text)\/[a-z0-9.+-]+(;[a-z0-9=._+-]+)*;base64,/i.test(v) ? v : "";
+    };
 
     function renderMsg(m) {
         if (msgStore.has(m.id)) return;
