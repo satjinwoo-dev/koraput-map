@@ -293,6 +293,12 @@ body:has(#premium-nav-ui[style*="block"]) #toast-container { bottom: calc(250px 
 .speed-dial.warn { border-color: var(--c-warn); color: var(--c-warn); background: rgba(255,176,32,.14); transform: scale(1.05); }
 .speed-dial.danger { border-color: var(--c-danger); color: var(--c-danger); background: rgba(255,69,58,.18); transform: scale(1.08); }
 .speed-dial.lowconf { border-style: dashed; opacity: .78; }
+.speed-dial.over { border-color: #e53935; }
+/* Posted-limit sign: the familiar white disc with a red ring, above the speed dial. */
+.speed-limit-sign { position: fixed; left: 26px; bottom: calc(292px + var(--safe-b)); z-index: var(--z-nav); width: 48px; height: 48px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; background: #fff; border: 5px solid #e53935; box-shadow: var(--elev-2);
+  color: #0b0b0b; font-family: var(--font-display); font-weight: 800; font-size: 17px; font-variant-numeric: tabular-nums; }
+.speed-limit-sign[hidden] { display: none; }
 
 .nav-bottom-sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: var(--z-nav); display: flex; flex-direction: column; gap: 14px;
   padding: 16px 16px calc(16px + var(--safe-b)); border-radius: 28px 28px 0 0; animation: sheetUp var(--dur-slow) var(--ease-spring);
@@ -821,6 +827,8 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
         <div class="turn-then on"><span id="nav-step-text"></span> <span id="nav-step-dist" style="color:var(--muted);"></span></div>
       </div>
     </div>
+    <!-- Posted limit for the road you're on (app.js SpeedLimits, OpenStreetMap) -->
+    <div class="speed-limit-sign" id="speed-limit-sign" role="img" aria-label="" hidden><span id="speed-limit-n"></span></div>
     <div class="speed-dial" id="speed-dial">
       <div class="n" id="speed-n">0</div>
       <div class="u">KM/H</div>
@@ -871,6 +879,16 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
       <span>Mileage (km/L)</span>
       <input type="number" id="fuel-input-val" class="num-input" value="18" min="1" max="100">
     </div>
+    <div class="modal-row">
+      <label for="speed-limits-toggle">Road speed limits</label>
+      <input type="checkbox" id="speed-limits-toggle" class="switch" checked>
+    </div>
+    <p class="field-hint">Uses the posted limit from OpenStreetMap for the road you’re on, where it’s mapped, so a 30 or 40 zone warns you early. It only ever makes alerts earlier — the usual 60 / 80 / 100 km/h alerts still apply everywhere. Map data can be missing or out of date: road signs always win.</p>
+    <div class="modal-row">
+      <label for="gps-saver-toggle">Battery saver when parked</label>
+      <input type="checkbox" id="gps-saver-toggle" class="switch" checked>
+    </div>
+    <p class="field-hint">After 3 minutes standing still (never while navigating), GPS drops to low-power location. Your squad still sees you — your position is re-sent every minute — and full GPS comes back as soon as you move or open the app.</p>
     <div style="margin-top:14px;">
       <span style="font-size:13px;color:var(--soft);">Live Speed Graph</span>
       <canvas id="speed-graph-canvas"></canvas>
@@ -1287,7 +1305,7 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyASbmXgn0T-B4AQdCe1sp7dfJbDXKgDw5c&libraries=places&loading=async"></script>
 <script src="/shell.js"></script>
-<script src="app.js?v=20260930-memheat"></script>
-<script src="features.js?v=20260930-memheat"></script>
+<script src="app.js?v=20260930-gpspower"></script>
+<script src="features.js?v=20260930-gpspower"></script>
 </body>
 </html>
