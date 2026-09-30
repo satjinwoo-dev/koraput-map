@@ -9,7 +9,7 @@
        produces the same cache state.
      * Consistent app version: HTML / JS / CSS are NETWORK-FIRST (fresh when
        online, cached when offline). They are never served stale while online,
-       so a new index.html can never run against an old app.js.
+       so a new index.html can never run against old app scripts.
      * A new worker WAITS until the page asks it to take over (SKIP_WAITING
        message) so an update never swaps code under a driver mid-trip.
      * Map tiles use a separate, size-capped cache that survives releases.
@@ -18,16 +18,45 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-09-30.10";          // Trip panel: each rider at their own km/L (app.js / index.html changed)
+const VERSION = "mu-2026-09-30.12";          // Batch 2: app split into js/*.js, config.js, media cache
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
+// Memory photos + chat images (/media/…): file names are unique and never
+// change, so cache-first, size-capped, and kept across releases. Audio/video
+// (byte-range requests) always go to the network.
+const MEDIA_CACHE = "mapunite-media-v1";
+const MEDIA_CACHE_MAX_ENTRIES = 300;
 const NETWORK_TIMEOUT_MS = 4000;
 
 const SHELL_INDEX = "/index.html";
 const REQUIRED_PRECACHE = [SHELL_INDEX];       // install FAILS (and retries) without these
+// The app scripts (js/*.js, in index.html's load order) and /config.js,
+// which the server generates (routing server, transports).
+const APP_SCRIPTS = [
+    "/js/core.js",
+    "/js/voice.js",
+    "/js/gps.js",
+    "/js/navigation.js",
+    "/js/smartdrive.js",
+    "/js/groupnav.js",
+    "/js/privacy.js",
+    "/js/analytics.js",
+    "/js/deadreckoning.js",
+    "/js/presence.js",
+    "/js/controls.js",
+    "/js/chat.js",
+    "/js/memories.js",
+    "/js/calls.js",
+    "/js/sos.js",
+    "/js/pwa.js",
+    "/js/skunkworks.js",
+    "/js/radio.js",
+    "/js/convoy.js",
+    "/js/boot.js"
+];
 const OPTIONAL_PRECACHE = [
-    "/app.js", "/features.js", "/shell.js", "/manifest.json",
+    ...APP_SCRIPTS, "/config.js", "/shell.js", "/manifest.json",
     "/icon-192.png", "/icon-512.png", "/icon-maskable-512.png", "/satyam.png"
 ];
 // Third-party assets the shell needs to render offline (pinned versions).
@@ -43,7 +72,7 @@ const CDN_HOST_RE = /^(unpkg\.com|cdn\.jsdelivr\.net|fonts\.googleapis\.com|font
 // -------------------------------------------------------------------------
 // helpers
 // -------------------------------------------------------------------------
-// Cache keys ignore the query string so app.js?v=... and app.js share one entry.
+// Cache keys ignore the query string so js/core.js?v=... and js/core.js share one entry.
 function shellKey(url) {
     const u = new URL(url, self.location.origin);
     if (u.origin !== self.location.origin) return u.href;
@@ -111,7 +140,7 @@ self.addEventListener("activate", (event) => {
     event.waitUntil((async () => {
         const names = await caches.keys();
         await Promise.all(names
-            .filter((n) => n.startsWith("mapunite-") && n !== SHELL_CACHE && n !== TILE_CACHE)
+            .filter((n) => n.startsWith("mapunite-") && n !== SHELL_CACHE && n !== TILE_CACHE && n !== MEDIA_CACHE)
             .map((n) => caches.delete(n)));
         if (self.registration.navigationPreload) {
             try { await self.registration.navigationPreload.enable(); } catch { /* unsupported */ }
@@ -133,6 +162,11 @@ self.addEventListener("fetch", (event) => {
     if (url.origin === self.location.origin) {
         if (NEVER_INTERCEPT_PATHS.some((p) => url.pathname.startsWith(p))) return;
         if (url.pathname === "/sw.js") return;
+        if (url.pathname.startsWith("/media/")) {
+            if (req.headers.has("range") || req.destination === "video" || req.destination === "audio") return;
+            event.respondWith(mediaHandler(event, req));
+            return;
+        }
 
         if (req.mode === "navigate") {
             // Only the SPA shell is handled; anything else navigates normally.
@@ -158,6 +192,17 @@ self.addEventListener("fetch", (event) => {
     }
     // Everything else (Google Maps JS, OSRM, weather, geocoders): straight to network.
 });
+
+async function mediaHandler(event, req) {
+    const cache = await caches.open(MEDIA_CACHE);
+    const hit = await cache.match(req.url);
+    if (hit) return hit;
+    const res = await fetch(req);
+    if (res && res.ok && res.status === 200) {
+        event.waitUntil(cache.put(req.url, res.clone()).then(() => trimCache(MEDIA_CACHE, MEDIA_CACHE_MAX_ENTRIES)).catch(() => { }));
+    }
+    return res;
+}
 
 async function handleNavigation(event) {
     const cache = await caches.open(SHELL_CACHE);
