@@ -18,7 +18,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-09-30.9";           // Battery saver when parked (app.js / index.html changed)
+const VERSION = "mu-2026-09-30.10";          // Trip panel: each rider at their own km/L (app.js / index.html changed)
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
