@@ -901,6 +901,7 @@ const SmartDrive = {
         try { stated = localStorage.getItem("sd_mileage") !== null ? this.baseMileage : null; } catch (e) { /* storage blocked */ }
         const kmPerL = Number.isFinite(stated) && stated >= 1 && stated <= 100 ? stated : null;
         if (socket && socket.connected) socket.emit("setMileage", { kmPerL });
+        if (typeof currentTrip !== "undefined" && currentTrip) updateTripPanel();   // my own row re-costs at once
     },
 
     async requestWakeLock() {
@@ -1269,6 +1270,57 @@ const GroupNavigation = {
 let groupRouteUpdateTimer = null;
 let isFetchingGroupRoutes = false;
 
+// ---- Trip fuel: every rider costed at their OWN km/L -----------------------
+// The server sends each trip member's stated km/L to the trip's members only
+// ("tripFuelProfiles"). Each rider's road leg is costed with the same model the
+// live ride and the fuel-aware meetup use: rated km/L, worse below 40 km/h
+// (stop-start) and above 60 km/h (drag), judged by the leg's average speed.
+// A rider who never set a km/L is costed at the default and marked "*"; a
+// rider in a Walk session burns nothing. Until profiles arrive, friends are
+// shown at the default (marked) — never at YOUR km/L.
+const TripFuel = {
+    profiles: {}, tripId: null, defaultKmPerL: 18,
+
+    legL(distanceM, durationSec, kmPerL) {
+        if (!Number.isFinite(distanceM) || distanceM <= 0 || !Number.isFinite(kmPerL) || kmPerL <= 0) return 0;
+        const km = distanceM / 1000;
+        const v = Number.isFinite(durationSec) && durationSec > 0 ? km / (durationSec / 3600) : 40;
+        let eff = kmPerL;
+        if (v > 60) eff -= (v - 60) * 0.005 * kmPerL;
+        else if (v < 40) eff -= (40 - v) * 0.004 * kmPerL;
+        eff = Math.max(Math.min(5, kmPerL), eff);
+        return km / eff;
+    },
+
+    profileFor(id) {
+        if (typeof socket !== "undefined" && id === socket.id) {
+            const walking = (window.currentTravelMode || "bike") === "walk";
+            let stated = false;
+            try { stated = localStorage.getItem("sd_mileage") !== null; } catch (e) { /* storage blocked */ }
+            const km = stated && Number.isFinite(SmartDrive.baseMileage) && SmartDrive.baseMileage > 0 ? SmartDrive.baseMileage : this.defaultKmPerL;
+            return { kmPerL: walking ? null : km, assumed: !walking && !stated, walking };
+        }
+        const p = this.profiles[id];
+        if (p && (p.walking || Number.isFinite(p.kmPerL))) return { kmPerL: p.walking ? null : p.kmPerL, assumed: Boolean(p.assumed), walking: Boolean(p.walking) };
+        return { kmPerL: this.defaultKmPerL, assumed: true, walking: false };
+    },
+
+    // stats = tripRoadStats[id] ({ distM, durSec, ... }) -> { litres | null, profile }
+    fuelFor(id, stats) {
+        const profile = this.profileFor(id);
+        if (!stats || !Number.isFinite(stats.distM)) return { litres: null, profile };
+        return { litres: profile.walking ? 0 : this.legL(stats.distM, stats.durSec, profile.kmPerL), profile };
+    },
+
+    onProfiles(d) {
+        if (!d || typeof d.profiles !== "object" || d.profiles === null) return;
+        this.profiles = d.profiles;
+        this.tripId = d.tripId || null;
+        if (Number.isFinite(d.defaultKmPerL) && d.defaultKmPerL > 0) this.defaultKmPerL = d.defaultKmPerL;
+        updateTripPanel();
+    }
+};
+
 function triggerGroupRouteUpdate() {
     clearTimeout(groupRouteUpdateTimer);
     groupRouteUpdateTimer = setTimeout(() => updateGroupTripRoutes(), 1000);
@@ -1309,10 +1361,12 @@ async function updateGroupTripRoutes() {
 
                     const distKm = r.distance / 1000;
                     const timeMin = Math.max(1, Math.round(r.duration / 60));
-                    const mileage = SmartDrive.baseMileage || 18;
-                    const fuel = distKm / mileage;
-
-                    tripRoadStats[member.id] = { dist: distKm.toFixed(1), time: timeMin, fuel: fuel.toFixed(2), ts: Date.now() };
+                    // Raw metres/seconds kept so the fuel can be re-costed when a
+                    // rider's km/L arrives or changes, without re-routing.
+                    const stats = { dist: distKm.toFixed(1), time: timeMin, distM: r.distance, durSec: r.duration, ts: Date.now() };
+                    const f = TripFuel.fuelFor(member.id, stats);
+                    stats.fuel = f.litres === null ? '--' : f.litres.toFixed(2);
+                    tripRoadStats[member.id] = stats;
                 }
             } catch (e) { /* one member's fetch failing shouldn't stall the others */ }
         }
@@ -1332,18 +1386,30 @@ function updateTripPanel() {
     list.innerHTML = "";
 
     const isMember = currentTrip.members.some(m => m.id === socket.id);
-    let totalGroupFuel = 0;
+    let totalGroupFuel = 0, anyFuel = false;
+    const assumedNames = [];
     const avatarStyle = "width:32px; height:32px; border-radius:50%; object-fit:cover; vertical-align:middle; margin-right:8px; border:2px solid #34e0b4;";
+
+    // Each rider's fuel at THEIR km/L (TripFuel); "*" = no km/L set, default assumed.
+    const fuelCell = (id, name, stats) => {
+        const { litres, profile } = TripFuel.fuelFor(id, stats);
+        if (litres === null) return "⛽ -- L";
+        stats.fuel = litres.toFixed(2);
+        totalGroupFuel += litres; anyFuel = true;
+        if (profile.walking) return "🚶 no fuel";
+        if (profile.assumed) assumedNames.push(name);
+        return `⛽ ${litres.toFixed(2)} L${profile.assumed ? '<span class="fuel-assumed" title="No km/L set — default assumed">*</span>' : ""}`;
+    };
 
     if (myCoords && currentUser.name && isMember) {
         const stats = tripRoadStats[socket.id] || { dist: '--', time: '--', fuel: '--' };
-        if (stats.fuel !== '--') totalGroupFuel += Number(stats.fuel);
-        list.innerHTML += `<div class="trip-member" style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:8px;"><div><img src="${escapeHTML(currentUser.avatar)}" style="${avatarStyle}"> <b>You</b></div> <span style="text-align:right;">${stats.dist} km<br><small style="color:var(--muted)">${stats.time} min • ⛽ ${stats.fuel} L</small></span></div>`;
+        const fuel = fuelCell(socket.id, "You", stats);
+        list.innerHTML += `<div class="trip-member" style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:8px;"><div><img src="${escapeHTML(currentUser.avatar)}" style="${avatarStyle}"> <b>You</b></div> <span style="text-align:right;">${stats.dist} km<br><small style="color:var(--muted)">${stats.time} min • ${fuel}</small></span></div>`;
     }
 
     Object.values(friendData).filter(f => friendIsLive(f) && currentTrip.members.some(m => m.id === f.id)).forEach(f => {
         const stats = tripRoadStats[f.id] || { dist: '--', time: '--', fuel: '--' };
-        if (stats.fuel !== '--') totalGroupFuel += Number(stats.fuel);
+        const fuel = fuelCell(f.id, f.name, stats);
         // Phase 3: convoy badge (stopped / behind / off route / no signal) —
         // text + tone dot, never color alone.
         const badge = window.ConvoyIntelligence ? window.ConvoyIntelligence.badgeFor(f.id) : null;
@@ -1351,10 +1417,20 @@ function updateTripPanel() {
         // Phase 4: say HOW we know where they are when it isn't a live socket.
         if (f.online === false && f.via === "radio") badgeHtml += `<br><span class="chip warn" style="margin-top:4px;">📻 via radio · ${escapeHTML(agoText(f.fixAt || f.viaAt))}</span>`;
         else if (f.est) badgeHtml += `<br><span class="chip" style="margin-top:4px;">≈ estimated ±${escapeHTML(formatDistanceShort(f.accuracy || 0))}</span>`;
-        list.innerHTML += `<div class="trip-member" style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:8px;"><div><img src="${escapeHTML(f.avatar)}" style="${avatarStyle}"> ${escapeHTML(f.name)}${badgeHtml}</div> <span style="text-align:right;">${stats.dist} km<br><small style="color:var(--muted)">${stats.time} min • ⛽ ${stats.fuel} L</small></span></div>`;
+        list.innerHTML += `<div class="trip-member" style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:8px;"><div><img src="${escapeHTML(f.avatar)}" style="${avatarStyle}"> ${escapeHTML(f.name)}${badgeHtml}</div> <span style="text-align:right;">${stats.dist} km<br><small style="color:var(--muted)">${stats.time} min • ${fuel}</small></span></div>`;
     });
 
-    if (list.innerHTML) list.innerHTML += `<div style="border-top:1px solid #333;margin-top:6px;padding-top:8px;font-size:12px;color:var(--mint);">Estimated group fuel: ${totalGroupFuel.toFixed(2)} L</div>`;
+    // Total + how it's costed live OUTSIDE the scrolling member list (it was
+    // the list's last row, so it scrolled out of view with 3+ riders).
+    const summary = $("trip-fuel-summary");
+    const note = anyFuel
+        ? `Each rider at their own km/L, adjusted for average road speed — an estimate.${assumedNames.length ? ` * No km/L set for ${escapeHTML(assumedNames.join(", "))} — assumed ${TripFuel.defaultKmPerL} km/L.` : ""}`
+        : "";
+    const html = list.innerHTML
+        ? `<div id="trip-fuel-total">Estimated group fuel: ${totalGroupFuel.toFixed(2)} L</div>` + (note ? `<div id="trip-fuel-note" class="field-hint">${note}</div>` : "")
+        : "";
+    if (summary) summary.innerHTML = html;
+    else if (html) list.innerHTML += html;               // older index.html without the summary slot
 }
 
 // ============================================================================
@@ -3910,7 +3986,9 @@ function setupAdvancedToolsSafe() {
         const geoModal = $("geofence-list-modal"); if (geoModal && geoModal.style.display === "flex") renderGeofenceList();
     });
 
+    socket.on("tripFuelProfiles", (d) => TripFuel.onProfiles(d));
     socket.on("tripData", trip => {
+        if (!trip || !currentTrip || trip.id !== currentTrip.id) TripFuel.profiles = {};   // never carry one trip's profiles into another
         currentTrip = trip;
         if (tripMarker) { map.removeLayer(tripMarker); tripMarker = null; }
         if (trip) {
