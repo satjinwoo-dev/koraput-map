@@ -625,6 +625,38 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 }
 #compass-btn[aria-pressed="true"] { background: rgba(52,224,180,.16); color: var(--mint); }
 
+/* ---------- 9c0. Memory heatmap (roadmap Sections 4 + 28) ---------- */
+#map-style-menu .menu-sep { height: 1px; margin: 4px 6px; background: var(--line-strong); }
+#map-style-menu #mem-heat-toggle[aria-checked="true"] { color: var(--mint); background: rgba(52,224,180,.12); font-weight: 600; }
+#map-style-menu #mem-heat-toggle[aria-checked="true"]::after { content: " ✓"; }
+#mem-heat-panel { position: fixed; left: 12px; right: 84px; max-width: 420px; bottom: calc(84px + var(--safe-b)); z-index: var(--z-sheet);
+  display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 20px; animation: sheetUp var(--dur-slow) var(--ease-spring); }
+#mem-heat-panel[hidden] { display: none; }
+#mem-heat-panel .mh-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+#mem-heat-panel .mh-titles { display: flex; flex-direction: column; min-width: 0; }
+#mem-heat-panel .mh-titles strong { font-size: 14px; }
+#mem-heat-panel .mh-titles small { font-size: 12px; color: var(--soft); }
+#mem-heat-panel .close-modal { position: static; flex: none; }
+#mem-heat-panel .segmented button { height: 30px; font-size: 12.5px; }
+.mh-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 11.5px; color: var(--soft); }
+.mh-legend .mh-step { display: inline-flex; align-items: center; gap: 5px; }
+.mh-legend i { width: 14px; height: 14px; border-radius: 4px; display: inline-block; }
+.mh-legend .mh-unit { color: var(--muted); }
+#mem-heat-top summary { cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--soft); }
+#mem-heat-top ol { margin: 6px 0 0; padding-left: 20px; font-size: 12px; color: var(--soft); }
+#mem-heat-top li button { display: block; width: 100%; text-align: left; padding: 3px 0; color: var(--soft); font-size: 12px; }
+#mem-heat-top li button:hover { color: #fff; text-decoration: underline; }
+.mem-heat-cell { background: none; border: none; }
+.mem-heat-box { width: 100%; height: 100%; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; opacity: .92; }
+.mem-heat-cell.ring-dark .mem-heat-box, .mh-legend i.ring-dark { box-shadow: 0 0 0 2px rgba(255,255,255,.9); }
+.mem-heat-cell.ring-light .mem-heat-box, .mh-legend i.ring-light { box-shadow: 0 0 0 2px rgba(11,18,32,.85); }
+.mem-heat-cell:focus-visible .mem-heat-box { outline: 3px solid var(--mint); outline-offset: 3px; }
+.mem-heat-popup b { display: block; font-size: 12.5px; margin-bottom: 6px; color: #0b1220; }
+.mem-heat-thumbs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+.mem-heat-thumbs button { padding: 0; border-radius: 8px; overflow: hidden; aspect-ratio: 1; }
+.mem-heat-thumbs img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mem-heat-popup small { display: block; margin-top: 6px; color: #52514e; }
+
 /* ---------- 9c1. Route options (roadmap Section 4) ---------- */
 .route-avoid-note { display: inline-block; margin-top: 4px; font-size: 12px; font-weight: 700; color: #065f46; }
 .carpool-avoid { margin-top: 6px; font-size: 12px; color: var(--soft); }
@@ -766,6 +798,8 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
   <button data-style="street" type="button" role="menuitemradio" aria-checked="false">Street</button>
   <button data-style="dark" type="button" role="menuitemradio" aria-checked="false">Dark</button>
   <button data-style="terrain" type="button" role="menuitemradio" aria-checked="false">Terrain</button>
+  <div class="menu-sep" role="separator"></div>
+  <button id="mem-heat-toggle" type="button" role="menuitemcheckbox" aria-checked="false">Memory heatmap</button>
 </div>
 
 <!-- ACTIONS & BOTTOM INFO -->
@@ -965,6 +999,28 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 </div>
 
 <!-- PHASE 3: RIDE REPLAY LEGEND (text + swatch — never color alone) -->
+<!-- MEMORY HEATMAP controls + legend + table view (app.js MemoryHeatmap) -->
+<div id="mem-heat-panel" class="glass-strong" role="region" aria-label="Memory heatmap" hidden>
+  <div class="mh-head">
+    <div class="mh-titles"><strong>Memory heatmap</strong><small id="mem-heat-summary" aria-live="polite"></small></div>
+    <button id="mem-heat-close" class="close-modal" type="button" aria-label="Turn off memory heatmap"><svg class="i sm"><use href="#i-x"/></svg></button>
+  </div>
+  <div class="segmented" data-segment="memHeatRange" role="radiogroup" aria-label="Time range">
+    <button type="button" data-value="all" aria-pressed="true">All time</button>
+    <button type="button" data-value="year" aria-pressed="false">Past year</button>
+    <button type="button" data-value="month" aria-pressed="false">30 days</button>
+  </div>
+  <div class="segmented" data-segment="memHeatWho" role="radiogroup" aria-label="Whose memories">
+    <button type="button" data-value="all" aria-pressed="true">Everyone</button>
+    <button type="button" data-value="mine" aria-pressed="false">Mine</button>
+  </div>
+  <div id="mem-heat-legend" class="mh-legend" aria-label="Legend: memories per square"></div>
+  <details id="mem-heat-top" hidden>
+    <summary>Top areas</summary>
+    <ol id="mem-heat-top-list"></ol>
+  </details>
+</div>
+
 <div id="replay-legend" class="glass-strong" role="region" aria-label="Ride replay legend">
   <div class="rl-body">
     <div id="replay-title">Ride replay</div>
@@ -1062,6 +1118,7 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
       <div><h2>Memories</h2><small id="phase3-memory-count">0 memories</small></div>
       <div class="btn-row">
           <button id="p3-add-memory-btn" class="btn-primary-nav" type="button">+ Add Photo</button>
+          <button id="p3-heatmap-btn" class="btn-secondary-nav" type="button" title="Show where memories cluster on the map">Heatmap</button>
           <button id="phase3-memory-close" class="btn-secondary-nav" type="button" aria-label="Close"><svg class="i sm"><use href="#i-x"/></svg></button>
       </div>
     </div>
@@ -1230,7 +1287,7 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyASbmXgn0T-B4AQdCe1sp7dfJbDXKgDw5c&libraries=places&loading=async"></script>
 <script src="/shell.js"></script>
-<script src="app.js?v=20260930-routeopts"></script>
-<script src="features.js?v=20260930-routeopts"></script>
+<script src="app.js?v=20260930-memheat"></script>
+<script src="features.js?v=20260930-memheat"></script>
 </body>
 </html>
