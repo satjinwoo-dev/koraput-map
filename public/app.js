@@ -3224,6 +3224,182 @@ socket.on("geofenceAlert", (data) => {
     voiceAnnounce(`${data.user || "Someone"} ${action} ${data.fence || "a geofence"}.`, { priority: 40, key: `geo-${data.user}-${data.fence}-${data.type}`, cooldownMs: 60000, category: "hazard", drivingOnly: true });
 });
 
+// ============================================================================
+// GPS POWER — back off when parked (roadmap Section 24)
+// ============================================================================
+// The main GPS watch was always { enableHighAccuracy: true, maximumAge: 2 s }:
+// tuned for "always moving", paid for while parked at a chai stop too. After
+// PARK_AFTER_MS with every good fix inside a small circle (and no navigation,
+// tunnel estimate or pending SOS), the watch is swapped for a low-power one
+// (network location, 60 s maximumAge). Browsers can't change a watch's
+// options, so it's clearWatch + a new watchPosition.
+// While parked:
+//   - fixes consistent with standing still are absorbed (no marker jitter
+//     from coarse network fixes, no pointless broadcasts);
+//   - the squad still hears from us: the last good position is re-sent every
+//     HEARTBEAT_MS, well under the convoy's 3-minute "no signal" rule;
+//   - one high-accuracy fix every CHECK_EVERY_MS confirms we haven't moved.
+// Wakes to full power on: a fix that shows movement, sustained phone motion
+// (accelerometer, where the browser gives it without a prompt), a drive or
+// navigation starting, the app coming back to the foreground, or the setting
+// being turned off.
+const GpsPower = {
+    KEY: "mu_gps_saver",
+    enabled: true,
+    mode: "high",
+    HIGH_OPTS: { enableHighAccuracy: true, timeout: 15000, maximumAge: 2000 },
+    LOW_OPTS: { enableHighAccuracy: false, timeout: 60000, maximumAge: 60000 },
+    PARK_AFTER_MS: 180000, PARK_RADIUS_M: 30, MOVE_MIN_M: 60,
+    HEARTBEAT_MS: 60000, CHECK_EVERY_MS: 600000,
+    MOTION_RMS: 1.2, MOTION_SUSTAIN_MS: 2500,
+    watchId: null, onFix: null, onErr: null,
+    still: null,                 // { lat, lng, acc, since } — where we've been standing
+    parkedAt: 0, heartbeatTimer: null, checkTimer: null,
+    motion: { samples: [], above: 0 }, motionHandler: null,
+    stats: { parks: 0, wakes: {}, absorbed: 0, heartbeats: 0, checks: 0 },
+
+    init() {
+        try { this.enabled = localStorage.getItem(this.KEY) !== "0"; } catch (e) { /* default on */ }
+        const t = $("gps-saver-toggle");
+        if (t) {
+            t.checked = this.enabled;
+            t.addEventListener("change", () => {
+                this.enabled = t.checked;
+                try { localStorage.setItem(this.KEY, this.enabled ? "1" : "0"); } catch (e) { /* ignore */ }
+                if (!this.enabled) this.wake("setting-off");
+            });
+        }
+        document.addEventListener("mu:drive-state", (e) => { if (e.detail && (e.detail.driving || e.detail.navigating)) this.wake("drive"); });
+        document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") this.wake("foreground"); });
+    },
+
+    // startGPS() hands over its callbacks; this owns the main watch from then on.
+    start(onFix, onErr) {
+        this.onFix = onFix; this.onErr = onErr;
+        this.watch(this.HIGH_OPTS);
+    },
+    watch(opts) {
+        if (!navigator.geolocation) return;
+        if (this.watchId !== null) navigator.geolocation.clearWatch(this.watchId);
+        this.watchId = navigator.geolocation.watchPosition(this.onFix, this.onErr, opts);
+    },
+
+    allowed() {
+        if (!this.enabled) return false;
+        if (typeof navState !== "undefined" && navState.active) return false;
+        if (typeof DeadReckoning !== "undefined" && DeadReckoning.core && DeadReckoning.core.active()) return false;
+        if (typeof pendingSos !== "undefined" && pendingSos) return false;
+        return true;
+    },
+
+    // Every ACCEPTED fix in full-power mode: are we still standing in one place?
+    // Position decides, not derived speed: standing still, a few metres of
+    // jitter per fix reads as 2–6 km/h once turned into a speed. Only the
+    // device's OWN speed report (Doppler) counts as "moving" on its own.
+    note({ lat, lng, accuracyM, deviceSpeedKmh }) {
+        if (this.mode !== "high") return;
+        const now = Date.now();
+        const r = Math.max(this.PARK_RADIUS_M, Math.min(60, 1.5 * (accuracyM || 0)));
+        if (!this.still || GpsFilter.metres(this.still.lat, this.still.lng, lat, lng) > r || deviceSpeedKmh > 5) {
+            this.still = { lat, lng, acc: accuracyM, since: now };
+            return;
+        }
+        if (now - this.still.since >= this.PARK_AFTER_MS && this.allowed()) this.park();
+    },
+
+    park() {
+        if (this.mode === "low") return;
+        this.mode = "low";
+        this.parkedAt = Date.now();
+        this.stats.parks++;
+        this.watch(this.LOW_OPTS);
+        this.heartbeatTimer = setInterval(() => this.heartbeat(), this.HEARTBEAT_MS);
+        this.checkTimer = setInterval(() => this.check(), this.CHECK_EVERY_MS);
+        this.listenMotion(true);
+        if (window.StatusIsland) window.StatusIsland.setIdle({ text: "Parked · saving battery", tone: "ok" });
+        islandShow({ id: "gps-power", kind: "safe", icon: "🅿️", title: "Parked — GPS saving battery", sub: "Full GPS comes back as soon as you move", ttl: 3500, haptic: false });
+        document.dispatchEvent(new CustomEvent("mu:gps-power", { detail: { mode: "low" } }));
+    },
+
+    wake(reason) {
+        if (this.mode === "high") { if (this.still) this.still.since = Date.now(); return; }
+        this.mode = "high";
+        this.stats.wakes[reason] = (this.stats.wakes[reason] || 0) + 1;
+        clearInterval(this.heartbeatTimer); clearInterval(this.checkTimer);
+        this.heartbeatTimer = this.checkTimer = null;
+        this.listenMotion(false);
+        this.still = null;                            // must stand still a full PARK_AFTER_MS again
+        this.watch(this.HIGH_OPTS);
+        if (window.StatusIsland) window.StatusIsland.setIdle({ text: navigator.onLine === false ? "Offline" : "Live", tone: navigator.onLine === false ? "warn" : "ok" });
+        document.dispatchEvent(new CustomEvent("mu:gps-power", { detail: { mode: "high", reason } }));
+    },
+
+    // Parked: does this (probably coarse) fix say we've moved? If not, swallow it.
+    absorb(p) {
+        if (this.mode !== "low" || !this.still || !p || !p.coords) return false;
+        const lat = Number(p.coords.latitude), lng = Number(p.coords.longitude), acc = Number(p.coords.accuracy);
+        if (!validCoord(lat, lng)) return true;
+        const d = GpsFilter.metres(this.still.lat, this.still.lng, lat, lng);
+        const speedKmh = p.coords.speed != null && p.coords.speed > 0 ? p.coords.speed * 3.6 : 0;
+        // Moved = beyond the fix's own uncertainty (and a floor for Wi-Fi jitter), or a real speed.
+        if (d > Math.max(this.MOVE_MIN_M, 1.5 * (Number.isFinite(acc) ? acc : 100)) || speedKmh > 8) {
+            this.wake("moved");
+            return false;                             // let this fix through: it's news
+        }
+        this.stats.absorbed++;
+        return true;
+    },
+
+    // Keep the squad's convoy view fed (their "no signal" flag trips at 3 min).
+    heartbeat() {
+        if (this.mode !== "low" || typeof socket === "undefined" || !socket.connected || !myCoords || myCoords.est) return;
+        this.stats.heartbeats++;
+        socket.emit("updateLocation", { lat: myCoords.lat, lng: myCoords.lng, alt: myCoords.alt ?? null, speedKmh: 0, accuracy: this.still ? this.still.acc : null, weather: myWeather });
+    },
+
+    // One precise fix now and then: parked-but-drifted (towed, pushed, walked
+    // off without the phone moving much) shouldn't go unnoticed for long.
+    check() {
+        if (this.mode !== "low" || !navigator.geolocation) return;
+        this.stats.checks++;
+        navigator.geolocation.getCurrentPosition((p) => {
+            if (this.mode !== "low") return;
+            const lat = Number(p.coords.latitude), lng = Number(p.coords.longitude), acc = Number(p.coords.accuracy);
+            if (!validCoord(lat, lng) || !this.still) return;
+            if (GpsFilter.metres(this.still.lat, this.still.lng, lat, lng) > Math.max(this.MOVE_MIN_M, 1.5 * acc)) {
+                this.wake("check-moved");
+                if (this.onFix) this.onFix(p);
+            }
+        }, () => { /* no precise fix right now — the low-power watch still runs */ }, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
+    },
+
+    // Sustained acceleration (RMS of |a| minus gravity over ~2.5 s) = moving.
+    listenMotion(on) {
+        if (on) {
+            if (this.motionHandler || typeof window.DeviceMotionEvent === "undefined") return;
+            this.motion = { samples: [], above: 0 };
+            this.motionHandler = (e) => {
+                const a = e.acceleration && Number.isFinite(e.acceleration.x) ? e.acceleration : null;
+                const g = e.accelerationIncludingGravity;
+                let mag;
+                if (a) mag = Math.hypot(a.x || 0, a.y || 0, a.z || 0);
+                else if (g && Number.isFinite(g.x)) mag = Math.abs(Math.hypot(g.x || 0, g.y || 0, g.z || 0) - 9.81);
+                else return;
+                const now = Date.now(), m = this.motion;
+                m.samples.push({ t: now, v: mag });
+                while (m.samples.length && now - m.samples[0].t > 1000) m.samples.shift();
+                const rms = Math.sqrt(m.samples.reduce((acc2, x) => acc2 + x.v * x.v, 0) / m.samples.length);
+                if (rms > this.MOTION_RMS) { if (!m.above) m.above = now; else if (now - m.above >= this.MOTION_SUSTAIN_MS) this.wake("motion"); }
+                else m.above = 0;
+            };
+            window.addEventListener("devicemotion", this.motionHandler);
+        } else if (this.motionHandler) {
+            window.removeEventListener("devicemotion", this.motionHandler);
+            this.motionHandler = null;
+        }
+    }
+};
+
 function startGPS() {
     if (!navigator.geolocation) {
         showToast("❌ Browser does not support GPS");
@@ -3234,6 +3410,8 @@ function startGPS() {
         // Phase 4: during a GPS outage a coarse network fix is absorbed by the
         // dead-reckoning estimate instead of yanking the marker ~1 km away.
         if (DeadReckoning.onGpsFix(p) === "suppress") return;
+        // Parked (low-power GPS): a coarse fix that doesn't show movement changes nothing.
+        if (GpsPower.absorb(p)) return;
         const lat = Number(p.coords.latitude), lng = Number(p.coords.longitude), acc = Number(p.coords.accuracy);
         const alt = p.coords.altitude ? Math.round(p.coords.altitude) : null;
         if (!validCoord(lat, lng)) return;
@@ -3309,6 +3487,7 @@ function startGPS() {
 
         // Which road am I on, and its posted limit (OpenStreetMap)? Accepted
         // fixes only — a weak fix could snap to the wrong road.
+        if (fix.accepted) GpsPower.note({ lat, lng, accuracyM: acc, deviceSpeedKmh: p.coords.speed != null && p.coords.speed > 0 ? p.coords.speed * 3.6 : 0 });
         if (fix.accepted) SpeedLimits.onFix({ lat, lng, speedKmh: fix.smoothedKmh, accuracyM: acc, headingDeg: p.coords.heading == null ? NaN : Number(p.coords.heading) });
         // The verdict carries the real accuracy/dt/distance from the last GOOD fix.
         SmartDrive.tick(fix);
@@ -3334,7 +3513,8 @@ function startGPS() {
     };
 
     navigator.geolocation.getCurrentPosition(processLocation, (e) => { console.warn("Fast GPS fetch failed", e); }, { enableHighAccuracy: false, timeout: 7000, maximumAge: Infinity });
-    navigator.geolocation.watchPosition(processLocation, handleGpsError, { enableHighAccuracy: true, timeout: 15000, maximumAge: 2000 });
+    // The main watch belongs to GpsPower: full power while moving, low power once parked.
+    GpsPower.start(processLocation, handleGpsError);
 }
 
 function updateFriendBadges() {
@@ -5212,6 +5392,7 @@ function initApp() {
         { name: "Privacy Controls", fn: () => PrivacyControls.init() },
         { name: "Route Options", fn: () => RoutePrefs.bindUI() },
         { name: "Speed Limits", fn: () => SpeedLimits.init() },
+        { name: "GPS Power", fn: () => GpsPower.init() },
         { name: "Meetup Planner", fn: () => MeetupPlanner.init() },
         { name: "Carpool Planner", fn: () => CarpoolPlanner.init() },
         { name: "Trip Analytics", fn: () => TripAnalytics.init() },
