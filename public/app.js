@@ -50,6 +50,32 @@
        a node that isn't a child of #trip-panel, and the throw was swallowed).
      - Fixed: geofence / SOS island text was HTML-escaped and then set through
        textContent, so "Tom & Jerry" displayed as "Tom &amp; Jerry".
+
+   PHASE 4 (roadmap Section 5 — experimental) — additive:
+     - DeadReckoning: when GPS drops out mid-drive (tunnel, cutting, canopy),
+       the marker keeps moving from the phone's motion sensors — heading
+       from the OS's relative orientation (gyro fusion, no magnetometer),
+       speed from GPS speed + learned forward-axis accelerations, snapped to
+       the active route when there is one — inside an honestly growing
+       uncertainty circle. The error is measured when GPS returns and kept
+       in a small local log (settings). Coarse network fixes are blended in
+       instead of yanking the marker a kilometre.
+     - Navigation follows the estimate through a tunnel (prompts, trail,
+       "No GPS" status) but never reroutes or declares arrival off a guess.
+     - Friends: positions relayed over the LoRa radio (features.js
+       ConvoyRelay) or dead-reckoned by the friend's phone are drawn and
+       labelled as such ("📻 via radio · 40 s ago", "≈ ±120 m"), and count as
+       live for the convoy / trip panel / "where is" even with their socket
+       gone.
+     - SOS: also goes out over the radio when one is paired; incoming SOS is
+       de-duplicated across the radio and server copies.
+     - Fixed: a friend's profile popup showed the data from when their
+       marker was FIRST created (the click handler captured a stale object).
+     - Fixed: you appeared in your own friend list (the server's trip-state
+       broadcast reaches the sender too); a fix taken before the socket was
+       identified was dropped, so a stationary rider showed no position until
+       they moved; the trip panel asked OSRM for routes from "null,null"; an
+       SOS pressed offline went out before re-identification and was lost.
    ============================================================================ */
 
 const socket = io({ transports: ["websocket", "polling"] });
@@ -232,6 +258,23 @@ function distanceKm(a, b, c, d) {
 }
 function escapeHTML(v) { return String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;"); }
 
+// Phase 4: a rider whose socket is gone but whose position still arrives over
+// the radio relay counts as LIVE for the convoy loop, the trip panel, routes
+// and "where is" — just not for calls.
+const RADIO_FRESH_MS = 10 * 60 * 1000;
+function friendIsLive(f) {
+    if (!f) return false;
+    if (f.online !== false) return true;
+    return f.via === "radio" && Number.isFinite(f.viaAt) && Date.now() - f.viaAt < RADIO_FRESH_MS;
+}
+// "just now" / "4 min ago" for relayed positions.
+function agoText(ts) {
+    const s = Math.max(0, Math.round((Date.now() - Number(ts)) / 1000));
+    if (!Number.isFinite(s) || s < 45) return "just now";
+    if (s < 3600) return `${Math.round(s / 60)} min ago`;
+    return `${Math.round(s / 3600)} h ago`;
+}
+
 // Small helper: a Promise-based confirm that prefers shell.js's sheet but
 // degrades to window.confirm if shell.js hasn't loaded for some reason.
 async function confirmDialog(opts) {
@@ -263,7 +306,7 @@ function voiceAnnounce(text, opts = {}) {
 
 // Live navigation state, read by voice commands ("how far?") and by
 // isDriving(). Updated only inside startSearchNavigation()/stopDrive().
-const navState = { ready: false, active: false, destName: "", remainingM: null, etaSec: null, nextManeuver: "" };
+const navState = { ready: false, active: false, destName: "", remainingM: null, etaSec: null, nextManeuver: "", routePath: null };
 
 // Broadcast drive start/stop so features.js can arm hands-free listening and
 // the convoy loop without app.js knowing about either.
@@ -754,7 +797,10 @@ async function updateGroupTripRoutes() {
         let coords = null;
 
         if (member.id === socket.id && myCoords) coords = myCoords;
-        else if (friendData[member.id] && friendData[member.id].online !== false) coords = friendData[member.id];
+        // Phase 4: radio-relayed riders count. validCoord: a rider with no fix
+        // yet (or sharing "off") has lat/lng null — the old code asked OSRM
+        // for a route from "null,null".
+        else if (friendIsLive(friendData[member.id]) && validCoord(friendData[member.id].lat, friendData[member.id].lng)) coords = friendData[member.id];
 
         if (coords) {
             const last = tripLastFetchedCoords[member.id];
@@ -810,13 +856,16 @@ function updateTripPanel() {
         list.innerHTML += `<div class="trip-member" style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:8px;"><div><img src="${escapeHTML(currentUser.avatar)}" style="${avatarStyle}"> <b>You</b></div> <span style="text-align:right;">${stats.dist} km<br><small style="color:var(--muted)">${stats.time} min • ⛽ ${stats.fuel} L</small></span></div>`;
     }
 
-    Object.values(friendData).filter(f => f.online !== false && currentTrip.members.some(m => m.id === f.id)).forEach(f => {
+    Object.values(friendData).filter(f => friendIsLive(f) && currentTrip.members.some(m => m.id === f.id)).forEach(f => {
         const stats = tripRoadStats[f.id] || { dist: '--', time: '--', fuel: '--' };
         if (stats.fuel !== '--') totalGroupFuel += Number(stats.fuel);
         // Phase 3: convoy badge (stopped / behind / off route / no signal) —
         // text + tone dot, never color alone.
         const badge = window.ConvoyIntelligence ? window.ConvoyIntelligence.badgeFor(f.id) : null;
-        const badgeHtml = badge ? `<br><span class="chip ${badge.tone}" style="margin-top:4px;">${escapeHTML(badge.text)}</span>` : "";
+        let badgeHtml = badge ? `<br><span class="chip ${badge.tone}" style="margin-top:4px;">${escapeHTML(badge.text)}</span>` : "";
+        // Phase 4: say HOW we know where they are when it isn't a live socket.
+        if (f.online === false && f.via === "radio") badgeHtml += `<br><span class="chip warn" style="margin-top:4px;">📻 via radio · ${escapeHTML(agoText(f.fixAt || f.viaAt))}</span>`;
+        else if (f.est) badgeHtml += `<br><span class="chip" style="margin-top:4px;">≈ estimated ±${escapeHTML(formatDistanceShort(f.accuracy || 0))}</span>`;
         list.innerHTML += `<div class="trip-member" style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:8px;"><div><img src="${escapeHTML(f.avatar)}" style="${avatarStyle}"> ${escapeHTML(f.name)}${badgeHtml}</div> <span style="text-align:right;">${stats.dist} km<br><small style="color:var(--muted)">${stats.time} min • ⛽ ${stats.fuel} L</small></span></div>`;
     });
 
@@ -1062,6 +1111,7 @@ const PrivacyControls = {
             // Phase 3: zero-trace also means the not-yet-uploaded ride queue,
             // the cached rollups and any replay on screen.
             TripAnalytics.clearLocal();
+            DeadReckoning.clearLocal();        // Phase 4: the GPS-outage log is location history too
             if (checked) DeviceIdentity.resetAfterRejection();
             showToast(`🗑️ Cleared ${res.tripsDeleted} trip(s), ${res.memoriesDeleted} memor${res.memoriesDeleted === 1 ? 'y' : 'ies'}, ${res.geofencesDeleted} geofence(s).`, 6000);
         });
@@ -1717,6 +1767,874 @@ const TripAnalytics = {
 };
 
 // ============================================================================
+// PHASE 4 — IMU DEAD RECKONING (roadmap Sections 5 + 14)
+// ============================================================================
+// Keeps the rider's marker moving through tunnels, deep cuttings and canopy
+// when GPS drops out, and says honestly how wrong it might be.
+//
+// Why NOT "integrate the accelerometer twice": a phone accelerometer's bias
+// after gravity removal is ~0.05–0.2 m/s². Integrated twice, 0.1 m/s² is
+// already 180 m off after 60 s, and the mount's tilt error makes it worse.
+// Every production sat-nav does something narrower instead, and so does this:
+//
+//   HEADING  — the browser's relative `deviceorientation` (the OS's own
+//              gyro+accelerometer fusion, no magnetometer, so steel and
+//              rebar in a tunnel can't pull it) gives the heading CHANGE of a
+//              device-fixed horizontal axis. Anchored to the last GPS course,
+//              that is the vehicle heading. Fallback: the raw gyro rate
+//              projected on gravity, with sign/scale/bias fitted against GPS
+//              course changes (handles iOS's inverted gravity sign and
+//              browsers that report rad/s). Last resort: hold the heading.
+//   SPEED    — last GPS speed, adjusted only by clear accelerations along the
+//              vehicle's forward axis. Which way is "forward" in the phone
+//              depends on how it's mounted, so it's LEARNED: a small
+//              recursive least-squares fit of GPS acceleration against the
+//              horizontal accelerometer components while GPS is good.
+//              Accelerations inside a ±0.35 m/s² deadband are treated as bias.
+//   ROUTE    — when a route is known (navigation, or your leg of a group
+//              trip) the estimate advances ALONG the route line instead of
+//              free-flying, which is how car sat-navs handle tunnels. The
+//              inertial heading still watches: a sustained turn the route
+//              doesn't have means you left it, and the estimate unsnaps.
+//   HONESTY  — the uncertainty radius grows with time, speed and heading
+//              source, a coarse network fix pulls the estimate in (1-D
+//              Kalman blend), and at 5 min or 1.5 km of uncertainty it stops
+//              pretending. When GPS returns, the real error is measured and
+//              logged ("estimate was 38 m off after 1:12").
+//
+// The core below is DOM-free (createDeadReckoner) so the same code runs in
+// the tunnel simulation used to test it; DeadReckoning further down is the
+// browser glue (sensors, permission, map, island, voice, server).
+const DR_CFG = Object.freeze({
+    goodFixAccM: 35,          // a fix this accurate ends an outage and feeds calibration
+    coarseFixAccM: 60,        // worse than this during a drive = "no real GPS"
+    outageAfterMs: 4000,      // no good fix for this long while moving = GPS outage
+    minSpeedKmh: 12,          // don't dead-reckon a parked car or a walk
+    maxDurationMs: 300000,    // after 5 min an estimate is fiction — stop
+    maxRadiusM: 1500,         // ...or once the uncertainty is this large
+    calWindowMs: 1800,        // calibration sample length (GPS accel from ~2 s of speed change)
+    snapMaxM: 40,             // last fix must be this close to the route to snap to it
+    snapHeadingDeg: 50,       // ...and heading the same way
+    unsnapTurnDeg: 55,        // inertial turn the route doesn't have -> leave the route
+    unsnapHoldMs: 4000,
+    accelDeadbandMs2: 0.35,   // forward accel below this is treated as sensor bias
+    basisTiltDeg: 25,         // phone re-mounted -> relearn its axes
+    orientStdDeg: 12,         // orientation heading trusted when offset spread is below this
+    logMax: 10
+});
+
+const DRMath = {
+    D2R: Math.PI / 180,
+    wrap180(d) { return ((((d + 180) % 360) + 360) % 360) - 180; },
+    wrap360(d) { return ((d % 360) + 360) % 360; },
+    dot(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; },
+    cross(a, b) { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; },
+    unit(a) { const n = Math.hypot(a[0], a[1], a[2]); return n > 1e-9 ? [a[0] / n, a[1] / n, a[2] / n] : null; },
+    vec(o) { return o && Number.isFinite(o.x) && Number.isFinite(o.y) && Number.isFinite(o.z) ? [o.x, o.y, o.z] : null; },
+    // W3C DeviceOrientation: R = Rz(alpha)·Rx(beta)·Ry(gamma) maps DEVICE
+    // coordinates to the EARTH frame (x = east, y = north, z = up). The same
+    // matrix works for the relative frame, whose "north" is arbitrary.
+    rotation(alpha, beta, gamma) {
+        const r = DRMath.D2R;
+        const cX = Math.cos(beta * r), sX = Math.sin(beta * r);
+        const cY = Math.cos(gamma * r), sY = Math.sin(gamma * r);
+        const cZ = Math.cos(alpha * r), sZ = Math.sin(alpha * r);
+        return [
+            cZ * cY - sZ * sX * sY, -cX * sZ, cY * sZ * sX + cZ * sY,
+            cY * sZ + cZ * sX * sY, cZ * cX, sZ * sY - cZ * cY * sX,
+            -cX * sY, sX, cX * cY
+        ];
+    },
+    // Compass-style heading (clockwise from the frame's north) of a device-fixed vector.
+    headingOf(R, v) {
+        const e = R[0] * v[0] + R[1] * v[1] + R[2] * v[2];
+        const n = R[3] * v[0] + R[4] * v[1] + R[5] * v[2];
+        if (Math.hypot(e, n) < 0.5) return null;          // vector nearly vertical: heading undefined
+        return DRMath.wrap360(Math.atan2(e, n) / DRMath.D2R);
+    },
+    distM(lat1, lng1, lat2, lng2) {
+        const r = DRMath.D2R;
+        const x = Math.sin((lat2 - lat1) * r / 2) ** 2 + Math.cos(lat1 * r) * Math.cos(lat2 * r) * Math.sin((lng2 - lng1) * r / 2) ** 2;
+        return 12742000 * Math.asin(Math.sqrt(Math.min(1, x)));
+    },
+    bearing(lat1, lng1, lat2, lng2) {
+        const r = DRMath.D2R;
+        const y = Math.sin((lng2 - lng1) * r) * Math.cos(lat2 * r);
+        const x = Math.cos(lat1 * r) * Math.sin(lat2 * r) - Math.sin(lat1 * r) * Math.cos(lat2 * r) * Math.cos((lng2 - lng1) * r);
+        return DRMath.wrap360(Math.atan2(y, x) / r);
+    },
+    // Short-step move (a 1 s step is metres to tens of metres — planar is exact enough).
+    move(lat, lng, headingDeg, distM) {
+        const r = DRMath.D2R;
+        const dN = distM * Math.cos(headingDeg * r), dE = distM * Math.sin(headingDeg * r);
+        return { lat: lat + dN / 111320, lng: lng + dE / (111320 * Math.max(0.01, Math.cos(lat * r))) };
+    },
+    // Recursive least squares with exponential forgetting: y ≈ θ·x.
+    rls(n, lambda, p0 = 1000) {
+        const P = []; for (let i = 0; i < n; i++) { P.push(new Array(n).fill(0)); P[i][i] = p0; }
+        return { n, lambda, p0, theta: new Array(n).fill(0), P, count: 0, mse: null };
+    },
+    rlsUpdate(m, x, y) {
+        const n = m.n, P = m.P;
+        const Px = new Array(n).fill(0);
+        for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) Px[i] += P[i][j] * x[j];
+        let denom = m.lambda, pred = 0;
+        for (let i = 0; i < n; i++) { denom += x[i] * Px[i]; pred += m.theta[i] * x[i]; }
+        const err = y - pred;
+        for (let i = 0; i < n; i++) m.theta[i] += (Px[i] / denom) * err;
+        let trace = 0;
+        for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) { P[i][j] = (P[i][j] - (Px[i] * Px[j]) / denom) / m.lambda; if (i === j) trace += P[i][j]; }
+        // Forgetting without excitation lets P blow up ("wind-up"): cap it.
+        if (trace > m.p0 * n) { const k = (m.p0 * n) / trace; for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) P[i][j] *= k; }
+        m.count++;
+        m.mse = m.mse == null ? err * err : 0.92 * m.mse + 0.08 * err * err;
+        return err;
+    },
+    // Route polyline [[lat,lng],...] -> cumulative metres, for arc-length moves.
+    prepareRoute(path) {
+        if (!Array.isArray(path) || path.length < 2) return null;
+        const pts = path.map((p) => (Array.isArray(p) ? { lat: p[0], lng: p[1] } : { lat: p.lat, lng: p.lng })).filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
+        if (pts.length < 2) return null;
+        const cum = [0];
+        for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + DRMath.distM(pts[i - 1].lat, pts[i - 1].lng, pts[i].lat, pts[i].lng));
+        return { pts, cum, total: cum[cum.length - 1] };
+    },
+    projectOnRoute(route, lat, lng) {
+        const r = DRMath.D2R, cosLat = Math.cos(lat * r);
+        const X = (p) => [(p.lng - lng) * 111320 * cosLat, (p.lat - lat) * 110540];
+        let best = null;
+        for (let i = 0; i < route.pts.length - 1; i++) {
+            const [ax, ay] = X(route.pts[i]), [bx, by] = X(route.pts[i + 1]);
+            const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy;
+            let t = L2 > 0 ? -(ax * dx + ay * dy) / L2 : 0;
+            t = Math.max(0, Math.min(1, t));
+            const d = Math.hypot(ax + t * dx, ay + t * dy);
+            if (!best || d < best.d) best = { d, i, t };
+        }
+        const segLen = route.cum[best.i + 1] - route.cum[best.i];
+        return { distM: best.d, s: route.cum[best.i] + best.t * segLen, idx: best.i };
+    },
+    pointAtS(route, s) {
+        const S = Math.max(0, Math.min(route.total, s));
+        let i = 0;
+        while (i < route.cum.length - 2 && route.cum[i + 1] < S) i++;
+        const a = route.pts[i], b = route.pts[i + 1];
+        const seg = route.cum[i + 1] - route.cum[i];
+        const t = seg > 0 ? (S - route.cum[i]) / seg : 0;
+        return { lat: a.lat + (b.lat - a.lat) * t, lng: a.lng + (b.lng - a.lng) * t, bearing: DRMath.bearing(a.lat, a.lng, b.lat, b.lng), atEnd: S >= route.total - 0.5 };
+    }
+};
+
+// env: { routeProvider(): [[lat,lng],...] | null, allowed(): boolean }
+function createDeadReckoner(env = {}) {
+    const M = DRMath, C = DR_CFG;
+    const routeProvider = typeof env.routeProvider === "function" ? env.routeProvider : () => null;
+    const allowed = typeof env.allowed === "function" ? env.allowed : () => true;
+    const newAcc = () => ({ dt: 0, h1: 0, h2: 0, yaw: 0, yawDt: 0 });
+
+    const st = {
+        g: null, lastMotionT: 0, basis: null, driftSince: null, motionSamples: 0, hasLinear: false, hasGyro: false,
+        orient: null,
+        calAcc: newAcc(), tickAcc: newAcc(), calStart: null,
+        fwd: M.rls(3, 0.995), fwdExcite: 0,
+        gyro: M.rls(2, 0.995), gyroExcite: 0,
+        off: { c: 0, s: 0, n: 0, varDeg: 900 },
+        lastGood: null, speeds: [],
+        outage: null, log: []
+    };
+
+    // ---- sensors -------------------------------------------------------------
+    function buildBasis(up) {
+        // Reference = the device axis most perpendicular to gravity, projected
+        // onto the horizontal plane. Fixed in the DEVICE, so it turns with the
+        // vehicle as long as the mount doesn't change.
+        const absU = up.map(Math.abs);
+        const k = absU.indexOf(Math.min(...absU));
+        const ref = [0, 0, 0]; ref[k] = 1;
+        const d = M.dot(ref, up);
+        const e1 = M.unit([ref[0] - d * up[0], ref[1] - d * up[1], ref[2] - d * up[2]]);
+        st.basis = { up: up.slice(), e1, e2: M.cross(up, e1) };
+    }
+    function resetMountCalibration() {
+        st.fwd = M.rls(3, 0.995); st.fwdExcite = 0;
+        st.off = { c: 0, s: 0, n: 0, varDeg: 900 };
+    }
+    function onMotion(ev) {
+        const t = ev.t;
+        let dt = st.lastMotionT ? (t - st.lastMotionT) / 1000 : 0;
+        st.lastMotionT = t;
+        if (!(dt > 0 && dt < 0.25)) dt = 0;                   // first sample or a gap: don't integrate across it
+        const aig = M.vec(ev.aig);
+        if (!aig) return;
+        const lin = M.vec(ev.lin);
+        st.hasLinear = st.hasLinear || Boolean(lin);
+        const gRaw = lin ? [aig[0] - lin[0], aig[1] - lin[1], aig[2] - lin[2]] : aig;
+        if (!st.g) st.g = gRaw.slice();
+        else {
+            const a = dt / ((lin ? 0.25 : 1.5) + dt);
+            for (let i = 0; i < 3; i++) st.g[i] += a * (gRaw[i] - st.g[i]);
+        }
+        const up = M.unit(st.g);
+        if (!up) return;
+        if (!st.basis) buildBasis(up);
+        else {
+            const ang = Math.acos(Math.max(-1, Math.min(1, M.dot(up, st.basis.up)))) / M.D2R;
+            if (ang > C.basisTiltDeg) {
+                if (!st.driftSince) st.driftSince = t;
+                else if (t - st.driftSince > 3000) { buildBasis(up); resetMountCalibration(); st.driftSince = null; }
+            } else st.driftSince = null;
+        }
+        const la = lin || [aig[0] - st.g[0], aig[1] - st.g[1], aig[2] - st.g[2]];
+        const h1 = M.dot(la, st.basis.e1), h2 = M.dot(la, st.basis.e2);
+        const rr = ev.rr;
+        const yaw = rr && Number.isFinite(rr.alpha) && Number.isFinite(rr.beta) && Number.isFinite(rr.gamma)
+            ? rr.beta * up[0] + rr.gamma * up[1] + rr.alpha * up[2] : null;   // spec: alpha about z, beta about x, gamma about y
+        if (yaw != null) st.hasGyro = true;
+        st.motionSamples++;
+        for (const acc of [st.calAcc, st.tickAcc]) {
+            acc.dt += dt; acc.h1 += h1 * dt; acc.h2 += h2 * dt;
+            if (yaw != null) { acc.yaw += yaw * dt; acc.yawDt += dt; }
+        }
+    }
+    function onOrientation(ev) {
+        if (![ev.alpha, ev.beta, ev.gamma].every(Number.isFinite)) return;
+        st.orient = { alpha: ev.alpha, beta: ev.beta, gamma: ev.gamma, t: ev.t };
+    }
+    function psiO(t) {
+        if (!st.orient || !st.basis || t - st.orient.t > 1500) return null;
+        return M.headingOf(M.rotation(st.orient.alpha, st.orient.beta, st.orient.gamma), st.basis.e1);
+    }
+
+    // ---- calibration status --------------------------------------------------
+    function fwdReady() {
+        const th = st.fwd.theta, gain = Math.hypot(th[0], th[1]);
+        // Needs the browser's gravity-free `acceleration`: with only
+        // accelerationIncludingGravity, a low-passed gravity estimate absorbs
+        // sustained braking and the fit can't be trusted (simulated: 7x worse).
+        return st.hasLinear && st.fwdExcite >= 8 && gain > 0.5 && gain < 2 && st.fwd.mse != null && st.fwd.mse < 0.5;
+    }
+    function gyroReady() {
+        const k = Math.abs(st.gyro.theta[0]);
+        const plausible = (k > 0.5 && k < 2) || (k > 28 && k < 115);   // deg/s, or a browser reporting rad/s
+        return st.gyroExcite >= 6 && plausible && st.gyro.mse != null && st.gyro.mse < 9;
+    }
+    function orientReady() {
+        return st.off.n >= 12 && Math.sqrt(st.off.varDeg) < C.orientStdDeg;
+    }
+    function headingSource() {
+        return orientReady() ? "orientation" : gyroReady() ? "gyro" : "hold";
+    }
+
+    // ---- GPS side ----------------------------------------------------------------
+    function describeFix(fix) {
+        const prev = st.lastGood;
+        let speed = Number.isFinite(fix.speed) && fix.speed >= 0 ? fix.speed : null;
+        let course = Number.isFinite(fix.heading) && speed != null && speed > 1.5 ? M.wrap360(fix.heading) : null;
+        if (prev) {
+            const dt = (fix.t - prev.t) / 1000;
+            const d = M.distM(prev.lat, prev.lng, fix.lat, fix.lng);
+            if (speed == null && dt > 0.4 && dt < 6) speed = d / dt;
+            if (course == null && d > 6 && dt < 6) course = M.bearing(prev.lat, prev.lng, fix.lat, fix.lng);
+        }
+        return { lat: fix.lat, lng: fix.lng, acc: fix.acc, t: fix.t, speed, course, psiO: psiO(fix.t) };
+    }
+    function calibrate(g) {
+        // Orientation-heading consistency: offset = GPS course - device heading.
+        if (g.course != null && g.speed != null && g.speed > 4 && g.psiO != null) {
+            const o = M.wrap180(g.course - g.psiO) * M.D2R;
+            const w = st.off.n < 10 ? 1 / (st.off.n + 1) : 0.1;
+            st.off.c = (1 - w) * st.off.c + w * Math.cos(o);
+            st.off.s = (1 - w) * st.off.s + w * Math.sin(o);
+            const mean = Math.atan2(st.off.s, st.off.c);
+            const resid = M.wrap180((o - mean) / M.D2R);
+            st.off.varDeg = st.off.n === 0 ? 400 : (1 - w) * st.off.varDeg + w * resid * resid;
+            st.off.n++;
+        }
+        const s0 = st.calStart;
+        if (!s0) { st.calStart = g; st.calAcc = newAcc(); return; }
+        const win = g.t - s0.t;
+        if (win < C.calWindowMs) return;
+        const acc = st.calAcc;
+        if (win < 6000 && acc.dt > 0.5 * (win / 1000) && g.speed != null && s0.speed != null) {
+            const aGps = (g.speed - s0.speed) / (win / 1000);
+            M.rlsUpdate(st.fwd, [acc.h1 / acc.dt, acc.h2 / acc.dt, 1], aGps);
+            if (Math.abs(aGps) > 0.6) st.fwdExcite++;
+            if (acc.yawDt > 0.5 * (win / 1000) && g.course != null && s0.course != null && g.speed > 4 && s0.speed > 4) {
+                const rate = M.wrap180(g.course - s0.course) / (win / 1000);
+                M.rlsUpdate(st.gyro, [acc.yaw / acc.yawDt, 1], rate);
+                if (Math.abs(rate) > 3) st.gyroExcite++;
+            }
+        }
+        st.calStart = g;
+        st.calAcc = newAcc();
+    }
+    // Speed at the tunnel mouth: the LATEST GPS speed (a median of recent
+    // speeds lags while accelerating — simulated: 1.8 m/s low = 300 m over
+    // 3 min), unless it disagrees with that median by more than 2 m/s.
+    function movingSpeed() {
+        if (!st.speeds.length) return 0;
+        const s = st.speeds.slice().sort((a, b) => a - b);
+        const med = s[Math.floor(s.length / 2)], last = st.speeds[st.speeds.length - 1];
+        return Math.abs(last - med) <= 2 ? last : med;
+    }
+
+    // ---- outage lifecycle ------------------------------------------------------
+    function startOutage(t, reason) {
+        const g = st.lastGood;
+        if (!g || !allowed() || t - g.t > 60000) return false;
+        // No live motion data (no sensors, page in the background, desktop):
+        // that would be blind extrapolation, not dead reckoning — don't.
+        if (!st.lastMotionT || t - st.lastMotionT > 5000) return false;
+        const v0 = movingSpeed();
+        if (v0 * 3.6 < C.minSpeedKmh) return false;
+        let psi0 = g.course;
+        if (psi0 == null) { for (let i = st.recent.length - 1; i >= 0 && psi0 == null; i--) psi0 = st.recent[i].course; }
+        const o = {
+            reason, startT: g.t, lastT: g.t, lat: g.lat, lng: g.lng, v: v0, v0, psi: psi0, psi0,
+            aLp: 0, dist: 0, rBase: Math.max(5, g.acc || 10), tBase: g.t, distBase: 0,
+            inertial: 0, psiO0: g.psiO, offset: st.off.n ? Math.atan2(st.off.s, st.off.c) / M.D2R : null, route: null, s: 0, routePsi0: null, mismatchSince: null, trail: [],
+            source: headingSource(), fwd: fwdReady(), lost: false, lostAt: null, radius: Math.max(5, g.acc || 10), endOfRoute: false
+        };
+        const path = routeProvider();
+        const route = path ? M.prepareRoute(path) : null;
+        if (route) {
+            const pr = M.projectOnRoute(route, g.lat, g.lng);
+            const segB = M.pointAtS(route, pr.s + 0.5).bearing;
+            if (pr.distM <= C.snapMaxM && (psi0 == null || Math.abs(M.wrap180(segB - psi0)) <= C.snapHeadingDeg)) {
+                o.route = route; o.s = pr.s; o.routePsi0 = segB; o.psi = segB;
+                const p = M.pointAtS(route, pr.s);
+                o.lat = p.lat; o.lng = p.lng;
+            }
+        }
+        if (o.psi == null) return false;                       // no direction known and no route: can't estimate
+        // st.tickAcc already holds the motion since the last good fix (reset
+        // there), which is exactly the span the first propagate() covers.
+        st.outage = o;
+        return true;
+    }
+    function inertialDelta(o, acc, t, dt) {
+        // Heading CHANGE since the outage began, from the best inertial source.
+        if (o.source === "orientation") {
+            // psiO + the offset learned over many fixes is a better absolute
+            // heading than one noisy GPS course at the tunnel mouth.
+            const now = psiO(t);
+            if (now != null && o.offset != null && o.psi0 != null) return { ok: true, delta: M.wrap180(now + o.offset - o.psi0) };
+            if (now != null && o.psiO0 != null) return { ok: true, delta: M.wrap180(now - o.psiO0) };
+        }
+        if ((o.source === "gyro" || o.source === "orientation") && gyroReady() && acc.yawDt > 0.2) {
+            const [k, c] = st.gyro.theta;
+            o.inertial += (k * (acc.yaw / acc.yawDt) + c) * dt;
+            return { ok: true, delta: o.inertial };
+        }
+        return { ok: false, delta: 0 };
+    }
+    function grow(o, T) {
+        // ~1-sigma growth model, tuned in the tunnel simulation (see tests).
+        const sv = o.fwd ? 0.3 + 0.04 * o.v0 : 1.0 + 0.12 * o.v0;          // m/s speed error
+        const along = sv * T;
+        let cross;
+        if (o.route) cross = 10;
+        else {
+            const sPsi = Math.min(90, o.source === "orientation" ? 3 + 0.05 * T : o.source === "gyro" ? 5 + 0.1 * T : 8 + 1.2 * T);
+            cross = (o.dist - o.distBase) * Math.sin(sPsi * M.D2R) * 0.7;
+        }
+        return Math.hypot(o.rBase, along, cross);
+    }
+    function propagate(t) {
+        const o = st.outage;
+        const dt = (t - o.lastT) / 1000;
+        if (!(dt > 0)) return;
+        o.lastT = t;
+        const acc = st.tickAcc; st.tickAcc = newAcc();
+
+        // Speed: hold, adjusted by clear forward accelerations.
+        if (o.fwd && acc.dt > 0.2) {
+            const th = st.fwd.theta;
+            const aF = th[0] * (acc.h1 / acc.dt) + th[1] * (acc.h2 / acc.dt) + th[2];
+            o.aLp += (Math.min(1, dt) / (1 + Math.min(1, dt))) * (aF - o.aLp);
+            if (Math.abs(o.aLp) > C.accelDeadbandMs2) o.v += o.aLp * dt;
+        }
+        o.v = Math.max(0, Math.min(o.v, 45, Math.max(o.v0 * 1.6, o.v0 + 8)));
+
+        const inert = inertialDelta(o, acc, t, dt);
+        const step = o.v * dt;
+        o.dist += step;
+        if (o.route) {
+            const from = { lat: o.lat, lng: o.lng };
+            o.s += step;
+            const p = M.pointAtS(o.route, o.s);
+            o.lat = p.lat; o.lng = p.lng; o.psi = p.bearing; o.endOfRoute = p.atEnd;
+            if (inert.ok) {
+                const routeDelta = M.wrap180(p.bearing - o.routePsi0);
+                const diff = Math.abs(M.wrap180(inert.delta - routeDelta));
+                // Short trail of (position, step, inertial heading) so an
+                // unsnap can rewind to where the paths actually split.
+                o.trail.push({ from, step, delta: inert.delta, diff });
+                if (o.trail.length > 40) o.trail.shift();
+                if (diff > C.unsnapTurnDeg) {
+                    if (!o.mismatchSince) o.mismatchSince = t;
+                    else if (t - o.mismatchSince > C.unsnapHoldMs) {
+                        // The route says straight, the vehicle turned: we left
+                        // the route. Rewind to the last step where route and
+                        // inertial heading still agreed and re-fly from there.
+                        let k = o.trail.length - 1;
+                        while (k > 0 && o.trail[k].diff > 10) k--;
+                        let pos = o.trail[k].from;
+                        for (let j = k; j < o.trail.length; j++) pos = M.move(pos.lat, pos.lng, M.wrap360(o.psi0 + o.trail[j].delta), o.trail[j].step);
+                        o.lat = pos.lat; o.lng = pos.lng;
+                        o.route = null; o.trail = []; o.psi = M.wrap360(o.psi0 + inert.delta);
+                        o.rBase = Math.max(25, o.radius); o.tBase = t; o.distBase = o.dist;
+                    }
+                } else o.mismatchSince = null;
+            }
+        } else {
+            if (inert.ok && o.psi0 != null) o.psi = M.wrap360(o.psi0 + inert.delta);
+            const p = M.move(o.lat, o.lng, o.psi, step);
+            o.lat = p.lat; o.lng = p.lng;
+        }
+        o.radius = grow(o, (t - o.tBase) / 1000);
+        // On a known route only the along-track error grows, so a long
+        // highway tunnel (Atal, Chenani–Nashri: ~9 km) can be followed longer.
+        const maxMs = o.route ? C.maxDurationMs * 3 : C.maxDurationMs;
+        if (t - o.startT > maxMs || o.radius > C.maxRadiusM) { o.lost = true; o.lostAt = t; }
+    }
+    function measurementUpdate(fix) {
+        // A coarse (cell/Wi-Fi) fix is still information: blend it in when
+        // it's tighter than the estimate (isotropic 1-D Kalman update).
+        const o = st.outage;
+        const r = o.radius, a = Math.max(1, fix.acc);
+        if (!(a < r * 1.5)) return;
+        const w = (r * r) / (r * r + a * a);
+        o.lat += w * (fix.lat - o.lat);
+        o.lng += w * (fix.lng - o.lng);
+        o.rBase = Math.sqrt((r * r * a * a) / (r * r + a * a));
+        o.tBase = fix.t; o.distBase = o.dist; o.radius = o.rBase;
+        if (o.route) {
+            const pr = M.projectOnRoute(o.route, o.lat, o.lng);
+            if (pr.distM > 60) o.route = null;
+            else { o.s = pr.s; const p = M.pointAtS(o.route, o.s); o.lat = p.lat; o.lng = p.lng; }
+        }
+        if (o.lost && o.radius < C.maxRadiusM) { o.lost = false; o.lostAt = null; }
+    }
+    function endOutage(g) {
+        const o = st.outage;
+        const summary = {
+            at: g.t, startedAt: o.startT, durationMs: g.t - o.startT,
+            errorM: Math.round(M.distM(o.lat, o.lng, g.lat, g.lng)), radiusM: Math.round(o.radius),
+            distanceM: Math.round(o.dist), source: o.route ? "route" : o.source, lost: o.lost, reason: o.reason
+        };
+        st.log.unshift(summary);
+        if (st.log.length > C.logMax) st.log.length = C.logMax;
+        st.outage = null;
+        return summary;
+    }
+    function estimate(t) {
+        const o = st.outage;
+        if (!o) return null;
+        return {
+            lat: o.lat, lng: o.lng, radius: Math.round(o.radius), speedKmh: Math.round(o.v * 3.6 * 10) / 10,
+            heading: o.psi == null ? null : Math.round(o.psi), source: o.route ? "route" : o.source,
+            elapsedMs: t - o.startT, lost: o.lost, endOfRoute: Boolean(o.endOfRoute)
+        };
+    }
+
+    st.recent = [];
+    return {
+        onMotion, onOrientation,
+        // fix: {lat, lng, acc, speed (m/s|null), heading (deg|null), t}
+        onFix(fix) {
+            if (!Number.isFinite(fix.lat) || !Number.isFinite(fix.lng)) return { verdict: "use" };
+            const acc = Number.isFinite(fix.acc) ? fix.acc : 9999;
+            if (acc <= C.goodFixAccM) {
+                const g = describeFix({ ...fix, acc });
+                const ended = st.outage ? endOutage(g) : null;
+                calibrate(g);
+                st.lastGood = g;
+                st.recent.push(g); if (st.recent.length > 5) st.recent.shift();
+                if (g.speed != null) { st.speeds.push(g.speed); if (st.speeds.length > 3) st.speeds.shift(); }
+                st.tickAcc = newAcc();
+                return { verdict: "use", ended };
+            }
+            if (st.outage) { measurementUpdate({ ...fix, acc }); return { verdict: "suppress" }; }
+            if (acc > C.coarseFixAccM && startOutage(fix.t, "coarse-fix")) {
+                propagate(fix.t);
+                measurementUpdate({ ...fix, acc });
+                return { verdict: "suppress", started: true };
+            }
+            return { verdict: "use" };
+        },
+        tick(t) {
+            const o = st.outage;
+            if (o) {
+                if (!o.lost) propagate(t);
+                return { estimate: estimate(t) };
+            }
+            const g = st.lastGood;
+            if (g && t - g.t > C.outageAfterMs && startOutage(t, "no-fix")) {
+                propagate(t);
+                return { started: true, estimate: estimate(t) };
+            }
+            return {};
+        },
+        active() { return Boolean(st.outage); },
+        cancel() { st.outage = null; },
+        estimate,
+        status() {
+            return {
+                sensors: { motion: st.motionSamples > 0, linear: st.hasLinear, gyro: st.hasGyro, orientation: Boolean(st.orient) },
+                heading: headingSource(), speed: fwdReady() ? "accelerometer" : "hold",
+                orientStdDeg: st.off.n ? Math.round(Math.sqrt(st.off.varDeg)) : null, orientSamples: st.off.n,
+                fwdExcite: st.fwdExcite, gyroExcite: st.gyroExcite,
+                gyroGain: gyroReady() ? Math.round(st.gyro.theta[0] * 100) / 100 : null
+            };
+        },
+        log() { return st.log.slice(); },
+        setLog(l) { if (Array.isArray(l)) st.log = l.slice(0, C.logMax); },
+        _state: st
+    };
+}
+// ---- end dead-reckoning core ----
+
+// Browser glue: sensors, iOS permission, the 1 Hz loop, and what the rider
+// sees and hears. Sensors only run during a drive / group trip in a vehicle
+// mode — never in the background of a walk or a parked phone.
+const DeadReckoning = {
+    KEY_ENABLED: "mu_dr_enabled",
+    KEY_LOG: "mu_dr_log",
+    enabled: true,
+    core: null,
+    listening: false,
+    permission: "unknown",            // "unknown" | "granted" | "denied" | "not-needed"
+    tickTimer: null,
+    motionEvents: 0,
+    listenStartedAt: 0,
+    lastEmitTs: 0,
+    lastPointTs: 0,
+    lastEstimate: null,
+    lostAnnounced: false,
+    permissionOffered: false,
+
+    init() {
+        try { this.enabled = localStorage.getItem(this.KEY_ENABLED) !== "0"; } catch (e) { /* storage blocked: keep default */ }
+        this.permission = this.needsPermission() ? "unknown" : "not-needed";
+        this.core = createDeadReckoner({
+            routeProvider: () => this.routePath(),
+            allowed: () => this.enabled && this.listening && this.vehicleMode()
+        });
+        try { this.core.setLog(JSON.parse(localStorage.getItem(this.KEY_LOG) || "[]")); } catch (e) { /* corrupt log: start fresh */ }
+        this.handleMotion = this.handleMotion.bind(this);
+        this.handleOrientation = this.handleOrientation.bind(this);
+        this.bindUI();
+        document.addEventListener("mu:drive-state", () => this.updateSensors());
+        this.updateSensors();
+    },
+
+    supported() { return typeof window.DeviceMotionEvent !== "undefined"; },
+    needsPermission() { return typeof window.DeviceMotionEvent !== "undefined" && typeof window.DeviceMotionEvent.requestPermission === "function"; },
+    vehicleMode() { return (window.currentTravelMode || "bike") !== "walk"; },
+    wanted() { return this.enabled && this.supported() && this.vehicleMode() && isDriving(); },
+
+    updateSensors() {
+        if (this.wanted() && this.permission !== "denied") {
+            if (this.permission === "unknown") { this.offerPermission(); return; }
+            this.startSensors();
+        } else {
+            this.stopSensors();
+        }
+        this.renderStatus();
+    },
+
+    startSensors() {
+        if (this.listening) return;
+        window.addEventListener("devicemotion", this.handleMotion);
+        window.addEventListener("deviceorientation", this.handleOrientation);
+        this.listening = true;
+        this.listenStartedAt = Date.now();
+        clearInterval(this.tickTimer);
+        this.tickTimer = setInterval(() => this.tick(), 1000);
+    },
+
+    stopSensors() {
+        if (!this.listening) return;
+        window.removeEventListener("devicemotion", this.handleMotion);
+        window.removeEventListener("deviceorientation", this.handleOrientation);
+        this.listening = false;
+        clearInterval(this.tickTimer);
+        this.tickTimer = null;
+        // Drive over mid-tunnel: drop the estimate rather than leave a
+        // "GPS lost" state nobody will ever clear.
+        if (this.core && this.core.active()) {
+            this.core.cancel();
+            this.finishUi();
+            islandHide("dr");
+        }
+    },
+
+    // iOS 13+: motion access must be requested from a tap. Offer it on the
+    // island when a drive starts (and from settings) — never nag in a loop.
+    offerPermission() {
+        if (this.permissionOffered) return;
+        this.permissionOffered = true;
+        islandShow({
+            id: "dr-perm", kind: "info", icon: "🧭", title: "Allow motion access?",
+            sub: "Keeps your position moving in tunnels when GPS drops", ttl: 12000, haptic: false,
+            action: { label: "Allow", onClick: () => this.requestPermission() }
+        });
+    },
+
+    async requestPermission() {
+        try {
+            const m = await window.DeviceMotionEvent.requestPermission();
+            let o = "granted";
+            if (window.DeviceOrientationEvent && typeof window.DeviceOrientationEvent.requestPermission === "function") {
+                o = await window.DeviceOrientationEvent.requestPermission();
+            }
+            this.permission = m === "granted" ? "granted" : "denied";
+            if (o !== "granted" && m === "granted") console.warn("[DR] orientation denied — heading falls back to the gyroscope");
+        } catch (e) {
+            this.permission = "denied";
+        }
+        islandHide("dr-perm");
+        this.updateSensors();
+    },
+
+    handleMotion(e) {
+        this.motionEvents++;
+        this.core.onMotion({ t: Date.now(), aig: e.accelerationIncludingGravity, lin: e.acceleration, rr: e.rotationRate });
+    },
+
+    handleOrientation(e) {
+        this.core.onOrientation({ t: Date.now(), alpha: e.alpha, beta: e.beta, gamma: e.gamma });
+    },
+
+    // The route to snap to while GPS is gone: active navigation first, then
+    // my own leg of the group trip, then my meetup route.
+    routePath() {
+        if (navState.active && Array.isArray(navState.routePath) && navState.routePath.length > 1) return navState.routePath;
+        const mine = (layer, id) => {
+            let found = null;
+            layer.eachLayer((l) => {
+                if (!found && l.memberId === id && typeof l.getLatLngs === "function") {
+                    const ll = l.getLatLngs();
+                    if (Array.isArray(ll) && ll.length > 1) found = ll.map((p) => [p.lat, p.lng]);
+                }
+            });
+            return found;
+        };
+        if (currentTrip && Array.isArray(currentTrip.members) && currentTrip.members.some((m) => m.id === socket.id)) {
+            const r = mine(tripRoutesLayer, socket.id);
+            if (r) return r;
+        }
+        if (GroupNavigation.active) return mine(GroupNavigation.layerGroup, "me");
+        return null;
+    },
+
+    // Called from startGPS() for EVERY fix. "suppress" = a coarse fix during
+    // an outage: the estimate already absorbed it, don't jump the marker.
+    onGpsFix(p) {
+        if (!this.core || !this.enabled) return "use";
+        const c = p && p.coords;
+        if (!c) return "use";
+        const res = this.core.onFix({
+            lat: Number(c.latitude), lng: Number(c.longitude), acc: Number(c.accuracy),
+            speed: c.speed == null ? null : Number(c.speed), heading: c.heading == null ? null : Number(c.heading), t: Date.now()
+        });
+        if (res.ended) this.onOutageEnd(res.ended);
+        if (res.verdict === "suppress") {
+            const est = this.core.estimate(Date.now());
+            if (res.started) this.onOutageStart(est);
+            if (est) this.apply(est);
+        }
+        return res.verdict;
+    },
+
+    // The navigation watch sees the same raw fixes: while estimating (or at
+    // speed), a coarse network fix must not yank the nav marker or trigger
+    // a reroute off a 900 m error circle.
+    shouldIgnoreNavFix(pos) {
+        const acc = pos && pos.coords ? Number(pos.coords.accuracy) : NaN;
+        if (!this.core || !this.enabled) return false;
+        if (this.core.active()) return !(acc <= DR_CFG.goodFixAccM);
+        return this.listening && acc > DR_CFG.coarseFixAccM;
+    },
+
+    tick() {
+        if (!this.core) return;
+        const res = this.core.tick(Date.now());
+        if (res.started) this.onOutageStart(res.estimate);
+        if (res.estimate) this.apply(res.estimate);
+    },
+
+    apply(est) {
+        this.lastEstimate = est;
+        applyEstimatedPosition(est);
+        if (est.lost && !this.lostAnnounced) {
+            this.lostAnnounced = true;
+            islandShow({ id: "dr", kind: "sensor", icon: "❓", title: "Position uncertain", sub: `No GPS for ${fmtClock(est.elapsedMs)} — last estimate shown`, ttl: 0, sticky: true, priority: 52, haptic: false });
+            voiceAnnounce("Still no GPS. Your position on the map is only a rough guess now.", { priority: 45, key: "dr-lost", cooldownMs: 300000, category: "nav", drivingOnly: true });
+        } else if (!est.lost) {
+            islandShow({ id: "dr", kind: "sensor", icon: "🛰", title: "GPS lost — estimating", sub: this.subFor(est), meta: fmtClock(est.elapsedMs), ttl: 0, sticky: true, priority: 50, haptic: false });
+        }
+        const chip = $("dr-chip");
+        if (chip) {
+            chip.hidden = false;
+            const t = $("dr-chip-text");
+            if (t) t.textContent = est.lost ? "Position uncertain" : `Estimated · ±${formatDistanceShort(est.radius)}`;
+            chip.dataset.state = est.lost ? "lost" : "est";
+        }
+    },
+
+    subFor(est) {
+        const r = `±${formatDistanceShort(est.radius)}`;
+        if (est.source === "route") return `Following your route · ${r}`;
+        if (est.source === "orientation" || est.source === "gyro") return `Motion sensors · ${r}`;
+        return `Last speed & heading · ${r}`;
+    },
+
+    onOutageStart(est) {
+        this.lostAnnounced = false;
+        voiceAnnounce("GPS signal lost. Estimating your position.", { priority: 45, key: "dr-start", cooldownMs: 120000, category: "nav", drivingOnly: true });
+        if (est) this.apply(est);
+    },
+
+    onOutageEnd(summary) {
+        this.finishUi();
+        this.persistLog();
+        const offBy = summary.lost ? "Estimate had given up" : `Estimate was ${formatDistanceShort(summary.errorM)} off`;
+        islandShow({ id: "dr", kind: "safe", icon: "🛰", title: "GPS back", sub: `${offBy} after ${fmtClock(summary.durationMs)}`, ttl: 5000, sticky: false, haptic: false });
+        voiceAnnounce("GPS is back.", { priority: 35, key: "dr-end", cooldownMs: 60000, category: "nav", drivingOnly: true });
+        this.renderStatus();
+    },
+
+    finishUi() {
+        this.lastEstimate = null;
+        this.lostAnnounced = false;
+        setOwnMarkerEstimated(false);
+        const chip = $("dr-chip");
+        if (chip) chip.hidden = true;
+        if (myCoords && myCoords.est) { myCoords.est = false; }
+    },
+
+    persistLog() {
+        try { localStorage.setItem(this.KEY_LOG, JSON.stringify(this.core.log())); } catch (e) { /* quota: the log is a nicety */ }
+    },
+
+    clearLocal() {
+        try { localStorage.removeItem(this.KEY_LOG); } catch (e) { /* ignore */ }
+        if (this.core) this.core.setLog([]);
+        this.renderStatus();
+    },
+
+    bindUI() {
+        const toggle = $("dr-toggle");
+        if (toggle) {
+            toggle.checked = this.enabled;
+            toggle.addEventListener("change", () => {
+                this.enabled = toggle.checked;
+                try { localStorage.setItem(this.KEY_ENABLED, this.enabled ? "1" : "0"); } catch (e) { /* ignore */ }
+                this.updateSensors();
+            });
+        }
+        const perm = $("dr-permission-btn");
+        if (perm) perm.addEventListener("click", () => this.requestPermission());
+        const settingsBtn = $("profile-open-btn");
+        if (settingsBtn) settingsBtn.addEventListener("click", () => setTimeout(() => this.renderStatus(), 0));
+    },
+
+    statusText() {
+        if (!this.supported()) return "This browser has no motion sensors, so tunnel mode isn't available here.";
+        if (!this.enabled) return "Off — the map freezes at your last GPS fix when the signal drops.";
+        if (this.permission === "denied") return "Motion access was declined. On iPhone: Settings › Safari › Motion & Orientation Access, then reopen the app.";
+        if (!this.listening) return this.vehicleMode() ? "Starts on its own when a drive or group trip begins." : "Off while walking — it models a vehicle, not footsteps.";
+        if (!this.motionEvents) return Date.now() - this.listenStartedAt > 3000 ? "No motion data from this device — tunnel mode will hold your last speed and heading." : "Starting motion sensors…";
+        const s = this.core.status();
+        const heading = s.heading === "orientation" ? "heading from motion sensors ✓" : s.heading === "gyro" ? "heading from gyroscope ✓" : "heading: still learning (a few turns at speed)";
+        const speed = s.speed === "accelerometer" ? "speed from accelerometer ✓" : !s.sensors.linear ? "speed: last GPS speed (no linear-acceleration sensor)" : "speed: still learning (a few speed-ups and stops)";
+        return `Ready — ${heading}; ${speed}.`;
+    },
+
+    renderStatus() {
+        const st = $("dr-status");
+        if (st) st.textContent = this.statusText();
+        const perm = $("dr-permission-btn");
+        if (perm) perm.hidden = !(this.needsPermission() && this.permission !== "granted" && this.enabled);
+        const list = $("dr-log");
+        if (!list || !this.core) return;
+        list.textContent = "";
+        const log = this.core.log().slice(0, 5);
+        if (!log.length) {
+            const li = document.createElement("li");
+            li.className = "dr-log-empty";
+            li.textContent = "No GPS outages recorded yet.";
+            list.appendChild(li);
+            return;
+        }
+        log.forEach((e) => {
+            const li = document.createElement("li");
+            const when = new Date(e.at);
+            const day = localDateKey(when) === localDateKey(new Date()) ? "Today" : when.toLocaleDateString([], { day: "numeric", month: "short" });
+            const b = document.createElement("b");
+            b.textContent = e.lost ? "gave up" : `off by ${formatDistanceShort(e.errorM)}`;
+            li.append(`${day} ${when.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · ${fmtClock(e.durationMs)} without GPS · ${formatDistanceShort(e.distanceM)} · `, b);
+            list.appendChild(li);
+        });
+    }
+};
+
+// "1:07" / "12 s" — elapsed time for the island meta and the outage log.
+function fmtClock(ms) {
+    const s = Math.max(0, Math.round((Number(ms) || 0) / 1000));
+    if (s < 60) return `${s} s`;
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+// ---- estimated-position rendering ------------------------------------------
+// A dead-reckoned position moves the marker, the speed dial, the ride log and
+// the squad's view of you — but NOT the persisted breadcrumb trail
+// (koraput_history), which stays GPS-only.
+let ownMarkerEstimated = false;
+function setOwnMarkerEstimated(on) {
+    if (ownMarkerEstimated === on) return;
+    ownMarkerEstimated = on;
+    const el = ownMarker && typeof ownMarker.getElement === "function" ? ownMarker.getElement() : null;
+    if (el) el.classList.toggle("dr-est", on);
+    if (accuracyCircle && typeof accuracyCircle.setStyle === "function") {
+        accuracyCircle.setStyle(on
+            ? { color: "#ff9f0a", weight: 2, dashArray: "6 6", fillOpacity: 0.07 }
+            : { color: "#10b981", weight: 2, dashArray: null, fillOpacity: 0.15 });
+    }
+}
+
+function applyEstimatedPosition(est) {
+    if (!est || !validCoord(est.lat, est.lng)) return;
+    const alt = myCoords ? myCoords.alt : null;
+    myCoords = { lat: est.lat, lng: est.lng, alt, speedKmh: est.speedKmh, est: true, accuracy: est.radius, heading: est.heading };
+    if (!ownMarker) ownMarker = L.marker([est.lat, est.lng], { icon: ownIcon(), zIndexOffset: 1000 }).addTo(map);
+    else ownMarker.setLatLng([est.lat, est.lng]);
+    if (!accuracyCircle) accuracyCircle = L.circle([est.lat, est.lng], { radius: est.radius, color: "#ff9f0a", weight: 2, dashArray: "6 6", fillOpacity: 0.07 }).addTo(map);
+    else { accuracyCircle.setLatLng([est.lat, est.lng]); accuracyCircle.setRadius(est.radius); }
+    setOwnMarkerEstimated(true);
+
+    // Speed dial shows the estimate, flagged low-confidence; no alerts fire on it.
+    if (!est.lost) SmartDrive.checkSafetyLimits(est.speedKmh, 0.3);
+
+    const now = Date.now();
+    if (SmartDrive.trip.active && !est.lost && now - SmartDrive.trip.lastPointTs >= 5000) {
+        SmartDrive.trip.points.push({ ts: now, lat: est.lat, lng: est.lng, speedKmh: est.speedKmh, accuracy: est.radius });
+        SmartDrive.trip.lastPointTs = now;
+        if (SmartDrive.trip.points.length > 2000) SmartDrive.trip.points.shift();
+    }
+    // Urban tunnels often keep mobile data: the squad sees the estimate,
+    // marked as one (server: est + accuracy; geofences skip estimates).
+    if (socket.connected && !est.lost && now - DeadReckoning.lastEmitTs >= 3000) {
+        DeadReckoning.lastEmitTs = now;
+        socket.emit("updateLocation", { lat: est.lat, lng: est.lng, alt, speedKmh: est.speedKmh, accuracy: est.radius, weather: myWeather, est: true });
+    }
+    document.dispatchEvent(new CustomEvent("mu:dr-position", { detail: est }));
+    updateFriendBadges();
+}
+
+// ============================================================================
 // SOCKET CONNECTION LIFECYCLE + IDENTITY HANDSHAKE
 // ============================================================================
 socket.on("connect", () => {
@@ -1744,6 +2662,25 @@ socket.on("profileAccepted", (data) => {
     // "connect" — is the moment queued rides can be uploaded.
     TripAnalytics.profileVerified = true;
     TripAnalytics.flushPending();
+    // Fixed: a fix taken before the socket was identified was dropped by the
+    // server (unknown socket), so a rider standing still showed NO position
+    // to the squad until they moved. Re-send the current fix now.
+    if (myCoords && !myCoords.est && validCoord(myCoords.lat, myCoords.lng)) {
+        socket.emit("updateLocation", { lat: myCoords.lat, lng: myCoords.lng, alt: myCoords.alt ?? null, speedKmh: myCoords.speedKmh || 0, weather: myWeather });
+    }
+    // Phase 4: an SOS pressed with no connection goes out NOW, with the
+    // current position. Not via Socket.IO's send buffer: that flushes on
+    // reconnect BEFORE profileReady, and the server drops an SOS from a
+    // socket it doesn't know yet — the emergency would be silently lost.
+    if (pendingSos) {
+        const age = Date.now() - pendingSos.queuedAt;
+        pendingSos = null;
+        if (age < 30 * 60 * 1000 && myCoords) {
+            socket.emit("sos-alert", { name: currentUser.name, lat: myCoords.lat, lng: myCoords.lng, alt: myCoords.alt ?? null });
+            showToast("🚨 Back online — your queued SOS has now been sent to everyone online.", 8000);
+            islandShow({ id: "sos", kind: "sos", title: "Queued SOS sent", sub: "Back online — your friends were alerted", ttl: 8000 });
+        }
+    }
 });
 
 socket.on("profileRejected", () => {
@@ -1783,6 +2720,9 @@ function startGPS() {
     }
 
     const processLocation = async (p) => {
+        // Phase 4: during a GPS outage a coarse network fix is absorbed by the
+        // dead-reckoning estimate instead of yanking the marker ~1 km away.
+        if (DeadReckoning.onGpsFix(p) === "suppress") return;
         const lat = Number(p.coords.latitude), lng = Number(p.coords.longitude), acc = Number(p.coords.accuracy);
         const alt = p.coords.altitude ? Math.round(p.coords.altitude) : null;
         let speedKmh = 0; let dist = 0; let dtSec = 1;
@@ -1809,6 +2749,7 @@ function startGPS() {
         } else {
             ownMarker.setLatLng([lat, lng]);
         }
+        setOwnMarkerEstimated(false);          // a real fix: back to the solid marker + green circle
 
         if (acc > 0 && acc < 100000) {
             if (!accuracyCircle) accuracyCircle = L.circle([lat, lng], { radius: acc, color: "#10b981", weight: 2, fillOpacity: .15 }).addTo(map);
@@ -1858,10 +2799,17 @@ function startGPS() {
         if (typeof GroupNavigation !== 'undefined') GroupNavigation.onLiveUpdate();
     };
 
+    let lastGpsErrorToast = 0;
     const handleGpsError = (e) => {
         console.warn("GPS error", e);
-        if (e.code === 1) showToast("⚠️ GPS Permission Denied! Please enable location.", 6000);
-        else showToast("⚠️ GPS Signal Lost or Weak. Trying again...", 4000);
+        if (e.code === 1) { showToast("⚠️ GPS Permission Denied! Please enable location.", 6000); return; }
+        // Phase 4: while tunnel mode is estimating, the island already says
+        // GPS is gone — a toast every 15 s on top of it is noise. Otherwise
+        // at most one "weak signal" toast a minute.
+        if (DeadReckoning.core && DeadReckoning.core.active()) return;
+        if (Date.now() - lastGpsErrorToast < 60000) return;
+        lastGpsErrorToast = Date.now();
+        showToast("⚠️ GPS Signal Lost or Weak. Trying again...", 4000);
     };
 
     navigator.geolocation.getCurrentPosition(processLocation, (e) => { console.warn("Fast GPS fetch failed", e); }, { enableHighAccuracy: false, timeout: 7000, maximumAge: Infinity });
@@ -1871,7 +2819,10 @@ function startGPS() {
 function updateFriendBadges() {
     Object.keys(friendMarkers).forEach(id => {
         const f = friendData[id], m = friendMarkers[id]; if (!f || !m) return;
-        let text = f.online === false ? "Offline" : (f.approx ? "📶 Approx. location" : f.weather);
+        let text;
+        if (f.online === false && f.via === "radio" && friendIsLive(f)) text = `📻 via radio · ${agoText(f.fixAt || f.viaAt)}`;
+        else text = f.online === false ? "Offline" : (f.approx ? "📶 Approx. location" : f.weather);
+        if (f.est && Number.isFinite(f.accuracy)) text += `${text ? " | " : ""}≈ ±${formatDistanceShort(f.accuracy)}`;
         if (f.alt) text += ` | ⛰️${f.alt}m`;
         if (myCoords && validCoord(f.lat, f.lng)) text += ` | 📍 ${distanceKm(myCoords.lat, myCoords.lng, f.lat, f.lng)} km away`;
         m.unbindTooltip(); if (text) m.bindTooltip(text, { permanent: true, direction: "right", className: "weather-badge", offset: [15, 0] });
@@ -1882,36 +2833,77 @@ socket.on("onlineUsers", list => { if (Array.isArray(list)) list.forEach(u => { 
 socket.on("userOnline", u => { if (u.id !== socket.id) { friendData[u.id] = { ...(friendData[u.id] || {}), ...u, online: true }; createOrUpdateFriendMarker(u); } updateOnlineUI(); });
 socket.on("userOffline", d => { if (d?.id && friendData[d.id]) { friendData[d.id].online = false; if (friendMarkers[d.id]) friendMarkers[d.id].setOpacity(0.45); } updateOnlineUI(); });
 socket.on("friendMoved", u => {
-    if (!u?.id) return;
+    // Fixed: trip start/join re-broadcasts the rider's own state to EVERYONE
+    // (server broadcastUserState), and this handler used to add YOU to your
+    // own friend list — a second marker, "you" in the online list.
+    if (!u?.id || u.id === socket.id) return;
     if (u.lat == null || u.lng == null) {                         // sharing set to "off" — remove the marker, don't misplace it
         if (friendMarkers[u.id]) { map.removeLayer(friendMarkers[u.id]); delete friendMarkers[u.id]; }
+        removeFriendAccuracy(u.id);
         friendData[u.id] = { ...(friendData[u.id] || {}), ...u, online: u.online !== false };
         updateOnlineUI();
         return;
     }
-    createOrUpdateFriendMarker({ ...u, online: true });
+    // Phase 4: a radio-relayed position (their socket is gone) is not "online";
+    // one older than what we already show (e.g. heard first over our own
+    // radio) is dropped.
+    const cur = friendData[u.id];
+    if (u.via === "radio" && cur && Number.isFinite(cur.fixAt) && Number.isFinite(u.fixAt) && u.fixAt <= cur.fixAt) return;
+    createOrUpdateFriendMarker({ ...u, online: u.via !== "radio" });
     updateOnlineUI();
     if (typeof triggerGroupRouteUpdate === 'function') triggerGroupRouteUpdate();
 });
-socket.on("friendDisconnected", id => { if (friendMarkers[id]) { map.removeLayer(friendMarkers[id]); delete friendMarkers[id]; } delete friendData[id]; updateOnlineUI(); });
+socket.on("friendDisconnected", id => { if (friendMarkers[id]) { map.removeLayer(friendMarkers[id]); delete friendMarkers[id]; } removeFriendAccuracy(id); delete friendData[id]; updateOnlineUI(); });
+
+// Phase 4: dashed uncertainty ring for a friend whose position is an estimate.
+const friendAccuracyCircles = Object.create(null);
+function removeFriendAccuracy(id) {
+    if (friendAccuracyCircles[id]) { map.removeLayer(friendAccuracyCircles[id]); delete friendAccuracyCircles[id]; }
+}
 
 function createOrUpdateFriendMarker(u) {
     if (!u?.id || !validCoord(u.lat, u.lng)) return;
-    friendData[u.id] = { id: u.id, name: u.name || "Friend", avatar: u.avatar || DEFAULT_AVATAR, lat: u.lat, lng: u.lng, alt: u.alt, speedKmh: u.speedKmh, weather: u.weather || "", online: u.online !== false, approx: Boolean(u.approx) };
+    const prev = friendData[u.id] || {};
+    const via = u.via === "radio" ? "radio" : null;
+    friendData[u.id] = {
+        id: u.id, name: u.name || prev.name || "Friend", avatar: u.avatar || prev.avatar || DEFAULT_AVATAR, lat: u.lat, lng: u.lng, alt: u.alt,
+        speedKmh: u.speedKmh, weather: u.weather || "", online: u.online !== false, approx: Boolean(u.approx),
+        // Phase 4 — kept so the radio relay can find this rider by ownerKey,
+        // and so the UI can say how the position was obtained.
+        ownerKey: u.ownerKey || prev.ownerKey || null,
+        accuracy: Number.isFinite(u.accuracy) ? u.accuracy : null, est: Boolean(u.est), via,
+        viaAt: via ? Date.now() : null, fixAt: Number.isFinite(u.fixAt) ? u.fixAt : null,
+        relayedBy: via ? (u.relayedBy || null) : null, updatedAt: Date.now()
+    };
+    const f = friendData[u.id];
+    const opacity = f.online ? 1 : via ? 0.9 : 0.45;
     let m = friendMarkers[u.id];
-    if (!m) { m = L.marker([u.lat, u.lng], { icon: friendIcon(u.avatar) }).addTo(map); m.on("click", () => showProfilePopup(u)); friendMarkers[u.id] = m; }
-    else { m.setLatLng([u.lat, u.lng]); m.setOpacity(u.online === false ? 0.45 : 1); }
-    m.setIcon(friendIcon(u.avatar));
-    if (u.approx) m.getElement()?.classList.add("approx-marker"); else m.getElement()?.classList.remove("approx-marker");
+    // Fixed: the click handler used to capture `u` at creation, so the popup
+    // showed the rider's FIRST position/status forever. Read the live record.
+    if (!m) { m = L.marker([u.lat, u.lng], { icon: friendIcon(f.avatar) }).addTo(map); m.on("click", () => showProfilePopup(friendData[u.id] || u)); friendMarkers[u.id] = m; }
+    else { m.setLatLng([u.lat, u.lng]); }
+    m.setIcon(friendIcon(f.avatar));
+    m.setOpacity(opacity);
+    const el = m.getElement ? m.getElement() : null;
+    if (el) {
+        el.classList.toggle("approx-marker", f.approx);
+        el.classList.toggle("est-marker", f.est);
+        el.classList.toggle("radio-marker", Boolean(via));
+    }
+    if (f.est && Number.isFinite(f.accuracy) && f.accuracy >= 30) {
+        if (!friendAccuracyCircles[u.id]) friendAccuracyCircles[u.id] = L.circle([u.lat, u.lng], { radius: f.accuracy, color: "#ff9f0a", weight: 1.5, dashArray: "5 6", fillOpacity: 0.05, interactive: false }).addTo(map);
+        else { friendAccuracyCircles[u.id].setLatLng([u.lat, u.lng]); friendAccuracyCircles[u.id].setRadius(f.accuracy); }
+    } else removeFriendAccuracy(u.id);
     updateFriendBadges();
 }
 
 function updateOnlineUI() {
     const cs = $("chat-subtitle"); if (cs) cs.textContent = `${currentUser.name ? 1 : 0} online`;
     const box = $("online-list"); if (!box) return; box.innerHTML = "";
-    Object.values(friendData).filter(f => f.online !== false).forEach(u => {
+    Object.values(friendData).filter(f => friendIsLive(f)).forEach(u => {
         const btn = document.createElement("button"); btn.className = "online-friend";
-        btn.innerHTML = `<img src="${escapeHTML(u.avatar)}"><span><b>${escapeHTML(u.name)}</b></span><div class="status-dot"></div>`;
+        const radio = u.online === false;   // live only via the radio relay
+        btn.innerHTML = `<img src="${escapeHTML(u.avatar)}"><span><b>${escapeHTML(u.name)}</b>${radio ? " <small>📻 radio</small>" : ""}</span><div class="status-dot${radio ? " radio" : ""}"></div>`;
         btn.onclick = () => { if (validCoord(u.lat, u.lng)) map.flyTo([u.lat, u.lng], 16); showProfilePopup(u); }; box.appendChild(btn);
     });
 }
@@ -1920,7 +2912,13 @@ function showProfilePopup(u) {
     const ppa = $("profile-popup-avatar"); if (ppa) ppa.src = u.avatar;
     const ppn = $("profile-popup-name"); if (ppn) ppn.textContent = u.name;
     const st = $("profile-popup-status");
-    if (st) { st.textContent = u.online !== false ? (u.approx ? "● Approx. location" : "● Online") : "● Offline"; st.style.color = u.online !== false ? "#18d6a3" : "#8fa1aa"; }
+    if (st) {
+        const radio = u.online === false && friendIsLive(u);
+        st.textContent = u.online !== false
+            ? (u.approx ? "● Approx. location" : u.est ? `● Estimated position (±${formatDistanceShort(u.accuracy || 0)})` : "● Online")
+            : radio ? `● Via radio relay · ${agoText(u.fixAt || u.viaAt)}` : "● Offline";
+        st.style.color = u.online !== false ? "#18d6a3" : radio ? "#ff9f0a" : "#8fa1aa";
+    }
     const ppd = $("profile-popup-distance");
     if (ppd) ppd.textContent = (myCoords && validCoord(u.lat, u.lng)) ? `${distanceKm(myCoords.lat, myCoords.lng, u.lat, u.lng)} km away` : "--";
     const ppw = $("profile-popup-weather");
@@ -2654,6 +3652,7 @@ function setupGoogleSearch() {
 }
 
 let navWatchId = null;
+let navDrListener = null;      // Phase 4: follows dead-reckoned estimates during navigation
 
 // ---- Maneuver text (roadmap Section 7) -------------------------------------
 // Google's DirectionsService already returns plain-English instructions (we
@@ -2794,6 +3793,7 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
     navState.destName = destName;
     navState.remainingM = routeData.distance;
     navState.etaSec = routeData.duration;
+    navState.routePath = fullPath;          // Phase 4: tunnel mode snaps its estimate to this
 
     const dottedPath = L.polyline(fullPath, { color: '#4f46e5', weight: 8, opacity: 0.7, className: 'anim-dash' }).addTo(navigationLayer);
     const solidPath = L.polyline([], { color: '#34e0b4', weight: 8, opacity: 1, className: 'solid-trail' }).addTo(navigationLayer);
@@ -2903,17 +3903,22 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
 
             if (navigator.geolocation) {
                 let traveledCoords = [];
-                navWatchId = navigator.geolocation.watchPosition(async (pos) => {
-                    const currentLat = pos.coords.latitude;
-                    const currentLng = pos.coords.longitude;
+                // Phase 4: ONE handler for real fixes and for dead-reckoned
+                // estimates (mu:dr-position). Estimates move the marker, the
+                // trail and the turn prompts, but never trigger an off-route
+                // reroute or "arrived" off a guess.
+                const onNavPosition = async (currentLat, currentLng, speedMps, estimated) => {
                     const currentPos = [currentLat, currentLng];
                     lastPos = currentPos;
 
-                    const speedMps = pos.coords.speed || 0;
                     const speedKmh = Math.round(speedMps * 3.6);
                     if ($("speed-n")) $("speed-n").textContent = speedKmh;
 
                     userMarker.setLatLng(currentPos);
+                    const umEl = typeof userMarker.getElement === "function" ? userMarker.getElement() : null;
+                    if (umEl) umEl.classList.toggle("dr-est", Boolean(estimated));
+                    const ss = $("stat-status");
+                    if (ss && ss.textContent !== "Arrived") { ss.textContent = estimated ? "No GPS" : "En route"; ss.style.color = estimated ? "var(--c-sensor)" : "#f5a524"; }
                     map.panTo(currentPos);
 
                     traveledCoords.push(L.latLng(currentLat, currentLng));
@@ -2941,6 +3946,7 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
                         if (d < 35) stepIdx++;
                     }
                     updateStepDisplay(currentPos);
+                    if (estimated) return;             // no reroute / arrival decisions on an estimate
 
                     // --- Off-route detection + reroute (roadmap Section 7 + 10) ---
                     const offDist = pointToPolylineDistanceMeters(currentLat, currentLng, fullPath);
@@ -2960,6 +3966,7 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
                                 // HEARS it (roadmap Section 26: no silent rerouting).
                                 fullPath = cand.geometry.coordinates.map(c => [c[1], c[0]]);
                                 dottedPath.setLatLngs(fullPath);
+                                navState.routePath = fullPath;
                                 activeRoute = { distanceM: cand.distance, durationSec: cand.duration };
                                 steps = (cand.legs && cand.legs[0] && cand.legs[0].steps) || [];
                                 stepIdx = 0;
@@ -2989,6 +3996,10 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
                         speak(`You have arrived at ${destName}.`, { priority: 70, key: "arrived", cooldownMs: 60000 });
                         setTimeout(() => stopDrive(), 3000);
                     }
+                };
+                navWatchId = navigator.geolocation.watchPosition((pos) => {
+                    if (DeadReckoning.shouldIgnoreNavFix(pos)) return;   // coarse fix mid-outage: the estimate has it
+                    onNavPosition(pos.coords.latitude, pos.coords.longitude, pos.coords.speed || 0, false);
                 }, (err) => {
                     // TIMEOUT (3) is routine when stationary or under canopy — the
                     // watch keeps running, so it isn't worth an error. Surface a
@@ -2997,6 +4008,12 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
                     if (err && err.code === 1) { showToast("⚠️ Location permission was turned off — navigation can't follow you.", 6000); return; }
                     console.warn("GPS error during nav:", err && err.message);
                 }, { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 });
+                if (navDrListener) document.removeEventListener("mu:dr-position", navDrListener);
+                navDrListener = (e) => {
+                    const est = e.detail;
+                    if (navState.active && est && !est.lost && validCoord(est.lat, est.lng)) onNavPosition(est.lat, est.lng, (est.speedKmh || 0) / 3.6, true);
+                };
+                document.addEventListener("mu:dr-position", navDrListener);
             }
             emitDriveState();
         };
@@ -3009,6 +4026,7 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
 function stopDrive(cancelled = false) {
     if (navWatchId) navigator.geolocation.clearWatch(navWatchId);
     navWatchId = null;
+    if (navDrListener) { document.removeEventListener("mu:dr-position", navDrListener); navDrListener = null; }
     navigationLayer.clearLayers();
     safeHide("premium-nav-ui");
     safeHide("nav-bottom-sheet");
@@ -3030,6 +4048,7 @@ function stopDrive(cancelled = false) {
     navState.remainingM = null;
     navState.etaSec = null;
     navState.nextManeuver = "";
+    navState.routePath = null;
     // Clear the saved nav state so a refresh doesn't resurrect a finished drive.
     if (typeof TripDB !== "undefined") TripDB.saveNavState({ active: false });
 
@@ -3261,12 +4280,33 @@ window.TripChecklist = TripChecklist;
 // ==========================================
 // Shared by the SOS button (after its confirm sheet) and the voice command
 // "send SOS" (after a spoken "confirm SOS") — one code path, one payload.
+// Phase 4: also goes out over the paired LoRa radio (features.js ConvoyRelay).
+// Returns "server" | "radio" | "queued" (truthy) or false (no position yet).
+//   server — the socket is up: everyone online is alerted now;
+//   radio  — no data, but the SOS left over the radio (a rider with data
+//            uploads it; nearby radios alert their riders directly);
+//   queued — no data and no radio: held here and sent right after the next
+//            profileAccepted (see there for why NOT Socket.IO's own buffer).
+let pendingSos = null;
 function sendSOS() {
     if (!myCoords) { showToast("❌ Waiting for GPS..."); return false; }
-    socket.emit("sos-alert", { name: currentUser.name, lat: myCoords.lat, lng: myCoords.lng, alt: myCoords.alt ?? null });
-    showToast("🚨 SOS BROADCASTED TO ALL FRIENDS!", 8000);
-    islandShow({ id: "sos", kind: "sos", title: "SOS sent", sub: "Your friends were alerted", ttl: 6000 });
-    return true;
+    const online = Boolean(socket.connected);
+    if (online) socket.emit("sos-alert", { name: currentUser.name, lat: myCoords.lat, lng: myCoords.lng, alt: myCoords.alt ?? null });
+    else pendingSos = { queuedAt: Date.now() };
+    const radio = Boolean(window.ConvoyRelay && typeof window.ConvoyRelay.sendSos === "function" && window.ConvoyRelay.sendSos());
+    if (online) {
+        showToast(radio ? "🚨 SOS BROADCASTED TO ALL FRIENDS — and over the radio." : "🚨 SOS BROADCASTED TO ALL FRIENDS!", 8000);
+        islandShow({ id: "sos", kind: "sos", title: "SOS sent", sub: radio ? "Friends alerted · radio too" : "Your friends were alerted", ttl: 6000 });
+        return "server";
+    }
+    if (radio) {
+        showToast("🚨 No data — SOS sent over the radio. It also goes out online as soon as you have signal.", 9000);
+        islandShow({ id: "sos", kind: "sos", title: "SOS sent by radio", sub: "Waiting for a rider to confirm", ttl: 9000 });
+        return "radio";
+    }
+    showToast("🚨 No connection — your SOS will send the moment you're back online.", 9000);
+    islandShow({ id: "sos", kind: "sos", title: "SOS queued", sub: "Sends as soon as you're back online", ttl: 9000 });
+    return "queued";
 }
 
 // 8-point compass word from A to B ("north-east"), for spoken directions.
@@ -3298,29 +4338,52 @@ function setupSOS() {
         sendSOS();
     };
 
-    socket.on("sos-alert", (data) => {
-        const div = document.createElement("div");
-        div.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(239,68,68,0.3);border:10px solid #ef4444;z-index:99999;pointer-events:none;animation:dangerPulse 1s infinite alternate;";
-        document.body.appendChild(div);
+    socket.on("sos-alert", (data) => showIncomingSos(data));
+}
 
-        const who = String(data.name || "A rider");
-        showToast(`🚨 URGENT SOS FROM ${who.toUpperCase()}! Check Map!`, 15000);
-        // StatusIsland uses textContent — raw string, not escapeHTML().
-        islandShow({ id: "sos-in", kind: "sos", title: "SOS", sub: `${who} needs help`, ttl: 15000 });
-        // Always spoken: an emergency bypasses mute and the "spoken alerts"
-        // toggle (stated next to that toggle in settings).
-        let where = "";
-        if (myCoords && validCoord(data.lat, data.lng)) {
-            where = ` ${spokenDistance(map.distance([myCoords.lat, myCoords.lng], [data.lat, data.lng]))} ${compassWord(myCoords.lat, myCoords.lng, data.lat, data.lng)} of you.`;
-        }
-        voiceAnnounce(`Emergency. ${who} sent an S O S.${where}`, { priority: 100, force: true, key: `sos-in-${data.id || who}`, cooldownMs: 10000, category: "sos" });
+// Phase 4: one entry point for an incoming SOS — from the server, or heard
+// directly over our own radio (features.js). The same emergency can arrive
+// both ways (and a radio retry again), so it alerts ONCE per rider per minute;
+// later copies only move that rider's SOS pin.
+const recentSos = new Map();        // ownerKey | id -> {ts, marker}
+function showIncomingSos(data) {
+    if (!data || !validCoord(data.lat, data.lng)) return;
+    const key = data.ownerKey || data.id || data.name || "unknown";
+    const now = Date.now();
+    const seen = recentSos.get(key);
+    const who = String(data.name || "A rider");
+    const viaRadio = data.via === "radio";
+    const ageSec = Number.isFinite(data.at) ? Math.round((now - data.at) / 1000) : 0;
+    const note = viaRadio ? ` (via radio${data.relayedBy ? `, relayed by ${data.relayedBy}` : ""}${ageSec > 45 ? `, ${agoText(data.at)}` : ""})` : "";
 
-        L.marker([data.lat, data.lng], { icon: L.divIcon({ className: 'sos-marker', html: '<div style="font-size:30px;animation:dangerPulse 1s infinite alternate;">🚨</div>' }) })
-            .bindPopup(`<b style="color:red;">EMERGENCY SOS: ${escapeHTML(data.name)}</b>`).addTo(map).openPopup();
+    let marker = seen && seen.marker;
+    if (marker) marker.setLatLng([data.lat, data.lng]);
+    else {
+        marker = L.marker([data.lat, data.lng], { icon: L.divIcon({ className: 'sos-marker', html: '<div style="font-size:30px;animation:dangerPulse 1s infinite alternate;">🚨</div>' }) })
+            .bindPopup(`<b style="color:red;">EMERGENCY SOS: ${escapeHTML(who)}</b>${escapeHTML(note)}`).addTo(map);
+        marker.openPopup();
+    }
+    recentSos.set(key, { ts: seen && now - seen.ts < 60000 ? seen.ts : now, marker });
+    if (seen && now - seen.ts < 60000) return;
 
-        map.flyTo([data.lat, data.lng], 16, { animate: true, duration: 2 });
-        setTimeout(() => div.remove(), 10000);
-    });
+    const div = document.createElement("div");
+    div.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(239,68,68,0.3);border:10px solid #ef4444;z-index:99999;pointer-events:none;animation:dangerPulse 1s infinite alternate;";
+    document.body.appendChild(div);
+
+    showToast(`🚨 URGENT SOS FROM ${who.toUpperCase()}!${note} Check Map!`, 15000);
+    // StatusIsland uses textContent — raw string, not escapeHTML().
+    islandShow({ id: "sos-in", kind: "sos", title: "SOS", sub: `${who} needs help${viaRadio ? " · via radio" : ""}`, ttl: 15000 });
+    // Always spoken: an emergency bypasses mute and the "spoken alerts"
+    // toggle (stated next to that toggle in settings).
+    let where = "";
+    if (myCoords && validCoord(data.lat, data.lng)) {
+        where = ` ${spokenDistance(map.distance([myCoords.lat, myCoords.lng], [data.lat, data.lng]))} ${compassWord(myCoords.lat, myCoords.lng, data.lat, data.lng)} of you.`;
+    }
+    const radioNote = viaRadio ? " Received over the radio." : "";
+    voiceAnnounce(`Emergency. ${who} sent an S O S.${where}${radioNote}`, { priority: 100, force: true, key: `sos-in-${key}`, cooldownMs: 10000, category: "sos" });
+
+    map.flyTo([data.lat, data.lng], 16, { animate: true, duration: 2 });
+    setTimeout(() => div.remove(), 10000);
 }
 
 // ==========================================
@@ -3338,6 +4401,7 @@ function initApp() {
         { name: "Meetup Planner", fn: () => MeetupPlanner.init() },
         { name: "Carpool Planner", fn: () => CarpoolPlanner.init() },
         { name: "Trip Analytics", fn: () => TripAnalytics.init() },
+        { name: "Dead Reckoning", fn: () => DeadReckoning.init() },
         { name: "GPS System", fn: startGPS },
         { name: "Google Search", fn: setupGoogleSearch },
         { name: "Emergency SOS", fn: setupSOS }
