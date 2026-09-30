@@ -18,7 +18,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-09-30.5";           // Fuel-aware meetup (app.js / index.html changed)
+const VERSION = "mu-2026-09-30.6";           // Route options: avoid highways / tolls (app.js / features.js / index.html changed)
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
