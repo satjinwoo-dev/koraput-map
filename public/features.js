@@ -687,6 +687,7 @@ const VOICE_COMMANDS = [
     { name: "radio", test: (t) => /\b(radio|mesh|lora)\b.*\b(status|check|update|report|anyone|who)\b|\bwho can (you|i) hear\b|^(radio|mesh|lora)$/.test(t) },
     { name: "whereIs", test: (t) => { const m = /\bwhere(?:'s| is)\s+(.+)$/.exec(t) || /^(.+?)\s+kahan hai$/.exec(t); return m ? m[1] : false; } },
     { name: "howFar", test: (t) => /\b(how far|how long|eta|time left|distance left|remaining|kitna door|kitni der|when will i (arrive|get there))\b/.test(t) },
+    { name: "speedLimit", test: (t) => /\b(speed limit|what'?s the limit|limit here|how fast can i go)\b/.test(t) },
     { name: "speed", test: (t) => /\b(my speed|how fast|what speed|current speed)\b/.test(t) },
     { name: "recenter", test: (t) => /\b(re ?cent(er|re)|locate me|center map|centre map|show my location)\b/.test(t) }
 ];
@@ -1099,7 +1100,7 @@ const VoiceAssistant = {
     execute(cmd) {
         switch (cmd.name) {
             case "help":
-                this.reply("You can say: how far, where is, then a name, squad status, radio status, regroup, who's approaching, avoid tolls, navigate to, then a place, start navigation, stop navigation, where am I, mute, or send S O S.");
+                this.reply("You can say: how far, where is, then a name, squad status, radio status, regroup, who's approaching, speed limit, avoid tolls, navigate to, then a place, start navigation, stop navigation, where am I, mute, or send S O S.");
                 break;
             case "mute":
                 this.mutedUntil = Date.now() + this.MUTE_MS;
@@ -1139,6 +1140,9 @@ const VoiceAssistant = {
                 break;
             case "regroup":
                 this.reply(Phase5UI.regroupSummary());
+                break;
+            case "speedLimit":
+                this.reply(typeof SpeedLimits !== "undefined" ? SpeedLimits.describe() : "I don't know the speed limit here.");
                 break;
             case "routeAvoid": {
                 if (typeof RoutePrefs === "undefined" || !cmd.arg) { this.reply("Route options aren't available right now."); break; }
