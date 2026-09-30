@@ -625,6 +625,21 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 }
 #compass-btn[aria-pressed="true"] { background: rgba(52,224,180,.16); color: var(--mint); }
 
+/* ---------- 9d. PHASE 5: relative motion + regroup ---------- */
+#profile-popup-motion { margin-top: 6px; font-size: 13px; font-weight: 600; color: var(--c-info); }
+#profile-popup-motion[data-status="meeting"], #profile-popup-motion[data-status="together"] { color: var(--mint); }
+#profile-popup-motion[data-status="moving-away"], #profile-popup-motion[data-status="passed"] { color: var(--soft); }
+.regroup-panel { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.regroup-head { display: flex; align-items: center; gap: 6px; }
+.regroup-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--soft); line-height: 1.35; }
+.regroup-item { padding: 6px 10px; border-radius: 10px; background: rgba(255,255,255,.04); border-left: 3px solid var(--line-strong); }
+.regroup-item.slow, .regroup-item.wait { border-left-color: var(--c-warn); }
+.regroup-item.catch-up, .regroup-item.wait-at-destination { border-left-color: var(--c-info); }
+.regroup-item.mine { background: rgba(52,224,180,.12); color: var(--text); font-weight: 600; }
+.regroup-pin { background: none; border: none; }
+.regroup-pin-dot { width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 700;
+  color: #071018; background: var(--mint); box-shadow: 0 0 0 3px rgba(8,14,23,.85), 0 0 16px rgba(52,224,180,.6); }
+
 /* ---------- 10. MAP OVERRIDES ---------- */
 /* Attribution is REQUIRED by the tile licences (OSM / Esri / OpenTopoMap / Carto). Kept small, glassy, and clear of the FABs. */
 .leaflet-bottom.leaflet-right { right: 50%; transform: translateX(50%); bottom: calc(60px + var(--safe-b)); pointer-events: none; }
@@ -841,6 +856,11 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
         <input type="checkbox" id="convoy-alerts-toggle" class="switch" checked>
       </div>
       <p class="field-hint">In a group trip or meetup: tells you when a rider falls 5+ minutes behind by road, stops for 3+ minutes, leaves their route, or loses signal.</p>
+      <div class="modal-row">
+        <label for="regroup-toggle">Regroup suggestions</label>
+        <input type="checkbox" id="regroup-toggle" class="switch" checked>
+      </div>
+      <p class="field-hint">When the convoy spreads out, suggests who should ease off or take a short break so everyone closes up — and where. Never suggests riding faster than the road's usual pace, or above 75&nbsp;km/h.</p>
     </div>
 
     <!-- Phase 4: tunnel mode (app.js DeadReckoning). The radio relay lives in the radar panel. -->
@@ -1001,6 +1021,7 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
     <img id="profile-popup-avatar" src="" alt="">
     <h2 id="profile-popup-name">Friend</h2>
     <div id="profile-popup-status">Online</div>
+    <div id="profile-popup-motion" role="status" hidden></div>
     <div id="profile-popup-distance">-- km</div>
     <div id="profile-popup-weather">--°C</div>
     <div class="btn-row">
@@ -1119,6 +1140,7 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
         <button id="group-nav-stop-btn" class="btn-danger-nav" type="button" style="flex:none;height:36px;">Stop</button>
     </div>
     <div id="convoy-status-meetup" class="convoy-status" hidden></div>
+    <div id="regroup-panel-meetup" class="regroup-panel" aria-live="polite" hidden></div>
     <div id="group-nav-stats-list"></div>
   </div>
 </div>
@@ -1131,6 +1153,7 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
   </div>
   <div id="trip-members-list"></div>
   <div id="convoy-status" class="convoy-status" hidden></div>
+  <div id="regroup-panel" class="regroup-panel" aria-live="polite" hidden></div>
 </div>
 
 <!-- HIDDEN ELEMENTS -->
@@ -1183,7 +1206,7 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyASbmXgn0T-B4AQdCe1sp7dfJbDXKgDw5c&libraries=places&loading=async"></script>
 <script src="/shell.js"></script>
-<script src="app.js?v=20260930-phase4b"></script>
-<script src="features.js?v=20260930-phase4b"></script>
+<script src="app.js?v=20260930-phase5"></script>
+<script src="features.js?v=20260930-phase5"></script>
 </body>
 </html>
