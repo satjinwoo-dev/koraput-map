@@ -33,6 +33,34 @@
      RECONNECT_GRACE_MS       default 30000
      TRIP_RETENTION_DAYS      default 30 (0 = keep forever)
      ENFORCE_CSP              "1" to enforce the CSP (default: report-only)
+     RELAY_HOLD_MS            default 600000 — how long a rider whose socket is
+                              gone stays in the trip while radio relays of their
+                              position keep arriving (Phase 4)
+
+   PHASE 3 (merged verbatim from server.additions.js):
+     getTripRollups — day / week / month SQL rollups in the rider's local time.
+
+   PHASE 4 — experimental offline relay (roadmap Section 5):
+     - getRelayCredentials: per-trip keys for the LoRa radio relay. Everything
+       is DERIVED from SERVER_SECRET + trip id (+ device id), so nothing new is
+       stored and the keys die with the trip:
+         groupKey  AES-128-GCM key every trip member shares (radio privacy —
+                   Meshtastic's default channel is public),
+         deviceKey per-rider HMAC key only the server and that rider know,
+         rid       4-byte per-trip pseudonym for the rider (not linkable
+                   across trips), tag = 4-byte trip filter.
+     - relayUpload: a trip member with data uploads frames heard over radio
+       from riders WITHOUT data. Each frame must decrypt under the group key
+       AND carry a valid HMAC from its origin's device key — a member can
+       carry another rider's position but cannot forge it. Replays, stale or
+       out-of-order frames and implausible jumps are rejected per frame.
+     - A rider whose socket is gone is held in the trip (RELAY_HOLD_MS) while
+       relays keep arriving, instead of being dropped after the 30 s grace.
+     - updateLocation accepts {est, accuracy} for dead-reckoned positions;
+       public user records now carry accuracy / est / via / fixAt.
+     - Privacy fix: an "approx" rider inside an active trip is exact for trip
+       members only — everyone else now gets the 1 km cell (before, the whole
+       map got the exact position, contradicting the settings text).
    ============================================================================ */
 
 const express = require("express");
@@ -74,6 +102,19 @@ const MAX_GEOFENCES_PER_OWNER = 20;
 const MAX_PLAUSIBLE_KMH = 300;
 const APPROX_GRID_KM = 1;
 const DEFAULT_AVATAR = "satyam.png";
+
+// Phase 4 — radio relay (see header). Frame layout is documented at
+// openRelayFrame() and mirrored byte-for-byte by features.js ConvoyRelay.
+const RELAY_HOLD_MS = Number(process.env.RELAY_HOLD_MS) || 10 * 60_000;
+const RELAY_RADIO_GRACE_MS = Math.min(3 * 60_000, RELAY_HOLD_MS);   // radio-equipped rider: longer reconnect grace before the first relay lands
+const RELAY_MAX_AGE_MS = 15 * 60_000;      // older than this is history, not a position
+const RELAY_MAX_FUTURE_MS = 5 * 60_000;    // phone clock skew allowance
+const RELAY_DIRECT_FRESH_MS = 20_000;      // a direct socket fix this recent beats any relay
+const RELAY_FRAME = Object.freeze({
+    VERSION: 1, PING: 1, SOS: 2, ACK: 4,
+    HEADER: 17, GCM_TAG: 16, MAC: 8, POS_BODY: 16, MAX_BYTES: 140,
+    FLAG_EST: 0x01, FLAG_ORIGIN_OFFLINE: 0x02, FLAG_COURSE: 0x04
+});
 
 // ==========================================================================
 // 1. APP / HTTP / SOCKET.IO BOOTSTRAP
@@ -130,7 +171,7 @@ app.use(helmet({
 }));
 app.use((_req, res, next) => {
     res.setHeader("Permissions-Policy",
-        "geolocation=(self), microphone=(self), camera=(self), accelerometer=(self), gyroscope=(self), bluetooth=(self), screen-wake-lock=(self)");
+        "geolocation=(self), microphone=(self), camera=(self), accelerometer=(self), gyroscope=(self), magnetometer=(self), bluetooth=(self), screen-wake-lock=(self)");
     next();
 });
 
@@ -391,6 +432,35 @@ const stmt = {
     deleteGeofencesForDevice: db.prepare(`DELETE FROM geofences WHERE owner_device_id = ?`)
 };
 
+// ---- Phase 3: trip rollups (merged verbatim from server.additions.js, BLOCK 1) ----
+// Bucket expressions. The single `?` in each is the client's UTC offset in
+// SECONDS, so "a trip at 00:30 IST" lands on the rider's local date, not UTC's.
+//   day   -> 2026-09-29
+//   week  -> the Monday that starts the week (ISO-style), e.g. 2026-09-28
+//   month -> 2026-09
+const ROLLUP_BUCKET_SQL = {
+    day: "date(started_at / 1000 + ?, 'unixepoch')",
+    week: "date(started_at / 1000 + ?, 'unixepoch', '-6 days', 'weekday 1')",
+    month: "strftime('%Y-%m', started_at / 1000 + ?, 'unixepoch')"
+};
+const rollupStmts = Object.fromEntries(Object.entries(ROLLUP_BUCKET_SQL).map(([period, expr]) => [
+    period,
+    db.prepare(`
+        SELECT ${expr}                                        AS bucket,
+               COUNT(*)                                       AS trips,
+               COALESCE(SUM(total_dist_km), 0)                AS dist,
+               COALESCE(SUM(fuel_used_l), 0)                  AS fuel,
+               COALESCE(MAX(max_speed), 0)                    AS maxs,
+               COALESCE(SUM(MAX(ended_at - started_at, 0)), 0) AS dur,
+               COALESCE(SUM(total_dist_km * avg_speed) / NULLIF(SUM(total_dist_km), 0), 0) AS avg
+        FROM trips
+        WHERE host_device_id = ? AND started_at >= ? AND ended_at IS NOT NULL
+        GROUP BY bucket
+        ORDER BY bucket DESC
+        LIMIT ?
+    `)
+]));
+
 // Server secret for pseudonymous owner keys. Persisted so keys stay stable
 // across restarts. Owner keys let clients answer "is this mine?" WITHOUT the
 // raw deviceId (a private tracking identifier) ever being broadcast.
@@ -405,6 +475,17 @@ const SERVER_SECRET = (() => {
 const ownerKeyFor = (deviceId) => deviceId
     ? crypto.createHmac("sha256", SERVER_SECRET).update(String(deviceId)).digest("hex").slice(0, 16)
     : null;
+
+// ---- Phase 4: radio relay key derivation --------------------------------------
+// Domain-separated HMAC-SHA256 derivations from SERVER_SECRET: stable for the
+// life of one trip, different for every trip, never stored, never logged.
+function relayDerive(...parts) {
+    return crypto.createHmac("sha256", SERVER_SECRET).update(["mu-relay-v1", ...parts].join("|")).digest();
+}
+const relayGroupKey = (tripId) => relayDerive("group", tripId).subarray(0, 16);        // AES-128-GCM, all members
+const relayTripTag = (tripId) => relayDerive("tag", tripId).subarray(0, 4);             // cleartext trip filter
+const relayRidFor = (tripId, deviceId) => relayDerive("rid", tripId, deviceId).subarray(0, 4); // per-trip pseudonym
+const relayDeviceKey = (tripId, deviceId) => relayDerive("device", tripId, deviceId);  // HMAC key: server + that rider only
 
 // ==========================================================================
 // 4. IN-MEMORY HOT PATH
@@ -498,22 +579,60 @@ function snapToGrid(lat, lng) {
 
 // The ONLY shape ever sent to other clients. Never the raw record (deviceId
 // is a private identifier).
-function publicUser(u) {
-    const mode = effectiveMode(u);
+// `modeOverride` lets emitUserEvent() hand the SAME record to two audiences
+// (exact for trip members, approx for everyone else) — see needsSplitView().
+function publicUser(u, modeOverride = null) {
+    const mode = modeOverride || effectiveMode(u);
     const hasFix = isValidCoordPair(u.lat, u.lng);
-    let lat = null, lng = null, alt = null, speedKmh = null;
+    let lat = null, lng = null, alt = null, speedKmh = null, accuracy = null;
     if (mode !== "off" && hasFix) {
         if (mode === "approx") {
             ({ lat, lng } = snapToGrid(u.lat, u.lng));
         } else {
             lat = u.lat; lng = u.lng; alt = u.alt ?? null; speedKmh = u.speedKmh ?? null;
+            accuracy = isFiniteNum(u.accuracy) ? Math.round(u.accuracy) : null;
         }
     }
+    const relayed = u.via === "radio";
     return {
         id: u.id, name: u.name, avatar: u.avatar, online: u.online !== false,
         lat, lng, alt, speedKmh, weather: mode === "exact" ? (u.weather || "") : "",
-        approx: mode === "approx", ownerKey: ownerKeyFor(u.deviceId)
+        approx: mode === "approx", ownerKey: ownerKeyFor(u.deviceId),
+        // Phase 4 (additive — older clients ignore these):
+        accuracy,                                            // metres, exact mode only
+        est: mode === "exact" && Boolean(u.est),             // dead-reckoned, not a GPS fix
+        via: relayed ? "radio" : null,                       // position arrived over the LoRa relay
+        fixAt: relayed ? (u.fixAt || null) : null,           // origin's timestamp for that position
+        relayedBy: relayed ? (u.relayedBy || null) : null
     };
+}
+
+// Phase 4 privacy fix. effectiveMode() lifts "approx" to "exact" inside an
+// active trip so the SQUAD can navigate to the rider — but the old broadcast
+// sent that exact record to EVERY socket. Split it: exact for trip members,
+// the 1 km cell for everyone else.
+const needsSplitView = (u) => u.sharingMode === "approx" && effectiveMode(u) === "exact";
+function publicUserFor(u, viewerSocketId) {
+    return needsSplitView(u) && !isInActiveTrip(viewerSocketId) ? publicUser(u, "approx") : publicUser(u);
+}
+function emitUserEvent(event, u, exceptSocketId = null) {
+    if (!needsSplitView(u)) {
+        const pub = publicUser(u);
+        if (exceptSocketId) io.except(exceptSocketId).emit(event, pub);
+        else io.emit(event, pub);
+        return;
+    }
+    const exact = publicUser(u), approx = publicUser(u, "approx");
+    const now = Date.now();
+    // Same 30 s same-cell de-dupe updateLocation applies to plain approx riders.
+    const sameCell = event === "friendMoved" && u.lastApproxSent && u.lastApproxSent.lat === approx.lat &&
+        u.lastApproxSent.lng === approx.lng && now - u.lastApproxSent.ts < 30_000;
+    if (!sameCell) u.lastApproxSent = { lat: approx.lat, lng: approx.lng, ts: now };
+    for (const sid of io.sockets.sockets.keys()) {
+        if (sid === exceptSocketId) continue;
+        if (isInActiveTrip(sid)) io.to(sid).emit(event, exact);
+        else if (!sameCell) io.to(sid).emit(event, approx);
+    }
 }
 
 function publicMemory(m) {
@@ -536,7 +655,20 @@ function publicFence(f) {
 
 function broadcastUserState(socketId) {
     const u = users.get(socketId);
-    if (u) io.emit("friendMoved", publicUser(u));
+    if (u) emitUserEvent("friendMoved", u);
+}
+
+// Geofence enter/leave for one position change (exact-sharing riders only: an
+// alert would otherwise leak position finer than the 1 km grid; never for a
+// dead-reckoned estimate, whose error circle can straddle a fence).
+function checkGeofences(user, oldLat, oldLng, now) {
+    if (effectiveMode(user) !== "exact" || user.est || oldLat == null || oldLng == null) return;
+    geofences.forEach((fence) => {
+        const wasOutside = distanceKm(oldLat, oldLng, fence.lat, fence.lng) * 1000 > fence.radius;
+        const isInside = distanceKm(user.lat, user.lng, fence.lat, fence.lng) * 1000 <= fence.radius;
+        if (wasOutside && isInside) io.emit("geofenceAlert", { user: user.name, fence: fence.name, type: "enter", at: now });
+        else if (!wasOutside && !isInside) io.emit("geofenceAlert", { user: user.name, fence: fence.name, type: "leave", at: now });
+    });
 }
 
 // ==========================================================================
@@ -779,6 +911,18 @@ function migrateIdentity(oldId, newId) {
 function finalizeDeparture(socketId) {
     const user = users.get(socketId);
     if (!user || user.online) return; // came back in the meantime
+    // Phase 4: a rider out of data but still being relayed over radio is
+    // still IN the convoy — keep their trip seat instead of dropping them.
+    // A radio-equipped rider also gets a longer grace for the first relay.
+    const now = Date.now();
+    const relayedRecently = Boolean(user.relayedAt && now - user.relayedAt < RELAY_HOLD_MS);
+    const radioGrace = Boolean(user.relayCapable && user.offlineSince && now - user.offlineSince < RELAY_RADIO_GRACE_MS);
+    if ((relayedRecently || radioGrace) && isInActiveTrip(socketId)) {
+        const timer = setTimeout(() => finalizeDeparture(socketId), Math.min(30_000, RELAY_HOLD_MS));
+        timer.unref?.();
+        if (user.deviceId) pendingDeparture.set(user.deviceId, timer);
+        return;
+    }
     if (user.deviceId) {
         pendingDeparture.delete(user.deviceId);
         if (deviceToSocket.get(user.deviceId) === socketId) deviceToSocket.delete(user.deviceId);
@@ -787,6 +931,136 @@ function finalizeDeparture(socketId) {
     if (voiceSquadMembers.delete(socketId)) io.emit("voice-squad-member-left", { id: socketId });
     io.emit("friendDisconnected", socketId);
     users.delete(socketId);
+    forgetSocketCounters(socketId);   // relay throttles can re-create keys after disconnect
+}
+
+// ---- Phase 4: radio relay frames ---------------------------------------------
+// rid (hex) -> live user record for every verified member of the active trip.
+function relayRosterMap() {
+    const out = new Map();
+    if (!currentTrip) return out;
+    for (const m of currentTrip.members) {
+        const u = users.get(m.id);
+        if (u && u.deviceId) out.set(relayRidFor(currentTrip.id, u.deviceId).toString("hex"), u);
+    }
+    return out;
+}
+
+// Frame layout (big-endian) — features.js ConvoyRelay writes exactly this:
+//   [0]       version << 4 | type        1 = position ping, 2 = SOS, 4 = radio ack (never uploaded)
+//   [1..4]    trip tag
+//   [5..16]   AES-GCM nonce = rid(4) | unix seconds(4) | seq(2) | random(2)
+//   [17..]    AES-128-GCM(groupKey, AAD = bytes 0..16) of
+//               body(16) | HMAC-SHA256(deviceKey, bytes 0..16 | body)[0..8]
+//             followed by the 16-byte GCM tag.
+//   Position body: lat i32 (1e-7 deg) | lng i32 | speed u8 km/h (255 = n/a) |
+//     course u8 (x 360/256, valid if FLAG_COURSE) | accuracy u16 m | flags u8 |
+//     battery u8 % (255 = n/a) | alt i16 m (-32768 = n/a)
+// GCM proves "a trip member wrote this"; the device HMAC proves WHICH member,
+// so the rider who uploads can carry a friend's position but cannot forge it.
+function parseRelayPosition(b) {
+    const speed = b.readUInt8(8), courseRaw = b.readUInt8(9), flags = b.readUInt8(12);
+    const batt = b.readUInt8(13), alt = b.readInt16BE(14);
+    return {
+        lat: b.readInt32BE(0) / 1e7, lng: b.readInt32BE(4) / 1e7,
+        speedKmh: speed === 255 ? null : speed,
+        course: flags & RELAY_FRAME.FLAG_COURSE ? Math.round((courseRaw * 360) / 256) % 360 : null,
+        accuracy: b.readUInt16BE(10), flags,
+        est: Boolean(flags & RELAY_FRAME.FLAG_EST),
+        originOffline: Boolean(flags & RELAY_FRAME.FLAG_ORIGIN_OFFLINE),
+        battery: batt === 255 ? null : Math.min(100, batt),
+        alt: alt === -32768 ? null : alt
+    };
+}
+
+function openRelayFrame(b64, tripId, roster) {
+    if (typeof b64 !== "string" || b64.length < 60 || b64.length > 200 || !/^[A-Za-z0-9+/]+={0,2}$/.test(b64)) return { status: "bad-frame" };
+    const buf = Buffer.from(b64, "base64");
+    if (buf.length < RELAY_FRAME.HEADER + RELAY_FRAME.MAC + RELAY_FRAME.GCM_TAG + 1 || buf.length > RELAY_FRAME.MAX_BYTES) return { status: "bad-frame" };
+    const version = buf[0] >> 4, type = buf[0] & 0x0f;
+    if (version !== RELAY_FRAME.VERSION) return { status: "bad-version" };
+    if (!buf.subarray(1, 5).equals(relayTripTag(tripId))) return { status: "wrong-trip" };
+    const header = buf.subarray(0, RELAY_FRAME.HEADER);
+    const nonce = buf.subarray(5, RELAY_FRAME.HEADER);
+    const base = { type, rid: nonce.subarray(0, 4).toString("hex"), ts: nonce.readUInt32BE(4), seq: nonce.readUInt16BE(8), nonceHex: nonce.toString("hex") };
+    if (type === RELAY_FRAME.ACK) return { ...base, status: "not-uploadable" };
+    if (type !== RELAY_FRAME.PING && type !== RELAY_FRAME.SOS) return { ...base, status: "bad-type" };
+    const origin = roster.get(base.rid);
+    if (!origin) return { ...base, status: "unknown-rider" };
+
+    let plain;
+    try {
+        const d = crypto.createDecipheriv("aes-128-gcm", relayGroupKey(tripId), nonce, { authTagLength: RELAY_FRAME.GCM_TAG });
+        d.setAAD(header);
+        d.setAuthTag(buf.subarray(buf.length - RELAY_FRAME.GCM_TAG));
+        plain = Buffer.concat([d.update(buf.subarray(RELAY_FRAME.HEADER, buf.length - RELAY_FRAME.GCM_TAG)), d.final()]);
+    } catch {
+        return { ...base, status: "bad-group-auth" };
+    }
+    if (plain.length !== RELAY_FRAME.POS_BODY + RELAY_FRAME.MAC) return { ...base, status: "bad-body" };
+    const body = plain.subarray(0, RELAY_FRAME.POS_BODY);
+    const want = crypto.createHmac("sha256", relayDeviceKey(tripId, origin.deviceId)).update(header).update(body).digest().subarray(0, RELAY_FRAME.MAC);
+    if (!crypto.timingSafeEqual(plain.subarray(RELAY_FRAME.POS_BODY), want)) return { ...base, status: "bad-device-mac" };
+    return { ...base, status: "ok", origin, pos: parseRelayPosition(body) };
+}
+
+// One verified frame -> the origin rider's record + broadcasts. Returns a
+// per-frame status string for the uploader's ack.
+function applyRelayFrame(frame, uploader, now) {
+    const u = frame.origin;
+    if (u.id === uploader.id) return "own-frame";
+    const tsMs = frame.ts * 1000;
+    if (tsMs > now + RELAY_MAX_FUTURE_MS) return "bad-time";
+    if (now - tsMs > RELAY_MAX_AGE_MS) return "stale";
+    u.relaySeen = u.relaySeen || [];
+    if (u.relaySeen.includes(frame.nonceHex)) return "duplicate";
+    u.relaySeen.push(frame.nonceHex);
+    if (u.relaySeen.length > 128) u.relaySeen.shift();
+    const p = frame.pos;
+    if (!isValidCoordPair(p.lat, p.lng)) return "bad-coords";
+
+    let sosStatus = null;
+    if (frame.type === RELAY_FRAME.SOS) {
+        // A rider may press SOS with data, then lose it and have the radio
+        // retry: one broadcast per origin per minute covers both paths.
+        if (u.lastSosAt && now - u.lastSosAt < 60_000) sosStatus = "sos-duplicate";
+        else {
+            u.lastSosAt = now;
+            sosStatus = "sos-broadcast";
+            io.emit("sos-alert", {
+                id: u.id, name: u.name, lat: p.lat, lng: p.lng, alt: p.alt, ownerKey: ownerKeyFor(u.deviceId),
+                via: "radio", relayedBy: uploader.name, at: tsMs
+            });
+        }
+    }
+
+    // Position part (SOS frames carry one too).
+    let posStatus;
+    if (u.sharingMode === "off") posStatus = "sharing-off";
+    else if (u.online && !u.via && u.lastFix && now - u.lastFix.ts < RELAY_DIRECT_FRESH_MS) posStatus = "live-direct";
+    else if (u.posTs && tsMs <= u.posTs) posStatus = "older";
+    else {
+        let plausible = true;
+        if (u.posTs && isValidCoordPair(u.lat, u.lng)) {
+            const dtH = Math.max(5, (tsMs - u.posTs) / 1000) / 3600;
+            const dKm = distanceKm(u.lat, u.lng, p.lat, p.lng);
+            plausible = !(dKm > 0.2 && dKm / dtH > MAX_PLAUSIBLE_KMH);
+        }
+        if (!plausible) posStatus = "implausible";
+        else {
+            const oldLat = u.lat, oldLng = u.lng;
+            u.lat = p.lat; u.lng = p.lng; u.alt = p.alt;
+            u.speedKmh = p.speedKmh ?? 0;
+            u.accuracy = p.accuracy;
+            u.est = p.est;
+            u.via = "radio"; u.relayedBy = uploader.name; u.relayedAt = now; u.fixAt = tsMs; u.posTs = tsMs;
+            u.lastFix = { lat: p.lat, lng: p.lng, ts: now };
+            emitUserEvent("friendMoved", u);
+            checkGeofences(u, oldLat, oldLng, now);
+            posStatus = "applied";
+        }
+    }
+    return sosStatus || posStatus;
 }
 
 // ==========================================================================
@@ -857,9 +1131,9 @@ io.on("connection", (socket) => {
         socket.emit("chatHistory", chatMessages);
         socket.emit("loadMemoryPhotos", memories.map(publicMemory));
         socket.emit("loadGeofences", geofences.map(publicFence));
-        socket.emit("onlineUsers", Array.from(users.values()).map(publicUser));
+        socket.emit("onlineUsers", Array.from(users.values()).map((u) => publicUserFor(u, socket.id)));
         if (currentTrip) socket.emit("tripData", currentTrip);
-        socket.broadcast.emit("userOnline", publicUser(user));
+        emitUserEvent("userOnline", user, socket.id);
     }));
 
     // --- B. LIVE LOCATION + ANTI-SPOOF + GEOFENCE CHECK ---------------------
@@ -894,6 +1168,11 @@ io.on("connection", (socket) => {
         user.speedKmh = isFiniteNum(data.speedKmh) ? clampNum(data.speedKmh, 0, 300, 0) : 0;
         user.accuracy = isFiniteNum(data.accuracy) ? clampNum(data.accuracy, 0, 100000, null) : null;
         if (isNonEmptyStr(data.weather, 40)) user.weather = data.weather;
+        // Phase 4: dead-reckoned position (the rider has data but no GPS —
+        // e.g. an urban tunnel). A direct update always ends any radio relay.
+        user.est = data.est === true;
+        user.via = null; user.relayedBy = null; user.fixAt = null;
+        user.posTs = now;
 
         const mode = effectiveMode(user);
         const pub = publicUser(user);
@@ -904,18 +1183,10 @@ io.on("connection", (socket) => {
             if (sameCell && oldMode === "approx" && now - user.lastBroadcast.ts < 30_000) return;
             user.lastBroadcast = { lat: pub.lat, lng: pub.lng, ts: now };
         }
-        socket.broadcast.emit("friendMoved", pub);
+        emitUserEvent("friendMoved", user, socket.id);
 
-        // Geofence events only for exact-sharing riders: an "enter/leave"
-        // alert would otherwise leak position finer than the 1 km grid.
-        if (mode === "exact" && oldLat != null && oldLng != null) {
-            geofences.forEach((fence) => {
-                const wasOutside = distanceKm(oldLat, oldLng, fence.lat, fence.lng) * 1000 > fence.radius;
-                const isInside = distanceKm(user.lat, user.lng, fence.lat, fence.lng) * 1000 <= fence.radius;
-                if (wasOutside && isInside) io.emit("geofenceAlert", { user: user.name, fence: fence.name, type: "enter", at: now });
-                else if (!wasOutside && !isInside) io.emit("geofenceAlert", { user: user.name, fence: fence.name, type: "leave", at: now });
-            });
-        }
+        // Geofence events: exact-sharing riders only, never for estimates.
+        checkGeofences(user, oldLat, oldLng, now);
     }, "location"));
 
     // --- C. CHAT --------------------------------------------------------------
@@ -1045,9 +1316,11 @@ io.on("connection", (socket) => {
         const user = users.get(socket.id);
         if (!user || !data || !isValidCoordPair(data.lat, data.lng)) return;
         if (!throttle(socket.id, "sos", 5000)) return;
+        user.lastSosAt = Date.now();          // Phase 4: a radio copy of this SOS won't re-alert
         socket.broadcast.emit("sos-alert", {
             id: socket.id, name: clampStr(data.name || user.name, 40), lat: data.lat, lng: data.lng,
-            alt: isFiniteNum(data.alt) ? data.alt : null
+            alt: isFiniteNum(data.alt) ? data.alt : null,
+            ownerKey: ownerKeyFor(user.deviceId), at: user.lastSosAt   // Phase 4: lets clients de-dupe radio + server copies
         });
     }));
 
@@ -1122,7 +1395,7 @@ io.on("connection", (socket) => {
             user.lat = null; user.lng = null; user.lastFix = null; // do not retain a stale precise fix
             socket.broadcast.emit("userOffline", { id: socket.id });
         } else {
-            socket.broadcast.emit("userOnline", publicUser(user));
+            emitUserEvent("userOnline", user, socket.id);
         }
         socket.emit("sharingChanged", { mode });
     }));
@@ -1354,6 +1627,76 @@ io.on("connection", (socket) => {
         if (typeof ack === "function") ack({ ok: true, tripsDeleted, memoriesDeleted, geofencesDeleted, identityDeleted: includeIdentity });
     }));
 
+    // --- M2. TRIP ROLLUPS (Phase 3) ------------------------------------------------
+    // socket.emit('getTripRollups', {period:"day"|"week"|"month", tzOffsetMin, limit?}, ack)
+    // Read-only, cheap (indexed on host_device_id), throttled to 1/sec per socket.
+    socket.on("getTripRollups", safeHandler(socket, (data, ack) => {
+        if (typeof ack !== "function") return;
+        const user = users.get(socket.id);
+        if (!user?.deviceId) return ack({ ok: false, reason: "no-device-identity" });
+        if (!throttle(socket.id, "rollups", 1000)) return ack({ ok: false, reason: "too-frequent" });
+
+        const period = ["day", "week", "month"].includes(data?.period) ? data.period : "day";
+        const tzOffsetSec = Math.round(clampNum(data?.tzOffsetMin, -840, 840, 0)) * 60;
+        const defaultLimit = period === "day" ? 14 : period === "week" ? 8 : 6;
+        const limit = Math.round(clampNum(data?.limit, 1, 60, defaultLimit));
+
+        const rows = rollupStmts[period].all(tzOffsetSec, user.deviceId, 0, limit).map((r) => ({
+            bucket: r.bucket,
+            trips: r.trips,
+            distanceKm: +r.dist.toFixed(2),
+            durationMin: Math.round(r.dur / 60000),
+            avgSpeed: +r.avg.toFixed(1),
+            maxSpeed: +r.maxs.toFixed(1),
+            fuelL: +r.fuel.toFixed(2)
+        }));
+        ack({ ok: true, period, rows, retentionDays: TRIP_RETENTION_DAYS });
+    }));
+
+    // --- P. RADIO RELAY (Phase 4) ---------------------------------------------------
+    // socket.emit('getRelayCredentials', {radio?: boolean}, ack)
+    //   -> {ok, v, tripId, rid, tag, groupKey, deviceKey, roster:[{rid, name, ownerKey}]}
+    // Only for verified devices inside the active trip. Keys are base64, rid/tag hex.
+    socket.on("getRelayCredentials", safeHandler(socket, (data, ack) => {
+        if (typeof ack !== "function") return;
+        const user = users.get(socket.id);
+        if (!user?.deviceId) return ack({ ok: false, reason: "no-device-identity" });
+        if (!currentTrip || !isInActiveTrip(socket.id)) return ack({ ok: false, reason: "not-in-trip" });
+        if (!throttle(socket.id, "relayCreds", 2000)) return ack({ ok: false, reason: "too-frequent" });
+        if (data?.radio === true) user.relayCapable = true;   // earns the longer reconnect grace
+        const tripId = currentTrip.id;
+        const roster = Array.from(relayRosterMap().entries()).map(([rid, u]) => ({ rid, name: u.name, ownerKey: ownerKeyFor(u.deviceId) }));
+        ack({
+            ok: true, v: RELAY_FRAME.VERSION, tripId, tripName: currentTrip.name,
+            rid: relayRidFor(tripId, user.deviceId).toString("hex"),
+            tag: relayTripTag(tripId).toString("hex"),
+            groupKey: relayGroupKey(tripId).toString("base64"),
+            deviceKey: relayDeviceKey(tripId, user.deviceId).toString("base64"),
+            roster, issuedAt: Date.now()
+        });
+    }));
+
+    // socket.emit('relayUpload', {frames:[base64, ...]}, ack) -> {ok, results:[{i, status, rid?, ts?, seq?, type?}]}
+    // A trip member with data uploads frames it heard over radio.
+    socket.on("relayUpload", safeHandler(socket, (data, ack) => {
+        const reply = (o) => { if (typeof ack === "function") ack(o); };
+        const uploader = users.get(socket.id);
+        if (!uploader?.deviceId) return reply({ ok: false, reason: "no-device-identity" });
+        if (!currentTrip || !isInActiveTrip(socket.id)) return reply({ ok: false, reason: "not-in-trip" });
+        if (!throttle(socket.id, "relayUpload", 1000)) return reply({ ok: false, reason: "too-frequent" });
+        const frames = Array.isArray(data?.frames) ? data.frames.slice(0, 16) : [];
+        const roster = relayRosterMap();
+        const now = Date.now();
+        const results = frames.map((f, i) => {
+            const fr = openRelayFrame(f, currentTrip.id, roster);
+            const out = { i, status: fr.status };
+            if (fr.rid) Object.assign(out, { rid: fr.rid, ts: fr.ts, seq: fr.seq, type: fr.type });
+            if (fr.status === "ok") out.status = applyRelayFrame(fr, uploader, now);
+            return out;
+        });
+        reply({ ok: true, results });
+    }, "location"));
+
     // --- O. DISCONNECT (with reconnect grace) ---------------------------------------
     socket.on("disconnect", () => {
         console.log(`🔴 Disconnected: ${socket.id}`);
@@ -1361,6 +1704,7 @@ io.on("connection", (socket) => {
         const user = users.get(socket.id);
         if (!user) return; // already migrated to a newer socket
         user.online = false;
+        user.offlineSince = Date.now();      // Phase 4: radio grace is measured from here
         io.emit("userOffline", { id: socket.id });
 
         if (user.deviceId) {
