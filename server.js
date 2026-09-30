@@ -30,6 +30,8 @@
      PORT                     default 3000
      NODE_ENV                 "production" => same-origin CORS unless CORS_ORIGIN set
      CORS_ORIGIN              comma-separated origins, e.g. https://app.example.com
+     NATIVE_APP_ORIGINS       Android app origins, always allowed too (default
+                              "https://localhost,capacitor://localhost"; "" = none)
      PUBLIC_DIR               default ./public (index.html, js/, shell.js, sw.js …)
      DB_PATH                  default ./data/mapunite.db
      MEDIA_DIR                default <DB_PATH dir>/media — memory photos + chat files
@@ -102,9 +104,15 @@ const TRIP_RETENTION_DAYS = process.env.TRIP_RETENTION_DAYS !== undefined
     ? Math.max(0, Number(process.env.TRIP_RETENTION_DAYS) || 0) : 30;
 const CHAT_RETENTION_DAYS = process.env.CHAT_RETENTION_DAYS !== undefined
     ? Math.max(0, Number(process.env.CHAT_RETENTION_DAYS) || 0) : 30;
+// The Android/iOS app (Capacitor) runs its pages from https://localhost /
+// capacitor://localhost and talks to this server cross-origin.
+const NATIVE_APP_ORIGINS = (process.env.NATIVE_APP_ORIGINS ?? "https://localhost,capacitor://localhost")
+    .split(",").map((s) => s.trim()).filter(Boolean);
 const CORS_ORIGIN = process.env.CORS_ORIGIN
-    ? process.env.CORS_ORIGIN.split(",").map((s) => s.trim()).filter(Boolean)
-    : (IS_PROD ? false : "*");
+    ? Array.from(new Set(process.env.CORS_ORIGIN.split(",").map((s) => s.trim()).filter(Boolean).concat(NATIVE_APP_ORIGINS)))
+    : (IS_PROD ? (NATIVE_APP_ORIGINS.length ? NATIVE_APP_ORIGINS : false) : "*");
+const NATIVE_BG_HOLD_MS = 3 * 60_000;      // app in the background: keep the rider while native fixes arrive
+const NATIVE_DIRECT_FRESH_MS = 10_000;     // a live socket fix this recent beats a native background POST
 const REDIS_URL = process.env.REDIS_URL || "";
 const CLUSTER_PREFIX = process.env.CLUSTER_PREFIX || "mapunite";
 const STICKY_SESSIONS = process.env.STICKY_SESSIONS === "1";
@@ -243,12 +251,13 @@ const httpLimiter = rateLimit({
     max: Number(process.env.HTTP_RATE_LIMIT_MAX) || 300,
     standardHeaders: true,
     legacyHeaders: false,
-    skip: (req) => req.path.startsWith("/socket.io/") || req.path.startsWith("/media/")
+    skip: (req) => req.path.startsWith("/socket.io/") || req.path.startsWith("/media/") || req.path === "/api/native/location"
 });
 
 app.get("/config.js", (_req, res) => {
     res.setHeader("Content-Type", "application/javascript; charset=utf-8");
     res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");   // the Android app loads it from https://localhost
     res.send(`window.MU_CONFIG = Object.freeze(${JSON.stringify(publicConfig())});\n`);
 });
 
@@ -281,6 +290,61 @@ app.get("/healthz", (_req, res) => res.json({
 
 // Public feature flags the client reads at boot (no secrets).
 app.get("/api/config", (_req, res) => res.json(publicConfig()));
+
+// ---- Android app: background location (native POST, no WebView) -------------
+// The app's background-location service POSTs each fix here directly from
+// native code (so it keeps working when Android throttles or freezes the
+// WebView). Authenticated with the same device id + device token the socket
+// uses. The fix goes through the normal "loc" operation, so every privacy
+// rule applies (off / trip-only / circles / approx).
+const nativeGate = new Map();       // deviceId -> last accepted POST (process-local)
+const nativeLimiter = rateLimit({ windowMs: 60 * 1000, max: 600, standardHeaders: true, legacyHeaders: false });
+const pickNum = (...vals) => {
+    for (const v of vals) {
+        const n = typeof v === "string" && v.trim() !== "" ? Number(v) : v;
+        if (isFiniteNum(n)) return n;
+    }
+    return null;
+};
+app.post("/api/native/location", nativeLimiter, express.json({ limit: "8kb" }), (req, res) => {
+    const deviceId = String(req.get("x-mu-device") || "").toLowerCase();
+    const auth = String(req.get("authorization") || "");
+    const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+    if (!UUID_RE.test(deviceId) || !isNonEmptyStr(token, 128)) return res.status(401).json({ ok: false, reason: "unauthenticated" });
+    const row = stmt.getUser.get(deviceId);
+    if (!row || !row.token_hash || !tokenMatches(token, row.token_hash)) return res.status(401).json({ ok: false, reason: "unauthenticated" });
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    const b = body.location && typeof body.location === "object" ? body.location : body;
+    const lat = pickNum(b.latitude, b.lat), lng = pickNum(b.longitude, b.lng);
+    if (!isValidCoordPair(lat, lng)) return res.status(400).json({ ok: false, reason: "bad-coords" });
+    const now = Date.now();
+    if (now - (nativeGate.get(deviceId) || 0) < 2500) return res.status(429).json({ ok: false, reason: "too-frequent" });
+    nativeGate.set(deviceId, now);
+    if (nativeGate.size > 20000) for (const [k, t] of nativeGate) if (now - t > 60_000) nativeGate.delete(k);
+    const t = pickNum(b.time, b.timestamp);
+    if (t !== null && (t < now - 5 * 60_000 || t > now + 60_000)) return res.json({ ok: false, reason: "stale" });
+    const sid = deviceToSocket.get(deviceId);
+    const user = sid ? users.get(sid) : null;
+    // Not on the map any more (app closed for a while): the rider rejoins by
+    // opening the app; a background POST alone doesn't re-create a session.
+    if (!user) return res.status(409).json({ ok: false, reason: "not-connected" });
+    if (user.online && !user.bgOnly && user.lastFix && now - user.lastFix.ts < NATIVE_DIRECT_FRESH_MS) {
+        // The app's own socket is sending fresher fixes — don't double them up,
+        // but note that the background service is alive, so if the socket drops
+        // (app backgrounded, WebView frozen) the rider is held on the map.
+        if (!user.bgAt || now - user.bgAt > 60_000) commit({ t: "bgseen", sid }).catch(() => { });
+        return res.json({ ok: true, skipped: "live-socket" });
+    }
+    const speedMs = pickNum(b.speed), acc = pickNum(b.accuracy), alt = pickNum(b.altitude);
+    commit({
+        t: "loc", sid, lat, lng, alt,
+        speedKmh: speedMs !== null && speedMs >= 0 ? clampNum(speedMs * 3.6, 0, 300, 0) : 0,
+        accuracy: acc !== null ? clampNum(acc, 0, 100000, null) : null,
+        weather: null, est: false, bg: true
+    })
+        .then((r) => res.json(r && r.ok ? { ok: true } : { ok: false, reason: (r && r.reason) || "rejected" }))
+        .catch(() => res.status(503).json({ ok: false, reason: "cluster-unavailable" }));
+});
 
 app.post("/csp-report",
     express.json({ type: ["application/json", "application/csp-report", "application/reports+json"], limit: "16kb" }),
@@ -871,6 +935,7 @@ function publicUser(u, level) {
         via: relayed ? "radio" : null,                       // position arrived over the LoRa relay
         fixAt: relayed ? (u.fixAt || null) : null,           // origin's timestamp for that position
         relayedBy: relayed ? (u.relayedBy || null) : null,
+        bg: level !== "nopos" && Boolean(u.bgOnly),          // Android app in the background (native location)
         // Batch 2: listed but not sharing right now (trip-only, not riding)
         paused: level === "nopos" && u.sharingMode !== "off"
     };
@@ -1730,6 +1795,12 @@ const OPS = {
         const user = users.get(op.sid);
         if (!user) return { ok: false, reason: "no-profile" };
         if (user.sharingMode === "off" || !sharingActive(user)) return { ok: false, reason: "not-sharing" };
+        // Android app in the background: its socket may be gone, but native
+        // fixes keep the rider live on everyone's map.
+        if (op.bg) {
+            user.bgAt = op.now;
+            if (user.online === false) { user.online = true; user.bgOnly = true; }
+        }
         // Teleport rejection: > 300 km/h between fixes is physically implausible
         // for this app. The baseline is server time (client clocks are
         // untrusted). After 3 consecutive rejections the new position is
@@ -2020,9 +2091,21 @@ const OPS = {
         if (mine) armDeparture(user, user.deviceId ? RECONNECT_GRACE_MS : 5000);
     },
 
+    // Android app: its background-location service is running (see
+    // /api/native/location). Only arms the depart hold; changes nothing visible.
+    "bgseen"(op) {
+        const user = users.get(op.sid);
+        if (user) user.bgAt = op.now;
+    },
+
     "depart"(op, mine) {
         const user = users.get(op.sid);
-        if (!user || user.online) return; // came back in the meantime
+        if (!user || (user.online && !user.bgOnly)) return; // came back in the meantime
+        // Android app in the background, still sending native fixes: keep them.
+        if (user.bgAt && op.now - user.bgAt < NATIVE_BG_HOLD_MS) {
+            if (mine) armDeparture(user, 60_000);
+            return;
+        }
         // Phase 4: a rider out of data but still being relayed over radio is
         // still IN the convoy — keep their trip seat instead of dropping them.
         // A radio-equipped rider also gets a longer grace for the first relay.
