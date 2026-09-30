@@ -631,6 +631,11 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 }
 #compass-btn[aria-pressed="true"] { background: rgba(52,224,180,.16); color: var(--mint); }
 
+.fuel-assumed { color: var(--c-warn); font-weight: 700; margin-left: 1px; }
+#trip-fuel-summary:empty { display: none; }
+#trip-fuel-total { border-top: 1px solid var(--line-strong); margin-top: 6px; padding-top: 8px; font-size: 12.5px; font-weight: 600; color: var(--mint); }
+#trip-fuel-note { margin-top: 3px; font-size: 11.5px; line-height: 1.4; }
+
 /* ---------- 9c0. Memory heatmap (roadmap Sections 4 + 28) ---------- */
 #map-style-menu .menu-sep { height: 1px; margin: 4px 6px; background: var(--line-strong); }
 #map-style-menu #mem-heat-toggle[aria-checked="true"] { color: var(--mint); background: rgba(52,224,180,.12); font-weight: 600; }
@@ -1251,6 +1256,8 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
       <button id="trip-action-btn" class="btn-secondary-nav" type="button">Join</button>
   </div>
   <div id="trip-members-list"></div>
+  <!-- Group fuel total + how it's costed: outside the scrolling list so it's always visible -->
+  <div id="trip-fuel-summary"></div>
   <div id="convoy-status" class="convoy-status" hidden></div>
   <div id="regroup-panel" class="regroup-panel" aria-live="polite" hidden></div>
 </div>
@@ -1305,7 +1312,7 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyASbmXgn0T-B4AQdCe1sp7dfJbDXKgDw5c&libraries=places&loading=async"></script>
 <script src="/shell.js"></script>
-<script src="app.js?v=20260930-gpspower"></script>
-<script src="features.js?v=20260930-gpspower"></script>
+<script src="app.js?v=20260930-tripfuel"></script>
+<script src="features.js?v=20260930-tripfuel"></script>
 </body>
 </html>
