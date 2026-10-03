@@ -22,6 +22,10 @@ export const DRIVERS = ["better-sqlite3", "node:sqlite"];
 
 function loadBetterSqlite3() {
     const Database = requireFromRoot("better-sqlite3");
+    // require() succeeds even when the native addon is missing or was built for
+    // another Node version; that only fails on the first open. Open once here so
+    // the failure lands in loadDriver's fallback instead of crashing the build.
+    new Database(":memory:").close();
     return (file, { readonly = false } = {}) => {
         const db = new Database(file, { readonly, fileMustExist: readonly });
         return wrap("better-sqlite3", db, (sql) => db.prepare(sql));
