@@ -4,10 +4,12 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "node --test \"test/bikedb/*.test.mjs\"",
+    "test": "node --disable-warning=ExperimentalWarning --test \"test/bikedb/*.test.mjs\"",
     "bikes:validate": "node scripts/bikedb/validate.mjs",
     "bikes:format": "node scripts/bikedb/format.mjs",
     "bikes:schema": "node scripts/bikedb/gen-schema.mjs",
+    "bikes:build": "node --disable-warning=ExperimentalWarning scripts/build-bike-catalog.mjs",
+    "bikes:bench": "node --disable-warning=ExperimentalWarning scripts/bikedb/bench-search.mjs",
     "bikes:typecheck": "tsc -p tsconfig.bikedb.json"
   },
   "keywords": [],
