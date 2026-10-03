@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-03.16";          // Step 8: fleet calibration in the fuel baseline, fleet records (Step 7: My bike sheet, trip energy, fonts, bike catalogue offline)
+const VERSION = "mu-2026-10-04.1";           // Step 8: fuel learner dashboard + convoy pitstop planner precached; fleet calibration in the fuel baseline
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
@@ -100,7 +100,17 @@ const BIKE_SCRIPTS = [
     "/js/trip/energy.js",
     "/js/trip/trip-card.js",
     "/js/trip/trip-app.js",
-    "/js/trip/trip.css"
+    "/js/trip/trip.css",
+    // Step 8: fuel learner dashboard + convoy pitstop planner (both lazy-loaded by their *-app.js)
+    "/js/insights/fuel-insights.js",
+    "/js/insights/fuel-dashboard.js",
+    "/js/insights/fuel-dashboard.css",
+    "/js/insights/insights-app.js",
+    "/js/pitstop/plan.js",
+    "/js/pitstop/stations.js",
+    "/js/pitstop/convoy-panel.js",
+    "/js/pitstop/convoy-panel.css",
+    "/js/pitstop/pitstop-app.js"
 ];
 // The Socket.IO client library: a static script the server ships. index.html can't
 // boot offline without it (core.js calls io() at once; offline it just keeps

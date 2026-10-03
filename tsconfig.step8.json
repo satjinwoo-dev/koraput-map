@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "target": "ES2020",
+    "module": "commonjs",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": [],
+    "strict": false,
+    "noImplicitThis": false,
+    "noUnusedLocals": true
+  },
+  "files": [
+    "public/js/insights/fuel-insights.js",
+    "public/js/insights/fuel-dashboard.js",
+    "public/js/insights/insights-app.js",
+    "public/js/pitstop/plan.js",
+    "public/js/pitstop/stations.js",
+    "public/js/pitstop/convoy-panel.js",
+    "public/js/pitstop/pitstop-app.js"
+  ]
+}

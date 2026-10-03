@@ -88,6 +88,7 @@ const Database = require("better-sqlite3");
 const { createBus, attachSocketIoAdapter } = require("./lib/cluster");
 const { MediaStore } = require("./lib/media");
 const { createBikeApi } = require("./lib/bikedb/http-api");
+const { cleanSettings: cleanBikeSettings } = require("./public/js/garage/store.js");
 
 // ==========================================================================
 // 0. CONFIG
@@ -213,7 +214,8 @@ const cspDirectives = {
              "https://*.tile.opentopomap.org", "https://unpkg.com"],
     connectSrc: ["'self'", "ws:", "wss:", osrmOrigin, "https://maps.googleapis.com",
                  "https://api.open-meteo.com", "https://api.bigdatacloud.net",
-                 "https://nominatim.openstreetmap.org"],
+                 "https://nominatim.openstreetmap.org",
+                 "https://overpass-api.de"],           // Step 8: fuel pumps / chargers along a group route (js/pitstop/stations.js)
     mediaSrc: ["'self'", "blob:", "data:"],
     workerSrc: ["'self'"],
     manifestSrc: ["'self'"],
@@ -1379,6 +1381,7 @@ function orderPickupsFallback(start, stops, dest) {
 // Walkers burn nothing. A rider who never set a mileage is costed at the
 // app's default and NAMED in the result, so the estimate says what it assumed.
 const DEFAULT_KM_PER_L = 18;               // SmartDrive's default mileage
+const FUEL_LEVEL_TTL_MS = 6 * 3600 * 1000;  // a shared fuel / charge level is relayed for 6 h (js/pitstop LEVEL_TTL)
 function legFuelL(distanceM, durationSec, kmPerL) {
     if (!isFiniteNum(distanceM) || distanceM <= 0) return 0;
     const km = distanceM / 1000;
@@ -1388,6 +1391,35 @@ function legFuelL(distanceM, durationSec, kmPerL) {
     else if (vKmh < 40) eff -= (40 - vKmh) * 0.004 * kmPerL;
     eff = Math.max(Math.min(5, kmPerL), eff);
     return km / eff;
+}
+/**
+ * A shared bike (setFuelShare), checked and resolved against the bike catalogue.
+ * @returns {{ bundle: string, bikeId: string|null, classKey: string, title: string, settings: object } | null | undefined}
+ *   null: not a bike the catalogue knows (nothing relayed); undefined: malformed
+ */
+function sharedBike(b) {
+    if (!b || typeof b !== "object" || Array.isArray(b)) return undefined;
+    if (typeof b.bundle !== "string" || !/^[0-9a-f]{16}$/.test(b.bundle)) return undefined;
+    if (typeof b.classKey !== "string" || !/^(ice_manual|ice_cvt|ev)\.[a-z_]{3,20}$/.test(b.classKey)) return undefined;
+    if (b.bikeId !== undefined && b.bikeId !== null && (typeof b.bikeId !== "string" || !/^[a-z0-9][a-z0-9-]{0,78}[a-z0-9]$/.test(b.bikeId))) return undefined;
+    if (b.title !== undefined && typeof b.title !== "string") return undefined;
+    if (b.settings !== undefined && (!b.settings || typeof b.settings !== "object" || Array.isArray(b.settings))) return undefined;
+    const settings = cleanBikeSettings(b.settings || {});
+    for (const k of ["frontSprocket", "rearSprocket"]) if (settings[k] > 99) return undefined;
+    const title = String(b.title || "").replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 80) || "Their bike";
+    let bundle = b.bundle, classKey = b.classKey;
+    const bikeId = b.bikeId || null;
+    try {
+        const known = bikeApi.catalog.bundleClass(bundle);
+        if (known) classKey = known.classKey;
+        else {
+            const now = bikeApi.catalog.bikeClass(bikeId, classKey);       // an older build's hash: the bike's current bundle
+            const cur = now ? bikeApi.catalog.bundle(now.bikeId) : null;
+            if (!cur) return null;
+            bundle = cur.hash; classKey = now.classKey;
+        }
+    } catch { /* catalogue not built on this server: relay as given (the phones check the hash) */ }
+    return { bundle, bikeId, classKey, title, settings };
 }
 function riderFuelProfile(u) {
     if (u.sessionMode === "walk") return { kmPerL: null, motorised: false, assumed: false };
@@ -1583,6 +1615,11 @@ function tripFuelProfiles(t) {
         if (!u) return;
         const fp = riderFuelProfile(u);
         profiles[m.id] = { kmPerL: fp.motorised ? fp.kmPerL : null, assumed: fp.assumed, walking: !fp.motorised };
+        // Step 8: the bike from My bike and the fuel / charge level the rider shared (convoy
+        // pitstop planner). The level travels as its AGE, so phones with different clocks agree.
+        if (fp.motorised && u.fuelBike) profiles[m.id].bike = u.fuelBike;
+        const ageMs = u.fuelLevel ? Date.now() - u.fuelLevel.at : Infinity;
+        if (fp.motorised && ageMs <= FUEL_LEVEL_TTL_MS) profiles[m.id].level = { share: u.fuelLevel.share, ageMs: Math.max(0, ageMs) };
     });
     return profiles;
 }
@@ -2075,6 +2112,16 @@ const OPS = {
         pushTripFuelProfiles(tripOf(op.sid));
     },
 
+    // Step 8: the rider's bike (My bike) and shared fuel / charge level, for trip-mates'
+    // convoy pitstop planner. Validated in the setFuelShare handler; trip members only.
+    "fuelShare"(op) {
+        const user = users.get(op.sid);
+        if (!user) return;
+        user.fuelBike = op.bike;
+        user.fuelLevel = op.level;
+        pushTripFuelProfiles(tripOf(op.sid));
+    },
+
     "relay.capable"(op) {
         const user = users.get(op.sid);
         if (user) user.relayCapable = true;   // earns the longer reconnect grace
@@ -2561,6 +2608,23 @@ io.on("connection", (socket) => {
         else if (isFiniteNum(data.kmPerL) && data.kmPerL >= 1 && data.kmPerL <= 100) kmPerL = Math.round(data.kmPerL * 10) / 10;
         else return;
         return commit({ t: "mileage", sid: socket.id, kmPerL });
+    }));
+
+    // Step 8: MUPitstop.app.myShare() — { bike: { bundle, bikeId, classKey, title, settings } | null,
+    // level: { share 0–1, ageMs } | null }. Kept on the live user (re-sent after every
+    // profileAccepted) and relayed ONLY to trip-mates in tripFuelProfiles. A bundle an older
+    // catalogue build shipped is swapped for the bike's current one, so trip-mates can load it.
+    socket.on("setFuelShare", safeHandler(socket, (data) => {
+        if (!users.has(socket.id) || !data || typeof data !== "object" || Array.isArray(data) || !("bike" in data) || !("level" in data)) return;
+        const bike = data.bike === null ? null : sharedBike(data.bike);
+        if (bike === undefined) return;                                  // malformed: ignored, nothing changes
+        let level = null;
+        if (data.level !== null) {
+            const l = data.level;
+            if (!l || !isFiniteNum(l.share) || l.share < 0 || l.share > 1 || !isFiniteNum(l.ageMs) || l.ageMs < 0) return;
+            if (l.ageMs <= FUEL_LEVEL_TTL_MS) level = { share: Math.round(l.share * 1000) / 1000, at: Date.now() - Math.round(l.ageMs) };
+        }
+        return commit({ t: "fuelShare", sid: socket.id, bike, level });
     }));
 
     // --- J2. FRIEND CIRCLES --------------------------------------------------------

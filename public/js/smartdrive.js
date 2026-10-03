@@ -297,6 +297,9 @@ const FuelCurve = {
     baseKmPerL(kmh, rated = this.rated()) { return this.bike() ? BikeFuel.kmPerL(kmh) : rated * fuelShape(kmh); },
     baseIdle() { return this.bike() ? BikeFuel.idleLPerHour() : IDLE_L_PER_HOUR; },
     baseName() { return this.bike() ? "your bike's physics" : "the generic curve"; },
+    // The starting curve and idle burn the learner corrects, for the Fuel learner dashboard (js/insights).
+    priorKmPerL(kmh) { return this.baseKmPerL(kmh); },
+    priorIdleLPerHour() { return this.baseIdle(); },
     // Physics litres per band for one drive: from its speed bins, else its band km at the band's mid speed.
     bikeLitres(t) {
         const out = [0, 0, 0, 0];

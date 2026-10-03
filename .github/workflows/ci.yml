@@ -1,5 +1,5 @@
 # MapUnite CI: every push and pull request runs the whole safety net.
-#   test       npm test (bikedb, physics, server, garage, smartdrive, sw, trip) + the four type checks
+#   test       npm test (bikedb, physics, server, garage, smartdrive, sw, trip, fleet, insights, pitstop) + the five type checks
 #   mutation   the physics mutation check: the tests must catch every planted bug
 #   e2e        headless Chromium against the real server.js: My bike sheet, SmartDrive, offline
 # The bike catalogue (public/bikedb/, build/bikedb/bikes.sqlite) is a build output and isn't
@@ -44,6 +44,7 @@ jobs:
           npm run physics:typecheck
           npm run garage:typecheck
           npm run trip:typecheck
+          npm run step8:typecheck
 
   mutation:
     name: Physics mutation check

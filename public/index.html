@@ -1008,6 +1008,8 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
     <div class="form-section" id="fuel-curve-section">
       <h3><svg class="i sm" style="width:13px;height:13px;vertical-align:-2px;"><use href="#i-fuel"/></svg> My fuel curve</h3>
       <p class="field-hint" id="fuel-curve-status">Log each fill-up (fill to full) and the app learns how your vehicle really burns fuel at each speed.</p>
+      <!-- Step 8: Fuel learner dashboard (js/insights/insights-app.js) -->
+      <button id="open-fuel-dash-btn" class="btn-secondary-nav fuel-dash-open" type="button">See how your bike really does</button>
       <div id="fuel-curve-bands" class="fc-bands" style="display:none;"></div>
       <div class="modal-row">
         <label for="fuel-curve-toggle">Use my curve for trip fuel</label>
@@ -1166,6 +1168,17 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
     <a class="garage-full-link" href="garage.html">Open My bike as a full page</a>
   </div>
 </div>
+
+<!-- Step 8: FUEL LEARNER DASHBOARD (js/insights/ mounts here on first open) -->
+<div class="modal" id="fuel-dash-modal" data-dismissable role="dialog" aria-modal="true" aria-label="Fuel learner" aria-hidden="true">
+  <div class="modal-card fuel-dash-card">
+    <button class="close-modal" id="close-fuel-dash-btn" type="button" aria-label="Close" data-close="fuel-dash-modal"><svg class="i sm"><use href="#i-x"/></svg></button>
+    <div id="fuel-dash-mount"></div>
+  </div>
+</div>
+
+<!-- Step 8: CONVOY FUEL PLAN overlay (js/pitstop/ renders here) -->
+<section id="pitstop-panel" hidden></section>
 
 <!-- PHASE 3: TRIP ANALYTICS (js/analytics.js TripAnalytics) -->
 <div class="modal" id="analytics-modal" data-dismissable role="dialog" aria-modal="true" aria-labelledby="analytics-title">
@@ -1458,6 +1471,8 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
   <div id="trip-members-list"></div>
   <!-- Group fuel total + how it's costed: outside the scrolling list so it's always visible -->
   <div id="trip-fuel-summary"></div>
+  <!-- Step 8: convoy fuel plan (js/pitstop/pitstop-app.js) -->
+  <button id="pitstop-plan-btn" class="btn-secondary-nav" type="button">Plan fuel stops</button>
   <div id="convoy-status" class="convoy-status" hidden></div>
   <div id="regroup-panel" class="regroup-panel" aria-live="polite" hidden></div>
 </div>
@@ -1520,7 +1535,7 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="js/navigation.js?v=20261003-step7"></script>
 <script src="js/garage/fuel-baseline.js?v=20261003-step8"></script>
 <script src="js/smartdrive.js?v=20261003-step8"></script>
-<script src="js/groupnav.js?v=20261003-step7"></script>
+<script src="js/groupnav.js?v=20261004-step8"></script>
 <script src="js/privacy.js?v=20261003-step7"></script>
 <script src="js/analytics.js?v=20261003-step7"></script>
 <script src="js/deadreckoning.js?v=20261003-step7"></script>
@@ -1552,5 +1567,8 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="js/trip/energy.js?v=20261003-step7"></script>
 <script src="js/trip/trip-card.js?v=20261003-step7"></script>
 <script src="js/trip/trip-app.js?v=20261003-step7"></script>
+<!-- Step 8: fuel learner dashboard + convoy pitstop planner (their UI loads on first open) -->
+<script src="js/insights/insights-app.js?v=20261004-step8"></script>
+<script src="js/pitstop/pitstop-app.js?v=20261004-step8"></script>
 </body>
 </html>

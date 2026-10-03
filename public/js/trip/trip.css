@@ -150,3 +150,12 @@ button.trip-price-btn:hover { color: var(--text, #f2f6f8); }
 
 /* ---------- tool rail link looks like its buttons ---------- */
 a.tool-btn { text-decoration: none; }
+
+/* ---------- Step 8 shells (always loaded, so they're sized before their UI loads) ---------- */
+#fuel-dash-modal .fuel-dash-card { max-width: 1080px; padding: 20px 18px 24px; }
+.fuel-dash-open { width: 100%; margin: 10px 0 4px; }
+@media (max-width: 640px) {
+  #fuel-dash-modal { padding: calc(64px + var(--safe-t, 0px)) 0 0; align-items: stretch; }
+  #fuel-dash-modal .fuel-dash-card { max-width: none; max-height: none; height: calc(var(--app-h, 100vh) - 64px - var(--safe-t, 0px)); border-radius: 24px 24px 0 0; padding: 16px 14px calc(24px + var(--safe-b, 0px)); }
+}
+#pitstop-plan-btn { width: 100%; margin-top: 2px; }

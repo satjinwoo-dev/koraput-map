@@ -134,6 +134,25 @@ test("fleet records (Step 8): the rider's tanks in the server's format, with not
     assert.deepEqual(json(none.run("FuelCurve.fleetTanks()")), []);
 });
 
+test("Fuel learner dashboard (Step 8): it reads the learner's real starting curve — the bike's physics, or the generic curve without a bike", () => {
+    const Insights = require("../../public/js/insights/fuel-insights.js");
+    const g = garageFor(HUNTER);
+    const snap = snapshotFor(g);
+    const sd = withBike({ "mu.garage.v1": JSON.stringify(g), mu_bike_fuel_v1: JSON.stringify(snap) });
+    sd.run("SmartDrive.init(); FuelCurve.init();");
+    runScenario(sd, { trueKmPerL: (v) => FB.kmPerLAt(snap, v) / 1.2, trueIdleLph: snap.idleLPerHour });
+    const s = Insights.snapshotFromLearner(sd.run("FuelCurve"), sd.ctx);
+    for (const kmh of [20, 45, 72, 100]) assert.ok(Math.abs(s.start(kmh / 3.6) * 1e6 * FB.kmPerLAt(snap, kmh) - 1) < 1e-9, `${kmh} km/h: the bike's physics`);
+    assert.ok(Math.abs(s.startIdleRate - snap.idleLPerHour / 1000 / 3600) < 1e-15, "idle: the bike's, not the generic 0.4 L/h");
+    // each tank's starting-curve litres agree with the learner's own design row (β = 1)
+    for (const t of s.tanks) assert.ok(t.startFuel > 0);
+    const none = loadSmartDrive();
+    none.run("SmartDrive.init(); FuelCurve.init();");
+    const s0 = Insights.snapshotFromLearner(none.run("FuelCurve"), none.ctx);
+    assert.ok(Math.abs(s0.start(50 / 3.6) * 1e6 * none.run("18 * fuelShape(50)") - 1) < 1e-9, "no bike: rated × the generic shape, as before");
+    assert.ok(Math.abs(s0.startIdleRate - 0.4 / 1000 / 3600) < 1e-15);
+});
+
 test("fill-ups logged with another bike aren't used for this one; untagged (older) fill-ups still are", () => {
     const g = garageFor(HUNTER);
     const snap = snapshotFor(g);

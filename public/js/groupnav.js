@@ -231,6 +231,11 @@ const TripFuel = {
 
     onProfiles(d) {
         if (!d || typeof d.profiles !== "object" || d.profiles === null) return;
+        // Step 8: a shared fuel / charge level arrives as its age; keep it as a time on THIS phone's clock
+        for (const p of Object.values(d.profiles)) {
+            if (p && p.level && Number.isFinite(p.level.share) && Number.isFinite(p.level.ageMs)) p.level = { share: p.level.share, at: Date.now() - p.level.ageMs };
+            else if (p && p.level) delete p.level;
+        }
         this.profiles = d.profiles;
         this.tripId = d.tripId || null;
         if (Number.isFinite(d.defaultKmPerL) && d.defaultKmPerL > 0) this.defaultKmPerL = d.defaultKmPerL;

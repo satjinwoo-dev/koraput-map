@@ -403,7 +403,7 @@ test("sw.js precaches every script and stylesheet garage.html, index.html and th
     assert.ok(!vm.runInContext("NEVER_INTERCEPT_PATHS", ctx).includes("/bikedb/"));
     assert.equal(vm.runInContext("BIKEDB_CACHE", ctx), "mu-bikedb-v1");
     assert.equal(vm.runInContext("BIKEDB_CATALOG", ctx), "/bikedb/catalog.json");
-    assert.match(vm.runInContext("VERSION", ctx), /^mu-2026-10-03\./);
+    assert.match(vm.runInContext("VERSION", ctx), /^mu-2026-\d\d-\d\d\.\d+$/);   // bumped on every release
     const local = (src) => "/" + src.replace(/^\.?\//, "").split("?")[0];
     const refs = (html) => [...html.matchAll(/<(?:script[^>]*\ssrc|link[^>]*rel="stylesheet"[^>]*\shref)="([^"]+)"/g)].map((m) => m[1]).filter((u) => !/^(https?:)?\/\//.test(u) && !u.startsWith("/socket.io/"));
     const garage = fs.readFileSync(path.join(ROOT, "public/garage.html"), "utf8");

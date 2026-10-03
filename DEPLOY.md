@@ -126,7 +126,10 @@ The server reads `bikes.sqlite` read-only and serves it under `/api/bikes` (`lib
 - **Privacy.** Contributors are an HMAC of the app's random token under `SERVER_SECRET`. No location, times or IP addresses are stored, only the day a tank arrived. Tanks older than 730 days are purged on every calibration run (`FLEET_RETENTION_DAYS`).
 - **Rate limits.** The new routes have their own limits: fill-ups 30/hour, calibration reads 120/minute per IP.
 - **Fitting.** Run `DB_PATH=… npm run bikes:calibrate` (for example nightly from cron) from a checkout of the deployed commit. It fits every class with tanks and stores the results the dashboard reads. It changes nothing riders see.
-- **Service worker.** The release bumps the version to `mu-2026-10-03.16`, because `smartdrive.js` and `fuel-baseline.js` changed.
+- **Service worker.** The release bumps the version to `mu-2026-10-04.1`. It precaches the Fuel learner dashboard and the convoy pitstop planner, and picks up the changed `smartdrive.js`, `fuel-baseline.js` and `groupnav.js`.
+- **Fuel learner dashboard and convoy pitstop planner.** These are the Web Architect's screens; see `public/js/insights/README.md` and `public/js/pitstop/README.md`.
+  - **CSP.** The planner looks up fuel pumps and chargers along a group route from OpenStreetMap, so `connect-src` now includes `https://overpass-api.de`. Only route coordinates are sent.
+  - **Convoy relay.** Riders share their bike from My bike and the fuel or charge level they set (`setFuelShare`). The server validates it and relays it only to their trip-mates, inside `tripFuelProfiles`.
 - **Shipping a calibration.** Run `npm run bikes:calibrate -- --write`. It writes `data/bikes/calibration/<class-key>.json` for each class that passed every check. Review and commit it, then rebuild the catalogue and deploy as usual. The rebuilt bundles carry the new priors and the real-riding overhead; the server picks up the new `bikes.sqlite` within 5 seconds, and phones get the new bundles through the catalogue.
 
 ## 3. The features (what riders see)
