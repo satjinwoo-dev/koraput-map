@@ -8,7 +8,7 @@
    modules. Must load last.
 
    Classic scripts sharing one global scope (no bundler, no build step),
-   loaded by index.html in this order: core → voice → gps → navigation → garage/fuel-baseline → smartdrive → groupnav → privacy → analytics → deadreckoning → presence → controls → chat → memories → calls → sos → pwa → skunkworks → radio → convoy → garage-sheet → boot.
+   loaded by index.html in this order: core → voice → gps → navigation → garage/fuel-baseline → smartdrive → groupnav → privacy → analytics → deadreckoning → presence → controls → chat → memories → calls → sos → pwa → skunkworks → radio → convoy → boot (then the bike data, physics and js/trip/, which wire themselves).
    ============================================================================ */
 
 // ==========================================
@@ -25,7 +25,6 @@ function initApp() {
         { name: "Memory Heatmap", fn: () => MemoryHeatmap.init() },
         { name: "SmartDrive", fn: () => SmartDrive.init() },
         { name: "Fuel Curve", fn: () => FuelCurve.init() },
-        { name: "My Bike", fn: () => GarageSheet.init() },
         { name: "Privacy Controls", fn: () => PrivacyControls.init() },
         { name: "Circles", fn: () => Circles.init() },
         { name: "Place Recall", fn: () => PlaceRecall.init() },

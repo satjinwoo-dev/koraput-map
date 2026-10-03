@@ -168,17 +168,18 @@ test("Android app, packaged bundles: served from the APK, no server round trip �
 // garage.html: which server the page talks to
 // ---------------------------------------------------------------------------
 function apiBaseOf(win) {
-    const html = fs.readFileSync(path.join(PUBLIC, "garage.html"), "utf8");
-    const inline = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]).pop();
+    // garage.html boots from js/garage/garage-page.js (the CSP has no 'unsafe-inline' for scripts)
+    const boot = fs.readFileSync(path.join(PUBLIC, "js", "garage", "garage-page.js"), "utf8");
     let opts = null;
-    const ctx = { ...win, MUGarage: { store: { createStore: (o) => { opts = o; return {}; }, resolveApiBase: Store.resolveApiBase }, mount: () => ({}) }, document: { getElementById: () => ({}) } };
+    const ctx = { ...win, MUGarage: { store: { createStore: (o) => { opts = o; return {}; }, resolveApiBase: Store.resolveApiBase }, mount: () => ({}) },
+        document: { getElementById: () => ({ addEventListener() {} }), referrer: "" }, history: { length: 1 } };
     ctx.window = ctx;
-    vm.runInNewContext(inline, ctx);
+    vm.runInNewContext(boot, ctx);
     return opts.apiBase;
 }
 const loc = (href) => { const u = new URL(href); return { origin: u.origin, protocol: u.protocol, hostname: u.hostname, port: u.port }; };
 
-test("garage.html: website → its own origin; Android → MU_GARAGE_API (or MU_SERVER_ORIGIN); the app's own origin is never used as the server", () => {
+test("garage.html (garage-page.js): website → its own origin; Android → MU_GARAGE_API (or MU_SERVER_ORIGIN); the app's own origin is never used as the server", () => {
     assert.equal(apiBaseOf({ location: loc("https://maps.example.com/garage.html") }), "https://maps.example.com", "website: same origin");
     assert.equal(apiBaseOf({ location: loc("http://localhost:3000/garage.html") }), "http://localhost:3000", "local development");
     assert.equal(apiBaseOf({ location: loc("https://localhost/garage.html"), MU_GARAGE_API: "https://maps.example.com" }), "https://maps.example.com", "Android build");
@@ -193,6 +194,6 @@ test("build-native injects MU_GARAGE_API into garage.html at a tag that exists e
     const build = fs.readFileSync(path.join(ROOT, "scripts", "build-native.mjs"), "utf8");
     const anchor = /const anchor = '([^']+)';/.exec(build)[1];
     assert.equal(html.split(anchor).length, 2);
-    assert.ok(html.indexOf(anchor) < html.indexOf("MUGarage.store.createStore"), "set before the page reads it");
+    assert.ok(html.indexOf(anchor) < html.indexOf('<script src="js/garage/garage-page.js">'), "set before the page reads it");
     assert.match(build, /window\.MU_GARAGE_API = \$\{jsonForScript\(origin\)\}/);
 });

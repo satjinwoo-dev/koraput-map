@@ -69,11 +69,11 @@ async function openApp(context) {
     page.on("pageerror", (e) => ownErrors.push(String(e)));
     page.on("console", (m) => { if (m.type() === "error" && !/Failed to load resource|ERR_|maps\.googleapis|leaflet|unpkg|google/i.test(m.text())) ownErrors.push(m.text()); });
     await page.goto(`${BASE}/`, { waitUntil: "domcontentloaded" });
-    await page.waitForFunction(() => typeof SmartDrive !== "undefined" && typeof GarageSheet !== "undefined", null, { timeout: 15000 });
+    await page.waitForFunction(() => typeof SmartDrive !== "undefined" && typeof MUTrip !== "undefined" && Boolean(MUTrip.app), null, { timeout: 15000 });
     await page.evaluate(() => navigator.serviceWorker.ready);
     if (!(await page.evaluate(() => Boolean(navigator.serviceWorker.controller)))) {
         await page.reload({ waitUntil: "domcontentloaded" });
-        await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller) && typeof GarageSheet !== "undefined", null, { timeout: 15000 });
+        await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller) && typeof MUTrip !== "undefined" && Boolean(MUTrip.app), null, { timeout: 15000 });
     }
     await page.waitForFunction(async () => (await caches.has("mu-bikedb-v1")) && (await (await caches.open("mu-bikedb-v1")).keys()).length >= 11, null, { timeout: 20000 });
     return page;
@@ -88,7 +88,7 @@ async function join(page, name = "E2E Rider") {
 }
 const openSheet = async (page) => {
     await join(page);
-    await page.evaluate(() => { safeShow("profile-settings-modal", "flex"); document.getElementById("garage-open-btn").click(); });
+    await page.evaluate(() => { safeShow("profile-settings-modal", "flex"); document.getElementById("open-garage-btn").click(); });
     await page.locator("#garage-modal").waitFor({ state: "visible" });
 };
 
@@ -100,15 +100,16 @@ try {
     await page.waitForFunction(() => typeof socket !== "undefined" && socket.connected, null, { timeout: 15000 });
     const sid = await page.evaluate(() => socket.id);
     check(await page.evaluate(() => SmartDrive.ratedKmPerL() === 18 && BikeFuel.status === "none"), "no bike yet: SmartDrive is unchanged (18 km/L)");
-    check(await page.evaluate(() => !document.querySelector('script[src*="js/physics/"]')), "the physics isn't loaded at start-up");
+    check(await page.evaluate(() => !document.querySelector('script[src*="js/garage/picker.js"]') && !document.querySelector('link[href*="garage.css"]')), "the garage UI isn't loaded until My bike is opened");
+    check(await page.evaluate(() => /No bike chosen/.test(document.getElementById("my-bike-name").textContent)), "Settings: no bike chosen");
     await openSheet(page);
     check(await page.evaluate(() => document.getElementById("profile-settings-modal").style.display === "none"), "the sheet replaces Settings while open");
-    const input = page.locator("#garage-sheet-root input.mu-search-input");
+    const input = page.locator("#garage-mount input.mu-search-input");
     await input.waitFor();
     await input.pressSequentially("hunter", { delay: 30 });
-    await page.locator("#garage-sheet-root .mu-result").first().click();
-    await page.locator("#garage-sheet-root .mu-chip-year").first().click();
-    await page.locator("#garage-sheet-root .mu-bike-name").waitFor();
+    await page.locator("#garage-mount .mu-result").first().click();
+    await page.locator("#garage-mount .mu-chip-year").first().click();
+    await page.locator("#garage-mount .mu-bike-name").waitFor();
     await page.waitForFunction(() => BikeFuel.status === "ready", null, { timeout: 15000 });
     const rated = await page.evaluate(() => SmartDrive.ratedKmPerL());
     check(rated > 40 && rated < 70, "picking the Hunter 350 sets SmartDrive's baseline from its physics", `${rated} km/L at 40–60 km/h`);
@@ -121,16 +122,31 @@ try {
         await page.screenshot({ path: path.join(process.env.E2E_SHOTS, "sheet-1280.png") });
         await page.setViewportSize({ width: 390, height: 844 });
     }
-    const searchBox = page.locator("#garage-sheet-root input.mu-search-input");
-    await page.locator("#garage-sheet-root .mu-change").click();
+    const searchBox = page.locator("#garage-mount input.mu-search-input");
+    await page.locator("#garage-mount .mu-change").click();
     await searchBox.waitFor();
     await searchBox.press("Escape");
     check(await page.locator("#garage-modal").isVisible(), "Escape in the search box clears it and leaves the sheet open");
-    await page.locator("#garage-sheet-root .mu-back, #garage-sheet-root button:has-text('Back')").first().click().catch(() => { });
-    await page.locator("#garage-close-btn").click();
+    await page.locator("#garage-mount .mu-back, #garage-mount button:has-text('Back')").first().click().catch(() => { });
+    await page.locator("#close-garage-btn").click();
     check(await page.evaluate(() => document.getElementById("profile-settings-modal").style.display === "flex"), "closing the sheet goes back to Settings");
     check(await page.evaluate(() => document.getElementById("fuel-input-val").disabled && /From your Royal Enfield Hunter 350/.test(document.getElementById("fuel-source-hint").textContent)),
         "Settings say where the km/L comes from", await page.evaluate(() => document.getElementById("fuel-source-hint").textContent.slice(0, 90) + "…"));
+    check(await page.evaluate(() => /Royal Enfield Hunter 350/.test(document.getElementById("my-bike-name").textContent) && /Best mileage at/.test(document.getElementById("my-bike-hint").textContent)),
+        "the My bike summary shows the bike and its eco band", await page.evaluate(() => document.getElementById("my-bike-hint").textContent));
+    // the tool-rail link opens the same sheet, not a new page
+    await page.evaluate(() => safeHide("profile-settings-modal"));
+    await page.locator("#garage-btn").click();
+    await page.locator("#garage-modal").waitFor({ state: "visible" });
+    check(page.url().endsWith("/") && await page.evaluate((id) => socket.connected && socket.id === id, sid), "the tool-rail My bike link opens the sheet over the map (no navigation)");
+    await page.locator("#close-garage-btn").click();
+    // clear the bike: SmartDrive falls back to 18 km/L at once
+    const saved = await page.evaluate(() => localStorage.getItem("mu.garage.v1"));
+    await page.evaluate(() => { localStorage.removeItem("mu.garage.v1"); document.dispatchEvent(new CustomEvent("mu:garage-change")); });
+    await page.waitForFunction(() => BikeFuel.status === "none", null, { timeout: 5000 });
+    check(await page.evaluate(() => SmartDrive.ratedKmPerL() === 18 && !document.getElementById("fuel-input-val").disabled), "no bike again: back to 18 km/L, the km/L field editable");
+    await page.evaluate((g) => { localStorage.setItem("mu.garage.v1", g); document.dispatchEvent(new CustomEvent("mu:garage-change")); }, saved);
+    await page.waitForFunction(() => BikeFuel.status === "ready", null, { timeout: 15000 });
 
     // ------------------------------------------------------------------ offline, same rider
     console.log("Offline: reload, the sheet, a typical bike, the standalone page");
@@ -140,15 +156,15 @@ try {
     check(await page.evaluate(() => BikeFuel.status === "ready"), "offline reload: the bike's baseline is there at once (stored snapshot)");
     check(Math.abs((await page.evaluate(() => SmartDrive.ratedKmPerL())) - rated) < 1e-9, "same km/L as online");
     await openSheet(page);
-    await page.locator("#garage-sheet-root .mu-bike-name").waitFor({ timeout: 15000 });
-    check(await page.locator("#garage-sheet-root svg").count() > 0, "offline: the sheet loads its code from the service worker and draws the bike's chart");
-    await page.locator("#garage-sheet-root .mu-change").click();
+    await page.locator("#garage-mount .mu-bike-name").waitFor({ timeout: 15000 });
+    check(await page.locator("#garage-mount svg").count() > 0, "offline: the sheet loads its code from the service worker and draws the bike's chart");
+    await page.locator("#garage-mount .mu-change").click();
     await page.getByRole("button", { name: "My bike isn't listed" }).click();
-    await page.locator('#garage-sheet-root .mu-class-btn[data-class="ice_cvt.scooter"]').click();
-    await page.locator("#garage-sheet-root .mu-bike-name").waitFor();
+    await page.locator('#garage-mount .mu-class-btn[data-class="ice_cvt.scooter"]').click();
+    await page.locator("#garage-mount .mu-bike-name").waitFor();
     await page.waitForFunction(() => BikeFuel.status === "ready" && /typical/i.test(BikeFuel.describe()), null, { timeout: 15000 });
     check(true, "offline: a typical scooter (precached class default) becomes the baseline", await page.evaluate(() => `${SmartDrive.ratedKmPerL()} km/L`));
-    await page.locator("#garage-close-btn").click();
+    await page.locator("#close-garage-btn").click();
     const standalone = await ctx.newPage();
     await standalone.goto(`${BASE}/garage.html`);
     await standalone.locator(".mu-bike-name").waitFor({ timeout: 15000 });
@@ -162,14 +178,14 @@ try {
     const p2 = await openApp(fresh);                                    // one online visit installs the worker
     await fresh.setOffline(true);
     await p2.reload({ waitUntil: "domcontentloaded" });
-    await p2.waitForFunction(() => typeof GarageSheet !== "undefined", null, { timeout: 15000 });
+    await p2.waitForFunction(() => typeof MUTrip !== "undefined" && Boolean(MUTrip.app), null, { timeout: 15000 });
     await openSheet(p2);
-    await p2.locator("#garage-sheet-root input.mu-search-input").waitFor({ timeout: 15000 });
-    await p2.locator("#garage-sheet-root input.mu-search-input").pressSequentially("activa", { delay: 20 });
-    check(await p2.locator("#garage-sheet-root .mu-result").count() > 0, "offline search works from the precached bike list");
+    await p2.locator("#garage-mount input.mu-search-input").waitFor({ timeout: 15000 });
+    await p2.locator("#garage-mount input.mu-search-input").pressSequentially("activa", { delay: 20 });
+    check(await p2.locator("#garage-mount .mu-result").count() > 0, "offline search works from the precached bike list");
     await p2.getByRole("button", { name: "My bike isn't listed" }).click();
-    await p2.locator('#garage-sheet-root .mu-class-btn[data-class="ice_manual.commuter"]').click();
-    await p2.locator("#garage-sheet-root .mu-bike-name").waitFor({ timeout: 15000 });
+    await p2.locator('#garage-mount .mu-class-btn[data-class="ice_manual.commuter"]').click();
+    await p2.locator("#garage-mount .mu-bike-name").waitFor({ timeout: 15000 });
     await p2.waitForFunction(() => BikeFuel.status === "ready", null, { timeout: 15000 });
     check(true, "offline, first time: a typical commuter works and feeds SmartDrive", await p2.evaluate(() => `${SmartDrive.ratedKmPerL()} km/L`));
     await fresh.close();

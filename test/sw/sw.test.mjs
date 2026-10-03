@@ -85,11 +85,19 @@ test("the worker and the app agree: precache lists, script order, and the shared
     const sw = loadSw();
     const html = fs.readFileSync(path.join(PUBLIC, "index.html"), "utf8");
     const pageScripts = [...html.matchAll(/<script src="(js\/[^"?]+)\?v=[^"]+"><\/script>/g)].map((m) => `/${m[1]}`);
-    assert.deepEqual(JSON.parse(JSON.stringify(sw.run("APP_SCRIPTS"))), pageScripts, "every app script index.html loads, in its order");
-    const sheet = vm.runInNewContext(`${fs.readFileSync(path.join(PUBLIC, "js", "garage-sheet.js"), "utf8")}; ({ core: GarageSheet.CORE_SCRIPTS, ui: GarageSheet.UI_SCRIPTS, css: GarageSheet.CSS })`, {});
-    const onDemand = [...sheet.core, ...sheet.ui, sheet.css].map((s) => `/${s}`);
-    const pre = sw.run("GARAGE_PRECACHE");
-    for (const f of onDemand) assert.ok(pre.includes(f), `${f} is precached`);
+    const appScripts = JSON.parse(JSON.stringify(sw.run("APP_SCRIPTS")));
+    assert.deepEqual(appScripts, pageScripts.slice(0, appScripts.length), "the app scripts index.html loads, in its order (the bike and trip scripts follow boot.js)");
+    assert.equal(appScripts.at(-1), "/js/boot.js");
+    // everything the map loads on demand for the garage sheet (js/trip/trip-app.js) and garage.html is precached
+    const tripApp = fs.readFileSync(path.join(PUBLIC, "js", "trip", "trip-app.js"), "utf8");
+    const onDemand = [...tripApp.matchAll(/"(js\/garage\/[a-z-]+\.(?:js|css))"/g)].map((m) => `/${m[1]}`);
+    const garageHtml = fs.readFileSync(path.join(PUBLIC, "garage.html"), "utf8");
+    const garagePage = [...garageHtml.matchAll(/<script src="(js\/[^"]+)"/g)].map((m) => `/${m[1]}`);
+    assert.ok(onDemand.length >= 5 && garagePage.length >= 10);
+    const pre = JSON.parse(JSON.stringify(sw.run("BIKE_SCRIPTS")));
+    const appList = JSON.parse(JSON.stringify(sw.run("APP_SCRIPTS")));
+    for (const f of [...onDemand, ...garagePage, ...pageScripts.filter((x) => !appList.includes(x))]) assert.ok(pre.includes(f), `${f} is precached`);
+    assert.equal(sw.run("OFFLINE_PAGES")["/garage.html"], "/garage.html");
     for (const f of [...pre, ...pageScripts]) assert.ok(fs.existsSync(path.join(PUBLIC, f)), `${f} exists`);
     assert.equal(sw.run("BIKEDB_CACHE"), Store.CACHE_NAME, "the worker and the garage share one bike cache");
     assert.ok(!Store.CACHE_NAME.startsWith("mapunite-"), "so activate() never deletes it");
@@ -99,7 +107,7 @@ test("install precaches My bike (page, scripts, styles), the bike list and every
     const sw = loadSw();
     await sw.lifecycle("install");
     const shell = await cachedPaths(sw, sw.run("SHELL_CACHE"));
-    for (const f of [...sw.run("GARAGE_PRECACHE"), ...sw.run("APP_SCRIPTS")]) assert.ok(shell.includes(f), `${f} in the shell cache`);
+    for (const f of [...sw.run("BIKE_SCRIPTS"), ...sw.run("APP_SCRIPTS"), "/garage.html"]) assert.ok(shell.includes(f), `${f} in the shell cache`);
     const bikes = await cachedPaths(sw, Store.CACHE_NAME);
     assert.ok(bikes.includes("/bikedb/catalog.json"));
     for (const c of catalog.classes) assert.ok(bikes.includes(`/bikedb/bundles/${c.bundle}.json`), `${c.key}'s typical bike`);
@@ -113,8 +121,8 @@ test("offline: My bike's page, code, bike list and typical bikes all come from t
     sw.net.online = false;
     const page = await sw.fetchEvent("/garage.html", { mode: "navigate", destination: "document" });
     assert.equal(page.status, 200);
-    assert.match(await page.text(), /MUGarage\.mount/);
-    for (const f of sw.run("GARAGE_PRECACHE").filter((x) => x.endsWith(".js"))) {
+    assert.match(await page.text(), /garage-page\.js/);
+    for (const f of sw.run("BIKE_SCRIPTS").filter((x) => x.endsWith(".js"))) {
         const r = await sw.fetchEvent(`${f}?v=20261003-garage`, { destination: "script" });
         assert.equal(r.status, 200, f);
     }

@@ -123,16 +123,12 @@ test("the bike or its settings changed: the snapshot is rebuilt from the physics
     const stale = snapshotFor(g);
     const heavier = garageFor(HUNTER, { pillionMass: 75 });
     let built = 0;
-    const GarageSheet = {
-        core: async () => ({
-            physics: Physics,
-            store: {
-                catalog: async () => ({ index: {} }),
-                model: async (gg) => { built++; const b = runtime.get(gg.bikeId); return { model: Physics.createBikeModel(b, { classDefault: classDefaultOf(b), settings: gg.settings }) }; }
-            }
-        })
-    };
-    const sd = withBike({ "mu.garage.v1": JSON.stringify(heavier), mu_bike_fuel_v1: JSON.stringify(stale) }, { GarageSheet });
+    // the page's shared store (js/trip/trip-app.js MUTrip.app.store) and the physics core
+    const page = { MUPhysics: Physics, MUTrip: { app: { store: {
+        catalog: async () => ({ index: {} }),
+        model: async (gg) => { built++; const b = runtime.get(gg.bikeId); return { model: Physics.createBikeModel(b, { classDefault: classDefaultOf(b), settings: gg.settings }) }; }
+    } } } };
+    const sd = withBike({ "mu.garage.v1": JSON.stringify(heavier), mu_bike_fuel_v1: JSON.stringify(stale) }, page);
     sd.run("SmartDrive.init(); FuelCurve.init();");
     assert.equal(sd.run("BikeFuel.status"), "loading", "the stored snapshot is for other settings: not used");
     assert.equal(sd.run("SmartDrive.ratedKmPerL()"), 18, "meanwhile: the old behaviour");
@@ -154,10 +150,13 @@ test("the bike or its settings changed: the snapshot is rebuilt from the physics
 
 test("the bike's data can't be loaded (offline, first time): the old behaviour, a clear note, and a retry later", async () => {
     let fail = true;
-    const GarageSheet = { core: async () => { if (fail) throw new Error("This bike's data isn't on this phone yet."); return { physics: Physics, store: { catalog: async () => ({ index: {} }), model: async (gg) => ({ model: Physics.createBikeModel(runtime.get(gg.bikeId), { classDefault: classDefaultOf(runtime.get(gg.bikeId)) }) }) } }; } };
+    const store = {
+        catalog: async () => { if (fail) throw new Error("This bike's data isn't on this phone yet."); return { index: {} }; },
+        model: async (gg) => ({ model: Physics.createBikeModel(runtime.get(gg.bikeId), { classDefault: classDefaultOf(runtime.get(gg.bikeId)) }) })
+    };
     const el = (o) => ({ addEventListener() {}, ...o });
     const els = { "fuel-input-val": el({ value: "", disabled: false }), "fuel-source-hint": el({ textContent: "", hidden: true }), "bike-fuel-status": el({ textContent: "" }) };
-    const sd = withBike({ "mu.garage.v1": JSON.stringify(garageFor(HUNTER)), sd_mileage: "40" }, { GarageSheet, $: (id) => els[id] || null });
+    const sd = withBike({ "mu.garage.v1": JSON.stringify(garageFor(HUNTER)), sd_mileage: "40" }, { MUPhysics: Physics, MUTrip: { app: { store } }, $: (id) => els[id] || null });
     sd.run("SmartDrive.init(); FuelCurve.init();");
     await sd.run("BikeFuel._pending.promise");
     assert.equal(sd.run("BikeFuel.status"), "error");
@@ -198,10 +197,32 @@ test("a typical bike (My bike's 'not listed' choice) works the same way, tagged 
     assert.match(sd.run("BikeFuel.describe()"), /^From your typical /);
 });
 
+test("the data layer isn't loaded at all (scripts failed): the old behaviour, never a crash", async () => {
+    const sd = withBike({ "mu.garage.v1": JSON.stringify(garageFor(HUNTER)) });
+    sd.run("SmartDrive.init(); FuelCurve.init();");
+    await sd.run("BikeFuel._pending.promise");
+    assert.equal(sd.run("BikeFuel.status"), "error");
+    assert.equal(sd.run("SmartDrive.ratedKmPerL()"), 18);
+});
+
+test("the map's My bike sheet (mu:garage-change) makes SmartDrive re-read the bike", async () => {
+    const g = garageFor(HUNTER);
+    const listeners = {};
+    const document = { addEventListener: (t, fn) => { listeners[t] = fn; }, createElement: () => ({}), querySelectorAll: () => [] };
+    const sd = withBike({ "mu.garage.v1": JSON.stringify(g), mu_bike_fuel_v1: JSON.stringify(snapshotFor(g)) }, { document, addEventListener() {} });
+    sd.run("SmartDrive.init(); FuelCurve.init();");
+    assert.equal(sd.run("BikeFuel.status"), "ready");
+    assert.equal(typeof listeners["mu:garage-change"], "function");
+    sd.ctx.localStorage.removeItem("mu.garage.v1");          // the rider cleared the bike in the sheet
+    await listeners["mu:garage-change"]();
+    assert.equal(sd.run("BikeFuel.status"), "none");
+    assert.equal(sd.run("SmartDrive.ratedKmPerL()"), 18, "back to 18 km/L");
+});
+
 test("junk in storage (a hand-edited or older snapshot) is ignored, never trusted", async () => {
     const g = garageFor(HUNTER);
     for (const junk of ["{", JSON.stringify({ format: 1, kind: "petrol", key: FB.garageKey(g), bikeTag: "x", title: "x", kmPerL: [1, "2"], step: 1, idleLPerHour: 0.1, referenceKmPerL: 1 }), JSON.stringify({ ...snapshotFor(g), format: 99 })]) {
-        const sd = withBike({ "mu.garage.v1": JSON.stringify(g), mu_bike_fuel_v1: junk }, { GarageSheet: { core: async () => { throw new Error("offline"); } } });
+        const sd = withBike({ "mu.garage.v1": JSON.stringify(g), mu_bike_fuel_v1: junk }, { MUPhysics: Physics, MUTrip: { app: { store: { catalog: async () => { throw new Error("offline"); } } } } });
         sd.run("SmartDrive.init(); FuelCurve.init();");
         await sd.run("BikeFuel._pending && BikeFuel._pending.promise");
         assert.equal(sd.run("BikeFuel.status"), "error");

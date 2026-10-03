@@ -7,7 +7,7 @@
 <title>MapUnite: My bike</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="js/garage/garage.css">
 <style>
   :root { color-scheme: dark; }
@@ -20,10 +20,12 @@
 </style>
 </head>
 <body>
-<a class="page-back" href="./">‹ Back to the map</a>
+<a class="page-back" href="./" id="garage-back">‹ Back to the map</a>
 <main id="garage-root" class="mu-garage" aria-live="polite"></main>
 <noscript><p>My bike needs JavaScript.</p></noscript>
 
+<!-- shell.js: the single service-worker registration (so this page works offline even when opened first) -->
+<script src="shell.js"></script>
 <script src="js/bikedb/catalog-search.js"></script>
 <script src="js/physics/atmosphere.js"></script>
 <script src="js/physics/tyre.js"></script>
@@ -39,20 +41,6 @@
 <script src="js/garage/settings.js"></script>
 <script src="js/garage/visualizer.js"></script>
 <script src="js/garage/garage.js"></script>
-<script>
-  (function () {
-    // The Step 5 API (/api/bikes/search, /bundles, /requests): see MUGarage.store.resolveApiBase —
-    // website: this page's origin; Android: window.MU_GARAGE_API (set by scripts/build-native.mjs);
-    // the app's own origin (https://localhost, capacitor:) is never used as the server.
-    var store = MUGarage.store.createStore({
-      search: window.BikeCatalogSearch,
-      physics: window.MUPhysics,
-      catalogUrl: "bikedb/catalog.json",
-      staticBase: "bikedb/",
-      apiBase: MUGarage.store.resolveApiBase(window, location)
-    });
-    window.MU_GARAGE = MUGarage.mount(document.getElementById("garage-root"), { store: store, physics: window.MUPhysics });
-  })();
-</script>
+<script src="js/garage/garage-page.js"></script>
 </body>
 </html>

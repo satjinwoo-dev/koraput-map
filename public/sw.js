@@ -14,11 +14,20 @@
        message) so an update never swaps code under a driver mid-trip.
      * Map tiles use a separate, size-capped cache that survives releases.
      * Realtime + API traffic (/socket.io/, /api/) is never intercepted.
+     * Step 7 — true offline for "My bike" and trip energy: garage.html is a
+       second cached page (OFFLINE_PAGES); the garage, physics and trip scripts
+       are precached (the map lazy-loads the garage UI, so it must be in the
+       cache already); the Google Fonts stylesheet and its Latin font files are
+       precached; the Socket.IO client library is cached so index.html boots
+       offline. The bike catalogue lives in the garage's own cache
+       (mu-bikedb-v1): catalog.json network-first (fresh whenever online, as
+       the garage store expects), bundles cache-first and verified against
+       their hash; the list and every class default's bundle are precached.
 
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-03.14";          // My bike: garage sheet, physics, bike catalogue offline
+const VERSION = "mu-2026-10-03.15";          // Step 7: My bike sheet, trip energy, fonts, bike catalogue offline
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
@@ -37,6 +46,8 @@ const BIKEDB_CATALOG = "/bikedb/catalog.json";
 const BIKEDB_BUNDLE_RE = /^\/bikedb\/bundles\/([0-9a-f]{16})\.json$/;
 
 const SHELL_INDEX = "/index.html";
+// Other pages that work offline (cached copy served when the network fails).
+const OFFLINE_PAGES = { "/garage.html": "/garage.html", "/garage": "/garage.html" };
 const REQUIRED_PRECACHE = [SHELL_INDEX];       // install FAILS (and retries) without these
 // The app scripts (js/*.js, in index.html's load order) and /config.js,
 // which the server generates (routing server, transports).
@@ -61,18 +72,35 @@ const APP_SCRIPTS = [
     "/js/skunkworks.js",
     "/js/radio.js",
     "/js/convoy.js",
-    "/js/garage-sheet.js",
     "/js/boot.js"
 ];
-// My bike (loaded on demand by js/garage-sheet.js, and the standalone garage.html):
-// precached so the garage opens offline even if it was never opened online.
-const GARAGE_PRECACHE = [
-    "/garage.html", "/js/garage/garage.css",
+// Step 7: bike catalogue search, physics core, garage UI ("My bike") and trip
+// energy. Keep in step with garage.html, index.html and js/trip/trip-app.js (the
+// garage UI loads on first open, so it must already be in the cache).
+const BIKE_SCRIPTS = [
     "/js/bikedb/catalog-search.js",
-    "/js/physics/atmosphere.js", "/js/physics/tyre.js", "/js/physics/powertrain.js", "/js/physics/roadload.js",
-    "/js/physics/model.js", "/js/physics/cruise.js", "/js/physics/index.js",
-    "/js/garage/units.js", "/js/garage/store.js", "/js/garage/silhouettes.js", "/js/garage/picker.js",
-    "/js/garage/settings.js", "/js/garage/visualizer.js", "/js/garage/garage.js"
+    "/js/physics/atmosphere.js",
+    "/js/physics/tyre.js",
+    "/js/physics/powertrain.js",
+    "/js/physics/roadload.js",
+    "/js/physics/model.js",
+    "/js/physics/cruise.js",
+    "/js/physics/index.js",
+    "/js/garage/units.js",
+    "/js/garage/store.js",
+    "/js/garage/silhouettes.js",
+    "/js/garage/picker.js",
+    "/js/garage/settings.js",
+    "/js/garage/visualizer.js",
+    "/js/garage/garage.js",
+    "/js/garage/garage-page.js",
+    "/js/garage/garage.css",
+    "/js/trip/profile.js",
+    "/js/trip/elevation.js",
+    "/js/trip/energy.js",
+    "/js/trip/trip-card.js",
+    "/js/trip/trip-app.js",
+    "/js/trip/trip.css"
 ];
 // The Socket.IO client library: a static script the server ships. index.html can't
 // boot offline without it (core.js calls io() at once; offline it just keeps
@@ -80,7 +108,7 @@ const GARAGE_PRECACHE = [
 // /socket.io/ is never intercepted.
 const SOCKET_IO_CLIENT = "/socket.io/socket.io.js";
 const OPTIONAL_PRECACHE = [
-    ...APP_SCRIPTS, ...GARAGE_PRECACHE, SOCKET_IO_CLIENT, "/config.js", "/shell.js", "/manifest.json",
+    ...APP_SCRIPTS, ...BIKE_SCRIPTS, "/garage.html", SOCKET_IO_CLIENT, "/config.js", "/shell.js", "/manifest.json",
     "/icon-192.png", "/icon-512.png", "/icon-maskable-512.png", "/satyam.png"
 ];
 // Third-party assets the shell needs to render offline (pinned versions).
@@ -88,6 +116,12 @@ const CDN_PRECACHE = [
     "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css",
     "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
 ];
+
+// The one Google Fonts stylesheet both pages use (same URL in index.html and
+// garage.html, so one cached copy serves both). Its font files are precached
+// for the Latin subsets; other scripts' subsets are cached the first time used.
+const FONT_CSS = "https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap";
+const FONT_SUBSETS_RE = /\/\*\s*(latin|latin-ext)\s*\*\/\s*@font-face\s*{[^}]*?url\((https:\/\/fonts\.gstatic\.com\/[^)\s]+)\)/g;
 
 const NEVER_INTERCEPT_PATHS = ["/socket.io/", "/api/", "/healthz", "/csp-report"];
 const TILE_HOST_RE = /(^|\.)(tile\.openstreetmap\.org|basemaps\.cartocdn\.com|arcgisonline\.com|tile\.opentopomap\.org)$/;
@@ -128,6 +162,26 @@ async function fetchCorsThenPlain(request) {
     return fetch(request);                        // passes through, never cached
 }
 
+// Step 7: the fonts stylesheet + its Latin font files (best effort, CORS so
+// the responses aren't opaque).
+async function precacheFonts(cache) {
+    try {
+        const res = await fetch(FONT_CSS, { mode: "cors", credentials: "omit" });
+        if (!res.ok) return;
+        const css = await res.clone().text();
+        await cache.put(FONT_CSS, res);
+        const urls = new Set();
+        for (const m of css.matchAll(FONT_SUBSETS_RE)) urls.add(m[2]);
+        await Promise.all([...urls].map(async (u) => {
+            try {
+                if (await cache.match(u)) return;
+                const f = await fetch(u, { mode: "cors", credentials: "omit" });
+                if (f.ok) await cache.put(u, f);
+            } catch { /* optional */ }
+        }));
+    } catch { /* offline install or fonts blocked: system fonts are the fallback */ }
+}
+
 // First 16 hex of the SHA-256 of a response body: a bundle's name. null without WebCrypto.
 async function shortSha(res) {
     if (!self.crypto || !self.crypto.subtle) return null;
@@ -141,7 +195,7 @@ async function shortSha(res) {
 async function precacheBikeCatalogue() {
     const cache = await caches.open(BIKEDB_CACHE);
     const res = await fetch(new Request(BIKEDB_CATALOG, { cache: "reload" }));
-    if (!res.ok) return;
+    if (!res.ok || !(res.headers.get("content-type") || "").includes("json")) return;     // not built on this server
     const catalog = await res.clone().json();
     await cache.put(BIKEDB_CATALOG, res);
     const hashes = (Array.isArray(catalog.classes) ? catalog.classes : []).map((c) => c && c.bundle).filter((h) => /^[0-9a-f]{16}$/.test(h));
@@ -174,7 +228,10 @@ self.addEventListener("install", (event) => {
                 if (res.ok) await cache.put(shellKey(url), res);
             } catch { /* optional: skip */ }
         }));
-        try { await precacheBikeCatalogue(); } catch { /* optional: the garage fetches it when online */ }
+        await Promise.all([
+            precacheBikeCatalogue().catch(() => { /* optional: the garage fetches it when online */ }),
+            precacheFonts(cache)
+        ]);
         await Promise.all(CDN_PRECACHE.map(async (url) => {
             try {
                 const res = await fetch(url, { mode: "cors", credentials: "omit" });
@@ -226,9 +283,9 @@ self.addEventListener("fetch", (event) => {
         }
 
         if (req.mode === "navigate") {
-            // The SPA shell, and the standalone My bike page; anything else navigates normally.
+            // The SPA shell and the offline pages (garage.html); anything else navigates normally.
             if (url.pathname === "/" || url.pathname === SHELL_INDEX) event.respondWith(handleNavigation(event));
-            else if (url.pathname === "/garage.html") event.respondWith(networkFirst(event, req, shellKey(req.url)));
+            else if (Object.prototype.hasOwnProperty.call(OFFLINE_PAGES, url.pathname)) event.respondWith(handleNavigation(event, OFFLINE_PAGES[url.pathname]));
             return;
         }
         // Bike catalogue: the list network-first (a new build shows up at once), bundles
@@ -299,15 +356,15 @@ async function mediaHandler(event, req) {
     return res;
 }
 
-async function handleNavigation(event) {
+async function handleNavigation(event, page = SHELL_INDEX) {
     const cache = await caches.open(SHELL_CACHE);
     try {
         const preload = event.preloadResponse ? await event.preloadResponse : null;
         const res = preload || await withTimeout(fetch(event.request), NETWORK_TIMEOUT_MS);
-        if (res && res.ok && !res.redirected) event.waitUntil(cache.put(shellKey(SHELL_INDEX), res.clone()));
+        if (res && res.ok && !res.redirected) event.waitUntil(cache.put(shellKey(page), res.clone()));
         if (res) return res;
-    } catch { /* offline or slow: fall back to the cached shell */ }
-    const cached = await cache.match(shellKey(SHELL_INDEX));
+    } catch { /* offline or slow: fall back to the cached page */ }
+    const cached = await cache.match(shellKey(page));
     return cached || new Response("MapUnite is offline and has not been cached yet. Reconnect once to install it.", {
         status: 503, headers: { "Content-Type": "text/plain; charset=utf-8" }
     });

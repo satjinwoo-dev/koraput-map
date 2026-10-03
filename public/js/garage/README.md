@@ -44,18 +44,21 @@ The bike picker, the rider's settings and the physics visualizer. Plain JavaScri
 ## Wiring it into the app
 
 1. **Build the catalogue:** `node scripts/build-bike-catalog.mjs` writes `public/bikedb/`. `build-native.mjs` already does this for the Android app.
-2. **In the app (Step 7):** Settings → **My bike** opens the garage in a sheet on `index.html` (`js/garage-sheet.js`), not a separate page. Opening it never leaves the map, so the Socket.IO connection, the convoy and location sharing carry on.
-   - The garage's code and stylesheet load the first time they're needed, so start-up isn't slowed.
-   - `garage.html` stays as a standalone page.
+2. **In the app (Step 7):** the tool rail (`#garage-btn`), the SmartDrive settings (`#my-bike-section`) and the trip-energy card all open the garage in a sheet over the map (`#garage-modal`).
+   - **Why a sheet:** opening it never leaves the map, so the route on screen, the Socket.IO connection, the convoy and location sharing carry on.
+   - **Who mounts it:** `js/trip/trip-app.js`. It loads `picker`, `settings`, `visualizer`, `garage` and `garage.css` on first open, and shares one store with the trip card and SmartDrive.
+   - **Escape:** inside a field or the chart it stays in the garage. Closing the sheet returns to Settings when it was opened from there.
+   - **Telling the app:** every save dispatches `mu:garage-change`.
+   - **`garage.html`:** stays as the full-page version (also a PWA shortcut). Its boot code lives in `garage-page.js` (the CSP has no `'unsafe-inline'` for scripts), and it loads `shell.js` so the service worker is registered even when it's the first page opened.
 3. **Step 5 endpoints** (`lib/bikedb/http-api.js`): `window.MU_GARAGE_API` is the server origin (`""` = this page's origin, `null` = no server).
-   - **Defaults.** On the website it defaults to the page's own origin, since `server.js` serves both. In the Android app, `scripts/build-native.mjs` sets it to `MU_SERVER_ORIGIN`. The app's own origin (`https://localhost`, `capacitor:`) is never used as the server.
+   - **Defaults** (`MUGarage.store.resolveApiBase`, used by `garage-page.js` and `trip-app.js`): on the website it defaults to the page's own origin, since `server.js` serves both. In the Android app, `scripts/build-native.mjs` sets it to `MU_SERVER_ORIGIN` (`garage.html`; `index.html` already has `MU_SERVER_ORIGIN`). The app's own origin (`https://localhost`, `capacitor:`) is never used as the server.
    - **Search.** The offline index answers instantly. `GET /api/bikes/search?q=…&limit=30` is asked too, debounced. If the server has the same `catalogVersion`, its answer is identical (it ranks with the same code), so it isn't asked again that session. If the server's catalogue is newer, its results replace the list, so a bike added since the phone's `catalog.json` can be found and picked.
    - **Bundles.** The shipped or static copy is used first: inside the Android app it is packaged, offline and instant. `GET /api/bikes/bundles/<hash>` is the fallback, for a bike newer than the app. Both are checked against the hash.
    - **Requests.** `POST /api/bikes/requests` with `{ make, model, year, powertrain, note }`, where the powertrain and note come from the closest type the rider picked.
      - Cleared: 2xx (a `"listed"` answer is offered to the rider), and 400 / 413 / 415, which the server will never accept.
      - Kept for later: no network, 403, 404, 429 and 5xx.
 4. **Offline (`sw.js`, Step 7):**
-   - **Precached:** `garage.html`, the garage, physics and search scripts and the stylesheet, plus `bikedb/catalog.json` and every class default's bundle (the typical bikes). A rider who never opened My bike online can still use it offline.
+   - **Precached:** `garage.html` (served from the cache offline), every garage, physics, search and trip script and stylesheet, the Google Fonts stylesheet and its Latin files, plus `bikedb/catalog.json` and every class default's bundle (the typical bikes). A rider who never opened My bike online can still use it offline.
    - **Bike data:** shares this store's cache (`mu-bikedb-v1`). `catalog.json` is network-first. Bundles are cache-first and are only cached when they match their hash.
    - **The app shell:** the Socket.IO client library is cached too, so `index.html` itself boots offline.
 5. **SmartDrive (Step 7):** once a bike is chosen, `js/smartdrive.js` (`BikeFuel`) uses `fuel-baseline.js` to replace the fixed 18 km/L.

@@ -19,6 +19,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="js/trip/trip.css?v=20261003-step7"><!-- Step 7: trip energy + My bike -->
 <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js"></script>
 
 <style>
@@ -345,8 +346,6 @@ body:has(#premium-nav-ui[style*="block"]) #toast-container { bottom: calc(250px 
 .modal-card h2 { margin: 0 0 18px; font-family: var(--font-display); font-size: 20px; }
 .modal-card > p { color: var(--soft); font-size: 14px; line-height: 1.5; margin: 0 0 14px; }
 .modal-card.wide { max-width: 520px; }
-#garage-modal .garage-card { max-width: 1120px; padding: 20px 16px 24px; }
-#garage-modal .garage-card .mu-garage-title { margin-top: 0; padding-right: 40px; }
 .close-modal { position: absolute; top: 16px; right: 16px; width: 32px; height: 32px; border-radius: 50%; background: rgba(255,255,255,.08); display: flex; align-items: center; justify-content: center; color: #fff; z-index: 2; }
 .modal-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; }
 .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; padding-right: 40px; }
@@ -790,6 +789,7 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
     <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 12.5 9 5 9-5"/><path d="m3 17 9 5 9-5" opacity=".55"/></symbol>
     <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20.5 20.5-4.6-4.6"/></symbol>
     <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+    <symbol id="i-bike" viewBox="0 0 24 24"><circle cx="5.5" cy="16.5" r="3.5"/><circle cx="18.5" cy="16.5" r="3.5"/><path d="M5.5 16.5 9.5 10h4.5l4.5 6.5"/><path d="M14 10 12.6 6.5H15.5M9.5 10 8.4 8H5.5"/></symbol>
     <symbol id="i-fuel" viewBox="0 0 24 24"><path d="M3 22v-8c0-1.1.9-2 2-2h4c1.1 0 2 .9 2 2v8"/><path d="M11 5h2a2 2 0 0 1 2 2v5c0 1.1-.9 2-2 2h-2"/><path d="M3 5v17h8V5z"/><path d="M15 12h2a4 4 0 0 0 4-4V5h-2v3a2 2 0 0 1-2 2h-2"/></symbol>
     <symbol id="i-chat" viewBox="0 0 24 24"><path d="M20.5 12a8 8 0 0 1-11.6 7.1L3.5 20.5l1.5-4.6A8 8 0 1 1 20.5 12z"/></symbol>
     <symbol id="i-camera" viewBox="0 0 24 24"><path d="M3.5 8.5a2 2 0 0 1 2-2h2l1.6-2.5h5.8l1.6 2.5h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="3.6"/></symbol>
@@ -881,6 +881,8 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
   <button id="geofence-btn" class="tool-btn" type="button" title="Geofence" aria-label="Manage geofences"><svg class="i"><use href="#i-fence"/></svg></button>
   <button id="trip-btn" class="tool-btn" type="button" title="Group Trip" aria-label="Start or join a group trip"><svg class="i"><use href="#i-flag"/></svg></button>
   <button id="analytics-btn" class="tool-btn" type="button" title="Your rides" aria-label="Open ride history and stats"><svg class="i"><use href="#i-chart"/></svg></button>
+  <!-- Step 7: My bike. A real link (works without JS); js/trip/trip-app.js opens it in a sheet instead so the map stays put. -->
+  <a id="garage-btn" class="tool-btn" href="garage.html" title="My bike" aria-label="My bike: choose your bike and see its fuel curve"><svg class="i"><use href="#i-bike"/></svg></a>
   <button id="voice-cmd-map-btn" class="tool-btn" type="button" title="Voice command" aria-label="Voice command" aria-pressed="false"><svg class="i"><use href="#i-mic"/></svg></button>
 </div>
 <div id="map-style-menu" role="menu" aria-label="Map style">
@@ -969,13 +971,6 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
       <input type="number" id="fuel-input-val" class="num-input" value="18" min="1" max="100">
     </div>
     <p class="field-hint" id="fuel-source-hint" hidden></p>
-
-    <!-- Step 7: "My bike" (js/garage/, mounted in a sheet by js/garage-sheet.js) feeds SmartDrive's fuel baseline -->
-    <div class="form-section" id="my-bike-section">
-      <h3><svg class="i sm" style="width:13px;height:13px;vertical-align:-2px;"><use href="#i-tool"/></svg> My bike</h3>
-      <p class="field-hint" id="bike-fuel-status">No bike chosen: the fuel numbers use the km/L above.</p>
-      <button id="garage-open-btn" type="button" class="btn-secondary-nav btn-block">🏍️ Choose my bike, see its fuel curve</button>
-    </div>
     <div class="modal-row">
       <label for="speed-limits-toggle">Road speed limits</label>
       <input type="checkbox" id="speed-limits-toggle" class="switch" checked>
@@ -994,6 +989,19 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
     <div style="margin-top:14px;">
       <span style="font-size:13px;color:var(--soft);">Live Speed Graph</span>
       <canvas id="speed-graph-canvas"></canvas>
+    </div>
+
+    <!-- Step 7: My bike (js/trip/trip-app.js fills the name and hint; the garage opens in #garage-modal) -->
+    <div class="form-section" id="my-bike-section">
+      <h3><svg class="i sm" style="width:13px;height:13px;vertical-align:-2px;"><use href="#i-bike"/></svg> My bike</h3>
+      <div class="my-bike-row">
+        <span class="my-bike-thumb" id="my-bike-thumb" aria-hidden="true"></span>
+        <div class="my-bike-text"><strong id="my-bike-name">No bike chosen</strong><p class="field-hint" id="my-bike-hint">Choose your bike for its fuel curve and the fuel and cost of every route.</p></div>
+      </div>
+      <div class="controls-row">
+        <button id="open-garage-btn" class="btn-secondary-nav" type="button">Choose bike</button>
+        <a class="btn-secondary-nav" href="garage.html">Full page</a>
+      </div>
     </div>
 
     <!-- Personal fuel curve (roadmap Section 6 / Section 30 #10): js/smartdrive.js FuelCurve -->
@@ -1150,15 +1158,16 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
   </div>
 </div>
 
-<!-- PHASE 3: TRIP ANALYTICS (js/analytics.js TripAnalytics) -->
-<!-- Step 7: My bike (the garage) as a sheet: opening it never leaves the map, so the socket and the convoy stay connected -->
-<div class="modal" id="garage-modal" data-dismissable role="dialog" aria-modal="true" aria-label="My bike">
-  <div class="modal-card garage-card">
-    <button class="close-modal" id="garage-close-btn" type="button" aria-label="Close"><svg class="i sm"><use href="#i-x"/></svg></button>
-    <div id="garage-sheet-root" class="mu-garage"></div>
+<!-- Step 7: MY BIKE in a sheet (js/trip/trip-app.js mounts js/garage/ here on first open) -->
+<div class="modal" id="garage-modal" data-dismissable role="dialog" aria-modal="true" aria-label="My bike" aria-hidden="true">
+  <div class="modal-card garage-modal-card">
+    <button class="close-modal" id="close-garage-btn" type="button" aria-label="Close" data-close="garage-modal"><svg class="i sm"><use href="#i-x"/></svg></button>
+    <div id="garage-mount"></div>
+    <a class="garage-full-link" href="garage.html">Open My bike as a full page</a>
   </div>
 </div>
 
+<!-- PHASE 3: TRIP ANALYTICS (js/analytics.js TripAnalytics) -->
 <div class="modal" id="analytics-modal" data-dismissable role="dialog" aria-modal="true" aria-labelledby="analytics-title">
   <div class="modal-card wide">
     <button class="close-modal" id="analytics-close" type="button" aria-label="Close"><svg class="i sm"><use href="#i-x"/></svg></button>
@@ -1505,27 +1514,43 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyASbmXgn0T-B4AQdCe1sp7dfJbDXKgDw5c&libraries=places&loading=async"></script>
 <script src="/shell.js"></script>
 <!-- App scripts, split by concern (Batch 2). Order matters: core first, boot last. -->
-<script src="js/core.js?v=20261003-garage"></script>
-<script src="js/voice.js?v=20261003-garage"></script>
-<script src="js/gps.js?v=20261003-garage"></script>
-<script src="js/navigation.js?v=20261003-garage"></script>
-<script src="js/garage/fuel-baseline.js?v=20261003-garage"></script>
-<script src="js/smartdrive.js?v=20261003-garage"></script>
-<script src="js/groupnav.js?v=20261003-garage"></script>
-<script src="js/privacy.js?v=20261003-garage"></script>
-<script src="js/analytics.js?v=20261003-garage"></script>
-<script src="js/deadreckoning.js?v=20261003-garage"></script>
-<script src="js/presence.js?v=20261003-garage"></script>
-<script src="js/controls.js?v=20261003-garage"></script>
-<script src="js/chat.js?v=20261003-garage"></script>
-<script src="js/memories.js?v=20261003-garage"></script>
-<script src="js/calls.js?v=20261003-garage"></script>
-<script src="js/sos.js?v=20261003-garage"></script>
-<script src="js/pwa.js?v=20261003-garage"></script>
-<script src="js/skunkworks.js?v=20261003-garage"></script>
-<script src="js/radio.js?v=20261003-garage"></script>
-<script src="js/convoy.js?v=20261003-garage"></script>
-<script src="js/garage-sheet.js?v=20261003-garage"></script>
-<script src="js/boot.js?v=20261003-garage"></script>
+<script src="js/core.js?v=20261003-step7"></script>
+<script src="js/voice.js?v=20261003-step7"></script>
+<script src="js/gps.js?v=20261003-step7"></script>
+<script src="js/navigation.js?v=20261003-step7"></script>
+<script src="js/garage/fuel-baseline.js?v=20261003-step7"></script>
+<script src="js/smartdrive.js?v=20261003-step7"></script>
+<script src="js/groupnav.js?v=20261003-step7"></script>
+<script src="js/privacy.js?v=20261003-step7"></script>
+<script src="js/analytics.js?v=20261003-step7"></script>
+<script src="js/deadreckoning.js?v=20261003-step7"></script>
+<script src="js/presence.js?v=20261003-step7"></script>
+<script src="js/controls.js?v=20261003-step7"></script>
+<script src="js/chat.js?v=20261003-step7"></script>
+<script src="js/memories.js?v=20261003-step7"></script>
+<script src="js/calls.js?v=20261003-step7"></script>
+<script src="js/sos.js?v=20261003-step7"></script>
+<script src="js/pwa.js?v=20261003-step7"></script>
+<script src="js/skunkworks.js?v=20261003-step7"></script>
+<script src="js/radio.js?v=20261003-step7"></script>
+<script src="js/convoy.js?v=20261003-step7"></script>
+<script src="js/boot.js?v=20261003-step7"></script>
+<!-- Step 7: bike data, physics core and trip energy (the garage UI itself loads on first open) -->
+<script src="js/bikedb/catalog-search.js?v=20261003-step7"></script>
+<script src="js/physics/atmosphere.js?v=20261003-step7"></script>
+<script src="js/physics/tyre.js?v=20261003-step7"></script>
+<script src="js/physics/powertrain.js?v=20261003-step7"></script>
+<script src="js/physics/roadload.js?v=20261003-step7"></script>
+<script src="js/physics/model.js?v=20261003-step7"></script>
+<script src="js/physics/cruise.js?v=20261003-step7"></script>
+<script src="js/physics/index.js?v=20261003-step7"></script>
+<script src="js/garage/units.js?v=20261003-step7"></script>
+<script src="js/garage/store.js?v=20261003-step7"></script>
+<script src="js/garage/silhouettes.js?v=20261003-step7"></script>
+<script src="js/trip/profile.js?v=20261003-step7"></script>
+<script src="js/trip/elevation.js?v=20261003-step7"></script>
+<script src="js/trip/energy.js?v=20261003-step7"></script>
+<script src="js/trip/trip-card.js?v=20261003-step7"></script>
+<script src="js/trip/trip-app.js?v=20261003-step7"></script>
 </body>
 </html>

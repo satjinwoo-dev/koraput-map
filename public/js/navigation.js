@@ -294,7 +294,8 @@ function setupGoogleSearch() {
                                                 modifier: googleManeuverModifier(s.maneuver),
                                                 location: s.start_location ? [s.start_location.lng(), s.start_location.lat()] : null
                                             },
-                                            distance: s.distance.value
+                                            distance: s.distance.value,
+                                            duration: s.duration ? s.duration.value : undefined   // Step 7: per-step speeds for trip energy
                                         }))
                                     }]
                                 };
@@ -516,6 +517,18 @@ function formatDistanceShort(meters) {
 }
 const lowerFirst = (s) => (s ? s.charAt(0).toLowerCase() + s.slice(1) : s);
 
+// Step 7: tell the trip-energy card (js/trip/trip-app.js) which route is on
+// screen. Only an event: navigation never depends on the card being there.
+//   detail = { path: [[lat, lng], …], distanceM, durationSec, steps: [{ distance, duration }], reason }
+function emitRoute(path, distanceM, durationSec, steps, reason) {
+    try {
+        document.dispatchEvent(new CustomEvent("mu:route", { detail: {
+            path, distanceM, durationSec, reason,
+            steps: (steps || []).map((s) => ({ distance: Number(s && s.distance) || 0, duration: s && Number.isFinite(Number(s.duration)) ? Number(s.duration) : undefined }))
+        } }));
+    } catch (e) { /* the card is optional */ }
+}
+
 function startSearchNavigation(destLat, destLng, destName, routeData) {
     navigationLayer.clearLayers();
     if (navWatchId) navigator.geolocation.clearWatch(navWatchId);
@@ -578,6 +591,7 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
         if ($("nav-arrival-time")) $("nav-arrival-time").textContent = arrivalTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
     };
     updateNavStats(routeData.distance, routeData.duration);
+    emitRoute(fullPath, routeData.distance, routeData.duration, steps, "preview");   // Step 7: trip energy
 
     const maneuverLatLng = (s) => {
         const loc = s && s.maneuver && s.maneuver.location;
@@ -737,6 +751,7 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
                                 activeRoute = { distanceM: cand.distance, durationSec: cand.duration };
                                 etaFactor = 1; etaSource = "";
                                 steps = (cand.legs && cand.legs[0] && cand.legs[0].steps) || [];
+                                emitRoute(fullPath, cand.distance, cand.duration, steps, "reroute");   // Step 7
                                 stepIdx = 0;
                                 routeVersion++;
                                 updateStepDisplay(currentPos);
@@ -825,6 +840,7 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
                             activeRoute = { distanceM: best.distanceM, durationSec: best.durationSec };
                             etaFactor = 1; etaSource = best.traffic ? "traffic" : "";
                             steps = best.steps || [];
+                            emitRoute(fullPath, best.distanceM, best.durationSec, steps, "reroute");   // Step 7
                             stepIdx = 0;
                             routeVersion++;
                             lastRerouteTime = Date.now();
@@ -886,6 +902,7 @@ function stopDrive(cancelled = false) {
     navState.etaSec = null;
     navState.nextManeuver = "";
     navState.routePath = null;
+    document.dispatchEvent(new CustomEvent("mu:route-clear"));   // Step 7: hide the trip-energy card
     // Clear the saved nav state so a refresh doesn't resurrect a finished drive.
     if (typeof TripDB !== "undefined") TripDB.saveNavState({ active: false });
 

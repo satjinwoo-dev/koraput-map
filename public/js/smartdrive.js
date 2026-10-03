@@ -98,6 +98,8 @@ const BikeFuel = {
             // the standalone garage.html in another tab, or a retry when the network comes back
             window.addEventListener("storage", (e) => { if (e.key === this.GARAGE_KEY) this.sync(); });
             window.addEventListener("online", () => { if (this.status === "error") this.sync(); });
+            // My bike in the map's sheet (js/trip/trip-app.js) saved a bike or settings
+            if (typeof document !== "undefined" && document.addEventListener) document.addEventListener("mu:garage-change", () => this.sync());
         }
         return this.sync();
     },
@@ -123,7 +125,19 @@ const BikeFuel = {
         return this.rebuild(g, key);
     },
 
-    /** Recompute the snapshot from the physics (loads the garage's data layer on demand). */
+    /**
+     * The garage's data layer: the page's shared store (js/trip/trip-app.js) and the
+     * physics core, both loaded by index.html. Unavailable (scripts missing): an error,
+     * and SmartDrive keeps its old behaviour.
+     */
+    core() {
+        const w = typeof window !== "undefined" ? window : {};
+        const app = w.MUTrip && w.MUTrip.app;
+        if (app && app.store && w.MUPhysics) return Promise.resolve({ store: app.store, physics: w.MUPhysics });
+        return Promise.reject(new Error("the bike data layer isn't loaded"));
+    },
+
+    /** Recompute the snapshot from the physics. */
     rebuild(g, key) {
         if (this._pending && this._pending.key === key) return this._pending.promise;
         const wasActive = this.active();
@@ -131,8 +145,7 @@ const BikeFuel = {
         if (wasActive) this.changed();
         const promise = (async () => {
             try {
-                if (typeof GarageSheet === "undefined") throw new Error("garage loader missing");
-                const { store, physics } = await GarageSheet.core();
+                const { store, physics } = await this.core();
                 const { index } = await store.catalog();
                 const { model } = await store.model(g, index);
                 const snap = this.lib().buildFuelBaseline(physics, model, g);
