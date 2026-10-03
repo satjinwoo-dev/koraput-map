@@ -18,6 +18,11 @@ scripts/bikedb/validate.mjs          validate everything
 scripts/bikedb/gen-schema.mjs        regenerate the JSON Schema
 scripts/build-bike-catalog.mjs       build catalog.json, the bundles and bikes.sqlite
 scripts/bikedb/bench-search.mjs      search benchmark on a synthetic 20,000-variant catalogue
+scripts/bikedb/requests.mjs          the queue of rider requests for missing bikes (npm run bikes:requests)
+lib/bikedb/catalog-db.js             the server's read-only view of bikes.sqlite: search, bundles, hot reload
+lib/bikedb/request-queue.js          requests for missing bikes, stored in the server's database
+lib/bikedb/http-api.js               /api/bikes routes (search, bundles, requests, status), CORS for the app
+public/js/bikedb/bike-api.js         client for the website and the app: server first, offline fallback
 test/bikedb/                         node --test test/bikedb/*.test.mjs
 
 Build outputs (generated, git-ignored — never edit):
@@ -32,6 +37,7 @@ build/bikedb/bikes.sqlite            database + FTS5 search for the server
 node scripts/bikedb/validate.mjs                 # must end with "0 errors"
 node scripts/bikedb/format.mjs                   # canonical one-value-per-line formatting (CI runs --check)
 node --test test/bikedb/*.test.mjs               # contract, catalogue, format, schema, build and search tests
+node --test test/server/*.test.mjs               # server API: FTS5 parity with the app, bundles, requests, CORS, server.js end to end
 node scripts/bikedb/gen-schema.mjs               # after changing FIELDS in bundle-contract.js
 tsc -p tsconfig.bikedb.json                      # type-check the contract and the search module (JSDoc + @ts-check)
 node scripts/build-bike-catalog.mjs              # build the outputs (after any data change, and on deploy)
@@ -57,7 +63,7 @@ Suggested `package.json` scripts:
 |---|---|---|
 | `public/bikedb/bundles/<hash>.json` | Everything one bike needs, in one file, in **strict SI** (`"units": "SI"`): its values with sources and the published figures beside them, `image_url`, the full prior set (inherited priors are marked `"inherited": true`, and their sources are listed under `classDefault.sources`), `fuelAdvice.advisable` (decided once, by `isFuelAdvisable()`), and the fuel-grade and emission reference rows. The name is the first 16 hex characters of the SHA-256 of the bytes. | The app, after a bike is picked. Cache forever: changed data means a new file name. |
 | `public/bikedb/catalog.json` | One column per field (id, make, model, variant, years, class, size in SI (m3, or J for EVs; `formatSize()` turns it into "349 cc" / "2.9 kWh" for display), aliases, `image_url`, bundle hash), the class list with each class default's bundle, and a `version` that is the hash of the rest. Build fails above **300 KB gzipped**. | The bike picker: `new BikeCatalogSearch.CatalogIndex(catalog)` searches it in memory, offline. |
-| `build/bikedb/bikes.sqlite` | The normalised database from `lib/bikedb/schema.sql`, strict SI with `published_*` columns for review: values, priors (inheritance resolved by the `v_resolved_prior` view), fuel approvals with the `advisable` flag, reference tables, the served bundle bytes, and the FTS5 `bundle_search` table. | The server (Step 5): search, bundles by hash, catalogue version. |
+| `build/bikedb/bikes.sqlite` | The normalised database from `lib/bikedb/schema.sql`, strict SI with `published_*` columns for review: values, priors (inheritance resolved by the `v_resolved_prior` view), fuel approvals with the `advisable` flag, reference tables, the served bundle bytes, and the FTS5 `bundle_search` table. | The server, read-only (`lib/bikedb/catalog-db.js`): `/api/bikes/search`, `/api/bikes/bundles/<hash or id>`, `/api/bikes/status` (see DEPLOY.md). A rebuilt file is picked up without a restart. |
 
 **Same input, same output.** The bundles and `catalog.json` are canonical JSON (sorted keys, no whitespace, no timestamps), so they are byte-identical on every build and every machine, whatever the key order in the source files. `bikes.sqlite` is byte-identical for the same SQLite version. Its `meta` table records the input fingerprint, which is what `--check` compares. Changing one bike changes only that bike's bundle file and the catalogue version.
 

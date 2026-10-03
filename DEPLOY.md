@@ -86,7 +86,25 @@ The bike catalogue is built from `data/bikes/` and isn't committed, so run the b
 node scripts/build-bike-catalog.mjs        # writes public/bikedb/ and build/bikedb/bikes.sqlite
 ```
 
-It uses `better-sqlite3`, which the server already depends on, or Node 22.5+'s built-in `node:sqlite`. It refuses to write anything if a bike file doesn't validate. Stop the server first on Windows, because a running process holding `bikes.sqlite` open blocks the replacement. `node scripts/build-native.mjs` rebuilds `public/bikedb/` by itself before packaging the Android app. See `data/bikes/README.md` for details.
+It uses `better-sqlite3`, which the server already depends on, or Node 22.5+'s built-in `node:sqlite`. It refuses to write anything if a bike file doesn't validate. `node scripts/build-native.mjs` rebuilds `public/bikedb/` by itself before packaging the Android app. See `data/bikes/README.md` for details.
+
+The running server picks up a rebuilt `bikes.sqlite` by itself within 5 seconds: no restart needed on Linux or macOS. On Windows, stop the server first, because a running process holding `bikes.sqlite` open blocks the replacement. If the file is missing or from an incompatible build, the server still starts. `/api/bikes/search` and `/api/bikes/bundles/…` then answer 503 until a valid build appears, and `/healthz` shows `"bikes": { "available": false }`. Set `BIKES_DB_PATH` if the file lives somewhere other than `build/bikedb/bikes.sqlite`.
+
+### Bike catalogue API
+
+The server reads `bikes.sqlite` read-only and serves it under `/api/bikes` (`lib/bikedb/http-api.js`):
+
+| Route | What it does |
+|---|---|
+| `GET /api/bikes/search?q=royal+enf&limit=20` | FTS5 search. It uses the same tokeniser and ranking as the app's offline search over `catalog.json`, so both return the same bikes in the same order. Results carry `bundle` (the content hash), `image_url` and the SI `size`; the answer carries `catalogVersion`. |
+| `GET /api/bikes/bundles/<hash>` | A runtime bundle, byte-identical to `public/bikedb/bundles/<hash>.json`. Cached for a year (`immutable`), and `If-None-Match` gets a 304. |
+| `GET /api/bikes/bundles/<bike-id>` | The same bytes by bike id, cached for 5 minutes. `Content-Location` names the hash URL. |
+| `POST /api/bikes/requests` | `{"make", "model", "variant"?, "market"?, "year"?, "powertrain"?, "note"?}` (JSON, at most 4 KB). A bike that's already listed comes back as `{"status": "listed", "matches": […]}`. Otherwise the request is queued (202), or a vote is added to the same request. Send `"force": true` when the rider says the listed bike isn't theirs. |
+| `GET /api/bikes/status` | Catalogue version, number of variants and bundles. |
+
+- **Android app.** The page origin `https://localhost` calls the API cross-origin. The routes answer allowed origins with CORS, using the same list as Socket.IO: `CORS_ORIGIN` plus `NATIVE_APP_ORIGINS`. That includes the preflight for the JSON POST. A POST from any other site is refused with 403. `public/js/bikedb/bike-api.js` is the client for the website and the app. It searches the server first and falls back to `catalog.json` offline. It loads bundles from the copy shipped with the page or APK first, then from the server.
+- **Rate limits.** The bike routes have their own limits: search 240/min, bundles 600/min and requests 20/hour per IP. They don't count against `HTTP_RATE_LIMIT_MAX`, because type-ahead sends one search per keystroke.
+- **Requests for missing bikes** are stored in the server's own database (`DB_PATH`), not in `bikes.sqlite`. The queue keeps one row per bike and counts one vote per requester. Requesters are an HMAC pseudonym from `SERVER_SECRET`; IP addresses are never stored. A request is only a name: a curator researches the bike into `data/bikes/` like any other bike. List the queue with `npm run bikes:requests` (`DB_PATH=… npm run bikes:requests -- --set <id> researching|added|rejected` changes a status).
 
 ## 3. The features (what riders see)
 

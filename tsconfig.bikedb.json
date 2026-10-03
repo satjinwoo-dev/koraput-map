@@ -14,6 +14,11 @@
   },
   "files": [
     "public/js/bikedb/bundle-contract.js",
-    "public/js/bikedb/catalog-search.js"
+    "public/js/bikedb/catalog-search.js",
+    "public/js/bikedb/bike-api.js",
+    "lib/bikedb/sqlite.js",
+    "lib/bikedb/catalog-db.js",
+    "lib/bikedb/request-queue.js",
+    "lib/bikedb/http-api.js"
   ]
 }

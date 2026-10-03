@@ -34,6 +34,8 @@
                               "https://localhost,capacitor://localhost"; "" = none)
      PUBLIC_DIR               default ./public (index.html, js/, shell.js, sw.js …)
      DB_PATH                  default ./data/mapunite.db
+     BIKES_DB_PATH            bike catalogue built by npm run bikes:build, default
+                              ./build/bikedb/bikes.sqlite (read-only; re-read after a rebuild)
      MEDIA_DIR                default <DB_PATH dir>/media — memory photos + chat files
      SERVER_SECRET            HMAC key for pseudonymous owner keys (auto-generated
                               and persisted in the DB if unset). MUST be the same on
@@ -85,6 +87,7 @@ const { Server } = require("socket.io");
 const Database = require("better-sqlite3");
 const { createBus, attachSocketIoAdapter } = require("./lib/cluster");
 const { MediaStore } = require("./lib/media");
+const { createBikeApi } = require("./lib/bikedb/http-api");
 
 // ==========================================================================
 // 0. CONFIG
@@ -94,6 +97,7 @@ const PORT = Number(process.env.PORT) || 3000;
 const PUBLIC_DIR = process.env.PUBLIC_DIR || path.join(__dirname, "public");
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, "data", "mapunite.db");
 const MEDIA_DIR = process.env.MEDIA_DIR || path.join(path.dirname(DB_PATH), "media");
+const BIKES_DB_PATH = process.env.BIKES_DB_PATH || path.join(__dirname, "build", "bikedb", "bikes.sqlite");
 const OSRM_BASE = process.env.OSRM_BASE_URL || "https://router.project-osrm.org";
 const OSRM_PUBLIC_URL = (process.env.OSRM_PUBLIC_URL || "https://router.project-osrm.org").replace(/\/+$/, "");
 const OVERPASS_URL = process.env.OVERPASS_URL || "https://overpass-api.de/api/interpreter";
@@ -251,7 +255,7 @@ const httpLimiter = rateLimit({
     max: Number(process.env.HTTP_RATE_LIMIT_MAX) || 300,
     standardHeaders: true,
     legacyHeaders: false,
-    skip: (req) => req.path.startsWith("/socket.io/") || req.path.startsWith("/media/") || req.path === "/api/native/location"
+    skip: (req) => req.path.startsWith("/socket.io/") || req.path.startsWith("/media/") || req.path.startsWith("/api/bikes/") || req.path === "/api/native/location"
 });
 
 app.get("/config.js", (_req, res) => {
@@ -265,6 +269,18 @@ app.get("/config.js", (_req, res) => {
 const mediaLimiter = rateLimit({ windowMs: 60 * 1000, max: 600, standardHeaders: true, legacyHeaders: false });
 app.get("/media/:dir/:file", mediaLimiter, media.handler());
 app.head("/media/:dir/:file", mediaLimiter, media.handler());
+
+// Bike catalogue API (lib/bikedb/http-api.js): search, bundles, requests for
+// missing bikes. Mounted before the global JSON parser and rate limiter: it has
+// its own 4 KB body limit and per-route limits sized for type-ahead search.
+// `db` and SERVER_SECRET are defined further down; they are only read per request.
+const bikeApi = createBikeApi({
+    catalog: BIKES_DB_PATH,
+    queueDb: () => db,
+    corsOrigins: CORS_ORIGIN,
+    requesterKey: (req) => crypto.createHmac("sha256", SERVER_SECRET).update(`mu-bike-request-v1|${req.ip}`).digest("hex").slice(0, 32)
+});
+app.use("/api/bikes", bikeApi.router);
 
 // Static assets. sw.js must NEVER be served from a stale HTTP cache, otherwise
 // a client can run new app scripts against an old worker (the classic PWA
@@ -285,7 +301,8 @@ app.use(express.json({ limit: "256kb" }));
 
 app.get("/healthz", (_req, res) => res.json({
     ok: true, uptimeSec: Math.round(process.uptime()),
-    node: bus.nodeId, cluster: bus.mode, clusterReady: bus.isReady(), users: users.size, trips: trips.size
+    node: bus.nodeId, cluster: bus.mode, clusterReady: bus.isReady(), users: users.size, trips: trips.size,
+    bikes: (({ available, catalogVersion, variants }) => ({ available, catalogVersion, variants }))(bikeApi.status())
 }));
 
 // Public feature flags the client reads at boot (no secrets).
@@ -3193,6 +3210,7 @@ function shutdown(code = 0) {
     leave.finally(() => {
         io.close(() => {
             server.close(() => {
+                try { bikeApi.close(); } catch { /* ignore */ }
                 try { db.pragma("wal_checkpoint(TRUNCATE)"); db.close(); } catch { /* ignore */ }
                 process.exit(code);
             });
@@ -3206,6 +3224,8 @@ function listen() {
     server.listen(PORT, "0.0.0.0", () => {
         console.log(`🚀 MapUnite Server running on http://localhost:${PORT}`);
         console.log(`   DB: ${DB_PATH}`);
+        const bikes = bikeApi.status();
+        console.log(`   Bikes: ${bikes.available ? `catalogue ${bikes.catalogVersion}, ${bikes.variants} variants` : `unavailable (${bikes.message || bikes.reason}) — /api/bikes answers 503 until it's built`}`);
         console.log(`   Media: ${MEDIA_DIR}`);
         console.log(`   OSRM: ${OSRM_BASE} (browser: ${OSRM_PUBLIC_URL})`);
         console.log(`   CORS: ${CORS_ORIGIN === false ? "same-origin only" : JSON.stringify(CORS_ORIGIN)}`);
