@@ -240,3 +240,41 @@ test("on overrun the drivetrain loss is on the engine's side: the crank absorbs 
     const climb = Physics.operatingPoint(m, 72 * KMH, { grade: 0.03 }, { gear: 5 });
     assert.ok(Math.abs(/** @type {number} */ (climb.enginePower) - climb.wheelPower / 0.9) < 1e-9, "driving: the engine supplies the loss");
 });
+
+// ---------------------------------------------------------------------------
+// Gear advice is refused, not just flagged (so no UI can show it by mistake)
+// ---------------------------------------------------------------------------
+test("shiftPoints refuses advice for typical or borrowed gearing: no shift speeds, and the reason why", () => {
+    for (const m of models) {
+        const sp = Physics.shiftPoints(m);
+        if (m.drive.kind !== "manual") {
+            assert.equal(sp, null, m.id);
+            assert.equal(m.gearAdvice, false);
+            assert.equal(m.gearAdviceReason, m.powertrain === "ev" ? "single-speed" : "cvt", m.id);
+            continue;
+        }
+        const s = /** @type {NonNullable<typeof sp>} */ (sp);
+        assert.equal(s.advisory, m.gearAdvice, m.id);
+        assert.equal(s.reason, m.gearAdviceReason, m.id);
+        if (m.gearAdvice) {
+            assert.equal(m.gearAdviceReason, null, m.id);
+            assert.equal(s.ecoUp.length, m.drive.ratios.length - 1, m.id);
+        } else {
+            assert.deepEqual([s.ecoUp, s.perfUp, s.ecoDown], [[], [], []], `${m.id}: no shift speeds to show`);
+            assert.equal(m.gearAdviceReason, m.kind === "class_default" ? "typical-bike" : "borrowed-gearing", m.id);
+            const diag = /** @type {NonNullable<typeof sp>} */ (Physics.shiftPoints(m, {}, { diagnostic: true }));
+            assert.equal(diag.advisory, false, "diagnostic numbers are never advisory");
+            assert.equal(diag.ecoUp.length, m.drive.ratios.length - 1);
+        }
+    }
+    const count = handBike();
+    count.transmission.speeds.v = 6;
+    assert.equal(Physics.createBikeModel(count).gearAdviceReason, "gear-count-mismatch");
+    const shaky = handBike();
+    shaky.transmission.gearRatios.conf = 0.4;
+    const sm = Physics.createBikeModel(shaky);
+    assert.equal(sm.gearAdviceReason, "uncertain-gearing");
+    assert.deepEqual(/** @type {any} */ (Physics.shiftPoints(sm)).ecoUp, []);
+    assert.equal(Physics.createBikeModel(handBike()).gearAdviceReason, null);
+    assert.equal(Physics.createBikeModel(handBike({ kind: "class_default" })).gearAdviceReason, "typical-bike");
+});

@@ -37,6 +37,7 @@
  *            cvt: { ratioMax: number, ratioMin: number, final: number, omegaEngage: number, omegaCruise: number } | null,
  *            evRatio: number, source: string },
  *   gearAdvice: boolean,
+ *   gearAdviceReason: null | "cvt" | "single-speed" | "typical-bike" | "borrowed-gearing" | "gear-count-mismatch" | "uncertain-gearing",
  *   engine: null | { curve: import("./powertrain.js").TorqueCurve, displacement: number, revsPerCycle: number, fuelInjected: boolean,
  *            omegaIdle: number, omegaCut: number, omegaLug: number, omegaMax: number },
  *   motor: null | { peakPower: number, wheelTorque: number|null, torqueAtWheel: boolean, regenLimit: number, speedLimit: number|null },
@@ -143,6 +144,8 @@
         /** @type {BikeModel["fuel"]} */ let fuel = null;
         /** @type {BikeModel["drive"]} */ let drive;
         let gearAdvice = false;
+        /** @type {BikeModel["gearAdviceReason"]} */
+        let gearAdviceReason = pt === "ev" ? "single-speed" : pt === "ice_cvt" ? "cvt" : null;
 
         if (pt === "ice_manual" || pt === "ice_cvt") {
             prior("indicatedEfficiency", "etaInd"); prior("fmepA", "fmepA"); prior("fmepB", "fmepB"); prior("fmepC", "fmepC"); prior("redlineFactor", "redlineFactor");
@@ -190,15 +193,16 @@
                 const final = riderFinal ?? g.final;
                 drive = { kind: "manual", primary: g.primary, gearRatios: g.gears, final, ratios: g.gears.map((x) => g.primary * x * final), cvt: null, evRatio: 0, source };
                 gearAdvice = source === "bike";
-                if (gearAdvice && bundle.kind === "class_default") { gearAdvice = false; flags.push("class default (a typical bike, not this one): gear advice off"); }
+                if (!gearAdvice) gearAdviceReason = "borrowed-gearing";
+                if (gearAdvice && bundle.kind === "class_default") { gearAdvice = false; gearAdviceReason = "typical-bike"; flags.push("class default (a typical bike, not this one): gear advice off"); }
                 if (gearAdvice) {
                     const t = bundle.transmission;
                     // the final drive is the rider's own sprockets (exact), else the published ratio, else the published sprockets
                     const finalConf = riderFinal !== null ? 1 : t.finalRatio ? t.finalRatio.conf : Math.min(t.frontSprocket.conf, t.rearSprocket.conf);
                     const conf = Math.min(t.primaryRatio.conf, t.gearRatios.conf, finalConf);
                     const speeds = get("transmission", "speeds", "1");
-                    if (speeds !== undefined && speeds !== g.gears.length) { gearAdvice = false; flags.push(`${g.gears.length} gear ratios for a ${speeds}-speed gearbox: gear advice off`); }
-                    else if (!(conf >= MODEL_DEFAULTS.gearAdviceMinConf)) { gearAdvice = false; flags.push(`gear ratios too uncertain for gear advice (confidence ${conf})`); }
+                    if (speeds !== undefined && speeds !== g.gears.length) { gearAdvice = false; gearAdviceReason = "gear-count-mismatch"; flags.push(`${g.gears.length} gear ratios for a ${speeds}-speed gearbox: gear advice off`); }
+                    else if (!(conf >= MODEL_DEFAULTS.gearAdviceMinConf)) { gearAdvice = false; gearAdviceReason = "uncertain-gearing"; flags.push(`gear ratios too uncertain for gear advice (confidence ${conf})`); }
                 }
             } else {
                 let c = cvtGearing(get), source = "bike";
@@ -270,7 +274,7 @@
             kind: bundle.kind, powertrain: pt, classKey: bundle.classKey,
             massFixed: vehicleMass + pillion + luggage, vehicleMass,
             tyreCode, unloadedRadius,
-            drive, gearAdvice, engine, motor, battery, fuel, topSpeed,
+            drive, gearAdvice, gearAdviceReason, engine, motor, battery, fuel, topSpeed,
             params, flags
         };
     }

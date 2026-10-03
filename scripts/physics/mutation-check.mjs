@@ -51,6 +51,8 @@ const MUTANTS = [
     { id: "model.gear-advice-ignores-confidence", file: "model.js", find: "else if (!(conf >= MODEL_DEFAULTS.gearAdviceMinConf))", replace: "else if (false)" },
     { id: "model.gear-advice-ignores-speeds", file: "model.js", find: "if (speeds !== undefined && speeds !== g.gears.length)", replace: "if (false)" },
     { id: "model.gear-advice-for-class-defaults", file: "model.js", find: "if (gearAdvice && bundle.kind === \"class_default\")", replace: "if (false)" },
+    { id: "cruise.shift-advice-not-refused", file: "cruise.js", find: "if (!model.gearAdvice && !opts.diagnostic) return", replace: "if (false) return" },
+    { id: "model.typical-bike-reason-lost", file: "model.js", find: "gearAdvice = false; gearAdviceReason = \"typical-bike\";", replace: "gearAdvice = false;" },
     { id: "model.two-stroke-as-four", file: "model.js", find: "revsPerCycle: strokes === 2 ? 1 : 2,", replace: "revsPerCycle: 2," },
     { id: "model.published-curve-ignored", file: "model.js", find: "samples: samples ? samples.samples : undefined", replace: "samples: undefined" },
     // cruise

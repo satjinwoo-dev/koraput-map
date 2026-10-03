@@ -233,6 +233,15 @@ replaceOnce(`<script src="js/boot.js?v=${version}"></script>`,
     "boot.js tag");
 fs.writeFileSync(htmlPath, html);
 
+// ---- 3b. garage.html (My bike): point its Step 5 API calls at the server --------
+const garagePath = path.join(WWW, "garage.html");
+if (fs.existsSync(garagePath)) {
+    const g = fs.readFileSync(garagePath, "utf8");
+    const anchor = '<script src="js/bikedb/catalog-search.js"></script>';
+    if (g.split(anchor).length !== 2) fail(`garage.html: expected exactly one ${anchor}`);
+    fs.writeFileSync(garagePath, g.replace(anchor, `<script>window.MU_GARAGE_API = ${jsonForScript(origin)};</script>\n${anchor}`));
+}
+
 fs.writeFileSync(path.join(WWW, "native-build.json"), JSON.stringify({ origin, appOrigin, version, builtAt: new Date().toISOString(), vendor: vendorTags.length, check }, null, 2));
 const settings = check.config === "server" ? "settings from server" : "default settings";
 console.log(`build-native: Socket.IO client from ${sioFrom}`);

@@ -321,19 +321,26 @@
     // ------------------------------------------------------------------
     /**
      * @typedef {{ from: number, to: number, speed: number, omegaFrom: number, omegaTo: number, atRedline: boolean }} Shift
-     * @typedef {{ advisory: boolean, ecoUp: Shift[], perfUp: Shift[], ecoDown: Shift[] }} ShiftPoints
+     * @typedef {{ advisory: boolean, reason: import("./model.js").BikeModel["gearAdviceReason"], ecoUp: Shift[], perfUp: Shift[], ecoDown: Shift[] }} ShiftPoints
      */
     /**
      * Economy upshift: the lowest speed where the next gear is above its lugging
      * limit and carries the load (on the given road) with reserve. Economy downshift:
      * the speed where the current gear falls below its lugging limit. Full-throttle
      * upshift: where the next gear's wheel force overtakes this gear's, else the redline.
-     * `advisory` is false when the gearing came from the class default (no gear advice then).
-     * @param {import("./model.js").BikeModel} model @param {Env} [env] @param {{ reserve?: number }} [opts]
+     *
+     * Gear advice is refused, not just flagged, when the bike's gearing isn't its own
+     * or isn't trustworthy (a typical bike, gearing borrowed from the class default,
+     * inconsistent or low-confidence ratios): the answer is then advisory: false, the
+     * reason (model.gearAdviceReason) and NO shift speeds, so no UI can show advice
+     * the data doesn't support. `diagnostic: true` computes them anyway, for review
+     * tools and tests only (still advisory: false).
+     * @param {import("./model.js").BikeModel} model @param {Env} [env] @param {{ reserve?: number, diagnostic?: boolean }} [opts]
      * @returns {ShiftPoints|null}  null for CVT scooters and EVs
      */
     function shiftPoints(model, env = {}, opts = {}) {
         if (model.drive.kind !== "manual") return null;
+        if (!model.gearAdvice && !opts.diagnostic) return { advisory: false, reason: model.gearAdviceReason, ecoUp: [], perfUp: [], ecoDown: [] };
         const eng = /** @type {NonNullable<import("./model.js").BikeModel["engine"]>} */ (model.engine);
         const E = resolveEnv(env), P = meanParams(model);
         const reserve = opts.reserve === undefined ? CRUISE_DEFAULTS.reserve : opts.reserve;
@@ -378,7 +385,7 @@
             const v = (eng.omegaLug * r) / R[i];
             ecoDown.push({ from: i + 1, to: i, speed: v, omegaFrom: (v / r) * R[i], omegaTo: (v / r) * R[i - 1], atRedline: false });
         }
-        return { advisory: model.gearAdvice, ecoUp, perfUp, ecoDown };
+        return { advisory: model.gearAdvice, reason: model.gearAdviceReason, ecoUp, perfUp, ecoDown };
     }
 
     // ------------------------------------------------------------------

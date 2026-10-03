@@ -1,0 +1,223 @@
+/* ============================================================================
+   MapUnite garage — picker, rider settings, physics visualizer
+   Uses the app's design tokens (index.html :root) with fallbacks, so it also
+   works on its own page (garage.html). Dark only, like the app.
+   ========================================================================== */
+.mu-garage {
+  --g-ink: var(--ink, #080e17);
+  --g-surface: var(--ink-2, #0e1724);
+  --g-raised: var(--ink-3, #152131);
+  --g-line: var(--line, rgba(255,255,255,.085));
+  --g-line-strong: var(--line-strong, rgba(255,255,255,.16));
+  --g-text: var(--text, #f2f6f8);
+  --g-soft: var(--soft, #c6d2db);
+  --g-muted: var(--muted, #8b9bab);
+  --g-accent: var(--mint, #34e0b4);
+  --g-warn: var(--c-warn, #ffb020);
+  --g-display: var(--font-display, "Sora", system-ui, sans-serif);
+  --g-ui: var(--font-ui, "Inter", system-ui, -apple-system, sans-serif);
+  /* chart roles */
+  --viz-grid: rgba(255,255,255,.07);
+  --viz-series: var(--g-accent);
+  --viz-ribbon: rgba(52,224,180,.16);
+  --viz-eco-wash: rgba(255,255,255,.045);
+  --viz-hatch: rgba(255,255,255,.13);
+
+  color: var(--g-text);
+  font-family: var(--g-ui);
+  font-size: 15px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+.mu-garage *, .mu-garage *::before, .mu-garage *::after { box-sizing: border-box; }
+.mu-garage [hidden] { display: none !important; }
+.mu-garage button, .mu-garage input, .mu-garage select { font: inherit; color: inherit; }
+.mu-garage :focus-visible { outline: 2px solid var(--g-accent); outline-offset: 2px; border-radius: 8px; }
+
+.mu-garage-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
+.mu-garage-title { font-family: var(--g-display); font-weight: 700; font-size: 22px; letter-spacing: -.01em; margin: 0; }
+.mu-net { margin: 0 0 12px; min-height: 0; color: var(--g-muted); font-size: 13px; }
+.mu-net:empty { display: none; }
+.mu-loading, .mu-hint, .mu-viz-muted { color: var(--g-muted); }
+.mu-empty-state { padding: 28px 0; color: var(--g-soft); }
+.mu-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+
+/* ---------- buttons, chips, inputs ---------- */
+.mu-btn, .mu-btn-ghost, .mu-chip, .mu-seg-btn, .mu-class-btn, .mu-back, .mu-link { cursor: pointer; border: 0; background: none; }
+.mu-btn { min-height: 44px; padding: 0 18px; border-radius: 14px; background: var(--g-accent); color: #062118; font-family: var(--g-display); font-weight: 700; }
+.mu-btn-ghost { min-height: 40px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--g-line-strong); color: var(--g-text); font-weight: 600; }
+.mu-btn-ghost:hover { background: rgba(255,255,255,.05); }
+.mu-link, .mu-back { align-self: flex-start; }
+.mu-link { padding: 10px 0; color: var(--g-accent); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+.mu-back { padding: 8px 0; color: var(--g-soft); font-weight: 600; }
+.mu-back::before { content: "‹"; display: inline-block; margin-right: 6px; font-size: 18px; line-height: 0; }
+.mu-chip { min-height: 36px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--g-line-strong); color: var(--g-soft); font-size: 14px; font-weight: 500; white-space: nowrap; }
+.mu-chip:hover { color: var(--g-text); border-color: rgba(255,255,255,.3); }
+.mu-label, .mu-field label, .mu-label-text { display: block; margin-bottom: 6px; color: var(--g-soft); font-size: 13px; font-weight: 600; }
+.mu-text-input, .mu-select, .mu-search-input {
+  width: 100%; min-width: 0; min-height: 46px; padding: 0 14px; border-radius: 12px;
+  border: 1px solid var(--g-line-strong); background: var(--g-raised); color: var(--g-text); outline: none;
+}
+.mu-text-input::placeholder, .mu-search-input::placeholder { color: #6c7c8c; }
+.mu-text-input:focus, .mu-select:focus, .mu-search-input:focus { border-color: var(--g-accent); box-shadow: 0 0 0 3px rgba(52,224,180,.18); }
+.mu-text-input[aria-invalid="true"] { border-color: #ff6b6b; }
+.mu-num { font-variant-numeric: tabular-nums; }
+
+/* ---------- thumbnails: photo if there is one, else the class silhouette ---------- */
+.mu-thumb { position: relative; flex: none; display: grid; place-items: center; width: 64px; height: 42px; border-radius: 12px; background: var(--g-raised); color: rgba(52,224,180,.85); overflow: hidden; }
+.mu-thumb .sil { width: 86%; height: 86%; }
+.mu-thumb .sil-bolt { fill: currentColor; stroke: none; }
+.mu-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.mu-thumb.has-photo .sil { visibility: hidden; }
+.mu-thumb-lg { width: 84px; height: 54px; }
+.mu-thumb-xl { width: 112px; height: 72px; border-radius: 16px; }
+
+/* ---------- picker ---------- */
+.mu-picker-search, .mu-picker-year, .mu-picker-classes { display: flex; flex-direction: column; }
+.mu-search-box { position: relative; }
+.mu-search-icon { position: absolute; left: 14px; top: 50%; width: 20px; height: 20px; transform: translateY(-50%); color: var(--g-muted); pointer-events: none; }
+.mu-search-input { min-height: 54px; padding-left: 44px; border-radius: 16px; font-size: 17px; }
+.mu-search-input::-webkit-search-cancel-button { filter: invert(1) opacity(.5); }
+.mu-picker-status { margin: 8px 2px 0; color: var(--g-muted); font-size: 13px; min-height: 18px; }
+.mu-makes { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 4px; }
+.mu-results { list-style: none; margin: 6px 0 0; padding: 0; max-height: min(60vh, 520px); overflow-y: auto; overscroll-behavior: contain; }
+.mu-result { display: flex; align-items: center; gap: 14px; min-height: 66px; padding: 10px 10px; border-radius: 14px; cursor: pointer; }
+.mu-result + .mu-result { margin-top: 2px; }
+.mu-result[aria-selected="true"] { background: var(--g-raised); box-shadow: inset 0 0 0 1px var(--g-line-strong); }
+.mu-result-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.mu-result-title { font-family: var(--g-display); font-weight: 600; font-size: 16px; letter-spacing: -.005em; }
+.mu-result-variant { color: var(--g-muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mu-result-meta { flex: none; display: flex; flex-direction: column; align-items: flex-end; color: var(--g-soft); font-size: 13px; font-variant-numeric: tabular-nums; }
+.mu-result-meta span + span { color: var(--g-muted); }
+.mu-empty { list-style: none; padding: 18px 4px; color: var(--g-soft); }
+.mu-empty p { margin: 0 0 12px; }
+.mu-picker-title { font-family: var(--g-display); font-size: 19px; font-weight: 700; margin: 16px 0 8px; }
+.mu-chosen { display: flex; align-items: center; gap: 14px; margin-top: 8px; }
+.mu-chosen > span:last-child { display: flex; flex-direction: column; min-width: 0; }
+.mu-year-grid { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 6px; }
+.mu-chip-year { min-width: 72px; font-variant-numeric: tabular-nums; }
+.mu-group-title { margin: 18px 0 8px; color: var(--g-soft); font-size: 14px; font-weight: 600; }
+.mu-class-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.mu-class-btn { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 10px; border-radius: 14px; border: 1px solid var(--g-line); text-align: left; }
+@media (min-width: 640px) { .mu-class-btn { flex-direction: row; align-items: center; } }
+.mu-class-btn:hover { border-color: var(--g-line-strong); background: rgba(255,255,255,.03); }
+.mu-class-name { font-size: 14px; line-height: 1.25; }
+.mu-request { margin-top: 20px; }
+.mu-request .mu-label-sub { margin: 12px 0 6px; font-weight: 500; }
+.mu-request .mu-text-input { max-width: 420px; }
+.mu-listed { margin: 0 0 16px; padding: 12px 14px; border-radius: 12px; background: rgba(52,224,180,.08); border: 1px solid rgba(52,224,180,.28); }
+.mu-listed p { margin: 0 0 8px; }
+
+/* ---------- layout once a bike is chosen ---------- */
+.mu-garage-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 26px; }
+.mu-garage-grid > * { min-width: 0; }
+@media (min-width: 900px) {
+  .mu-garage-grid { grid-template-columns: minmax(300px, 360px) minmax(0, 1fr); grid-template-areas: "bike viz" "settings viz"; grid-template-rows: auto 1fr; gap: 24px 40px; align-items: start; }
+  .mu-area-bike { grid-area: bike; }
+  .mu-area-viz { grid-area: viz; }
+  .mu-area-settings { grid-area: settings; }
+}
+.mu-bike-card { display: grid; grid-template-columns: auto 1fr; grid-template-areas: "thumb id" "change change"; gap: 12px 16px; align-items: center; }
+.mu-bike-card .mu-thumb { grid-area: thumb; }
+.mu-bike-id { grid-area: id; min-width: 0; }
+.mu-change { grid-area: change; justify-self: start; }
+.mu-bike-name { margin: 0; font-family: var(--g-display); font-size: 20px; font-weight: 700; letter-spacing: -.01em; line-height: 1.2; }
+.mu-bike-variant { margin: 2px 0 0; color: var(--g-muted); font-size: 14px; }
+.mu-bike-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 6px 0 0; color: var(--g-soft); font-size: 14px; font-variant-numeric: tabular-nums; }
+.mu-badge-warn { display: inline-flex; align-items: center; gap: 5px; color: var(--g-warn); font-weight: 600; }
+.mu-icon { display: inline-grid; width: 16px; height: 16px; }
+.mu-icon svg { width: 100%; height: 100%; }
+.mu-estimates { margin-top: 14px; padding: 10px 12px; border-radius: 12px; background: rgba(255,176,32,.07); color: var(--g-soft); font-size: 14px; }
+.mu-estimates summary { display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--g-warn); font-weight: 600; list-style: none; }
+.mu-estimates summary::-webkit-details-marker { display: none; }
+.mu-estimates ul { margin: 8px 0 2px; padding-left: 20px; }
+.mu-estimates li + li { margin-top: 4px; }
+
+/* ---------- settings ---------- */
+.mu-garage-settings { padding-top: 18px; border-top: 1px solid var(--g-line); }
+.mu-settings-form h3 { margin: 0 0 10px; font-family: var(--g-display); font-size: 15px; font-weight: 600; color: var(--g-soft); }
+.mu-settings-form h3:not(:first-child) { margin-top: 20px; }
+.mu-field { margin-bottom: 12px; }
+.mu-field-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.mu-field-hint { margin: 5px 0 0; color: var(--g-muted); font-size: 12.5px; }
+.mu-field-error { margin: 5px 0 0; color: #ff8a8a; font-size: 13px; }
+.mu-sprockets { display: flex; align-items: center; gap: 8px; max-width: 240px; }
+.mu-sprocket-x { color: var(--g-muted); }
+.mu-select { appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--g-muted) 50%), linear-gradient(135deg, var(--g-muted) 50%, transparent 50%); background-position: calc(100% - 20px) 50%, calc(100% - 15px) 50%; background-size: 5px 5px; background-repeat: no-repeat; padding-right: 36px; }
+.mu-fuel-note { margin: -4px 0 0; font-size: 13px; color: var(--g-soft); }
+.mu-fuel-note.is-warn { color: var(--g-warn); }
+
+/* ---------- visualizer ---------- */
+.mu-viz-head { margin-bottom: 16px; }
+.mu-viz-lead { margin: 0; color: var(--g-soft); font-size: 15px; font-weight: 600; }
+.mu-viz-range { margin: 2px 0 4px; font-family: var(--g-display); font-weight: 700; font-size: clamp(38px, 9vw, 56px); line-height: 1.02; letter-spacing: -.03em; color: var(--g-text); }
+.mu-viz-detail { margin: 0; color: var(--g-muted); font-size: 14.5px; }
+.mu-viz-controls { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-bottom: 12px; min-width: 0; }
+.mu-viz-controls > * { min-width: 0; }
+.mu-seg { display: inline-flex; gap: 2px; padding: 3px; border-radius: 13px; background: var(--g-raised); max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.mu-seg::-webkit-scrollbar { display: none; }
+.mu-seg-btn { min-height: 36px; padding: 0 12px; border-radius: 10px; color: var(--g-muted); font-size: 13.5px; font-weight: 600; white-space: nowrap; }
+.mu-seg-btn[aria-checked="true"] { background: var(--g-surface); color: var(--g-text); box-shadow: inset 0 0 0 1px var(--g-line-strong), 0 1px 0 rgba(255,255,255,.04); }
+.mu-seg-btn[aria-checked="true"]::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 7px; border-radius: 50%; background: var(--g-accent); vertical-align: 1px; }
+.mu-viz-plot { position: relative; width: 100%; display: flex; flex-direction: column; }
+.mu-viz-svg { display: block; width: 100%; height: auto; touch-action: pan-y; }
+.mu-viz-svg:focus-visible { outline-offset: 4px; }
+.mu-viz-grid line { stroke: var(--viz-grid); stroke-width: 1; shape-rendering: crispEdges; }
+.mu-viz-grid line.is-zero { stroke: var(--g-line-strong); }
+.mu-viz-xaxis line { stroke: var(--g-line-strong); stroke-width: 1; shape-rendering: crispEdges; }
+.mu-viz-tick { fill: var(--g-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.mu-viz-axis-unit { fill: var(--g-muted); font-size: 11px; font-weight: 600; }
+.mu-viz-ribbon { fill: var(--viz-ribbon); stroke: none; }
+.mu-viz-line { fill: none; stroke: var(--viz-series); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.mu-viz-eco-wash { fill: var(--viz-eco-wash); }
+.mu-viz-eco-bar { fill: var(--g-accent); }
+.mu-viz-eco-label { fill: var(--g-soft); font-size: 11.5px; font-weight: 600; }
+.mu-viz-hatch { stroke: var(--viz-hatch); stroke-width: 2; }
+.mu-viz-free { fill: var(--g-soft); font-size: 12px; font-weight: 600; }
+.mu-viz-gear-n { font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.mu-viz-cross-line { stroke: rgba(255,255,255,.4); stroke-width: 1; }
+.mu-viz-cross-dot { fill: var(--viz-series); stroke: var(--g-surface); stroke-width: 2; }
+.mu-viz-hit { fill: transparent; cursor: crosshair; }
+.mu-viz-tip {
+  position: absolute; z-index: 2; min-width: 150px; max-width: 220px; padding: 10px 12px; pointer-events: none;
+  border-radius: 12px; background: var(--glass-solid, rgba(10,17,28,.96)); border: 1px solid var(--g-line-strong);
+  box-shadow: 0 10px 30px rgba(0,0,0,.45); font-size: 12.5px;
+}
+.mu-viz-tip p { margin: 0; }
+.mu-viz-tip.is-docked { position: static; order: -1; max-width: none; min-height: 84px; margin: 0 0 10px; box-shadow: none; background: var(--g-raised); border-color: var(--g-line); }
+.mu-tip-speed { color: var(--g-muted); font-variant-numeric: tabular-nums; }
+.mu-tip-value { display: flex; align-items: center; gap: 8px; margin: 2px 0 1px !important; font-family: var(--g-display); font-size: 17px; font-weight: 700; color: var(--g-text); }
+.mu-tip-key { width: 12px; height: 2px; border-radius: 1px; background: var(--viz-series); }
+.mu-tip-sub { color: var(--g-soft); line-height: 1.35; }
+.mu-viz-note { margin: 10px 0 0; color: var(--g-muted); font-size: 13px; max-width: 64ch; }
+.mu-viz-shifts { margin-top: 22px; }
+.mu-viz-shifts h3 { margin: 0 0 8px; font-family: var(--g-display); font-size: 16px; font-weight: 700; }
+.mu-shift-table, .mu-num-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.mu-shift-table th, .mu-shift-table td, .mu-num-table th, .mu-num-table td { padding: 9px 8px 9px 0; text-align: left; border-bottom: 1px solid var(--g-line); vertical-align: top; }
+.mu-shift-table thead th, .mu-num-table thead th { color: var(--g-muted); font-size: 12.5px; font-weight: 600; }
+.mu-shift-table tbody th { white-space: nowrap; }
+.mu-shift-speed { display: block; font-weight: 600; font-variant-numeric: tabular-nums; }
+.mu-shift-rpm { display: block; color: var(--g-muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.mu-shift-arrow { margin: 0 6px; color: var(--g-muted); }
+.mu-gear-chip { display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 5px; border-radius: 6px; font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.mu-viz-table { margin-top: 18px; }
+.mu-viz-table summary { cursor: pointer; color: var(--g-accent); font-weight: 600; padding: 6px 0; }
+.mu-num-table { margin-top: 8px; font-variant-numeric: tabular-nums; }
+.mu-num-table tr.is-blocked td { color: var(--g-muted); }
+
+@media (max-width: 520px) {
+  .mu-viz-controls .mu-seg { display: flex; width: 100%; }
+  .mu-viz-controls .mu-seg-btn { flex: 1 1 auto; padding: 0 8px; font-size: 13px; }
+  .mu-seg-btn[aria-checked="true"]::before { margin-right: 5px; }
+}
+@media (max-width: 420px) {
+  .mu-result-meta { display: none; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .mu-seg-btn, .mu-chip, .mu-result, .mu-btn-ghost { transition: background-color .15s ease, color .15s ease, box-shadow .15s ease; }
+}
+@media (forced-colors: active) {
+  .mu-viz-line, .mu-viz-cross-dot { stroke: CanvasText; }
+  .mu-viz-ribbon { fill: none; stroke: CanvasText; stroke-dasharray: 2 3; }
+  .mu-viz-eco-bar { fill: Highlight; }
+}
