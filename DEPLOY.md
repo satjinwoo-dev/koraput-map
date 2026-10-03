@@ -12,7 +12,7 @@ mapunite/
 │   └── media.js         ← NEW: photo / attachment store on disk
 ├── public/
 │   ├── index.html       ← replaces yours (new settings, loads js/*.js and /config.js)
-│   ├── sw.js            ← replaces yours (VERSION mu-2026-09-30.12, media cache)
+│   ├── sw.js            ← replaces yours (VERSION mu-2026-10-01.1)
 │   ├── shell.js         ← comments only
 │   ├── manifest.json, icon-*.png   (unchanged)
 │   └── js/              ← NEW: the former app.js + features.js, split by concern
@@ -77,6 +77,16 @@ On Render, or anywhere with an ephemeral disk: the persistent disk must hold **b
 | `NATIVE_APP_ORIGINS` | `https://localhost,capacitor://localhost` | Android app origins allowed in addition to `CORS_ORIGIN` (see `ANDROID.md`); empty turns app access off |
 
 `OSRM_BASE_URL`, `OVERPASS_URL`, `TRIP_RETENTION_DAYS` and the rest are unchanged.
+
+### Bike catalogue (build step)
+
+The bike catalogue is built from `data/bikes/` and isn't committed, so run the build after every pull and before starting the server:
+
+```bash
+node scripts/build-bike-catalog.mjs        # writes public/bikedb/ and build/bikedb/bikes.sqlite
+```
+
+It uses `better-sqlite3`, which the server already depends on, or Node 22.5+'s built-in `node:sqlite`. It refuses to write anything if a bike file doesn't validate. Stop the server first on Windows, because a running process holding `bikes.sqlite` open blocks the replacement. `node scripts/build-native.mjs` rebuilds `public/bikedb/` by itself before packaging the Android app. See `data/bikes/README.md` for details.
 
 ## 3. The features (what riders see)
 
@@ -203,7 +213,7 @@ The CSP allows the configured routing server automatically.
 - **Phase 0 console check** is done on your side. After deploying, open the app with DevTools and confirm:
   - no red errors;
   - the `[CSP]` lines in the server log are clean before you set `ENFORCE_CSP=1`;
-  - the Application tab shows one service worker with version `mu-2026-09-30.13`.
+  - the Application tab shows one service worker with version `mu-2026-10-01.1`.
 
 ## 8. What was tested
 

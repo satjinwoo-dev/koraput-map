@@ -97,5 +97,5 @@
       { "fuel": "E0", "status": "compatible", "src": "re-hunter-om-2022", "conf": 0.85 }
     ]
   },
-  "notes": ["Grouped with nakeds (roadster).", "Fuel-advice effect: E10 is advisable (manual); E20 is shown as 'not confirmed by the manufacturer' until a current manual or RE statement is sourced."]
+  "notes": ["Grouped with nakeds (roadster).", "Fuel-advice effect: E20 is advisable from the April 2025 owner's manual; E10 from the 2022 manual."]
 }

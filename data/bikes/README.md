@@ -11,10 +11,19 @@ data/bikes/
     fuel-grades.json         E0 / E10 / E20 / E85 / E100: energy per litre, density, RON
     emission-standards.json  BS4, BS6-P1, BS6-P2 and the OBD stages (OBD-1, OBD-2A, OBD-2B)
 lib/bikedb/bundle.schema.json        JSON Schema (generated — editor autocomplete and structural checks)
+lib/bikedb/schema.sql                SQLite schema of bikes.sqlite (normalised, STRICT tables, FTS5)
 public/js/bikedb/bundle-contract.js  the contract + validator (browser, app and Node)
+public/js/bikedb/catalog-search.js   tokeniser + in-memory search, shared by app, website and server
 scripts/bikedb/validate.mjs          validate everything
 scripts/bikedb/gen-schema.mjs        regenerate the JSON Schema
+scripts/build-bike-catalog.mjs       build catalog.json, the bundles and bikes.sqlite
+scripts/bikedb/bench-search.mjs      search benchmark on a synthetic 20,000-variant catalogue
 test/bikedb/                         node --test test/bikedb/*.test.mjs
+
+Build outputs (generated, git-ignored — never edit):
+public/bikedb/catalog.json           compact search catalogue for the app and website (offline)
+public/bikedb/bundles/<hash>.json    one self-contained bundle per bike; the name is its content hash
+build/bikedb/bikes.sqlite            database + FTS5 search for the server
 ```
 
 ## Commands
@@ -22,37 +31,48 @@ test/bikedb/                         node --test test/bikedb/*.test.mjs
 ```bash
 node scripts/bikedb/validate.mjs                 # must end with "0 errors"
 node scripts/bikedb/format.mjs                   # canonical one-value-per-line formatting (CI runs --check)
-node --test test/bikedb/*.test.mjs               # contract, catalogue, format and schema tests
+node --test test/bikedb/*.test.mjs               # contract, catalogue, format, schema, build and search tests
 node scripts/bikedb/gen-schema.mjs               # after changing FIELDS in bundle-contract.js
-tsc -p tsconfig.bikedb.json                      # type-check the contract (JSDoc + @ts-check)
-npm run bikes:build                              # step 3: compile to dist/bikedb/ (see below)
-npm run bikes:bench                              # FTS5 search timing on a synthetic 20k-row catalogue
+tsc -p tsconfig.bikedb.json                      # type-check the contract and the search module (JSDoc + @ts-check)
+node scripts/build-bike-catalog.mjs              # build the outputs (after any data change, and on deploy)
+node scripts/build-bike-catalog.mjs --check      # exit 1 if the outputs are missing or out of date
+node scripts/bikedb/bench-search.mjs             # search speed and catalogue size at 20,000 variants
 ```
 
-## Compiled catalogue (step 3)
+Suggested `package.json` scripts:
 
-`npm run bikes:build` (`scripts/build-bike-catalog.mjs`, Node ≥ 22.13 for the built-in `node:sqlite`) validates everything first and refuses to build on any error. It never compiles `pending/`. It writes to `dist/bikedb/` (git-ignored; `--out DIR` to change):
+```json
+"bikes:validate": "node scripts/bikedb/validate.mjs",
+"bikes:build": "node scripts/build-bike-catalog.mjs",
+"bikes:test": "node --test test/bikedb/*.test.mjs",
+"bikes:bench": "node scripts/bikedb/bench-search.mjs",
+"prestart": "node scripts/build-bike-catalog.mjs --quiet"
+```
 
-| File | For | Contents |
+## The build (Step 3)
+
+`node scripts/build-bike-catalog.mjs` validates everything first and **writes nothing if any file fails**. Bikes in `pending/` are never built. Then:
+
+| Output | What it is | Who uses it |
 |---|---|---|
-| `bikes.sqlite` | the server | Normalised schema `lib/bikedb/schema.sql`, plus the FTS5 table `bike_search` |
-| `catalog.json` | bike picker, offline search | One compact row per variant and class default: names, class, `image_url`, bundle hash, a few headline specs, `search` keys; also the fuel grades |
-| `bundles/<hash>.json` | the physics on the phone | One per variant or class default. `<hash>` = the first 16 hex digits of the file's SHA-256, so a bundle URL can be cached forever |
+| `public/bikedb/bundles/<hash>.json` | Everything one bike needs, in one file, in **strict SI** (`"units": "SI"`): its values with sources and the published figures beside them, `image_url`, the full prior set (inherited priors are marked `"inherited": true`, and their sources are listed under `classDefault.sources`), `fuelAdvice.advisable` (decided once, by `isFuelAdvisable()`), and the fuel-grade and emission reference rows. The name is the first 16 hex characters of the SHA-256 of the bytes. | The app, after a bike is picked. Cache forever: changed data means a new file name. |
+| `public/bikedb/catalog.json` | One column per field (id, make, model, variant, years, class, size in SI (m3, or J for EVs; `formatSize()` turns it into "349 cc" / "2.9 kWh" for display), aliases, `image_url`, bundle hash), the class list with each class default's bundle, and a `version` that is the hash of the rest. Build fails above **300 KB gzipped**. | The bike picker: `new BikeCatalogSearch.CatalogIndex(catalog)` searches it in memory, offline. |
+| `build/bikedb/bikes.sqlite` | The normalised database from `lib/bikedb/schema.sql`, strict SI with `published_*` columns for review: values, priors (inheritance resolved by the `v_resolved_prior` view), fuel approvals with the `advisable` flag, reference tables, the served bundle bytes, and the FTS5 `bundle_search` table. | The server (Step 5): search, bundles by hash, catalogue version. |
 
-- **Strict SI.** These files keep the units the manufacturer published; the build converts every value to SI (`lib/bikedb/si-units.js`: rad/s, m³, m, W, J, m/s, Pa ...). Each value keeps the original beside it as `published: { v, u }` in bundles, and as `source_value` in SQLite.
-- **Repeatable.** The same input always gives the same bytes: no timestamps, fixed ordering, numbers rounded to 12 significant digits. `catalog_version` is a hash of the catalogue's content.
-- **Fuel safety in three places.** Each fuel row carries `advisable`, computed by the contract's `isFuelAdvisable()`; it is the only flag the app may recommend a fuel from. SQLite triggers (`fuel_compat_violation`) refuse any row that would certify a class default, or advise a fuel without an authoritative source at `advise_min_conf`, or advise E85/E100 for a non-flex engine.
-- **Search.** Use `lib/bikedb/search.js` (server) or `catalog.json`'s `search` column with `public/js/bikedb/search-keys.js` (offline); both match the same way. "mt15", "mt 15" and "MT-15" all find the MT-15; "ns 200" finds the NS200. Search starts at 2 characters. With 20,000 rows, p95 is about 2–3 ms, against a 10 ms target.
+**Same input, same output.** The bundles and `catalog.json` are canonical JSON (sorted keys, no whitespace, no timestamps), so they are byte-identical on every build and every machine, whatever the key order in the source files. `bikes.sqlite` is byte-identical for the same SQLite version. Its `meta` table records the input fingerprint, which is what `--check` compares. Changing one bike changes only that bike's bundle file and the catalogue version.
 
-### Pictures (`media.image` → `image_url`)
+**Search.** The app and the server use one tokeniser (`catalog-search.js`): case, accents and punctuation are ignored, letters and digits are split ("mt15" = "MT-15", "ns 200" = "NS200"), "H'ness", "hness" and "h ness" are the same, "+" reads as "plus", every word is a prefix and all words must match, and "cc" is ignored. The FTS5 columns hold that tokeniser's output and queries are built with `toFtsQuery()`, so the server and the phone match exactly the same bikes; the tests check this on the real catalogue and on synthetic ones. Class defaults aren't searchable by name: the picker offers them by class.
 
-Every bundle and every catalogue row has an `image_url`. It is `null` until a picture is sourced: the picker then shows the segment silhouette. To add one, put the picture's https URL from a cited page in `media.image`:
+**Benchmark** (`bench-search.mjs`, 20,000 synthetic variants, 1,000 type-ahead queries, this build machine):
 
-```jsonc
-"media": { "image": { "v": "https://…/mt-15-side.png", "src": "yamaha-mt15-site", "conf": 0.9 } }
-```
+| | p50 | p95 | p99 | max |
+|---|---|---|---|---|
+| FTS5, ranked top 20 (better-sqlite3) | 0.16 ms | 0.77 ms | 1.42 ms | 2.45 ms |
+| In-memory index, ranked top 20 | 0.03 ms | 0.46 ms | 1.87 ms | 4.97 ms |
 
-The validator rejects a non-https URL and an image resting on an `estimated`, `derived` or `class_prior` source, so a URL can't be made up. Check the publisher's terms before shipping their image; mirroring pictures to our own CDN is a later step.
+Building the in-memory index for 20,000 variants takes about 90 ms, once, on the first search. On the synthetic data, which gives half the bikes a full image URL, `catalog.json` stays under the 300 KB gzip budget up to about 9,500 variants (today's real catalogue: 2.4 KB). Past that, split the catalogue by make before raising the budget.
+
+**SQLite driver.** The build uses `better-sqlite3` (already a server dependency) or, if that isn't installed, Node 22.5+'s built-in `node:sqlite`. Force one with `--driver` or `BIKEDB_SQLITE_DRIVER`. `--skip-sqlite` builds only the public files. `scripts/build-native.mjs` rebuilds `public/bikedb/` by itself before it packages the Android app.
 
 ## The contract in one page
 
@@ -83,20 +103,40 @@ A source can't be more certain than its kind allows. The validator rejects a pre
 
 **Confidence guide:** 0.9–0.95 for a current manufacturer spec sheet; 0.75–0.85 for a current owner's manual; 0.5–0.7 for an older manual, another market's manual or a single press source; ≤ 0.45 when only an aggregator has it, or sources conflict.
 
-### Canonical units
+### Units: published in the files, strict SI everywhere else
 
-Anything else is rejected. Convert when you enter the data and say so in `note`, e.g. *"Published as 46 PS; converted at 0.7355 kW/PS"*.
+**Strict SI only** for everything a program reads: `bikes.sqlite`, the runtime bundles, `catalog.json` and the physics core. The data files keep each value **as published** (rpm, cm3, kW …), so a reviewer can check it against the brochure or manual. The build converts every number with `SI_UNITS` / `toSI()` in `bundle-contract.js`, the one place conversions live. A unit with no conversion stops the build. Power-of-ten conversions are exact decimal shifts (349.34 cm3 → 0.00034934 m3); rpm, km/h, kWh and the friction terms use exact ratios.
 
-| Field | Unit | | Field | Unit |
-|---|---|---|---|---|
-| displacement | `cm3` | | mass | `kg` |
-| bore, stroke | `mm` | | fuel tank | `L` |
-| power | `kW` | | top speed | `km/h` |
-| torque | `N*m` | | battery energy | `kWh` |
-| engine speed | `rpm` | | voltage | `V` |
-| ratios, counts, efficiencies, Crr | `1` | | range | `km` |
-| drag area | `m2` | | octane | `RON` |
-| friction MEP | `kPa`, `kPa/krpm`, `kPa/krpm2` | | | |
+In the data files, each field takes exactly one published unit; anything else is rejected. Convert when you enter the data and say so in `note`, e.g. *"Published as 46 PS; converted at 0.7355 kW/PS"*.
+
+| Field | In the data files | SI (database, bundles, physics) |
+|---|---|---|
+| displacement, fuel tank | `cm3`, `L` | `m3` |
+| bore, stroke | `mm` | `m` |
+| range | `km` | `m` |
+| power (engine, motor) | `kW` | `W` |
+| engine speed (idle, peaks, redline) | `rpm` | `rad/s` |
+| top speed | `km/h` | `m/s` |
+| battery energy | `kWh` | `J` |
+| torque | `N*m` | `N*m` |
+| mass, rider mass | `kg` | `kg` |
+| drag area | `m2` | `m2` |
+| voltage | `V` | `V` |
+| ratios, counts, efficiencies, Crr, octane (`RON`) | `1`, `RON` | `1` |
+| friction MEP A, B, C | `kPa`, `kPa/krpm`, `kPa/krpm2` | `Pa`, `Pa*s/rad`, `Pa*s2/rad2` |
+| fuel energy, fuel density (reference table) | `MJ/L`, `kg/L` | `J/m3`, `kg/m3` |
+
+In a bundle, a converted value looks like `{ "v": 14870, "u": "W", "src": …, "conf": …, "published": { "v": 14.87, "u": "kW" } }`: read `v`/`u`, and show `published` to people. In `bikes.sqlite`, `value`, `vals`, `tol`, `mean`, `sigma` and the ranges are SI. The figures as printed are in the `published_*` columns, and `field.unit` / `field.published_unit` / `field.si_factor` describe each field. The server reads `v_spec_si`, `v_resolved_prior` and `v_variant`, which are SI only.
+
+### Picture (`image_url`)
+
+Every runtime bundle, every catalogue row and every class entry has an `image_url`: an https URL for the bike picker, or `null` until a picture is sourced, in which case the picker shows a class silhouette. To add one, give the data file an optional top-level `image`. It needs a source like any other value, and a credit if the publisher asks for one:
+
+```json
+"image": { "url": "https://…/hunter-350.webp", "src": "re-hunter-spec-2026", "credit": "Royal Enfield" }
+```
+
+The validator rejects an http URL (an http image is blocked inside the app, whose pages are https), a `src` that isn't in `sources[]`, and unknown keys. Manufacturer photos are usually copyrighted: use pictures you're licensed to use, ideally hosted on your own CDN.
 
 ### What the validator rejects
 
@@ -193,7 +233,7 @@ Every powertrain × segment class has one default, so a search never comes back 
    - **Gear ratios:** without primary, gear and final ratios, gear advice stays off for that bike.
    - **Emission stage:** when the maker doesn't state it, use the shared `regulatory-inference` source. A bike sold new after 2023-04-01 is BS6-P2; one built after 2025-04-01 is OBD-2B.
 5. If the validator reports `no_certified_fuel` and you can't find a manufacturer certification, move the file to `pending/` and start `notes` with `PENDING (<date>): <what is missing>`. Never raise a confidence or relabel a source to get past it.
-6. Run `node scripts/bikedb/format.mjs`, then `node scripts/bikedb/validate.mjs` until it reports 0 errors, then run the tests.
+6. Run `node scripts/bikedb/format.mjs`, then `node scripts/bikedb/validate.mjs` until it reports 0 errors, then run the tests and `node scripts/build-bike-catalog.mjs`.
 
 ## Seed data provenance (2026-10-02)
 

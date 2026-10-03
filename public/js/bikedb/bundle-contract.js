@@ -20,9 +20,12 @@
      Quantity    { v: number | number[], u: "<canonical unit>", src: "<source id>", conf: 0..1, tol?, note? }
      Categorical { v: string | boolean, src, conf, note? }
      Prior       { mean, sigma, u, src, conf, note? }   (uncertain model parameters)
-   Units are SI or SI-prefixed; rpm, kWh, km/h, L and RON are the documented
-   industry-standard exceptions. Anything else ("hp", "PS", "Nm", "kgf*m") is
-   rejected — convert when entering data and say so in `note`.
+   Data files use each field's canonical PUBLISHED unit (the one in FIELDS:
+   rpm, cm3, kW, kWh, km/h, L, RON …), so a value can be checked against its
+   document. Anything else ("hp", "PS", "Nm", "kgf*m") is rejected — convert
+   when entering data and say so in `note`. Machines read strict SI only:
+   SI_UNITS / toSI() below convert for bikes.sqlite, the runtime bundles,
+   catalog.json and the physics core.
    ============================================================================ */
 
 (function (root, factory) {
@@ -82,6 +85,69 @@
     const ICE = ["ice_manual", "ice_cvt"];
     const EV = ["ev"];
     const ALL = ["ice_manual", "ice_cvt", "ev"];
+
+    // ------------------------------------------------------------------
+    // Strict SI. Data files keep the units the manufacturer published (rpm,
+    // cm3, kW, kWh, km/h, L …) so every value can be checked against its
+    // document. Everything a machine reads — bikes.sqlite, the runtime
+    // bundles, catalog.json and the physics core — uses strict SI, converted
+    // here and only here. A pure power-of-ten conversion (cm3 → m3, kW → W)
+    // is an exact decimal shift, so 349.34 cm3 becomes 0.00034934 m3 with no
+    // binary noise; the rest are exact ratios applied as v * num / den. No
+    // unit here has an offset, so one rule converts values, tolerances and sigmas.
+    // ------------------------------------------------------------------
+    /** @type {Record<string, { si: string, exp10?: number, num?: number, den?: number }>} */
+    const SI_UNITS = {
+        "1": { si: "1", exp10: 0 },
+        "RON": { si: "1", exp10: 0 },                       // octane is a dimensionless index
+        "mm": { si: "m", exp10: -3 },
+        "km": { si: "m", exp10: 3 },
+        "m2": { si: "m2", exp10: 0 },
+        "cm3": { si: "m3", exp10: -6 },
+        "L": { si: "m3", exp10: -3 },
+        "kg": { si: "kg", exp10: 0 },
+        "km/h": { si: "m/s", num: 1000, den: 3600 },
+        "rpm": { si: "rad/s", num: Math.PI, den: 30 },
+        "N*m": { si: "N*m", exp10: 0 },
+        "kW": { si: "W", exp10: 3 },
+        "kWh": { si: "J", num: 3.6e6, den: 1 },
+        "V": { si: "V", exp10: 0 },
+        "kPa": { si: "Pa", exp10: 3 },
+        // friction MEP terms per krpm: 1 krpm = 1000·π/30 rad/s
+        "kPa/krpm": { si: "Pa*s/rad", num: 30, den: Math.PI },
+        "kPa/krpm2": { si: "Pa*s2/rad2", num: 900, den: 1000 * Math.PI * Math.PI },
+        // reference tables
+        "MJ/L": { si: "J/m3", exp10: 9 },
+        "kg/L": { si: "kg/m3", exp10: 3 }
+    };
+
+    /** x × 10^k as the double nearest the exact decimal result. */
+    function shift10(x, k) {
+        if (k === 0 || x === 0) return x;
+        const [m, e] = x.toExponential().split("e");
+        return Number(`${m}e${Number(e) + k}`);
+    }
+
+    /** SI unit for a published unit. Throws on a unit with no conversion, so nothing unconverted can slip through. */
+    function siUnit(unit) {
+        const c = SI_UNITS[unit];
+        if (!c) throw new Error(`no SI conversion for unit "${unit}"`);
+        return c.si;
+    }
+
+    /**
+     * Convert a value (or an array of values) from a published unit to SI.
+     * @template {number | number[]} T
+     * @param {T} v
+     * @param {string} unit
+     * @returns {T}
+     */
+    function toSI(v, unit) {
+        const c = SI_UNITS[unit];
+        if (!c) throw new Error(`no SI conversion for unit "${unit}"`);
+        const one = (x) => (c.exp10 !== undefined ? shift10(x, c.exp10) : (x * /** @type {number} */ (c.num)) / /** @type {number} */ (c.den));
+        return /** @type {any} */ (Array.isArray(v) ? v.map(one) : one(v));
+    }
 
     // ------------------------------------------------------------------
     // Field table — path, type, unit, [min, max], required-for, options
@@ -149,9 +215,6 @@
         // ---- fuel ----
         { path: "fuel.minRon", type: "q", unit: "RON", range: [80, 102], allow: ICE, doc: "Manufacturer's minimum research octane number" },
 
-        // ---- media (bike picker) ----
-        { path: "media.image", type: "c", allow: ALL, pattern: "^https://[^\\s\"<>]{4,500}$", doc: "Picture of this variant for the bike picker: an https URL taken from the cited source (never a guessed or constructed URL). Compiled to image_url" },
-
         // ---- priors (uncertain model parameters; class defaults carry the full set) ----
         { path: "priors.cda", type: "p", unit: "m2", range: [0.1, 1.2], allow: ALL, reqDefault: ALL, doc: "Effective drag area, bike + rider" },
         { path: "priors.crr", type: "p", unit: "1", range: [0.004, 0.05], allow: ALL, reqDefault: ALL, doc: "Rolling-resistance coefficient" },
@@ -166,9 +229,11 @@
         { path: "priors.regenEfficiency", type: "p", unit: "1", range: [0, 0.9], allow: EV, reqDefault: EV, doc: "Share of braking energy recovered" }
     ];
     const FIELD_BY_PATH = Object.fromEntries(FIELDS.map((f) => [f.path, f]));
-    const GROUPS = ["engine", "motor", "battery", "transmission", "chassis", "emission", "fuel", "media", "priors"];
-    const TOP_KEYS = ["$schema", "schemaVersion", "id", "kind", "classKey", "segment", "powertrain", "identity", "sources", "engine", "motor", "battery", "transmission", "chassis", "emission", "fuel", "media", "curves", "priors", "notes"];
+    const GROUPS = ["engine", "motor", "battery", "transmission", "chassis", "emission", "fuel", "priors"];
+    const TOP_KEYS = ["$schema", "schemaVersion", "id", "kind", "classKey", "segment", "powertrain", "identity", "image", "sources", "engine", "motor", "battery", "transmission", "chassis", "emission", "fuel", "curves", "priors", "notes"];
     const IDENTITY_KEYS = ["make", "model", "variant", "market", "yearFrom", "yearTo", "aliases"];
+    const IMAGE_KEYS = ["url", "src", "credit", "note"];
+    const IMAGE_URL_RE = /^https:\/\/[^\s/$.?#][^\s]*$/i;
 
     // ------------------------------------------------------------------
     // Small helpers
@@ -298,6 +363,20 @@
             if (node.note !== undefined && (typeof node.note !== "string" || node.note.length > 400)) R.err(`${path}.note`, "type", "note must be a string ≤ 400 chars");
         };
 
+        // ---- image (optional): shown in the bike picker; https only (the app's pages are https) ----
+        if (b.image !== undefined) {
+            const im = b.image;
+            if (!isObj(im)) R.err("image", "type", "image must be an object { url, src, credit?, note? }");
+            else {
+                for (const k of Object.keys(im)) if (!IMAGE_KEYS.includes(k)) R.err(`image.${k}`, "unknown_key", `unknown image key "${k}"`);
+                if (typeof im.url !== "string" || !IMAGE_URL_RE.test(im.url) || im.url.length > 500) R.err("image.url", "format", "image.url must be an https:// URL ≤ 500 chars (an http image is blocked inside the app)");
+                if (typeof im.src !== "string" || !sources.has(im.src)) R.err("image.src", "provenance", "image.src must name a source in sources[] (who published the picture)");
+                else usedSources.add(im.src);
+                if (im.credit !== undefined && (typeof im.credit !== "string" || !im.credit.trim() || im.credit.length > 200)) R.err("image.credit", "type", "image.credit must be a non-empty string ≤ 200 chars");
+                if (im.note !== undefined && (typeof im.note !== "string" || im.note.length > 400)) R.err("image.note", "type", "image.note must be a string ≤ 400 chars");
+            }
+        }
+
         // ---- groups ----
         for (const g of GROUPS) {
             const node = b[g];
@@ -372,12 +451,6 @@
         fuelChecks(b, pt, sources, usedSources, ref, R);
         emissionChecks(b, pt, ref, R);
         curveChecks(b, pt, R, checkProv);
-
-        // ---- media: an image URL must come from a real document, never be made up ----
-        const img = get(b, "media.image");
-        if (isObj(img) && typeof img.src === "string" && sources.has(img.src) && ["estimated", "class_prior", "derived"].includes(sources.get(img.src).kind)) {
-            R.err("media.image.src", "provenance", "an image URL must be taken from a cited document (manufacturer, press, ...), not estimated or derived");
-        }
 
         // ---- notes ----
         if (b.notes !== undefined && (!Array.isArray(b.notes) || b.notes.some((n) => typeof n !== "string" || n.length > 1000))) R.err("notes", "type", "notes must be an array of strings ≤ 1000 chars");
@@ -768,9 +841,13 @@
                         aliases: { type: "array", items: { type: "string", minLength: 1, maxLength: 60 } }
                     }
                 },
+                image: {
+                    type: "object", additionalProperties: false, required: ["url", "src"], description: "Picture for the bike picker (https only), with its source",
+                    properties: { url: { type: "string", pattern: "^https://", maxLength: 500 }, src: { type: "string", pattern: SRC_ID_RE.source }, credit: { type: "string", minLength: 1, maxLength: 200 }, note: { type: "string", maxLength: 400 } }
+                },
                 sources: { type: "array", minItems: 1, items: { $ref: "#/$defs/source" } },
                 engine: group("engine"), motor: group("motor"), battery: group("battery"), transmission: group("transmission"), chassis: group("chassis"),
-                emission: { oneOf: [{ type: "null" }, group("emission")] }, fuel: group("fuel"), media: group("media"), priors: group("priors"),
+                emission: { oneOf: [{ type: "null" }, group("emission")] }, fuel: group("fuel"), priors: group("priors"),
                 curves: { type: "object", additionalProperties: false, properties: Object.fromEntries(CURVE_KINDS.map((k) => [k, { $ref: "#/$defs/curve" }])) },
                 notes: { type: "array", items: { type: "string", maxLength: 1000 } }
             },
@@ -794,7 +871,7 @@
     }
 
     return {
-        SCHEMA_VERSION, POWERTRAINS, SEGMENTS, CLASS_MATRIX, TRANSMISSION_FOR, SOURCE_KINDS, AUTHORITATIVE_KINDS, CONF_CAP, CERT_MIN_CONF, ADVISE_MIN_CONF, FUEL_STATUS, FIELDS,
+        SCHEMA_VERSION, POWERTRAINS, SEGMENTS, CLASS_MATRIX, TRANSMISSION_FOR, SOURCE_KINDS, AUTHORITATIVE_KINDS, CONF_CAP, CERT_MIN_CONF, ADVISE_MIN_CONF, FUEL_STATUS, FIELDS, SI_UNITS, siUnit, toSI,
         validateBundle, validateCatalog, validateFuelGrades, validateEmissionStandards,
         resolvePriors, isFuelAdvisable, parseTyre, sweptVolumeCm3, buildJsonSchema
     };

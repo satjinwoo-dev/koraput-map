@@ -14,8 +14,6 @@
   },
   "files": [
     "public/js/bikedb/bundle-contract.js",
-    "public/js/bikedb/search-keys.js",
-    "lib/bikedb/si-units.js",
-    "lib/bikedb/search.js"
+    "public/js/bikedb/catalog-search.js"
   ]
 }
