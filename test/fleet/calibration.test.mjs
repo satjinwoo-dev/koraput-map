@@ -1,4 +1,4 @@
-// Step 8: the class-level fit (lib/bikedb/calibration.js) on synthetic fleets with
+// Roadmap Step 11: the class-level fit (lib/bikedb/calibration.js) on synthetic fleets with
 // KNOWN true parameters — it must find them, say how sure it is, refuse to propose
 // when the data can't justify a change, and not be moved by bad data or one rider.
 import { test } from "node:test";

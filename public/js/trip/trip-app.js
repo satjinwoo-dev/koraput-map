@@ -47,6 +47,7 @@
         apiBase: G.store.resolveApiBase(W, location)
     });
     const elevation = T.elevation ? T.elevation.createElevation() : null;
+    const structures = T.structures ? T.structures.createStructures() : null;        // Step 9: bridges and tunnels (OSM)
 
     /** The saved bike, ready for the physics (null when none is chosen). */
     async function loadBike() {
@@ -83,7 +84,7 @@
             sheet.insertBefore(el, controls || null);
         }
         card = T.card.createTripCard(el, {
-            physics: P, profile: T.profile, energy: T.energy, units: G.units, silhouettes: G.silhouettes, elevation,
+            physics: P, profile: T.profile, energy: T.energy, units: G.units, silhouettes: G.silhouettes, elevation, structures,
             loadBike, onOpenGarage: () => openGarage()
         });
         return card;

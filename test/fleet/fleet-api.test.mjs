@@ -1,4 +1,4 @@
-// Step 8: anonymous fill-ups — the store (lib/bikedb/fleet.js) and the HTTP routes
+// Roadmap Step 11: anonymous fill-ups — the store (lib/bikedb/fleet.js) and the HTTP routes
 // the phone and the Fuel Learner dashboard call (lib/bikedb/http-api.js).
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";

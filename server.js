@@ -215,7 +215,7 @@ const cspDirectives = {
     connectSrc: ["'self'", "ws:", "wss:", osrmOrigin, "https://maps.googleapis.com",
                  "https://api.open-meteo.com", "https://api.bigdatacloud.net",
                  "https://nominatim.openstreetmap.org",
-                 "https://overpass-api.de"],           // Step 8: fuel pumps / chargers along a group route (js/pitstop/stations.js)
+                 "https://overpass-api.de"],           // Advanced analytics: fuel pumps / chargers along a group route (js/pitstop/stations.js)
     mediaSrc: ["'self'", "blob:", "data:"],
     workerSrc: ["'self'"],
     manifestSrc: ["'self'"],
@@ -279,7 +279,7 @@ app.head("/media/:dir/:file", mediaLimiter, media.handler());
 const bikeApi = createBikeApi({
     catalog: BIKES_DB_PATH,
     queueDb: () => db,
-    fleetSecret: () => SERVER_SECRET,                    // anonymous fill-up contributor tokens (Step 8)
+    fleetSecret: () => SERVER_SECRET,                    // anonymous fill-up contributor tokens (roadmap Step 11)
     corsOrigins: CORS_ORIGIN,
     requesterKey: (req) => crypto.createHmac("sha256", SERVER_SECRET).update(`mu-bike-request-v1|${req.ip}`).digest("hex").slice(0, 32)
 });
@@ -1615,7 +1615,7 @@ function tripFuelProfiles(t) {
         if (!u) return;
         const fp = riderFuelProfile(u);
         profiles[m.id] = { kmPerL: fp.motorised ? fp.kmPerL : null, assumed: fp.assumed, walking: !fp.motorised };
-        // Step 8: the bike from My bike and the fuel / charge level the rider shared (convoy
+        // Advanced analytics (convoy planner): the bike from My bike and the fuel / charge level the rider shared (convoy
         // pitstop planner). The level travels as its AGE, so phones with different clocks agree.
         if (fp.motorised && u.fuelBike) profiles[m.id].bike = u.fuelBike;
         const ageMs = u.fuelLevel ? Date.now() - u.fuelLevel.at : Infinity;
@@ -2112,7 +2112,7 @@ const OPS = {
         pushTripFuelProfiles(tripOf(op.sid));
     },
 
-    // Step 8: the rider's bike (My bike) and shared fuel / charge level, for trip-mates'
+    // Advanced analytics (convoy planner): the rider's bike (My bike) and shared fuel / charge level, for trip-mates'
     // convoy pitstop planner. Validated in the setFuelShare handler; trip members only.
     "fuelShare"(op) {
         const user = users.get(op.sid);
@@ -2610,7 +2610,7 @@ io.on("connection", (socket) => {
         return commit({ t: "mileage", sid: socket.id, kmPerL });
     }));
 
-    // Step 8: MUPitstop.app.myShare() — { bike: { bundle, bikeId, classKey, title, settings } | null,
+    // Advanced analytics (convoy planner): MUPitstop.app.myShare() — { bike: { bundle, bikeId, classKey, title, settings } | null,
     // level: { share 0–1, ageMs } | null }. Kept on the live user (re-sent after every
     // profileAccepted) and relayed ONLY to trip-mates in tripFuelProfiles. A bundle an older
     // catalogue build shipped is swapped for the bike's current one, so trip-mates can load it.

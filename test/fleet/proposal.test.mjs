@@ -1,4 +1,4 @@
-// Step 8, end to end: tanks in the server's database → `npm run bikes:calibrate --write`
+// Roadmap Step 11, end to end: tanks in the server's database → `npm run bikes:calibrate --write`
 // → a reviewable proposal file → the build applies it with provenance → the bundles
 // ship the calibrated priors and the real-riding overhead. And everything that must
 // NOT happen: a stale proposal applied, a malformed one built, a re-fit counting the

@@ -194,6 +194,7 @@
      * @param {{
      *   physics: any, profile: any, energy: any, units: any, silhouettes?: any,
      *   elevation?: { lookup: (lat: ArrayLike<number>, lng: ArrayLike<number>) => Promise<{ z: Float64Array, source: string }> } | null,
+     *   structures?: { along: (rs: any) => Promise<{ spans: any[], source: string }> } | null,
      *   loadBike: () => Promise<null | { name: string, variant?: string, estimated: boolean, classKey: string, classTitle: string, image_url?: string|null, bundle: any, classDefault?: any, settings: any }>,
      *   onOpenGarage?: () => void, storage?: Storage|null, schedule?: (fn: () => void) => void
      * }} deps
@@ -532,9 +533,13 @@
                 // 2. terrain heights, then the real profile
                 if (!deps.elevation) { geo.terrain = "none"; recompute(); return; }
                 const g = geo;
-                deps.elevation.lookup(g.rs.lat, g.rs.lng).then((res) => {
+                // bridges and tunnels from OpenStreetMap, if they come within 8 s (else the heights alone find them)
+                const known = deps.structures
+                    ? Promise.race([deps.structures.along(g.rs).catch(() => null), new Promise((r) => setTimeout(() => r(null), 8000))])
+                    : Promise.resolve(null);
+                Promise.all([deps.elevation.lookup(g.rs.lat, g.rs.lng), known]).then(([res, st]) => {
                     if (my !== token || geo !== g) return;
-                    g.profile = deps.profile.buildProfile(g.rs.s, res.z, { distance: rt.distanceM || g.rs.length });
+                    g.profile = deps.profile.buildProfile(g.rs.s, res.z, { distance: rt.distanceM || g.rs.length, structures: st ? /** @type {any} */ (st).spans : null });
                     g.speeds = deps.profile.segmentSpeeds(g.profile.edges, rt.steps, { distance: g.profile.distance, duration: rt.durationSec });
                     g.terrain = res.source;
                     recompute();

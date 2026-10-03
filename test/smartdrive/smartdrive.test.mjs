@@ -101,7 +101,7 @@ test("with a bike: fill-ups correct the physics (not the generic curve), and the
     assert.ok(trips.every((t) => Array.isArray(t.hist) && t.hist.length === 40), "drives keep their 5 km/h speed bins");
 });
 
-test("fleet records (Step 8): the rider's tanks in the server's format, with nothing about where or when", () => {
+test("fleet records (roadmap Step 11): the rider's tanks in the server's format, with nothing about where or when", () => {
     const { validateTank } = require("../../lib/bikedb/fleet.js");
     const known = {
         bundleClass: (h) => { const b = art.bundles.find((x) => x.hash === h); return b ? { classKey: b.classKey, bikeId: b.id } : null; },
@@ -134,7 +134,7 @@ test("fleet records (Step 8): the rider's tanks in the server's format, with not
     assert.deepEqual(json(none.run("FuelCurve.fleetTanks()")), []);
 });
 
-test("Fuel learner dashboard (Step 8): it reads the learner's real starting curve — the bike's physics, or the generic curve without a bike", () => {
+test("Fuel learner dashboard (advanced analytics): it reads the learner's real starting curve — the bike's physics, or the generic curve without a bike", () => {
     const Insights = require("../../public/js/insights/fuel-insights.js");
     const g = garageFor(HUNTER);
     const snap = snapshotFor(g);
@@ -200,7 +200,7 @@ test("the bike or its settings changed: the snapshot is rebuilt from the physics
     assert.equal(sd.run("SmartDrive.ratedKmPerL()"), 18);
 });
 
-test("a fleet-calibrated bundle (Step 8): the rebuilt baseline includes the real-riding overhead, and Settings says so", async () => {
+test("a fleet-calibrated bundle (roadmap Step 11): the rebuilt baseline includes the real-riding overhead, and Settings says so", async () => {
     const g = garageFor(HUNTER);
     const plain = snapshotFor(g);
     const calibration = { date: "2026-10-03", tanks: 400, riders: 40, overhead: { mean: 1.1, sigma: 0.04, u: "1", src: "fleet-calibration" } };

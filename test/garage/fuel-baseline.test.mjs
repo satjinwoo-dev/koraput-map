@@ -97,7 +97,7 @@ test("readSnapshot refuses anything malformed", () => {
     assert.ok(FB.readSnapshot(good));
 });
 
-test("fleet calibration (Step 8): the bundle's real-riding overhead scales the moving fuel; idle stays; without one, nothing changes", () => {
+test("fleet calibration (roadmap Step 11): the bundle's real-riding overhead scales the moving fuel; idle stays; without one, nothing changes", () => {
     const b = art.bundles.find((x) => x.id === "hero-splendor-plus-obd2b-in");
     const plain = FB.buildFuelBaseline(Physics, modelOf(b), garageOf(b));
     const calibration = { date: "2026-10-03", tanks: 400, riders: 40, overhead: { mean: 1.12, sigma: 0.05, u: "1", src: "fleet-calibration" } };

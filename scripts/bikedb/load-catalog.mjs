@@ -16,7 +16,7 @@ function readJson(file) {
 
 /**
  * data/bikes as the build sees it: the bike files, the reference tables, and the
- * reviewed fleet calibrations (data/bikes/calibration/, Step 8) applied to the class
+ * reviewed fleet calibrations (data/bikes/calibration/, roadmap Step 11) applied to the class
  * defaults' priors. `calibrations` (per class: the real-riding overhead, the evidence)
  * goes into the runtime bundles; `calibrationReport` says what was applied or skipped.
  */

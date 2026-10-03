@@ -153,7 +153,7 @@ const usedSources = (list, ids) => (list || []).filter((s) => ids.has(s.id));
  * @param {any} classDef   the class default for b.classKey (b itself for a default)
  * @param {import("../../public/js/bikedb/bundle-contract.js").RefTables & Record<string, any>} ref
  * @param {any} [calibration]  the class's fleet calibration (data/bikes/calibration/): its real-riding
- *                             overhead and evidence go into the bundle as `calibration` (Step 8)
+ *                             overhead and evidence go into the bundle as `calibration` (roadmap Step 11)
  */
 export function makeRuntimeBundle(b, classDef, ref, calibration = null) {
     const isVariant = b.kind === "variant";
@@ -191,7 +191,7 @@ export function makeRuntimeBundle(b, classDef, ref, calibration = null) {
         }
     }
     rt.priors = priors;
-    // Fleet calibration (Step 8): the real-riding overhead learned with the class's priors
+    // Fleet calibration (roadmap Step 11): the real-riding overhead learned with the class's priors
     // (dimensionless; its src is the class default's "fleet-calibration" source).
     if (calibration && ICE.includes(b.powertrain)) rt.calibration = { date: calibration.date, tanks: calibration.tanks, riders: calibration.riders, overhead: { ...calibration.overhead } };
     if (isVariant) rt.classDefault = { id: classDef.id, sources: usedSources(classDef.sources, inheritedSrc) };

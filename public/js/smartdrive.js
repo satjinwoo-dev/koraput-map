@@ -60,6 +60,14 @@ function genericKmPerL(kmh, rated) {
 // rebuilt (loading the physics on demand) only when the bike, its data or the
 // rider's settings change. No bike, an electric bike, or a bike whose data can't be
 // loaded: inactive, and SmartDrive behaves exactly as it did before Step 7.
+// Steps 8 and 10 live in their own modules (js/advice/, js/rides/), loaded after this
+// file; SmartDrive calls them through here, and a missing or failing one never breaks a ride.
+function muHook(ns, fn, ...args) {
+    try {
+        const m = typeof window !== "undefined" && window[ns] && window[ns].app;
+        return m && typeof m[fn] === "function" ? m[fn](...args) : undefined;
+    } catch (e) { console.warn(`[${ns}] ${fn}:`, e); return undefined; }
+}
 const SPEED_BIN_KMH = 5;          // drives also keep km per 5 km/h bin, so any baseline can be re-fitted later
 const SPEED_BINS = 40;            // 0 … 200 km/h (the last bin takes anything faster)
 const speedBin = (kmh) => Math.min(SPEED_BINS - 1, Math.max(0, Math.floor(kmh / SPEED_BIN_KMH)));
@@ -148,7 +156,7 @@ const BikeFuel = {
                 const { store, physics } = await this.core();
                 const { index } = await store.catalog();
                 const { bundle, model } = await store.model(g, index);
-                // a reviewed fleet calibration in the bundle (Step 8) adds the real-riding overhead
+                // a reviewed fleet calibration in the bundle (roadmap Step 11) adds the real-riding overhead
                 const snap = this.lib().buildFuelBaseline(physics, model, g, { calibration: bundle && bundle.calibration });
                 if (this.lib().garageKey(this.garage() || g) !== key) return this.status;      // the bike changed meanwhile
                 try { localStorage.setItem(this.SNAP_KEY, JSON.stringify(snap)); } catch (e) { /* storage full: still used this session */ }
@@ -353,7 +361,7 @@ const FuelCurve = {
         return out;
     },
 
-    // Step 8: this rider's tanks as anonymous fleet records for POST /api/bikes/fillups —
+    // Roadmap Step 11: this rider's tanks as anonymous fleet records for POST /api/bikes/fillups —
     // to be sent ONLY after the rider opted in (the consent screen is the caller's). Only
     // tanks the fleet model describes exactly: the current petrol bike (both fills logged
     // with it), stock gearing and tyre, every drive with its speed bins, and odometer
@@ -736,6 +744,7 @@ const SmartDrive = {
 
         const walking = typeof currentTravelMode !== "undefined" && currentTravelMode === "walk";
         if (!walking) this.checkSafetyLimits(smoothedSpeed, conf);
+        muHook("MUAdvice", "onTick", fix);                // Step 8: the advice gate sees every verdict, safety first
 
         // Low-confidence fixes don't get to shape the recorded graph either —
         // "feed it to the map for display, but don't let it drive an alert or
@@ -748,6 +757,7 @@ const SmartDrive = {
         }
 
         if (!this.trip.active) return;
+        muHook("MURides", "onTick", this.trip, fix);      // Step 10: the ride summary (speed bands, coasting, braking)
 
         this.trip.ticks += 1;
         if (distKm > 0) {
@@ -853,6 +863,7 @@ const SmartDrive = {
         }
         GpsFilter.reset();
         this.lastAlertTier = 0;
+        muHook("MURides", "onStart", this.trip);          // a restored ride keeps its summary so far
         if (typeof TripDB !== "undefined") TripDB.startAutoSave(this.trip);
         this.requestWakeLock();
         const mode = (typeof currentTravelMode !== "undefined" && currentTravelMode) || "drive";
@@ -915,6 +926,9 @@ const SmartDrive = {
                     ? `Physics of your ${BikeFuel.snap.title} (My bike) at each speed on a flat road; idling ${BikeFuel.idleLPerHour().toFixed(2)} L/h. Stops, hills and wind use more: log fill-ups in Settings and it learns your real riding.`
                     : `Generic fuel curve from your ${this.baseMileage || 18} km/L setting; idling assumed at ${IDLE_L_PER_HOUR} L/h. Log fill-ups in Settings to learn your own.`;
         safeShow("results-panel", "flex");
+
+        // Step 10: this ride's summary, kept on this phone (js/rides/)
+        muHook("MURides", "onEnd", this.trip, { fuelL: this.trip.actualFuel, idleFuelL, fuelSource: personal ? "learned" : bike ? "physics" : "generic" });
 
         // Close the loop with the persistence layer — one compact record per
         // trip, not a stream per tick (Section 13). Phase 3: routed through

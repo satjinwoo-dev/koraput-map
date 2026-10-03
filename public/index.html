@@ -1529,14 +1529,14 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyASbmXgn0T-B4AQdCe1sp7dfJbDXKgDw5c&libraries=places&loading=async"></script>
 <script src="/shell.js"></script>
 <!-- App scripts, split by concern (Batch 2). Order matters: core first, boot last. -->
-<script src="js/core.js?v=20261003-step7"></script>
-<script src="js/voice.js?v=20261003-step7"></script>
+<script src="js/core.js?v=20261004-step10"></script>
+<script src="js/voice.js?v=20261004-step10"></script>
 <script src="js/gps.js?v=20261003-step7"></script>
-<script src="js/navigation.js?v=20261003-step7"></script>
+<script src="js/navigation.js?v=20261004-step10"></script>
 <script src="js/garage/fuel-baseline.js?v=20261003-step8"></script>
-<script src="js/smartdrive.js?v=20261003-step8"></script>
+<script src="js/smartdrive.js?v=20261004-step10"></script>
 <script src="js/groupnav.js?v=20261004-step8"></script>
-<script src="js/privacy.js?v=20261003-step7"></script>
+<script src="js/privacy.js?v=20261004-step10"></script>
 <script src="js/analytics.js?v=20261003-step7"></script>
 <script src="js/deadreckoning.js?v=20261003-step7"></script>
 <script src="js/presence.js?v=20261003-step7"></script>
@@ -1562,13 +1562,20 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="js/garage/units.js?v=20261003-step7"></script>
 <script src="js/garage/store.js?v=20261003-step7"></script>
 <script src="js/garage/silhouettes.js?v=20261003-step7"></script>
-<script src="js/trip/profile.js?v=20261003-step7"></script>
+<script src="js/trip/profile.js?v=20261004-step10"></script>
 <script src="js/trip/elevation.js?v=20261003-step7"></script>
+<script src="js/trip/structures.js?v=20261004-step10"></script>
 <script src="js/trip/energy.js?v=20261003-step7"></script>
-<script src="js/trip/trip-card.js?v=20261003-step7"></script>
-<script src="js/trip/trip-app.js?v=20261003-step7"></script>
+<script src="js/trip/trip-card.js?v=20261004-step10"></script>
+<script src="js/trip/trip-app.js?v=20261004-step10"></script>
+<!-- Steps 8–10 of the roadmap: the advice safety gate, ride summaries and the opt-in fleet share
+     (SmartDrive calls them; js/advice/, js/rides/) -->
+<script src="js/advice/advice.js?v=20261004-step10"></script>
+<script src="js/advice/advice-app.js?v=20261004-step10"></script>
+<script src="js/rides/ride-log.js?v=20261004-step10"></script>
+<script src="js/rides/rides-app.js?v=20261004-step10"></script>
 <!-- Step 8: fuel learner dashboard + convoy pitstop planner (their UI loads on first open) -->
 <script src="js/insights/insights-app.js?v=20261004-step8"></script>
-<script src="js/pitstop/pitstop-app.js?v=20261004-step8"></script>
+<script src="js/pitstop/pitstop-app.js?v=20261004-step10"></script>
 </body>
 </html>

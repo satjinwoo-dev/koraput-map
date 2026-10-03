@@ -1,4 +1,4 @@
-# Fleet calibration — "learning in the cloud" (Step 8)
+# Fleet calibration — "learning in the cloud" (roadmap Step 11)
 
 Riders who opt in share their full-to-full tanks anonymously. The server fits, per vehicle class, how the physics priors should move so the physics predicts those tanks. A curator reviews the result as an ordinary data diff, and the next catalogue build ships it in the bundles. Nothing changes riders' numbers without that reviewed diff.
 
@@ -44,6 +44,14 @@ One record per full-to-full tank interval that SmartDrive's fill-up learner alre
 - odometer readings at both fills, with the recorded distance within ±15% of the odometer distance.
 
 **The consent screen is the caller's.** Send only after the rider opted in, and send the consent string with every request.
+
+On the phone, `MURides.app` (roadmap Step 10, `public/js/rides/`) does the sending:
+
+- **`optIn()`:** call it after the consent screen. It makes the random token, then sends the tanks.
+- **When tanks are sent:** after every ride, when the phone comes back online, and at start-up, at most every 10 minutes.
+- **`optOut()`:** erases the shared tanks on the server and forgets the token. If the phone is offline, the erasure is retried until the server confirms it.
+- **"Clear my history":** does the same as `optOut()`.
+- **`status()` and `mine()`:** for the consent and "your contribution" screens.
 
 ## 2. HTTP routes
 

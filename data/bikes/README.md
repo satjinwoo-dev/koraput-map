@@ -7,7 +7,7 @@ data/bikes/
   variants/          one file per real bike variant           (25 seed variants — shipped)
   class-defaults/    one file per powertrain × segment class  (10 — the fallback for any unknown bike)
   pending/           researched bikes blocked by a rule       (2 — validated, never shipped)
-  calibration/       reviewed fleet calibrations, one per class (Step 8 — none yet; see FLEET.md)
+  calibration/       reviewed fleet calibrations, one per class (roadmap Step 11 — none yet; see FLEET.md)
   reference/
     fuel-grades.json         E0 / E10 / E20 / E85 / E100: energy per litre, density, RON
     emission-standards.json  BS4, BS6-P1, BS6-P2 and the OBD stages (OBD-1, OBD-2A, OBD-2B)
@@ -23,7 +23,7 @@ scripts/bikedb/requests.mjs          the queue of rider requests for missing bik
 lib/bikedb/catalog-db.js             the server's read-only view of bikes.sqlite: search, bundles, hot reload
 lib/bikedb/request-queue.js          requests for missing bikes, stored in the server's database
 lib/bikedb/http-api.js               /api/bikes routes (search, bundles, requests, fill-ups, calibration, status), CORS for the app
-lib/bikedb/fleet.js                  anonymous fill-ups from riders who opted in (Step 8), stored in the server's database
+lib/bikedb/fleet.js                  anonymous fill-ups from riders who opted in (roadmap Step 11), stored in the server's database
 lib/bikedb/calibration.js            the class-level fleet fit (Bayesian MAP, robust, cross-validated by rider)
 scripts/bikedb/calibrate.mjs         fit the fleet, write proposals to calibration/ (npm run bikes:calibrate)
 scripts/bikedb/calibration-file.mjs  the proposal format; applies reviewed proposals in the build
@@ -235,7 +235,7 @@ Every powertrain × segment class has one default, so a search never comes back 
 - Variants inherit any prior they don't set (`resolvePriors()`).
 - Defaults are never used for fuel advice.
 
-## Fleet calibrations (`calibration/`, Step 8)
+## Fleet calibrations (`calibration/`, roadmap Step 11)
 
 `npm run bikes:calibrate -- --write` writes `calibration/<class-key>.json` for a petrol class when riders' shared fill-ups predict their tanks better than today's priors. Review it like any other data change:
 

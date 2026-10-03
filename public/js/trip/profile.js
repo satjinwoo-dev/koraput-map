@@ -13,9 +13,11 @@
 
    Why the cleaning matters: a 90 m DEM sampled along a road sees the valley floor
    under a flyover and the hillside beside a cutting. Raw, those become 40 % "grades"
-   that would cost absurd fuel. So: fill gaps, take a running median (kills single-
-   sample spikes and dips), smooth over ~250 m (a bike can't feel shorter wiggles in
-   fuel), and clamp what's left to ±25 % (steeper public roads are vanishingly rare).
+   that would cost absurd fuel. So: fill gaps, clamp bridges and tunnels to a straight
+   grade (Step 9, js/trip/structures.js: the ones OpenStreetMap knows, then the DEM's
+   own tell-tale dips and humps), take a running median (kills single-sample spikes
+   and dips), smooth over ~250 m (a bike can't feel shorter wiggles in fuel), and clamp
+   what's left to ±25 % (steeper public roads are vanishingly rare).
    ============================================================================ */
 (function (root, factory) {
     if (typeof module === "object" && module.exports) module.exports = factory();
@@ -145,17 +147,31 @@
      * @typedef {{
      *   s: Float64Array, z: Float64Array, edges: Float64Array, ds: Float64Array, grade: Float64Array,
      *   ascent: number, descent: number, zMin: number, zMax: number, zMean: number,
-     *   distance: number, source: "dem"|"flat", missingShare: number, clampedShare: number
+     *   distance: number, source: "dem"|"flat", missingShare: number, clampedShare: number,
+     *   structures: Array<{ s0: number, s1: number, kind: string, source: string, name?: string }>, structureShare: number
      * }} Profile
      *  s: sample positions (m, scaled to the route distance); z: smoothed heights (m);
      *  edges: segment boundaries = s; ds/grade: per segment (length n − 1).
+     *  structures: the bridges and tunnels clamped (positions scaled like s); structureShare: the share of the
+     *  distance whose heights they replaced.
      */
+    /** js/trip/structures.js, wherever this runs. */
+    function structuresModule() {
+        const g = /** @type {any} */ (globalThis);
+        if (g.MUTrip && g.MUTrip.structures) return g.MUTrip.structures;
+        // @ts-ignore — Node (tests): the sibling module
+        if (typeof module === "object" && module.exports && typeof require === "function") { try { return require("./structures.js"); } catch { return null; } }
+        return null;
+    }
     /**
      * Clean heights into a profile. `z` may contain null/NaN for samples the DEM didn't return.
      * @param {ArrayLike<number>} sIn  sample positions along the polyline (m)
      * @param {ArrayLike<number|null>|null} zIn  heights (m) or null for "no elevation data"
-     * @param {{ distance?: number, smoothWindow?: number, maxGrade?: number }} [o]  distance: the router's
-     *   own length; positions are scaled to it so energy sums match the trip the rider sees
+     * @param {{ distance?: number, smoothWindow?: number, maxGrade?: number,
+     *   structures?: Array<{ s0: number, s1: number, kind: string, source: string, name?: string }>|null, detectStructures?: boolean }} [o]
+     *   distance: the router's own length; positions are scaled to it so energy sums match the trip the rider sees;
+     *   structures: bridges and tunnels known along the route (positions in sIn's metres, e.g. from
+     *   MUTrip.structures.along()); detectStructures (default true): also find them in the heights
      * @returns {Profile}
      */
     function buildProfile(sIn, zIn, o = {}) {
@@ -167,7 +183,8 @@
         for (let i = 0; i < n; i++) s[i] = sIn[i] * k;
 
         // 1. gaps → linear interpolation (ends: nearest known value)
-        let z = new Float64Array(n), known = 0;
+        let z = new Float64Array(n), known = 0, structureLen = 0;
+        /** @type {Array<{ s0: number, s1: number, kind: string, source: string, name?: string }>} */ let structures = [];
         for (let i = 0; i < n; i++) { const v = zIn ? zIn[i] : null; z[i] = v === null || v === undefined || !Number.isFinite(v) ? NaN : v; if (!Number.isNaN(z[i])) known++; }
         const missingShare = n ? 1 - known / n : 1;
         const source = known >= 2 && missingShare <= 0.5 ? "dem" : "flat";
@@ -181,7 +198,16 @@
                 last = i;
             }
             for (let j = last + 1; j < n; j++) z[j] = z[last];
-            // 2. despike (median over ≥ ~270 m), 3. smooth
+            // 2. bridges and tunnels: a straight grade from end to end (the DEM sees the ground, not the deck)
+            const S = structuresModule();
+            if (S) {
+                const known = (o.structures || []).map((x) => ({ ...x, s0: x.s0 * k, s1: x.s1 * k }));
+                if (known.length) structureLen += S.apply(s, z, known).clamped;
+                const found = o.detectStructures === false ? [] : S.detect(s, z).filter((/** @type {any} */ d) => !known.some((x) => d.s0 < x.s1 && x.s0 < d.s1));
+                if (found.length) structureLen += S.apply(s, z, found).clamped;
+                structures = S.merge(known.concat(found));
+            }
+            // 3. despike (median over ≥ ~270 m), 4. smooth
             const spacing = n > 1 ? distance / (n - 1) : distance;
             const h = spacing <= 150 ? 2 : 1;
             z = runningMedian(z, h);
@@ -206,7 +232,8 @@
         return {
             s, z, edges: s, ds, grade, ascent, descent, zMin, zMax,
             zMean: distance > 0 && m ? area / distance : (n ? z[0] : 0),
-            distance, source, missingShare, clampedShare: distance > 0 ? clamped / distance : 0
+            distance, source, missingShare, clampedShare: distance > 0 ? clamped / distance : 0,
+            structures, structureShare: distance > 0 ? Math.min(1, structureLen / distance) : 0
         };
     }
 

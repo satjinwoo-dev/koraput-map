@@ -111,14 +111,14 @@ The server reads `bikes.sqlite` read-only and serves it under `/api/bikes` (`lib
 | `GET /api/bikes/bundles/<bike-id>` | The same bytes by bike id, cached for 5 minutes. `Content-Location` names the hash URL. |
 | `POST /api/bikes/requests` | `{"make", "model", "variant"?, "market"?, "year"?, "powertrain"?, "note"?}` (JSON, at most 4 KB). A bike that's already listed comes back as `{"status": "listed", "matches": […]}`. Otherwise the request is queued (202), or a vote is added to the same request. Send `"force": true` when the rider says the listed bike isn't theirs. |
 | `GET /api/bikes/status` | Catalogue version, number of variants and bundles. |
-| `POST /api/bikes/fillups`, `POST /api/bikes/fillups/mine`, `DELETE /api/bikes/fillups` | Anonymous full-to-full tanks from riders who opted in (Step 8), what a contributor token sent, and deleting it. See `FLEET.md`. |
+| `POST /api/bikes/fillups`, `POST /api/bikes/fillups/mine`, `DELETE /api/bikes/fillups` | Anonymous full-to-full tanks from riders who opted in (roadmap Step 11), what a contributor token sent, and deleting it. See `FLEET.md`. |
 | `GET /api/bikes/calibration`, `GET /api/bikes/calibration/<class-key>` | Per-class fleet data and the latest fit, for the Fuel Learner dashboard. |
 
 - **Android app.** The page origin `https://localhost` calls the API cross-origin. The routes answer allowed origins with CORS, using the same list as Socket.IO: `CORS_ORIGIN` plus `NATIVE_APP_ORIGINS`. That includes the preflight for the JSON POST. A POST from any other site is refused with 403. `public/js/bikedb/bike-api.js` is the client for the website and the app. It searches the server first and falls back to `catalog.json` offline. It loads bundles from the copy shipped with the page or APK first, then from the server.
 - **Rate limits.** The bike routes have their own limits: search 240/min, bundles 600/min and requests 20/hour per IP. They don't count against `HTTP_RATE_LIMIT_MAX`, because type-ahead sends one search per keystroke.
 - **Requests for missing bikes** are stored in the server's own database (`DB_PATH`), not in `bikes.sqlite`. The queue keeps one row per bike and counts one vote per requester. Requesters are an HMAC pseudonym from `SERVER_SECRET`; IP addresses are never stored. A request is only a name: a curator researches the bike into `data/bikes/` like any other bike. List the queue with `npm run bikes:requests` (`DB_PATH=… npm run bikes:requests -- --set <id> researching|added|rejected` changes a status).
 
-### Fleet calibration (Step 8)
+### Fleet calibration (roadmap Step 11)
 
 `FLEET.md` has the full contract. For the server:
 
@@ -126,11 +126,38 @@ The server reads `bikes.sqlite` read-only and serves it under `/api/bikes` (`lib
 - **Privacy.** Contributors are an HMAC of the app's random token under `SERVER_SECRET`. No location, times or IP addresses are stored, only the day a tank arrived. Tanks older than 730 days are purged on every calibration run (`FLEET_RETENTION_DAYS`).
 - **Rate limits.** The new routes have their own limits: fill-ups 30/hour, calibration reads 120/minute per IP.
 - **Fitting.** Run `DB_PATH=… npm run bikes:calibrate` (for example nightly from cron) from a checkout of the deployed commit. It fits every class with tanks and stores the results the dashboard reads. It changes nothing riders see.
-- **Service worker.** The release bumps the version to `mu-2026-10-04.1`. It precaches the Fuel learner dashboard and the convoy pitstop planner, and picks up the changed `smartdrive.js`, `fuel-baseline.js` and `groupnav.js`.
+- **Service worker.** The release bumps the version to `mu-2026-10-04.2`. It precaches the Fuel learner dashboard and the convoy pitstop planner, plus the roadmap Steps 8–10 scripts (`js/advice/`, `js/rides/`, `js/trip/structures.js`), and picks up the changed core, voice, navigation, SmartDrive, privacy and trip scripts.
 - **Fuel learner dashboard and convoy pitstop planner.** These are the Web Architect's screens; see `public/js/insights/README.md` and `public/js/pitstop/README.md`.
   - **CSP.** The planner looks up fuel pumps and chargers along a group route from OpenStreetMap, so `connect-src` now includes `https://overpass-api.de`. Only route coordinates are sent.
   - **Convoy relay.** Riders share their bike from My bike and the fuel or charge level they set (`setFuelShare`). The server validates it and relays it only to their trip-mates, inside `tripFuelProfiles`.
 - **Shipping a calibration.** Run `npm run bikes:calibrate -- --write`. It writes `data/bikes/calibration/<class-key>.json` for each class that passed every check. Review and commit it, then rebuild the catalogue and deploy as usual. The rebuilt bundles carry the new priors and the real-riding overhead; the server picks up the new `bikes.sqlite` within 5 seconds, and phones get the new bundles through the catalogue.
+
+### Riding advice, route gradients and ride summaries (roadmap Steps 8–10)
+
+These run on the phone; the server only stores the anonymous tanks of riders who opt in (above).
+
+- **Step 8: the advice layer and its safety gate** (`public/js/advice/`).
+  - **What it says.** Economy advice from the rider's bike in My bike, for example "Easing to 60 would use about 12 percent less fuel". It only ever suggests easing off, by 15 km/h at most, never to a speed above the posted limit (`SpeedLimits`), and says nothing at all over the limit, where the speed alerts take over. Without a bike it stays silent.
+  - **When it holds.** The gate holds advice:
+    - while cornering, from the gyroscope, the GPS heading or the route's curvature, and with a tight bend ahead;
+    - for 30 s after hard braking;
+    - on a wet road, and for 30 minutes after the last wet weather report;
+    - when the speed isn't steady, near a navigation turn, on a weak GPS fix, and below 15 km/h;
+    - for 3 minutes after any advice, and 10 minutes before the same advice again.
+  - **Quiet ride.** The rider can switch advice off by saying "quiet ride" or "coaching off" (`MUAdvice.app.setQuiet`). Safety alerts never pass through the gate.
+  - **Voice.** Advice goes through `VoiceAssistant` at priority 30, below every navigation, convoy and safety cue, with the new `dropIfBusy` option: if anything else is speaking or queued, the advice is dropped instead of waiting.
+- **Step 9: gradients from elevation** (`public/js/trip/structures.js`).
+  - **Already there:** the planned route's heights come from Open-Meteo's elevation API, cached offline (`js/trip/elevation.js`).
+  - **New:** bridges and tunnels are now held at a straight grade from one end to the other. Their positions come from OpenStreetMap (one Overpass query per route, cached 30 days), or, where OSM has nothing, from the DEM's own tell-tale dips and humps. A 30 m gully under a bridge no longer costs a phantom descent and climb.
+- **Step 10: ride summaries and privacy** (`public/js/rides/`).
+  - **What's stored.** Every ride leaves a summary on the phone: distance and time per speed band and per 5 km/h, moving and idle time, coasting (an estimate from GPS speed), hard braking, the fill-ups logged during the ride, and the fuel estimate. There are no coordinates and no route. At most 400 rides or 365 days are kept (`MURides.app.summaries()`).
+  - **Opt-in upload.** Sharing the anonymous tanks is off until the app's consent screen calls `MURides.app.optIn()`. Opting out (`optOut()`) erases them on the server.
+  - **Clear my history** now also deletes:
+    - the ride summaries;
+    - the fuel learner's fill-up log and rides, and the curve learned from them;
+    - the convoy levels typed in;
+    - the cached route heights, bridges and fuel stations;
+    - and, on the server, every tank this phone shared. If the phone is offline, the server erasure is retried until the server confirms it.
 
 ## 3. The features (what riders see)
 

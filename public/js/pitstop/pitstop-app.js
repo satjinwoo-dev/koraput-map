@@ -37,7 +37,7 @@
     const LEVELS_KEY = "mu.pitstop.v1";
     const LEVEL_TTL = 6 * 3600000;
     const FALLBACK_COLORS = ["#18d6a3", "#3b82f6", "#f59e0b", "#ec4899", "#8b5cf6"];
-    let loading = null, panel = null, layer = null, refreshTimer = null, lastModel = null, stationsApi = null, elevation = null, overrideCtx = null;
+    let loading = null, panel = null, layer = null, refreshTimer = null, lastModel = null, stationsApi = null, elevation = null, structuresApi = null, overrideCtx = null;
 
     // ------------------------------------------------------------------ app globals, read by name (classic-script lexicals aren't on window)
     function g() {
@@ -202,9 +202,11 @@
         const rs = T.profile.resample(ctx.route.path, spacing);
         const distance = ctx.route.distanceM || rs.length;
         if (!elevation) elevation = T.elevation.createElevation();
-        let z = null;
-        try { z = (await Promise.race([elevation.lookup(rs.lat, rs.lng), new Promise((r) => setTimeout(() => r(null), 7000))])); } catch { z = null; }
-        const profile = T.profile.buildProfile(rs.s, z ? /** @type {any} */ (z).z : null, { distance });
+        if (!structuresApi && T.structures) structuresApi = T.structures.createStructures();
+        const within = (/** @type {Promise<any>} */ p) => Promise.race([p.catch(() => null), new Promise((r) => setTimeout(() => r(null), 7000))]);
+        // heights, and the bridges and tunnels to clamp (Step 9: OSM; the heights alone find the rest)
+        const [z, st] = /** @type {any[]} */ (await Promise.all([within(elevation.lookup(rs.lat, rs.lng)), structuresApi ? within(structuresApi.along(rs)) : null]));
+        const profile = T.profile.buildProfile(rs.s, z ? z.z : null, { distance, structures: st ? st.spans : null });
         const speeds = T.profile.segmentSpeeds(profile.edges, ctx.route.steps, { distance, duration: ctx.route.durationSec });
         let vMax = 0; for (const v of speeds.speed) vMax = Math.max(vMax, v);
         const routeS = { s: profile.s, lat: rs.lat, lng: rs.lng };

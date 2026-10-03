@@ -26,7 +26,7 @@
    loading the physics. Display units (km/h, km/L, L/h) appear only here and in
    the UI; the physics stays SI.
 
-   Fleet calibration (Step 8): when the bike's bundle carries a reviewed fleet
+   Fleet calibration (roadmap Step 11): when the bike's bundle carries a reviewed fleet
    calibration (bundle.calibration, from riders' shared fill-ups), its real-riding
    overhead λ — acceleration, stops, hills, wind, warm-up that a steady, flat-road
    model can't see — scales the moving fuel (km/L ÷ λ; idle is fitted separately

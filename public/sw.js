@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-04.1";           // Step 8: fuel learner dashboard + convoy pitstop planner precached; fleet calibration in the fuel baseline
+const VERSION = "mu-2026-10-04.2";           // roadmap Steps 8–10: advice gate, bridges/tunnels, ride summaries (before: dashboard, pitstop planner, fleet calibration)
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
@@ -97,11 +97,17 @@ const BIKE_SCRIPTS = [
     "/js/garage/garage.css",
     "/js/trip/profile.js",
     "/js/trip/elevation.js",
+    "/js/trip/structures.js",
     "/js/trip/energy.js",
     "/js/trip/trip-card.js",
     "/js/trip/trip-app.js",
     "/js/trip/trip.css",
-    // Step 8: fuel learner dashboard + convoy pitstop planner (both lazy-loaded by their *-app.js)
+    // roadmap Steps 8 and 10: the advice safety gate, ride summaries and the opt-in fleet share (SmartDrive calls them)
+    "/js/advice/advice.js",
+    "/js/advice/advice-app.js",
+    "/js/rides/ride-log.js",
+    "/js/rides/rides-app.js",
+    // Advanced analytics: fuel learner dashboard + convoy pitstop planner (both lazy-loaded by their *-app.js)
     "/js/insights/fuel-insights.js",
     "/js/insights/fuel-dashboard.js",
     "/js/insights/fuel-dashboard.css",

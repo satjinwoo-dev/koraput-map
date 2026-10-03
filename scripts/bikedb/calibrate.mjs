@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Fleet calibration (Step 8): fit each petrol class's priors to the anonymous
+ * Fleet calibration (roadmap Step 11): fit each petrol class's priors to the anonymous
  * full-to-full tanks riders shared (POST /api/bikes/fillups), store the results for
  * the Fuel Learner dashboard (GET /api/bikes/calibration), and — with --write —
  * write a reviewable proposal per class that passed every check to
