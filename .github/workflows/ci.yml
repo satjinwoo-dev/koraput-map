@@ -1,0 +1,79 @@
+# MapUnite CI: every push and pull request runs the whole safety net.
+#   test       npm test (bikedb, physics, server, garage, smartdrive, sw, trip) + the four type checks
+#   mutation   the physics mutation check: the tests must catch every planted bug
+#   e2e        headless Chromium against the real server.js: My bike sheet, SmartDrive, offline
+# The bike catalogue (public/bikedb/, build/bikedb/bikes.sqlite) is a build output and isn't
+# committed, so each job builds it first, exactly as DEPLOY.md tells a server to.
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  test:
+    name: Tests and type checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Build the bike catalogue (validates every bike file first)
+        run: npm run bikes:build
+      - name: Built outputs are up to date with data/bikes
+        run: node --disable-warning=ExperimentalWarning scripts/build-bike-catalog.mjs --check
+      - run: npm test
+      - name: Type checks
+        run: |
+          npm run bikes:typecheck
+          npm run physics:typecheck
+          npm run garage:typecheck
+          npm run trip:typecheck
+
+  mutation:
+    name: Physics mutation check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run bikes:build
+      - run: npm run physics:mutation
+
+  e2e:
+    name: Browser end-to-end (Chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run bikes:build
+      - name: Install Playwright and Chromium (not a project dependency)
+        run: |
+          npm install --no-save playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: My bike sheet, SmartDrive and offline, against the real server.js
+        run: node scripts/e2e/garage-offline.mjs
