@@ -1,0 +1,304 @@
+{
+  "$schema": "../schema/bundle.schema.json",
+  "schema_version": "1.0.0",
+  "id": "ather.450x-3-7kwh.2024",
+  "kind": "variant",
+  "powertrain": "ev",
+  "segment": "scooter",
+  "identity": {
+    "make": "Ather",
+    "model": "450X",
+    "variant": "3.7 kWh",
+    "market": "IN",
+    "model_years": {
+      "from": 2024,
+      "to": null
+    },
+    "aliases": [
+      "450X",
+      "Ather 450 X"
+    ]
+  },
+  "sources": [
+    {
+      "id": "autocar-ather",
+      "kind": "press",
+      "title": "Ather 450X 3.7 kWh specifications",
+      "publisher": "Autocar India",
+      "url": "https://www.autocarindia.com/bikes/ather/450/x-37-kwh",
+      "accessed": "2026-10-03",
+      "notes": "Figures read from a web-search extract of this page on 2026-10-03, not from the page itself. Confirm against the page before marking the record reviewed."
+    },
+    {
+      "id": "91w-ather",
+      "kind": "press",
+      "title": "Ather 450X specifications",
+      "publisher": "91Wheels",
+      "url": "https://91wheels.com/scooters/ather/450x/specifications",
+      "accessed": "2026-10-03",
+      "notes": "Figures read from a web-search extract of this page on 2026-10-03, not from the page itself. Confirm against the page before marking the record reviewed."
+    },
+    {
+      "id": "mu-estimate",
+      "kind": "engineering_estimate",
+      "title": "MapUnite engineering estimates for values manufacturers don't publish",
+      "publisher": "MapUnite",
+      "rationale": "Idle speed by segment (commuter 1400, cruiser 1100, naked/sport 1500, adventure 1300, CVT scooter 1700 rpm; sd 100-150 rpm). Redline as 1.10x the power-peak speed for commuters, cruisers and scooters and 1.15x for nakeds and sports, rounded to 250 rpm, sd 6 %. Unpublished gearing from the class-default ratio set of the same gear count. Loaded rolling radius as 0.97x the unloaded radius computed from the rear tyre code (sd 1.5 %). Usable battery energy as 0.90x the stated pack energy where the manufacturer doesn't say which it is."
+    },
+    {
+      "id": "class-default",
+      "kind": "class_default",
+      "title": "MapUnite class default for ev x scooter",
+      "class_ref": "class.ev.scooter"
+    }
+  ],
+  "emission_standard": null,
+  "motor": {
+    "type": {
+      "value": "pmsm",
+      "source": "autocar-ather",
+      "confidence": 0.7,
+      "method": "published",
+      "published": "PMS Motor"
+    },
+    "mounting": {
+      "value": "mid_drive",
+      "source": "91w-ather",
+      "confidence": 0.6,
+      "method": "derived",
+      "note": "belt final drive implies a frame-mounted (mid-drive) motor"
+    },
+    "rated_power": {
+      "value": 3300,
+      "unit": "W",
+      "source": "mu-estimate",
+      "confidence": 0.35,
+      "method": "estimated",
+      "note": "continuous rating not published; about half the peak power",
+      "uncertainty": {
+        "dist": "lognormal",
+        "sigma_ln": 0.25
+      }
+    },
+    "peak_power": {
+      "value": 6400,
+      "unit": "W",
+      "source": "autocar-ather",
+      "confidence": 0.75,
+      "method": "published",
+      "published": "Max Motor Power: 6.4 kW"
+    },
+    "peak_torque": {
+      "value": 26,
+      "unit": "N.m",
+      "source": "autocar-ather",
+      "confidence": 0.75,
+      "method": "published",
+      "published": "Max Motor Torque: 26 Nm"
+    },
+    "torque_reference": {
+      "value": "motor_shaft",
+      "source": "autocar-ather",
+      "confidence": 0.6,
+      "method": "derived",
+      "note": "published as motor torque"
+    }
+  },
+  "battery": {
+    "chemistry": {
+      "value": "li_ion",
+      "source": "autocar-ather",
+      "confidence": 0.75,
+      "method": "published",
+      "published": "Lithium-ion"
+    },
+    "gross_energy": {
+      "value": 13320000,
+      "unit": "J",
+      "source": "autocar-ather",
+      "confidence": 0.75,
+      "method": "published",
+      "published": "Battery Capacity: 3.7 kWh Lithium-ion"
+    },
+    "usable_energy": {
+      "value": 11988000,
+      "unit": "J",
+      "source": "mu-estimate",
+      "confidence": 0.4,
+      "method": "estimated",
+      "note": "0.90 x stated pack energy",
+      "uncertainty": {
+        "dist": "normal",
+        "sd": 666000
+      }
+    }
+  },
+  "transmission": {
+    "type": "direct",
+    "drive": {
+      "value": "belt",
+      "source": "91w-ather",
+      "confidence": 0.7,
+      "method": "published",
+      "published": "transmission type is belt drive"
+    },
+    "reduction_ratio": {
+      "value": 6,
+      "unit": "1",
+      "source": "mu-estimate",
+      "confidence": 0.3,
+      "method": "estimated",
+      "note": "not published: ~6000 rpm motor at the 90 km/h top speed on a 12-inch wheel",
+      "uncertainty": {
+        "dist": "normal",
+        "sd": 1.5
+      }
+    }
+  },
+  "wheels": {
+    "front_tyre": {
+      "value": "90/90-12",
+      "source": "91w-ather",
+      "confidence": 0.7,
+      "method": "published",
+      "published": "90/90-12 front tyres and 100/80-12 rear tyres"
+    },
+    "rear_tyre": {
+      "value": "100/80-12",
+      "source": "91w-ather",
+      "confidence": 0.7,
+      "method": "published",
+      "published": "90/90-12 front tyres and 100/80-12 rear tyres"
+    },
+    "rear_rolling_radius": {
+      "value": 0.225428,
+      "unit": "m",
+      "source": "mu-estimate",
+      "confidence": 0.7,
+      "method": "derived",
+      "note": "0.97 x unloaded radius of 100/80-12",
+      "uncertainty": {
+        "dist": "normal",
+        "sd": 0.00338142
+      }
+    }
+  },
+  "mass": {
+    "kerb": {
+      "value": 111.6,
+      "unit": "kg",
+      "source": "91w-ather",
+      "confidence": 0.65,
+      "method": "published",
+      "published": "kerb weight of 111.6 kg"
+    },
+    "basis": "unspecified"
+  },
+  "fuel": {
+    "required": false,
+    "compatibility": []
+  },
+  "priors": {
+    "cda": {
+      "value": 0.62,
+      "unit": "m2",
+      "source": "class-default",
+      "confidence": 0.4,
+      "method": "class_default",
+      "note": "bike + upright rider",
+      "uncertainty": {
+        "dist": "lognormal",
+        "sigma_ln": 0.25
+      }
+    },
+    "crr": {
+      "value": 0.017,
+      "unit": "1",
+      "source": "class-default",
+      "confidence": 0.4,
+      "method": "class_default",
+      "uncertainty": {
+        "dist": "normal",
+        "sd": 0.003
+      }
+    },
+    "mass": {
+      "value": 111.6,
+      "unit": "kg",
+      "source": "91w-ather",
+      "confidence": 0.65,
+      "method": "derived",
+      "note": "kerb mass; rider and luggage are added in the app",
+      "uncertainty": {
+        "dist": "normal",
+        "sd": 3.348
+      }
+    },
+    "drivetrain_efficiency": {
+      "value": 0.85,
+      "unit": "1",
+      "source": "class-default",
+      "confidence": 0.4,
+      "method": "class_default",
+      "uncertainty": {
+        "dist": "normal",
+        "sd": 0.05
+      }
+    },
+    "regen_efficiency": {
+      "value": 0.5,
+      "unit": "1",
+      "source": "class-default",
+      "confidence": 0.3,
+      "method": "class_default",
+      "uncertainty": {
+        "dist": "normal",
+        "sd": 0.15
+      }
+    },
+    "auxiliary_power": {
+      "value": 25,
+      "unit": "W",
+      "source": "class-default",
+      "confidence": 0.3,
+      "method": "class_default",
+      "uncertainty": {
+        "dist": "normal",
+        "sd": 10
+      }
+    }
+  },
+  "performance": {
+    "top_speed": {
+      "value": 25,
+      "unit": "m/s",
+      "source": "autocar-ather",
+      "confidence": 0.7,
+      "method": "published",
+      "published": "Top Speed: 90 kph"
+    },
+    "certified_range": {
+      "distance": {
+        "value": 161000,
+        "unit": "m",
+        "source": "autocar-ather",
+        "confidence": 0.6,
+        "method": "published",
+        "published": "Claimed battery range: 161 km"
+      },
+      "cycle": {
+        "value": "IDC",
+        "source": "autocar-ather",
+        "confidence": 0.4,
+        "method": "estimated",
+        "note": "\"claimed range\" assumed to be the IDC figure"
+      }
+    }
+  },
+  "notes": "Peak torque is at the motor shaft; usable energy estimated as 0.90 x 3.7 kWh.",
+  "record": {
+    "created": "2026-10-03",
+    "updated": "2026-10-03",
+    "review_status": "unreviewed"
+  }
+}

@@ -1,0 +1,452 @@
+{
+  "$schema": "../schema/bundle.schema.json",
+  "schema_version": "1.0.0",
+  "id": "hero.splendor-plus.2023",
+  "kind": "variant",
+  "powertrain": "ice_manual",
+  "segment": "commuter",
+  "identity": {
+    "make": "Hero MotoCorp",
+    "model": "Splendor+",
+    "variant": "Standard (OBD2)",
+    "market": "IN",
+    "model_years": {
+      "from": 2023,
+      "to": null
+    },
+    "aliases": [
+      "Splendor Plus",
+      "Hero Splendor"
+    ]
+  },
+  "sources": [
+    {
+      "id": "hero-np-spec",
+      "kind": "oem_spec_sheet",
+      "title": "Hero Splendor+ specifications",
+      "publisher": "Hero MotoCorp (Nepal site)",
+      "url": "https://www.heromotocorp.com/en-np/products/commuter/splendor-plus.html",
+      "accessed": "2026-10-03",
+      "notes": "Hero MotoCorp's Nepal page for the same model; Indian figures corroborated by Bajaj Finserv's spec page. Read via a web-search extract on 2026-10-03, not from the page itself; confirm before marking reviewed."
+    },
+    {
+      "id": "bfs-splendor",
+      "kind": "press",
+      "title": "Hero Splendor Plus: all specifications and features",
+      "publisher": "Bajaj Finserv",
+      "url": "https://www.bajajfinserv.in/hero-splendor-plus-specifications",
+      "accessed": "2026-10-03",
+      "notes": "Figures read from a web-search extract of this page on 2026-10-03, not from the page itself. Confirm against the page before marking the record reviewed."
+    },
+    {
+      "id": "hero-e20",
+      "kind": "press",
+      "title": "Mercedes, Maruti, Toyota, others assure buyers over E20 fuel compatibility",
+      "publisher": "Outlook Business",
+      "url": "https://www.outlookbusiness.com/corporate/mercedes-maruti-toyota-others-assure-buyers-over-e20-fuel-compatibility",
+      "accessed": "2026-10-03",
+      "notes": "Figures read from a web-search extract of this page on 2026-10-03, not from the page itself. Confirm against the page before marking the record reviewed."
+    },
+    {
+      "id": "mu-estimate",
+      "kind": "engineering_estimate",
+      "title": "MapUnite engineering estimates for values manufacturers don't publish",
+      "publisher": "MapUnite",
+      "rationale": "Idle speed by segment (commuter 1400, cruiser 1100, naked/sport 1500, adventure 1300, CVT scooter 1700 rpm; sd 100-150 rpm). Redline as 1.10x the power-peak speed for commuters, cruisers and scooters and 1.15x for nakeds and sports, rounded to 250 rpm, sd 6 %. Unpublished gearing from the class-default ratio set of the same gear count. Loaded rolling radius as 0.97x the unloaded radius computed from the rear tyre code (sd 1.5 %). Usable battery energy as 0.90x the stated pack energy where the manufacturer doesn't say which it is."
+    },
+    {
+      "id": "class-default",
+      "kind": "class_default",
+      "title": "MapUnite class default for ice_manual x commuter",
+      "class_ref": "class.ice-manual.commuter"
+    }
+  ],
+  "emission_standard": {
+    "value": "BS6-P2",
+    "source": "bfs-splendor",
+    "confidence": 0.7,
+    "method": "derived",
+    "note": "Model years from 2023: sold new after BS6 Phase 2 (OBD-II) took effect on 2023-04-01."
+  },
+  "engine": {
+    "cycle": {
+      "value": "four_stroke",
+      "source": "bfs-splendor",
+      "confidence": 0.8,
+      "method": "published",
+      "published": "Air cooled, 4-stroke single cylinder OHC"
+    },
+    "cylinders": {
+      "value": 1,
+      "unit": "1",
+      "source": "bfs-splendor",
+      "confidence": 0.8,
+      "method": "published",
+      "published": "Air cooled, 4-stroke single cylinder OHC"
+    },
+    "aspiration": {
+      "value": "natural",
+      "source": "bfs-splendor",
+      "confidence": 0.7,
+      "method": "derived",
+      "note": "no turbo or supercharger in the published engine description"
+    },
+    "cooling": {
+      "value": "air",
+      "source": "bfs-splendor",
+      "confidence": 0.8,
+      "method": "published",
+      "published": "Air cooled"
+    },
+    "fuel_system": {
+      "value": "port_injection",
+      "source": "bfs-splendor",
+      "confidence": 0.6,
+      "method": "derived",
+      "note": "BS6 models are fuel-injected; port injection on every Indian single of this class"
+    },
+    "displacement": {
+      "value": 0.0000972,
+      "unit": "m3",
+      "source": "bfs-splendor",
+      "confidence": 0.8,
+      "method": "published",
+      "published": "97.2cc"
+    },
+    "bore": {
+      "value": 0.05,
+      "unit": "m",
+      "source": "hero-np-spec",
+      "confidence": 0.7,
+      "method": "published",
+      "published": "50.0 x 49.5 mm"
+    },
+    "stroke": {
+      "value": 0.0495,
+      "unit": "m",
+      "source": "hero-np-spec",
+      "confidence": 0.7,
+      "method": "published",
+      "published": "50.0 x 49.5 mm"
+    },
+    "compression_ratio": {
+      "value": 9.9,
+      "unit": "1",
+      "source": "hero-np-spec",
+      "confidence": 0.7,
+      "method": "published",
+      "published": "9.9:1"
+    },
+    "idle_speed": {
+      "value": 146.608,
+      "unit": "rad/s",
+      "source": "mu-estimate",
+      "confidence": 0.35,
+      "method": "estimated",
+      "note": "segment idle estimate: 1400 rpm",
+      "uncertainty": {
+        "dist": "normal",
+        "sd": 15.708
+      }
+    },
+    "redline_speed": {
+      "value": 916.298,
+      "unit": "rad/s",
+      "source": "mu-estimate",
+      "confidence": 0.35,
+      "method": "estimated",
+      "note": "1.1 x power-peak speed: 8750 rpm",
+      "uncertainty": {
+        "dist": "normal",
+        "sd": 54.9779
+      }
+    },
+    "max_power": {
+      "power": {
+        "value": 5898.7,
+        "unit": "W",
+        "source": "bfs-splendor",
+        "confidence": 0.8,
+        "method": "published",
+        "published": "8.02PS @ 8,000rpm"
+      },
+      "speed": {
+        "value": 837.758,
+        "unit": "rad/s",
+        "source": "bfs-splendor",
+        "confidence": 0.8,
+        "method": "published",
+        "published": "8.02PS @ 8,000rpm"
+      }
+    },
+    "max_torque": {
+      "torque": {
+        "value": 8.05,
+        "unit": "N.m",
+        "source": "bfs-splendor",
+        "confidence": 0.8,
+        "method": "published",
+        "published": "8.05Nm @ 6,000rpm"
+      },
+      "speed": {
+        "value": 628.319,
+        "unit": "rad/s",
+        "source": "bfs-splendor",
+        "confidence": 0.8,
+        "method": "published",
+        "published": "8.05Nm @ 6,000rpm"
+      }
+    }
+  },
+  "transmission": {
+    "type": "manual",
+    "gear_count": {
+      "value": 4,
+      "unit": "1",
+      "source": "bfs-splendor",
+      "confidence": 0.8,
+      "method": "published",
+      "published": "4-speed constant mesh"
+    },
+    "primary_ratio": {
+      "value": 3.35,
+      "unit": "1",
+      "source": "class-default",
+      "confidence": 0.4,
+      "method": "class_default",
+      "uncertainty": {
+        "dist": "normal",
+        "sd": 0.335
+      }
+    },
+    "gear_ratios": {
+      "values": [
+        3.083,
+        1.882,
+        1.4,
+        1.13
+      ],
+      "unit": "1",
+      "source": "class-default",
+      "confidence": 0.4,
+      "method": "class_default",
+      "uncertainty": {
+        "dist": "lognormal",
+        "sigma_ln": 0.08
+      }
+    },
+    "final_drive": {
+      "type": {
+        "value": "chain",
+        "source": "bfs-splendor",
+        "confidence": 0.7,
+        "method": "derived",
+        "note": "chain final drive on every Indian motorcycle of this class"
+      },
+      "front_sprocket": {
+        "value": 14,
+        "unit": "1",
+        "source": "class-default",
+        "confidence": 0.4,
+        "method": "class_default",
+        "uncertainty": {
+          "dist": "normal",
+          "sd": 1
+        }
+      },
+      "rear_sprocket": {
+        "value": 43,
+        "unit": "1",
+        "source": "class-default",
+        "confidence": 0.4,
+        "method": "class_default",
+        "uncertainty": {
+          "dist": "normal",
+          "sd": 2
+        }
+      }
+    }
+  },
+  "wheels": {
+    "front_tyre": {
+      "value": "80/100-18 M/C 47P",
+      "source": "bfs-splendor",
+      "confidence": 0.8,
+      "method": "published",
+      "published": "Front 80/100-18 M/C 47P, Rear 80/100-18 M/C 54P (Tubeless)"
+    },
+    "rear_tyre": {
+      "value": "80/100-18 M/C 54P",
+      "source": "bfs-splendor",
+      "confidence": 0.8,
+      "method": "published",
+      "published": "Front 80/100-18 M/C 47P, Rear 80/100-18 M/C 54P (Tubeless)"
+    },
+    "rear_rolling_radius": {
+      "value": 0.299342,
+      "unit": "m",
+      "source": "mu-estimate",
+      "confidence": 0.7,
+      "method": "derived",
+      "note": "0.97 x unloaded radius of 80/100-18 M/C 54P",
+      "uncertainty": {
+        "dist": "normal",
+        "sd": 0.00449013
+      }
+    }
+  },
+  "mass": {
+    "kerb": {
+      "value": 112,
+      "unit": "kg",
+      "source": "bfs-splendor",
+      "confidence": 0.8,
+      "method": "published",
+      "published": "Kerb Weight: 112kg"
+    },
+    "basis": "unspecified"
+  },
+  "fuel": {
+    "required": true,
+    "tank_capacity": {
+      "value": 0.0098,
+      "unit": "m3",
+      "source": "bfs-splendor",
+      "confidence": 0.8,
+      "method": "published",
+      "published": "9.8 litres"
+    },
+    "flex_fuel": {
+      "value": false,
+      "source": "hero-e20",
+      "confidence": 0.7,
+      "method": "derived",
+      "note": "No flex-fuel claim: the manufacturer's fuel statement stops at E20."
+    },
+    "reference_grade": {
+      "value": "E20",
+      "source": "hero-e20",
+      "confidence": 0.7,
+      "method": "derived",
+      "note": "E20 is India's default pump petrol and this bike is certified for it."
+    },
+    "compatibility": [
+      {
+        "grade": "E0",
+        "status": "unverified",
+        "source": "hero-e20",
+        "confidence": 0.4,
+        "method": "estimated",
+        "note": "The statement found covers E20 only; lower blends not confirmed."
+      },
+      {
+        "grade": "E10",
+        "status": "unverified",
+        "source": "hero-e20",
+        "confidence": 0.4,
+        "method": "estimated",
+        "note": "The statement found covers E20 only; lower blends not confirmed."
+      },
+      {
+        "grade": "E20",
+        "status": "certified",
+        "source": "hero-e20",
+        "confidence": 0.65,
+        "method": "published",
+        "published": "Hero MotoCorp: extensive testing and field data from millions of two-wheelers support the safety of E20 fuel"
+      },
+      {
+        "grade": "E85",
+        "status": "not_certified",
+        "source": "hero-e20",
+        "confidence": 0.9,
+        "method": "derived",
+        "note": "Not a flex-fuel engine: the manufacturer's statement stops at E20."
+      },
+      {
+        "grade": "E100",
+        "status": "not_certified",
+        "source": "hero-e20",
+        "confidence": 0.9,
+        "method": "derived",
+        "note": "Not a flex-fuel engine: the manufacturer's statement stops at E20."
+      }
+    ]
+  },
+  "priors": {
+    "cda": {
+      "value": 0.6,
+      "unit": "m2",
+      "source": "class-default",
+      "confidence": 0.4,
+      "method": "class_default",
+      "note": "bike + upright rider",
+      "uncertainty": {
+        "dist": "lognormal",
+        "sigma_ln": 0.25
+      }
+    },
+    "crr": {
+      "value": 0.016,
+      "unit": "1",
+      "source": "class-default",
+      "confidence": 0.4,
+      "method": "class_default",
+      "uncertainty": {
+        "dist": "normal",
+        "sd": 0.003
+      }
+    },
+    "mass": {
+      "value": 112,
+      "unit": "kg",
+      "source": "bfs-splendor",
+      "confidence": 0.8,
+      "method": "derived",
+      "note": "kerb mass; rider and luggage are added in the app",
+      "uncertainty": {
+        "dist": "normal",
+        "sd": 3.36
+      }
+    },
+    "drivetrain_efficiency": {
+      "value": 0.9,
+      "unit": "1",
+      "source": "class-default",
+      "confidence": 0.4,
+      "method": "class_default",
+      "uncertainty": {
+        "dist": "normal",
+        "sd": 0.03
+      }
+    },
+    "willans_efficiency": {
+      "value": 0.32,
+      "unit": "1",
+      "source": "class-default",
+      "confidence": 0.4,
+      "method": "class_default",
+      "uncertainty": {
+        "dist": "normal",
+        "sd": 0.04
+      }
+    },
+    "friction_mep": {
+      "value": 160000,
+      "unit": "Pa",
+      "source": "class-default",
+      "confidence": 0.4,
+      "method": "class_default",
+      "uncertainty": {
+        "dist": "normal",
+        "sd": 40000
+      }
+    }
+  },
+  "notes": "E20 certification rests on a fleet-wide Hero MotoCorp statement, not a model-specific one: confirm against the Splendor+ owner's manual.",
+  "record": {
+    "created": "2026-10-03",
+    "updated": "2026-10-03",
+    "review_status": "unreviewed"
+  }
+}

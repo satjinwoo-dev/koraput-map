@@ -1,0 +1,325 @@
+{
+  "$schema": "../schema/fuel_grade.schema.json",
+  "schema_version": "1.0.0",
+  "table": "fuel_grade",
+  "sources": [
+    {
+      "id": "heywood-1988",
+      "kind": "reference_book",
+      "title": "Internal Combustion Engine Fundamentals",
+      "citation": "Heywood, J. B. (1988). Internal Combustion Engine Fundamentals. McGraw-Hill. Appendix D, fuel data.",
+      "notes": "Lower heating values: gasoline 44.0 MJ/kg, ethanol 26.9 MJ/kg."
+    },
+    {
+      "id": "crc-handbook",
+      "kind": "reference_book",
+      "title": "CRC Handbook of Chemistry and Physics",
+      "citation": "Haynes, W. M. (Ed.). CRC Handbook of Chemistry and Physics. CRC Press. Density of ethanol.",
+      "notes": "Ethanol 0.7893 g/cm3 at 20 °C."
+    },
+    {
+      "id": "is-2796",
+      "kind": "standard",
+      "title": "IS 2796:2017 Motor Gasoline — Specification",
+      "citation": "Bureau of Indian Standards. IS 2796:2017, Motor Gasoline — Specification (BS VI).",
+      "notes": "MG 91 and MG 95 grades: RON 91 / 95 minimum; density at 15 °C 720-775 kg/m3."
+    },
+    {
+      "id": "e20-ron95",
+      "kind": "press",
+      "title": "Government mandates minimum 95 octane rating for E20 petrol from April",
+      "publisher": "Autocar India",
+      "url": "https://www.autocarindia.com/car-news-amp/government-mandates-minimum-95-octane-rating-for-e20-petrol-from-april-439104",
+      "accessed": "2026-10-03",
+      "notes": "Figures read from a web-search extract of this page on 2026-10-03, not from the page itself. Confirm against the page before marking the record reviewed."
+    },
+    {
+      "id": "mu-fuel-estimate",
+      "kind": "engineering_estimate",
+      "title": "MapUnite blend property calculation",
+      "publisher": "MapUnite",
+      "rationale": "Blend density by volume-weighted mixing of gasoline (745 kg/m3, mid IS 2796 range) and ethanol (793.6 kg/m3 at 15 °C); blend LHV per kg by mass-fraction weighting of Heywood's 44.0 and 26.9 MJ/kg; LHV per m3 = LHV per kg x density. Spec RON minimums for E85/E100 are not sourced and are estimated."
+    }
+  ],
+  "rows": [
+    {
+      "id": "E0",
+      "label": "Petrol, no ethanol (IS 2796 MG 91)",
+      "ethanol_volume_fraction": {
+        "value": 0,
+        "unit": "1",
+        "source": "mu-fuel-estimate",
+        "confidence": 1,
+        "method": "derived",
+        "note": "E0: 0 % ethanol by volume"
+      },
+      "ron_min": {
+        "value": 91,
+        "unit": "1",
+        "source": "is-2796",
+        "confidence": 0.8,
+        "method": "published",
+        "published": "RON 91 minimum (MG 91)"
+      },
+      "lhv_mass": {
+        "value": 44000000,
+        "unit": "J/kg",
+        "source": "heywood-1988",
+        "confidence": 0.75,
+        "method": "published",
+        "published": "44.0 MJ/kg",
+        "uncertainty": {
+          "dist": "normal",
+          "sd": 700000
+        },
+        "note": "market petrol varies with composition"
+      },
+      "density": {
+        "value": 745,
+        "unit": "kg/m3",
+        "source": "is-2796",
+        "confidence": 0.7,
+        "method": "derived",
+        "note": "middle of the IS 2796 range 720-775 kg/m3",
+        "uncertainty": {
+          "dist": "uniform",
+          "min": 720,
+          "max": 775
+        }
+      },
+      "lhv_volume": {
+        "value": 32780000000,
+        "unit": "J/m3",
+        "source": "mu-fuel-estimate",
+        "confidence": 0.7,
+        "method": "derived",
+        "note": "lhv_mass x density"
+      },
+      "standard": "IS 2796:2017"
+    },
+    {
+      "id": "E10",
+      "label": "Petrol with 10 % ethanol",
+      "ethanol_volume_fraction": {
+        "value": 0.1,
+        "unit": "1",
+        "source": "mu-fuel-estimate",
+        "confidence": 1,
+        "method": "derived",
+        "note": "E10: 10 % ethanol by volume"
+      },
+      "ron_min": {
+        "value": 91,
+        "unit": "1",
+        "source": "is-2796",
+        "confidence": 0.7,
+        "method": "published",
+        "published": "RON 91 minimum (MG 91)",
+        "note": "E10 sold as regular MG 91 before the E20 roll-out"
+      },
+      "lhv_mass": {
+        "value": 42190300,
+        "unit": "J/kg",
+        "source": "mu-fuel-estimate",
+        "confidence": 0.7,
+        "method": "derived",
+        "note": "mass-fraction mix of 44.0 and 26.9 MJ/kg",
+        "uncertainty": {
+          "dist": "normal",
+          "sd": 625917
+        }
+      },
+      "density": {
+        "value": 749.86,
+        "unit": "kg/m3",
+        "source": "mu-fuel-estimate",
+        "confidence": 0.7,
+        "method": "derived",
+        "note": "volume-weighted mix",
+        "uncertainty": {
+          "dist": "uniform",
+          "min": 727.36,
+          "max": 776.86
+        }
+      },
+      "lhv_volume": {
+        "value": 31636800000,
+        "unit": "J/m3",
+        "source": "mu-fuel-estimate",
+        "confidence": 0.7,
+        "method": "derived",
+        "note": "lhv_mass x density"
+      },
+      "standard": "IS 2796:2017"
+    },
+    {
+      "id": "E20",
+      "label": "Petrol with 20 % ethanol (default pump petrol in India)",
+      "ethanol_volume_fraction": {
+        "value": 0.2,
+        "unit": "1",
+        "source": "mu-fuel-estimate",
+        "confidence": 1,
+        "method": "derived",
+        "note": "E20: 20 % ethanol by volume"
+      },
+      "ron_min": {
+        "value": 95,
+        "unit": "1",
+        "source": "e20-ron95",
+        "confidence": 0.8,
+        "method": "published",
+        "published": "minimum 95 RON for E20 petrol from April 1, 2026",
+        "note": "Batches sold before 2026-04-01 may be lower"
+      },
+      "lhv_mass": {
+        "value": 40403800,
+        "unit": "J/kg",
+        "source": "mu-fuel-estimate",
+        "confidence": 0.7,
+        "method": "derived",
+        "note": "mass-fraction mix of 44.0 and 26.9 MJ/kg",
+        "uncertainty": {
+          "dist": "normal",
+          "sd": 552788
+        }
+      },
+      "density": {
+        "value": 754.72,
+        "unit": "kg/m3",
+        "source": "mu-fuel-estimate",
+        "confidence": 0.7,
+        "method": "derived",
+        "note": "volume-weighted mix",
+        "uncertainty": {
+          "dist": "uniform",
+          "min": 734.72,
+          "max": 778.72
+        }
+      },
+      "lhv_volume": {
+        "value": 30493600000,
+        "unit": "J/m3",
+        "source": "mu-fuel-estimate",
+        "confidence": 0.7,
+        "method": "derived",
+        "note": "lhv_mass x density"
+      },
+      "standard": "IS 17021:2018"
+    },
+    {
+      "id": "E85",
+      "label": "Ethanol 85 % (flex-fuel vehicles only)",
+      "ethanol_volume_fraction": {
+        "value": 0.85,
+        "unit": "1",
+        "source": "mu-fuel-estimate",
+        "confidence": 1,
+        "method": "derived",
+        "note": "E85: 85 % ethanol by volume"
+      },
+      "ron_min": {
+        "value": 100,
+        "unit": "1",
+        "source": "mu-fuel-estimate",
+        "confidence": 0.4,
+        "method": "estimated",
+        "note": "spec minimum not sourced",
+        "uncertainty": {
+          "dist": "normal",
+          "sd": 3
+        }
+      },
+      "lhv_mass": {
+        "value": 29330200,
+        "unit": "J/kg",
+        "source": "mu-fuel-estimate",
+        "confidence": 0.7,
+        "method": "derived",
+        "note": "mass-fraction mix of 44.0 and 26.9 MJ/kg",
+        "uncertainty": {
+          "dist": "normal",
+          "sd": 99483.7
+        }
+      },
+      "density": {
+        "value": 786.31,
+        "unit": "kg/m3",
+        "source": "mu-fuel-estimate",
+        "confidence": 0.7,
+        "method": "derived",
+        "note": "volume-weighted mix",
+        "uncertainty": {
+          "dist": "uniform",
+          "min": 782.56,
+          "max": 790.81
+        }
+      },
+      "lhv_volume": {
+        "value": 23062700000,
+        "unit": "J/m3",
+        "source": "mu-fuel-estimate",
+        "confidence": 0.7,
+        "method": "derived",
+        "note": "lhv_mass x density"
+      }
+    },
+    {
+      "id": "E100",
+      "label": "Neat ethanol (flex-fuel vehicles only)",
+      "ethanol_volume_fraction": {
+        "value": 1,
+        "unit": "1",
+        "source": "mu-fuel-estimate",
+        "confidence": 1,
+        "method": "derived",
+        "note": "E100: 100 % ethanol by volume"
+      },
+      "ron_min": {
+        "value": 100,
+        "unit": "1",
+        "source": "mu-fuel-estimate",
+        "confidence": 0.4,
+        "method": "estimated",
+        "note": "spec minimum not sourced; neat ethanol is about 108 RON",
+        "uncertainty": {
+          "dist": "normal",
+          "sd": 4
+        }
+      },
+      "lhv_mass": {
+        "value": 26900000,
+        "unit": "J/kg",
+        "source": "heywood-1988",
+        "confidence": 0.85,
+        "method": "published",
+        "published": "26.9 MJ/kg",
+        "uncertainty": {
+          "dist": "normal",
+          "sd": 200000
+        }
+      },
+      "density": {
+        "value": 793.6,
+        "unit": "kg/m3",
+        "source": "crc-handbook",
+        "confidence": 0.85,
+        "method": "derived",
+        "note": "0.7893 g/cm3 at 20 °C corrected to 15 °C",
+        "uncertainty": {
+          "dist": "normal",
+          "sd": 1
+        }
+      },
+      "lhv_volume": {
+        "value": 21347800000,
+        "unit": "J/m3",
+        "source": "mu-fuel-estimate",
+        "confidence": 0.7,
+        "method": "derived",
+        "note": "lhv_mass x density"
+      }
+    }
+  ],
+  "notes": "Energy content drives the physics fuel model; RON and ethanol content drive fuel advice, which may only name grades a manufacturer certified."
+}

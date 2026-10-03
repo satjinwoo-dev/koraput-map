@@ -1,0 +1,295 @@
+{
+  "$schema": "../schema/bundle.schema.json",
+  "schema_version": "1.0.0",
+  "id": "tvs.iqube-3-4kwh.2024",
+  "kind": "variant",
+  "powertrain": "ev",
+  "segment": "scooter",
+  "identity": {
+    "make": "TVS",
+    "model": "iQube",
+    "variant": "3.4 kWh",
+    "market": "IN",
+    "model_years": {
+      "from": 2024,
+      "to": null
+    },
+    "aliases": [
+      "iQube",
+      "iQube S"
+    ]
+  },
+  "sources": [
+    {
+      "id": "tvs-iqube-spec",
+      "kind": "oem_spec_sheet",
+      "title": "TVS iQube 3.4kWh electric scooter: price, range, specs",
+      "publisher": "TVS Motor",
+      "url": "https://tvsmotor.com/iqube/tvs-iqube-variant-details",
+      "accessed": "2026-10-03",
+      "notes": "Figures read from a web-search extract of this page on 2026-10-03, not from the page itself. Confirm against the page before marking the record reviewed."
+    },
+    {
+      "id": "mu-estimate",
+      "kind": "engineering_estimate",
+      "title": "MapUnite engineering estimates for values manufacturers don't publish",
+      "publisher": "MapUnite",
+      "rationale": "Idle speed by segment (commuter 1400, cruiser 1100, naked/sport 1500, adventure 1300, CVT scooter 1700 rpm; sd 100-150 rpm). Redline as 1.10x the power-peak speed for commuters, cruisers and scooters and 1.15x for nakeds and sports, rounded to 250 rpm, sd 6 %. Unpublished gearing from the class-default ratio set of the same gear count. Loaded rolling radius as 0.97x the unloaded radius computed from the rear tyre code (sd 1.5 %). Usable battery energy as 0.90x the stated pack energy where the manufacturer doesn't say which it is."
+    },
+    {
+      "id": "class-default",
+      "kind": "class_default",
+      "title": "MapUnite class default for ev x scooter",
+      "class_ref": "class.ev.scooter"
+    }
+  ],
+  "emission_standard": null,
+  "motor": {
+    "type": {
+      "value": "bldc",
+      "source": "tvs-iqube-spec",
+      "confidence": 0.7,
+      "method": "published",
+      "published": "BLDC hub mounted type"
+    },
+    "mounting": {
+      "value": "hub",
+      "source": "tvs-iqube-spec",
+      "confidence": 0.8,
+      "method": "published",
+      "published": "Traction motor: BLDC hub mounted type"
+    },
+    "rated_power": {
+      "value": 3000,
+      "unit": "W",
+      "source": "tvs-iqube-spec",
+      "confidence": 0.8,
+      "method": "published",
+      "published": "Rated power: 3 kW"
+    },
+    "peak_power": {
+      "value": 4400,
+      "unit": "W",
+      "source": "tvs-iqube-spec",
+      "confidence": 0.8,
+      "method": "published",
+      "published": "Peak power: 4.4 kW"
+    },
+    "peak_torque": {
+      "value": 140,
+      "unit": "N.m",
+      "source": "tvs-iqube-spec",
+      "confidence": 0.8,
+      "method": "published",
+      "published": "Peak torque: 140 Nm"
+    },
+    "torque_reference": {
+      "value": "wheel",
+      "source": "tvs-iqube-spec",
+      "confidence": 0.6,
+      "method": "derived",
+      "note": "hub motor: motor torque is wheel torque"
+    }
+  },
+  "battery": {
+    "chemistry": {
+      "value": "li_ion",
+      "source": "tvs-iqube-spec",
+      "confidence": 0.8,
+      "method": "published",
+      "published": "Lithium ion"
+    },
+    "gross_energy": {
+      "value": 12240000,
+      "unit": "J",
+      "source": "tvs-iqube-spec",
+      "confidence": 0.8,
+      "method": "published",
+      "published": "Battery capacity: 3.4 kWh Lithium ion"
+    },
+    "usable_energy": {
+      "value": 11016000,
+      "unit": "J",
+      "source": "mu-estimate",
+      "confidence": 0.4,
+      "method": "estimated",
+      "note": "0.90 x stated pack energy",
+      "uncertainty": {
+        "dist": "normal",
+        "sd": 612000
+      }
+    },
+    "nominal_voltage": {
+      "value": 52,
+      "unit": "V",
+      "source": "tvs-iqube-spec",
+      "confidence": 0.8,
+      "method": "published",
+      "published": "Rated voltage: 52V"
+    }
+  },
+  "transmission": {
+    "type": "direct",
+    "drive": {
+      "value": "hub",
+      "source": "tvs-iqube-spec",
+      "confidence": 0.8,
+      "method": "published",
+      "published": "BLDC hub mounted type"
+    },
+    "reduction_ratio": {
+      "value": 1,
+      "unit": "1",
+      "source": "tvs-iqube-spec",
+      "confidence": 0.9,
+      "method": "derived",
+      "note": "hub motor drives the wheel directly"
+    }
+  },
+  "wheels": {
+    "front_tyre": {
+      "value": "90/90-12",
+      "source": "tvs-iqube-spec",
+      "confidence": 0.8,
+      "method": "published",
+      "published": "Tyre size (Front & Rear): 90/90-12, Tubeless"
+    },
+    "rear_tyre": {
+      "value": "90/90-12",
+      "source": "tvs-iqube-spec",
+      "confidence": 0.8,
+      "method": "published",
+      "published": "Tyre size (Front & Rear): 90/90-12, Tubeless"
+    },
+    "rear_rolling_radius": {
+      "value": 0.226398,
+      "unit": "m",
+      "source": "mu-estimate",
+      "confidence": 0.7,
+      "method": "derived",
+      "note": "0.97 x unloaded radius of 90/90-12",
+      "uncertainty": {
+        "dist": "normal",
+        "sd": 0.00339597
+      }
+    }
+  },
+  "mass": {
+    "kerb": {
+      "value": 118.6,
+      "unit": "kg",
+      "source": "tvs-iqube-spec",
+      "confidence": 0.8,
+      "method": "published",
+      "published": "Kerb weight: 118.6 kg"
+    },
+    "basis": "unspecified"
+  },
+  "fuel": {
+    "required": false,
+    "compatibility": []
+  },
+  "priors": {
+    "cda": {
+      "value": 0.62,
+      "unit": "m2",
+      "source": "class-default",
+      "confidence": 0.4,
+      "method": "class_default",
+      "note": "bike + upright rider",
+      "uncertainty": {
+        "dist": "lognormal",
+        "sigma_ln": 0.25
+      }
+    },
+    "crr": {
+      "value": 0.017,
+      "unit": "1",
+      "source": "class-default",
+      "confidence": 0.4,
+      "method": "class_default",
+      "uncertainty": {
+        "dist": "normal",
+        "sd": 0.003
+      }
+    },
+    "mass": {
+      "value": 118.6,
+      "unit": "kg",
+      "source": "tvs-iqube-spec",
+      "confidence": 0.8,
+      "method": "derived",
+      "note": "kerb mass; rider and luggage are added in the app",
+      "uncertainty": {
+        "dist": "normal",
+        "sd": 3.558
+      }
+    },
+    "drivetrain_efficiency": {
+      "value": 0.85,
+      "unit": "1",
+      "source": "class-default",
+      "confidence": 0.4,
+      "method": "class_default",
+      "uncertainty": {
+        "dist": "normal",
+        "sd": 0.05
+      }
+    },
+    "regen_efficiency": {
+      "value": 0.5,
+      "unit": "1",
+      "source": "class-default",
+      "confidence": 0.3,
+      "method": "class_default",
+      "uncertainty": {
+        "dist": "normal",
+        "sd": 0.15
+      }
+    },
+    "auxiliary_power": {
+      "value": 25,
+      "unit": "W",
+      "source": "class-default",
+      "confidence": 0.3,
+      "method": "class_default",
+      "uncertainty": {
+        "dist": "normal",
+        "sd": 10
+      }
+    }
+  },
+  "performance": {
+    "top_speed": {
+      "value": 21.6667,
+      "unit": "m/s",
+      "source": "tvs-iqube-spec",
+      "confidence": 0.7,
+      "method": "published",
+      "published": "Top speed: 78 km/h"
+    },
+    "certified_range": {
+      "distance": {
+        "value": 145000,
+        "unit": "m",
+        "source": "tvs-iqube-spec",
+        "confidence": 0.7,
+        "method": "published",
+        "published": "IDC Range: 145 km under full charge"
+      },
+      "cycle": {
+        "value": "IDC",
+        "source": "tvs-iqube-spec",
+        "confidence": 0.8,
+        "method": "published",
+        "published": "IDC Range"
+      }
+    }
+  },
+  "notes": "Hub motor: 140 Nm is wheel torque. TVS also quotes 100 km (Economy) and 75 km (Power) real-world ranges.",
+  "record": {
+    "created": "2026-10-03",
+    "updated": "2026-10-03",
+    "review_status": "unreviewed"
+  }
+}

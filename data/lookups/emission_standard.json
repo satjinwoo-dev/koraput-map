@@ -1,0 +1,154 @@
+{
+  "$schema": "../schema/emission_standard.schema.json",
+  "schema_version": "1.0.0",
+  "table": "emission_standard",
+  "sources": [
+    {
+      "id": "dieselnet-2w",
+      "kind": "dataset",
+      "title": "India: 2- and 3-wheel vehicles emission standards",
+      "publisher": "DieselNet",
+      "url": "https://dieselnet.com/standards/in/2wheel.php",
+      "accessed": "2026-10-03",
+      "notes": "Figures read from a web-search extract of this page on 2026-10-03, not from the page itself. Confirm against the page before marking the record reviewed."
+    },
+    {
+      "id": "tvs-bs6p2",
+      "kind": "oem_press_release",
+      "title": "BS6 Phase 2: RDE and OBD-2 compliance explained",
+      "publisher": "TVS Motor",
+      "url": "https://www.tvsmotor.com/media/blog/bs6-phase-2-rde-and-obd-2-compliance-explained",
+      "accessed": "2026-10-03",
+      "notes": "Figures read from a web-search extract of this page on 2026-10-03, not from the page itself. Confirm against the page before marking the record reviewed."
+    },
+    {
+      "id": "suzuki-e20",
+      "kind": "press",
+      "title": "Suzuki's Access 125, Avenis and Burgman Street now OBD2 and E20 compatible",
+      "publisher": "Autocar Professional",
+      "url": "https://autocarpro.in/news/suzukis-access-125-avenis-and-burgman-street-now-obd2-and-e20-compatible-114301",
+      "accessed": "2026-10-03",
+      "notes": "Figures read from a web-search extract of this page on 2026-10-03, not from the page itself. Confirm against the page before marking the record reviewed."
+    },
+    {
+      "id": "mu-estimate",
+      "kind": "engineering_estimate",
+      "title": "MapUnite estimates for unsourced emission-table fields",
+      "publisher": "MapUnite",
+      "rationale": "OBD stage of BS4 and BS6 Phase 1 two-wheelers not confirmed from a primary source in this pass."
+    }
+  ],
+  "rows": [
+    {
+      "id": "BS4",
+      "label": "Bharat Stage IV",
+      "effective_from": {
+        "value": "2017-04-01",
+        "source": "dieselnet-2w",
+        "confidence": 0.8,
+        "method": "published",
+        "published": "BS IV: April 2017"
+      },
+      "test_cycle": {
+        "value": "WMTC",
+        "source": "dieselnet-2w",
+        "confidence": 0.75,
+        "method": "published",
+        "published": "Beginning with BS IV standards, emissions are tested over the WMTC"
+      },
+      "obd_stage": {
+        "value": "none",
+        "source": "mu-estimate",
+        "confidence": 0.4,
+        "method": "estimated"
+      },
+      "notes": "Limits depend on WMTC sub-class and are not tabulated here."
+    },
+    {
+      "id": "BS6-P1",
+      "label": "Bharat Stage VI, Phase 1",
+      "effective_from": {
+        "value": "2020-04-01",
+        "source": "dieselnet-2w",
+        "confidence": 0.85,
+        "method": "published",
+        "published": "BS VI standards go into effect for all vehicles manufactured on or after April 1, 2020"
+      },
+      "test_cycle": {
+        "value": "WMTC",
+        "source": "dieselnet-2w",
+        "confidence": 0.75,
+        "method": "derived",
+        "note": "WMTC since BS IV"
+      },
+      "obd_stage": {
+        "value": "OBD-I",
+        "source": "mu-estimate",
+        "confidence": 0.4,
+        "method": "estimated"
+      },
+      "limits": {
+        "thc": {
+          "value": 1e-7,
+          "unit": "kg/m",
+          "source": "dieselnet-2w",
+          "confidence": 0.75,
+          "method": "published",
+          "published": "THC 0.1 g/km"
+        },
+        "nox": {
+          "value": 6e-8,
+          "unit": "kg/m",
+          "source": "dieselnet-2w",
+          "confidence": 0.75,
+          "method": "published",
+          "published": "NOx 0.06 g/km"
+        }
+      }
+    },
+    {
+      "id": "BS6-P2",
+      "label": "Bharat Stage VI, Phase 2 (OBD-II)",
+      "effective_from": {
+        "value": "2023-04-01",
+        "source": "tvs-bs6p2",
+        "confidence": 0.85,
+        "method": "published",
+        "published": "OBD-2 mandatory on all two-wheelers sold from April 1, 2023"
+      },
+      "test_cycle": {
+        "value": "WMTC",
+        "source": "dieselnet-2w",
+        "confidence": 0.75,
+        "method": "derived",
+        "note": "WMTC since BS IV"
+      },
+      "obd_stage": {
+        "value": "OBD-II-A",
+        "source": "suzuki-e20",
+        "confidence": 0.75,
+        "method": "published",
+        "published": "OBD2-A ... norms that kick in from April 2023"
+      },
+      "limits": {
+        "thc": {
+          "value": 1e-7,
+          "unit": "kg/m",
+          "source": "dieselnet-2w",
+          "confidence": 0.6,
+          "method": "derived",
+          "note": "unchanged from Phase 1"
+        },
+        "nox": {
+          "value": 6e-8,
+          "unit": "kg/m",
+          "source": "dieselnet-2w",
+          "confidence": 0.6,
+          "method": "derived",
+          "note": "unchanged from Phase 1"
+        }
+      },
+      "notes": "OBD-II-B monitoring followed from 2025-04-01 (models updated for OBD2B in 2025); still BS6 Phase 2."
+    }
+  ]
+}
