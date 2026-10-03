@@ -149,6 +149,9 @@
         // ---- fuel ----
         { path: "fuel.minRon", type: "q", unit: "RON", range: [80, 102], allow: ICE, doc: "Manufacturer's minimum research octane number" },
 
+        // ---- media (bike picker) ----
+        { path: "media.image", type: "c", allow: ALL, pattern: "^https://[^\\s\"<>]{4,500}$", doc: "Picture of this variant for the bike picker: an https URL taken from the cited source (never a guessed or constructed URL). Compiled to image_url" },
+
         // ---- priors (uncertain model parameters; class defaults carry the full set) ----
         { path: "priors.cda", type: "p", unit: "m2", range: [0.1, 1.2], allow: ALL, reqDefault: ALL, doc: "Effective drag area, bike + rider" },
         { path: "priors.crr", type: "p", unit: "1", range: [0.004, 0.05], allow: ALL, reqDefault: ALL, doc: "Rolling-resistance coefficient" },
@@ -163,8 +166,8 @@
         { path: "priors.regenEfficiency", type: "p", unit: "1", range: [0, 0.9], allow: EV, reqDefault: EV, doc: "Share of braking energy recovered" }
     ];
     const FIELD_BY_PATH = Object.fromEntries(FIELDS.map((f) => [f.path, f]));
-    const GROUPS = ["engine", "motor", "battery", "transmission", "chassis", "emission", "fuel", "priors"];
-    const TOP_KEYS = ["$schema", "schemaVersion", "id", "kind", "classKey", "segment", "powertrain", "identity", "sources", "engine", "motor", "battery", "transmission", "chassis", "emission", "fuel", "curves", "priors", "notes"];
+    const GROUPS = ["engine", "motor", "battery", "transmission", "chassis", "emission", "fuel", "media", "priors"];
+    const TOP_KEYS = ["$schema", "schemaVersion", "id", "kind", "classKey", "segment", "powertrain", "identity", "sources", "engine", "motor", "battery", "transmission", "chassis", "emission", "fuel", "media", "curves", "priors", "notes"];
     const IDENTITY_KEYS = ["make", "model", "variant", "market", "yearFrom", "yearTo", "aliases"];
 
     // ------------------------------------------------------------------
@@ -369,6 +372,12 @@
         fuelChecks(b, pt, sources, usedSources, ref, R);
         emissionChecks(b, pt, ref, R);
         curveChecks(b, pt, R, checkProv);
+
+        // ---- media: an image URL must come from a real document, never be made up ----
+        const img = get(b, "media.image");
+        if (isObj(img) && typeof img.src === "string" && sources.has(img.src) && ["estimated", "class_prior", "derived"].includes(sources.get(img.src).kind)) {
+            R.err("media.image.src", "provenance", "an image URL must be taken from a cited document (manufacturer, press, ...), not estimated or derived");
+        }
 
         // ---- notes ----
         if (b.notes !== undefined && (!Array.isArray(b.notes) || b.notes.some((n) => typeof n !== "string" || n.length > 1000))) R.err("notes", "type", "notes must be an array of strings ≤ 1000 chars");
@@ -761,7 +770,7 @@
                 },
                 sources: { type: "array", minItems: 1, items: { $ref: "#/$defs/source" } },
                 engine: group("engine"), motor: group("motor"), battery: group("battery"), transmission: group("transmission"), chassis: group("chassis"),
-                emission: { oneOf: [{ type: "null" }, group("emission")] }, fuel: group("fuel"), priors: group("priors"),
+                emission: { oneOf: [{ type: "null" }, group("emission")] }, fuel: group("fuel"), media: group("media"), priors: group("priors"),
                 curves: { type: "object", additionalProperties: false, properties: Object.fromEntries(CURVE_KINDS.map((k) => [k, { $ref: "#/$defs/curve" }])) },
                 notes: { type: "array", items: { type: "string", maxLength: 1000 } }
             },

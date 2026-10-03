@@ -1835,6 +1835,41 @@
         }
       }
     },
+    "media": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "v",
+            "src",
+            "conf"
+          ],
+          "description": "Picture of this variant for the bike picker: an https URL taken from the cited source (never a guessed or constructed URL). Compiled to image_url",
+          "properties": {
+            "v": {
+              "type": "string",
+              "pattern": "^https://[^\\s\"<>]{4,500}$"
+            },
+            "src": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,47}$"
+            },
+            "conf": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "note": {
+              "type": "string",
+              "maxLength": 400
+            }
+          }
+        }
+      }
+    },
     "priors": {
       "type": "object",
       "additionalProperties": false,
