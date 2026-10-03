@@ -101,6 +101,39 @@ test("with a bike: fill-ups correct the physics (not the generic curve), and the
     assert.ok(trips.every((t) => Array.isArray(t.hist) && t.hist.length === 40), "drives keep their 5 km/h speed bins");
 });
 
+test("fleet records (Step 8): the rider's tanks in the server's format, with nothing about where or when", () => {
+    const { validateTank } = require("../../lib/bikedb/fleet.js");
+    const known = {
+        bundleClass: (h) => { const b = art.bundles.find((x) => x.hash === h); return b ? { classKey: b.classKey, bikeId: b.id } : null; },
+        fuels: ["E0", "E10", "E20", "E85", "E100"], evClass: (k) => k.startsWith("ev.")
+    };
+    const g = garageFor(HUNTER, { riderMass: 78 });
+    const snap = snapshotFor(g);
+    assert.equal(snap.payloadKg, 78);
+    const sd = withBike({ "mu.garage.v1": JSON.stringify(g), mu_bike_fuel_v1: JSON.stringify(snap) });
+    sd.run("SmartDrive.init(); FuelCurve.init();");
+    runScenario(sd, { trueKmPerL: (v) => FB.kmPerLAt(snap, v) / 1.2, trueIdleLph: snap.idleLPerHour });
+    const tanks = json(sd.run("FuelCurve.fleetTanks()"));
+    assert.equal(tanks.length, 7);
+    for (const t of tanks) {
+        assert.deepEqual(Object.keys(t).sort(), ["bike", "bundle", "fuelCode", "hist", "idleH", "km", "litres", "massKg"], "no timestamps, no odometer, no places");
+        assert.deepEqual([t.bike, t.bundle, t.fuelCode, t.massKg], [HUNTER, g.bundle, "E20", 80]);
+        const v = validateTank(t, known);
+        assert.equal(v.ok, true, JSON.stringify(v));
+        assert.ok(Math.abs(t.hist.reduce((a, x) => a + x, 0) / t.km - 1) < 0.01);
+        assert.ok(t.km / t.litres > 25 && t.km / t.litres < 45);
+    }
+    // nothing to send: gearing changed (the fleet model is stock), or no bike
+    const geared = withBike({ "mu.garage.v1": JSON.stringify(garageFor(HUNTER, { frontSprocket: 16, rearSprocket: 40 })), mu_bike_fuel_v1: JSON.stringify(snapshotFor(garageFor(HUNTER, { frontSprocket: 16, rearSprocket: 40 }))) });
+    geared.run("SmartDrive.init(); FuelCurve.init();");
+    runScenario(geared);
+    assert.deepEqual(json(geared.run("FuelCurve.fleetTanks()")), []);
+    const none = loadSmartDrive();
+    none.run("SmartDrive.init(); FuelCurve.init();");
+    runScenario(none);
+    assert.deepEqual(json(none.run("FuelCurve.fleetTanks()")), []);
+});
+
 test("fill-ups logged with another bike aren't used for this one; untagged (older) fill-ups still are", () => {
     const g = garageFor(HUNTER);
     const snap = snapshotFor(g);
@@ -146,6 +179,29 @@ test("the bike or its settings changed: the snapshot is rebuilt from the physics
     assert.equal(sd.run("BikeFuel.status"), "none");
     assert.equal(sd.ctx.localStorage.getItem("mu_bike_fuel_v1"), null);
     assert.equal(sd.run("SmartDrive.ratedKmPerL()"), 18);
+});
+
+test("a fleet-calibrated bundle (Step 8): the rebuilt baseline includes the real-riding overhead, and Settings says so", async () => {
+    const g = garageFor(HUNTER);
+    const plain = snapshotFor(g);
+    const calibration = { date: "2026-10-03", tanks: 400, riders: 40, overhead: { mean: 1.1, sigma: 0.04, u: "1", src: "fleet-calibration" } };
+    const page = { MUPhysics: Physics, MUTrip: { app: { store: {
+        catalog: async () => ({ index: {} }),
+        model: async (gg) => { const b = { ...runtime.get(gg.bikeId), calibration }; return { bundle: b, model: Physics.createBikeModel(b, { classDefault: classDefaultOf(b), settings: gg.settings }) }; }
+    } } } };
+    const sd = withBike({ "mu.garage.v1": JSON.stringify(g) }, page);
+    sd.run("SmartDrive.init(); FuelCurve.init();");
+    await sd.run("BikeFuel._pending.promise");
+    assert.equal(sd.run("BikeFuel.status"), "ready");
+    const snap = JSON.parse(sd.ctx.localStorage.getItem("mu_bike_fuel_v1"));
+    assert.equal(snap.fleet.overhead, 1.1);
+    assert.ok(Math.abs(snap.referenceKmPerL * 1.1 / plain.referenceKmPerL - 1) < 1e-3);
+    assert.equal(sd.run("SmartDrive.ratedKmPerL()"), snap.referenceKmPerL);
+    assert.match(sd.run("BikeFuel.describe()"), /in everyday riding \(physics, calibrated on 40 riders' fill-ups\)/);
+    // the same bike without a calibration keeps the Step 7 wording
+    const sd2 = withBike({ "mu.garage.v1": JSON.stringify(g), mu_bike_fuel_v1: JSON.stringify(plain) });
+    sd2.run("SmartDrive.init(); FuelCurve.init();");
+    assert.match(sd2.run("BikeFuel.describe()"), /on a flat road \(physics; stops and hills use more\)/);
 });
 
 test("the bike's data can't be loaded (offline, first time): the old behaviour, a clear note, and a retry later", async () => {

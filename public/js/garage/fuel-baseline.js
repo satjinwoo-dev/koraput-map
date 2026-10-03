@@ -16,6 +16,7 @@
                        the band SmartDrive's "efficient drive" comparison uses
      eco               the physics eco band (km/h) and its best km/L, for display
      sigmaRel          ±1σ of the reference figure, relative
+     payloadKg         rider + pillion + luggage the physics used (kg; for fleet records)
 
    The fill-up learner (FuelCurve) then learns the rider's per-band corrections
    ON TOP of this baseline, exactly as it did on top of the generic curve.
@@ -24,6 +25,13 @@
    localStorage, so the app starts with it synchronously and offline, without
    loading the physics. Display units (km/h, km/L, L/h) appear only here and in
    the UI; the physics stays SI.
+
+   Fleet calibration (Step 8): when the bike's bundle carries a reviewed fleet
+   calibration (bundle.calibration, from riders' shared fill-ups), its real-riding
+   overhead λ — acceleration, stops, hills, wind, warm-up that a steady, flat-road
+   model can't see — scales the moving fuel (km/L ÷ λ; idle is fitted separately
+   and stays). Its uncertainty is added to sigmaRel. The snapshot then says so
+   (`fleet`); without a calibration the snapshot is exactly as before.
 
    EVs have no litres: buildFuelBaseline() returns { kind: "ev" } and SmartDrive
    keeps its previous behaviour for them.
@@ -42,7 +50,8 @@
      * @typedef {{ format: 1, kind: "petrol", key: string, bikeTag: string, title: string, estimated: boolean,
      *   step: number, kmPerL: number[], idleLPerHour: number, referenceKmPerL: number, sigmaRel: number,
      *   eco: { fromKmh: number, toKmh: number, bestKmh: number, bestKmPerL: number } | null, vMaxKmh: number,
-     *   fuelCode: string, flags: string[] }} PetrolBaseline
+     *   fuelCode: string, flags: string[], payloadKg?: number, fleet?: FleetNote }} PetrolBaseline
+     * @typedef {{ overhead: number, overheadSigma: number, date: string, tanks: number, riders: number }} FleetNote
      * @typedef {{ format: 1, kind: "ev", key: string, bikeTag: string, title: string, estimated: boolean }} EvBaseline
      * @typedef {PetrolBaseline | EvBaseline} FuelBaseline
      */
@@ -65,11 +74,14 @@
      * @param {any} physics  MUPhysics
      * @param {any} model    physics.createBikeModel() result for the rider's bike and settings
      * @param {{ bikeId: string|null, classKey: string, bundle: string, settings?: any, title: string, estimated?: boolean }} garage
+     * @param {{ calibration?: any }} [opts]  calibration: the bundle's fleet calibration (bundle.calibration), if any
      * @returns {FuelBaseline}
      */
-    function buildFuelBaseline(physics, model, garage) {
+    function buildFuelBaseline(physics, model, garage, opts = {}) {
         const base = { format: /** @type {1} */ (SNAPSHOT_FORMAT), key: garageKey(garage), bikeTag: bikeTag(garage), title: garage.title, estimated: Boolean(garage.estimated) };
         if (model.powertrain === "ev") return { ...base, kind: "ev" };
+        const fleet = fleetNote(opts.calibration);
+        const lambda = fleet ? fleet.overhead : 1;
         // the grid: the physics sampled exactly at every grid speed (fuel only, no ±1σ: fast)
         const g = physics.cruiseTable(model, {}, { step: GRID_STEP_KMH / 3.6, sigma: false });
         /** @type {number[]} */
@@ -82,7 +94,7 @@
         if (last < 2) throw new Error(`${model.id}: the physics found no steady speed this bike can hold`);
         for (let i = 0; i <= last; i++) {
             const pm = g.perMetre[i];
-            grid.push(g.feasible[i] && pm > 0 && Number.isFinite(pm) ? 1e-6 / pm : NaN);
+            grid.push(g.feasible[i] && pm > 0 && Number.isFinite(pm) ? 1e-6 / (pm * lambda) : NaN);
         }
         // standstill and any speed the bike can't hold steadily (first gear's clutch region): the nearest held speed
         for (let i = 0; i < grid.length; i++) if (!Number.isFinite(grid[i])) grid[i] = nearestFinite(grid, i);
@@ -94,7 +106,7 @@
         for (let i = 0; i < t.speed.length; i++) {
             const kmh = t.speed[i] * 3.6, pm = t.perMetre[i];
             if (kmh < 1 || !t.feasible[i] || !(pm > 0) || !Number.isFinite(pm)) continue;
-            rows.push({ kmh, kmPerL: 1e-6 / pm, lo: t.perMetreLo[i] > 0 ? 1e-6 / t.perMetreHi[i] : NaN, hi: t.perMetreLo[i] > 0 ? 1e-6 / t.perMetreLo[i] : NaN });
+            rows.push({ kmh, kmPerL: 1e-6 / (pm * lambda), lo: t.perMetreLo[i] > 0 ? 1e-6 / (t.perMetreHi[i] * lambda) : NaN, hi: t.perMetreLo[i] > 0 ? 1e-6 / (t.perMetreLo[i] * lambda) : NaN });
         }
         const snapGrid = { step: GRID_STEP_KMH, kmPerL: grid };
         const at = (/** @type {number} */ kmh) => kmPerLAt(/** @type {any} */ (snapGrid), kmh);
@@ -103,13 +115,32 @@
         const reference = harmonicMean(rows, REF_BAND[0], REF_BAND[1], at);
         const refLo = harmonicMean(rows, REF_BAND[0], REF_BAND[1], (k) => interp(rows, k, "lo"));
         const refHi = harmonicMean(rows, REF_BAND[0], REF_BAND[1], (k) => interp(rows, k, "hi"));
-        const sigmaRel = Number.isFinite(refLo) && Number.isFinite(refHi) && reference > 0 ? (refHi - refLo) / (2 * reference) : NaN;
+        const sigmaPhys = Number.isFinite(refLo) && Number.isFinite(refHi) && reference > 0 ? (refHi - refLo) / (2 * reference) : NaN;
+        const sigmaRel = fleet ? Math.hypot(sigmaPhys, fleet.overheadSigma / fleet.overhead) : sigmaPhys;
         const e = t.eco;
-        return {
+        /** @type {PetrolBaseline} */
+        const out = {
             ...base, kind: "petrol", step: GRID_STEP_KMH, kmPerL: grid.map(round3),
             idleLPerHour: round3(idleLPerHour), referenceKmPerL: round3(reference), sigmaRel: round3(sigmaRel),
-            eco: e ? { fromKmh: round1(e.speedLow * 3.6), toKmh: round1(e.speedHigh * 3.6), bestKmh: round1(e.speedBest * 3.6), bestKmPerL: round3(1e-6 / e.perMetreBest) } : null,
-            vMaxKmh: round1(vMaxKmh), fuelCode: model.fuel ? model.fuel.code : "", flags: model.flags.slice()
+            eco: e ? { fromKmh: round1(e.speedLow * 3.6), toKmh: round1(e.speedHigh * 3.6), bestKmh: round1(e.speedBest * 3.6), bestKmPerL: round3(1e-6 / (e.perMetreBest * lambda)) } : null,
+            vMaxKmh: round1(vMaxKmh), fuelCode: model.fuel ? model.fuel.code : "", flags: model.flags.slice(),
+            payloadKg: round1(model.params.riderMass.mean + model.massFixed - model.vehicleMass)
+        };
+        if (fleet) out.fleet = fleet;
+        return out;
+    }
+
+    /**
+     * The fleet calibration's real-riding overhead, if the bundle has a usable one.
+     * @param {any} c  bundle.calibration: { date, tanks, riders, overhead: { mean, sigma, u: "1" } }
+     * @returns {FleetNote|null}
+     */
+    function fleetNote(c) {
+        const o = c && c.overhead;
+        if (!o || o.u !== "1" || !(typeof o.mean === "number" && o.mean > 0.5 && o.mean < 3)) return null;
+        return {
+            overhead: o.mean, overheadSigma: typeof o.sigma === "number" && o.sigma >= 0 ? o.sigma : 0,
+            date: typeof c.date === "string" ? c.date : "", tanks: Number(c.tanks) || 0, riders: Number(c.riders) || 0
         };
     }
 

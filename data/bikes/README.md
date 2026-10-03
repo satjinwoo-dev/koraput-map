@@ -7,6 +7,7 @@ data/bikes/
   variants/          one file per real bike variant           (25 seed variants — shipped)
   class-defaults/    one file per powertrain × segment class  (10 — the fallback for any unknown bike)
   pending/           researched bikes blocked by a rule       (2 — validated, never shipped)
+  calibration/       reviewed fleet calibrations, one per class (Step 8 — none yet; see FLEET.md)
   reference/
     fuel-grades.json         E0 / E10 / E20 / E85 / E100: energy per litre, density, RON
     emission-standards.json  BS4, BS6-P1, BS6-P2 and the OBD stages (OBD-1, OBD-2A, OBD-2B)
@@ -21,7 +22,11 @@ scripts/bikedb/bench-search.mjs      search benchmark on a synthetic 20,000-vari
 scripts/bikedb/requests.mjs          the queue of rider requests for missing bikes (npm run bikes:requests)
 lib/bikedb/catalog-db.js             the server's read-only view of bikes.sqlite: search, bundles, hot reload
 lib/bikedb/request-queue.js          requests for missing bikes, stored in the server's database
-lib/bikedb/http-api.js               /api/bikes routes (search, bundles, requests, status), CORS for the app
+lib/bikedb/http-api.js               /api/bikes routes (search, bundles, requests, fill-ups, calibration, status), CORS for the app
+lib/bikedb/fleet.js                  anonymous fill-ups from riders who opted in (Step 8), stored in the server's database
+lib/bikedb/calibration.js            the class-level fleet fit (Bayesian MAP, robust, cross-validated by rider)
+scripts/bikedb/calibrate.mjs         fit the fleet, write proposals to calibration/ (npm run bikes:calibrate)
+scripts/bikedb/calibration-file.mjs  the proposal format; applies reviewed proposals in the build
 public/js/bikedb/bike-api.js         client for the website and the app: server first, offline fallback
 test/bikedb/                         node --test test/bikedb/*.test.mjs
 
@@ -229,6 +234,17 @@ Every powertrain × segment class has one default, so a search never comes back 
 - Defaults use `class_prior` sources (confidence ≤ 0.5) and carry the **full prior set**: drag area, rolling resistance, drivetrain and engine efficiency, friction terms, redline factor, and EV motor and regeneration efficiency.
 - Variants inherit any prior they don't set (`resolvePriors()`).
 - Defaults are never used for fuel advice.
+
+## Fleet calibrations (`calibration/`, Step 8)
+
+`npm run bikes:calibrate -- --write` writes `calibration/<class-key>.json` for a petrol class when riders' shared fill-ups predict their tanks better than today's priors. Review it like any other data change:
+
+- **`basedOn`**: the class default's priors the fit started from. If you edit those priors, the proposal goes stale: the build skips it with a warning until the fleet is re-fitted.
+- **`priors`**: the proposed drag area, rolling resistance, indicated efficiency and friction MEP A, in the files' units, with their new ±σ and confidence.
+- **`overhead`**: everyday riding versus steady flat-road physics. It ships in the bundles (`calibration.overhead`) and SmartDrive's baseline uses it.
+- **`evidence`**: tanks, riders, km, litres, the noise, and the held-out riders' error before and after.
+
+The build writes the proposal into the class default with `src: "fleet-calibration"` and a note giving the old value, and adds a `derived` source with the evidence. It never edits the class-default file itself. To undo a calibration, delete its file and rebuild. The source id `fleet-calibration` is reserved for this. Calibrations change priors only; the fuel advice rule below is unaffected.
 
 ## Adding a bike
 

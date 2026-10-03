@@ -277,6 +277,7 @@ app.head("/media/:dir/:file", mediaLimiter, media.handler());
 const bikeApi = createBikeApi({
     catalog: BIKES_DB_PATH,
     queueDb: () => db,
+    fleetSecret: () => SERVER_SECRET,                    // anonymous fill-up contributor tokens (Step 8)
     corsOrigins: CORS_ORIGIN,
     requesterKey: (req) => crypto.createHmac("sha256", SERVER_SECRET).update(`mu-bike-request-v1|${req.ip}`).digest("hex").slice(0, 32)
 });

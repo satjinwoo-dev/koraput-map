@@ -95,7 +95,7 @@ The running server picks up a rebuilt `bikes.sqlite` by itself within 5 seconds:
 - **Where riders find it:** Settings → **My bike** opens the garage in a sheet over the map. It never navigates away, so the convoy connection stays up.
 - **What it changes:** once a rider picks their bike, SmartDrive's fuel numbers come from that bike's physics instead of the fixed 18 km/L. That covers trip fuel, the efficient-drive comparison and the km/L shared for meetup costing. Fill-ups then refine it.
 - **No bike:** riders who don't pick a bike see no change.
-- **Service worker:** the release bumps the version to `mu-2026-10-03.14`.
+- **Service worker:** the release bumps the version to `mu-2026-10-03.15`.
   - It precaches My bike, the bike list and the typical-bike data, and the Socket.IO client library, so the app also opens offline.
   - Bike data lives in its own cache (`mu-bikedb-v1`), which survives releases.
 - **Testing in a browser:** `node scripts/e2e/garage-offline.mjs` runs the flows in headless Chromium against a local `server.js`. It needs Playwright.
@@ -111,10 +111,23 @@ The server reads `bikes.sqlite` read-only and serves it under `/api/bikes` (`lib
 | `GET /api/bikes/bundles/<bike-id>` | The same bytes by bike id, cached for 5 minutes. `Content-Location` names the hash URL. |
 | `POST /api/bikes/requests` | `{"make", "model", "variant"?, "market"?, "year"?, "powertrain"?, "note"?}` (JSON, at most 4 KB). A bike that's already listed comes back as `{"status": "listed", "matches": […]}`. Otherwise the request is queued (202), or a vote is added to the same request. Send `"force": true` when the rider says the listed bike isn't theirs. |
 | `GET /api/bikes/status` | Catalogue version, number of variants and bundles. |
+| `POST /api/bikes/fillups`, `POST /api/bikes/fillups/mine`, `DELETE /api/bikes/fillups` | Anonymous full-to-full tanks from riders who opted in (Step 8), what a contributor token sent, and deleting it. See `FLEET.md`. |
+| `GET /api/bikes/calibration`, `GET /api/bikes/calibration/<class-key>` | Per-class fleet data and the latest fit, for the Fuel Learner dashboard. |
 
 - **Android app.** The page origin `https://localhost` calls the API cross-origin. The routes answer allowed origins with CORS, using the same list as Socket.IO: `CORS_ORIGIN` plus `NATIVE_APP_ORIGINS`. That includes the preflight for the JSON POST. A POST from any other site is refused with 403. `public/js/bikedb/bike-api.js` is the client for the website and the app. It searches the server first and falls back to `catalog.json` offline. It loads bundles from the copy shipped with the page or APK first, then from the server.
 - **Rate limits.** The bike routes have their own limits: search 240/min, bundles 600/min and requests 20/hour per IP. They don't count against `HTTP_RATE_LIMIT_MAX`, because type-ahead sends one search per keystroke.
 - **Requests for missing bikes** are stored in the server's own database (`DB_PATH`), not in `bikes.sqlite`. The queue keeps one row per bike and counts one vote per requester. Requesters are an HMAC pseudonym from `SERVER_SECRET`; IP addresses are never stored. A request is only a name: a curator researches the bike into `data/bikes/` like any other bike. List the queue with `npm run bikes:requests` (`DB_PATH=… npm run bikes:requests -- --set <id> researching|added|rejected` changes a status).
+
+### Fleet calibration (Step 8)
+
+`FLEET.md` has the full contract. For the server:
+
+- **Storage.** Tanks live in the server's own database (`DB_PATH`), in the `fleet_tank` and `fleet_fit` tables, created on first use, never in `bikes.sqlite`.
+- **Privacy.** Contributors are an HMAC of the app's random token under `SERVER_SECRET`. No location, times or IP addresses are stored, only the day a tank arrived. Tanks older than 730 days are purged on every calibration run (`FLEET_RETENTION_DAYS`).
+- **Rate limits.** The new routes have their own limits: fill-ups 30/hour, calibration reads 120/minute per IP.
+- **Fitting.** Run `DB_PATH=… npm run bikes:calibrate` (for example nightly from cron) from a checkout of the deployed commit. It fits every class with tanks and stores the results the dashboard reads. It changes nothing riders see.
+- **Service worker.** The release bumps the version to `mu-2026-10-03.16`, because `smartdrive.js` and `fuel-baseline.js` changed.
+- **Shipping a calibration.** Run `npm run bikes:calibrate -- --write`. It writes `data/bikes/calibration/<class-key>.json` for each class that passed every check. Review and commit it, then rebuild the catalogue and deploy as usual. The rebuilt bundles carry the new priors and the real-riding overhead; the server picks up the new `bikes.sqlite` within 5 seconds, and phones get the new bundles through the catalogue.
 
 ## 3. The features (what riders see)
 

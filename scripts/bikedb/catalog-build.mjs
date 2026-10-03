@@ -152,8 +152,10 @@ const usedSources = (list, ids) => (list || []).filter((s) => ids.has(s.id));
  * @param {any} b          validated variant or class default
  * @param {any} classDef   the class default for b.classKey (b itself for a default)
  * @param {import("../../public/js/bikedb/bundle-contract.js").RefTables & Record<string, any>} ref
+ * @param {any} [calibration]  the class's fleet calibration (data/bikes/calibration/): its real-riding
+ *                             overhead and evidence go into the bundle as `calibration` (Step 8)
  */
-export function makeRuntimeBundle(b, classDef, ref) {
+export function makeRuntimeBundle(b, classDef, ref, calibration = null) {
     const isVariant = b.kind === "variant";
     /** @type {Record<string, any>} */
     const rt = {
@@ -189,6 +191,9 @@ export function makeRuntimeBundle(b, classDef, ref) {
         }
     }
     rt.priors = priors;
+    // Fleet calibration (Step 8): the real-riding overhead learned with the class's priors
+    // (dimensionless; its src is the class default's "fleet-calibration" source).
+    if (calibration && ICE.includes(b.powertrain)) rt.calibration = { date: calibration.date, tanks: calibration.tanks, riders: calibration.riders, overhead: { ...calibration.overhead } };
     if (isVariant) rt.classDefault = { id: classDef.id, sources: usedSources(classDef.sources, inheritedSrc) };
 
     if (ICE.includes(b.powertrain)) {
@@ -263,9 +268,9 @@ export function assembleCatalog(rows, classes, schemaVersion) {
 /**
  * Validate and build every artifact in memory. Throws BuildError (and writes
  * nothing) if the catalogue doesn't validate.
- * @param {{ entries: Array<{ file?: string, bundle: any }>, ref: any }} input  loadCatalog() output
+ * @param {{ entries: Array<{ file?: string, bundle: any }>, ref: any, calibrations?: Map<string, any> }} input  loadCatalog() output
  */
-export function buildArtifacts({ entries, ref }) {
+export function buildArtifacts({ entries, ref, calibrations = new Map() }) {
     const report = Contract.validateCatalog(entries, ref);
     if (!report.ok) {
         const details = [];
@@ -283,7 +288,7 @@ export function buildArtifacts({ entries, ref }) {
     const bundles = [];
     const byHash = new Map();
     const add = (b, classDef) => {
-        const runtime = makeRuntimeBundle(b, classDef, ref);
+        const runtime = makeRuntimeBundle(b, classDef, ref, calibrations.get(b.classKey) || null);
         const bytes = canonicalJson(runtime);
         const hash = shortHash(bytes);
         if (byHash.has(hash)) throw new BuildError(`bundle hash collision: ${b.id} and ${byHash.get(hash)} both hash to ${hash}`);
@@ -314,7 +319,8 @@ export function buildArtifacts({ entries, ref }) {
     const inputHash = sha256(canonicalJson({
         bundleFormat: BUNDLE_FORMAT, dbFormat: DB_FORMAT, schemaVersion,
         bundles: entries.map((e) => e.bundle).sort((a, b) => byCode(a.id, b.id)),
-        ref
+        ref,
+        calibrations: [...calibrations.entries()].sort((a, b) => byCode(a[0], b[0]))
     }));
     return {
         bundles,

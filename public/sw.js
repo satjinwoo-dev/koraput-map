@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-03.15";          // Step 7: My bike sheet, trip energy, fonts, bike catalogue offline
+const VERSION = "mu-2026-10-03.16";          // Step 8: fleet calibration in the fuel baseline, fleet records (Step 7: My bike sheet, trip energy, fonts, bike catalogue offline)
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;

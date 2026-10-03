@@ -147,8 +147,9 @@ const BikeFuel = {
             try {
                 const { store, physics } = await this.core();
                 const { index } = await store.catalog();
-                const { model } = await store.model(g, index);
-                const snap = this.lib().buildFuelBaseline(physics, model, g);
+                const { bundle, model } = await store.model(g, index);
+                // a reviewed fleet calibration in the bundle (Step 8) adds the real-riding overhead
+                const snap = this.lib().buildFuelBaseline(physics, model, g, { calibration: bundle && bundle.calibration });
                 if (this.lib().garageKey(this.garage() || g) !== key) return this.status;      // the bike changed meanwhile
                 try { localStorage.setItem(this.SNAP_KEY, JSON.stringify(snap)); } catch (e) { /* storage full: still used this session */ }
                 this.snap = snap; this.status = snap.kind === "ev" ? "ev" : "ready"; this.error = "";
@@ -176,6 +177,7 @@ const BikeFuel = {
         if (this.status === "ready" && s) {
             const pm = Number.isFinite(s.sigmaRel) && s.sigmaRel > 0 ? ` ±${Math.round(s.sigmaRel * 100)}%` : "";
             const eco = s.eco ? ` Best mileage at ${Math.round(s.eco.fromKmh)}–${Math.round(s.eco.toKmh)} km/h.` : "";
+            if (s.fleet) return `From your ${s.estimated ? "typical " : ""}${s.title} in My bike: ${s.referenceKmPerL.toFixed(1)} km/L at 40–60 km/h${pm} in everyday riding (physics, calibrated on ${s.fleet.riders} riders' fill-ups).${eco} Your fill-ups correct it.`;
             return `From your ${s.estimated ? "typical " : ""}${s.title} in My bike: ${s.referenceKmPerL.toFixed(1)} km/L at 40–60 km/h${pm} on a flat road (physics; stops and hills use more).${eco} Your fill-ups correct it.`;
         }
         if (this.status === "ev" && s) return `Your ${s.title} is electric: trip fuel isn't counted for it. Its energy use is in My bike.`;
@@ -318,9 +320,13 @@ const FuelCurve = {
                 const shape = [0, 0, 0, 0], bandKm = [0, 0, 0, 0], bikeL = [0, 0, 0, 0];
                 const useBike = this.bike();
                 let idleH = 0, km = 0;
+                // km per 5 km/h bin over the whole tank (null if a drive predates the bins)
+                let hist = trips.length ? new Array(SPEED_BINS).fill(0) : null;
                 trips.forEach((t) => {
                     for (let j = 0; j < 4; j++) { shape[j] += t.shape[j]; bandKm[j] += t.bandKm[j]; }
                     idleH += t.idleH; km += t.km;
+                    if (hist && Array.isArray(t.hist) && t.hist.length === SPEED_BINS) t.hist.forEach((x, b) => { hist[b] += x; });
+                    else hist = null;
                     if (useBike) { const b = this.bikeLitres(t); for (let j = 0; j < 4; j++) bikeL[j] += b[j]; }
                 });
                 const odoKm = from.odometerKm && to.odometerKm && to.odometerKm > from.odometerKm ? to.odometerKm - from.odometerKm : null;
@@ -335,13 +341,38 @@ const FuelCurve = {
                 // Driving the app didn't see still burned some of these litres:
                 // assume it burned at this interval's own average rate.
                 const litresAdj = coverage !== null && coverage < 1 ? litres * coverage : litres;
-                const iv = { fromTs: from.ts, toTs: to.ts, litres, litresAdj, shape, bandKm, idleH, km, odoKm, coverage, trips: trips.length, usable, reason };
+                const iv = { fromTs: from.ts, toTs: to.ts, litres, litresAdj, shape, bandKm, idleH, km, odoKm, coverage, trips: trips.length, usable, reason, hist, bikes: [from.bike || null, to.bike || null] };
                 if (useBike) iv.bikeL = bikeL;
                 out.push(iv);
             }
             prev = i;
         }
         return out;
+    },
+
+    // Step 8: this rider's tanks as anonymous fleet records for POST /api/bikes/fillups —
+    // to be sent ONLY after the rider opted in (the consent screen is the caller's). Only
+    // tanks the fleet model describes exactly: the current petrol bike (both fills logged
+    // with it), stock gearing and tyre, every drive with its speed bins, and odometer
+    // readings at both fills that the recorded distance matches within ±15 %. Nothing
+    // about where or when: no timestamps, no places. The server stores a resent tank
+    // once, so sending them all again is harmless (at most 20 per request).
+    fleetTanks() {
+        const g = typeof BikeFuel !== "undefined" ? BikeFuel.garage() : null;
+        const snap = this.bike() ? BikeFuel.snap : null;
+        if (!g || !snap || !(snap.payloadKg > 0)) return [];
+        const s = g.settings || {};
+        if (s.frontSprocket !== undefined || s.rearSprocket !== undefined || s.rearTyre !== undefined) return [];
+        const tag = BikeFuel.tag();
+        const massKg = 5 * Math.round(snap.payloadKg / 5);
+        const r = (x, d) => Math.round(x * d) / d;
+        return this.intervals()
+            .filter((iv) => iv.usable && iv.hist && iv.bikes[0] === tag && iv.bikes[1] === tag && iv.coverage !== null && iv.coverage >= 0.85 && iv.coverage <= 1.15)
+            .map((iv) => {
+                const t = { bundle: g.bundle, fuelCode: snap.fuelCode, massKg, litres: r(iv.litresAdj, 100), km: r(iv.km, 10), idleH: r(iv.idleH, 100), hist: iv.hist.map((x) => r(x, 1000)) };
+                if (g.bikeId) t.bike = g.bikeId; else t.classKey = g.classKey;
+                return t;
+            });
     },
 
     // min Σ(y − Xβ)² + Σ λ_j(β_j − β0_j)²  s.t. lo ≤ β ≤ hi, by projected

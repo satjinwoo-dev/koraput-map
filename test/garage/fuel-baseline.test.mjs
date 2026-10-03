@@ -96,3 +96,23 @@ test("readSnapshot refuses anything malformed", () => {
         { ...good, step: 0 }, { ...good, referenceKmPerL: 0 }, { ...good, key: 1 }, { ...good, title: null }]) assert.equal(FB.readSnapshot(bad), null, JSON.stringify(bad).slice(0, 60));
     assert.ok(FB.readSnapshot(good));
 });
+
+test("fleet calibration (Step 8): the bundle's real-riding overhead scales the moving fuel; idle stays; without one, nothing changes", () => {
+    const b = art.bundles.find((x) => x.id === "hero-splendor-plus-obd2b-in");
+    const plain = FB.buildFuelBaseline(Physics, modelOf(b), garageOf(b));
+    const calibration = { date: "2026-10-03", tanks: 400, riders: 40, overhead: { mean: 1.12, sigma: 0.05, u: "1", src: "fleet-calibration" } };
+    const cal = FB.buildFuelBaseline(Physics, modelOf(b), garageOf(b), { calibration });
+    assert.deepEqual(cal.fleet, { overhead: 1.12, overheadSigma: 0.05, date: "2026-10-03", tanks: 400, riders: 40 });
+    cal.kmPerL.forEach((k, i) => assert.ok(Math.abs(k * 1.12 / plain.kmPerL[i] - 1) < 2e-3, `grid ${i}: ${k} vs ${plain.kmPerL[i]} ÷ 1.12`));
+    assert.ok(Math.abs(cal.referenceKmPerL * 1.12 / plain.referenceKmPerL - 1) < 1e-3);
+    assert.ok(Math.abs(cal.eco.bestKmPerL * 1.12 / plain.eco.bestKmPerL - 1) < 1e-3);
+    assert.deepEqual([cal.eco.fromKmh, cal.eco.toKmh, cal.eco.bestKmh], [plain.eco.fromKmh, plain.eco.toKmh, plain.eco.bestKmh], "a constant factor doesn't move the eco band");
+    assert.equal(cal.idleLPerHour, plain.idleLPerHour, "idle is fitted separately from the overhead");
+    assert.ok(Math.abs(cal.sigmaRel - Math.hypot(plain.sigmaRel, 0.05 / 1.12)) < 2e-3, "the overhead's uncertainty is added");
+    assert.ok(FB.readSnapshot(JSON.parse(JSON.stringify(cal))));
+    // no calibration, or one that isn't usable: exactly the plain snapshot (no `fleet` key at all)
+    for (const c of [undefined, null, {}, { overhead: { mean: 9, sigma: 0, u: "1" } }, { overhead: { mean: 1.1, u: "%" } }, { overhead: { mean: "1.1", u: "1" } }]) {
+        assert.deepEqual(FB.buildFuelBaseline(Physics, modelOf(b), garageOf(b), { calibration: c }), plain, JSON.stringify(c));
+    }
+    assert.equal("fleet" in plain, false);
+});
