@@ -18,6 +18,7 @@
     "public/js/garage/picker.js",
     "public/js/garage/settings.js",
     "public/js/garage/visualizer.js",
-    "public/js/garage/garage.js"
+    "public/js/garage/garage.js",
+    "public/js/garage/fuel-baseline.js"
   ]
 }

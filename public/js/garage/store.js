@@ -321,6 +321,22 @@
         return { CACHE_NAME, apiBase, catalog, search: searchBikes, row, bundle, garage, saveGarage, clearGarage, garageFromPick, refreshGarage, model, outbox, requestBike, flushRequests, listed, dismissListed };
     }
 
+    /**
+     * Which server the garage talks to (the Step 5 API), for a page at `location`:
+     *   window.MU_GARAGE_API ("" = this page's origin, null = none), else
+     *   window.MU_SERVER_ORIGIN (the Android build sets it), else this page's origin —
+     *   except the app's own origins (https://localhost, capacitor:, file:), which have no API.
+     * @param {any} win @param {{ origin: string, protocol: string, hostname: string, port: string }} location
+     * @returns {string|null}
+     */
+    function resolveApiBase(win, location) {
+        const api = typeof win.MU_GARAGE_API === "string" || win.MU_GARAGE_API === null ? win.MU_GARAGE_API
+            : typeof win.MU_SERVER_ORIGIN === "string" && win.MU_SERVER_ORIGIN ? win.MU_SERVER_ORIGIN
+            : (location.protocol === "https:" && location.hostname === "localhost" && !location.port) || location.protocol === "capacitor:" || location.protocol === "file:" ? null
+            : "";
+        return api === "" ? location.origin : api;
+    }
+
     /** Only the settings the physics understands, with sane types. @param {any} s */
     function cleanSettings(s) {
         /** @type {Settings} */ const out = {};
@@ -336,5 +352,5 @@
         try { const s = globalThis.localStorage; s.setItem("mu.t", "1"); s.removeItem("mu.t"); return s; } catch { return null; }
     }
 
-    return { CACHE_NAME, GARAGE_KEY, OUTBOX_KEY, createStore, cleanSettings };
+    return { CACHE_NAME, GARAGE_KEY, OUTBOX_KEY, createStore, cleanSettings, resolveApiBase };
 });

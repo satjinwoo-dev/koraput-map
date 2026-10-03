@@ -41,21 +41,15 @@
 <script src="js/garage/garage.js"></script>
 <script>
   (function () {
-    // The Step 5 API (/api/bikes/search, /bundles, /requests): window.MU_GARAGE_API is the server origin
-    // ("" = this page's origin, null = no server: static catalogue and bundles only, requests wait).
-    //   - Website: unset → this page's origin (server.js serves both).
-    //   - Android app: scripts/build-native.mjs sets it to MU_SERVER_ORIGIN. The app's own origin
-    //     (https://localhost, capacitor://) has no API, so it is never used as the server.
-    var api = typeof window.MU_GARAGE_API === "string" || window.MU_GARAGE_API === null ? window.MU_GARAGE_API
-      : typeof window.MU_SERVER_ORIGIN === "string" ? window.MU_SERVER_ORIGIN
-      : (location.protocol === "https:" && location.hostname === "localhost" && !location.port) || location.protocol === "capacitor:" || location.protocol === "file:" ? null
-      : "";
+    // The Step 5 API (/api/bikes/search, /bundles, /requests): see MUGarage.store.resolveApiBase —
+    // website: this page's origin; Android: window.MU_GARAGE_API (set by scripts/build-native.mjs);
+    // the app's own origin (https://localhost, capacitor:) is never used as the server.
     var store = MUGarage.store.createStore({
       search: window.BikeCatalogSearch,
       physics: window.MUPhysics,
       catalogUrl: "bikedb/catalog.json",
       staticBase: "bikedb/",
-      apiBase: api === "" ? location.origin : api
+      apiBase: MUGarage.store.resolveApiBase(window, location)
     });
     window.MU_GARAGE = MUGarage.mount(document.getElementById("garage-root"), { store: store, physics: window.MUPhysics });
   })();

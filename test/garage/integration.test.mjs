@@ -171,7 +171,7 @@ function apiBaseOf(win) {
     const html = fs.readFileSync(path.join(PUBLIC, "garage.html"), "utf8");
     const inline = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]).pop();
     let opts = null;
-    const ctx = { ...win, MUGarage: { store: { createStore: (o) => { opts = o; return {}; } }, mount: () => ({}) }, document: { getElementById: () => ({}) } };
+    const ctx = { ...win, MUGarage: { store: { createStore: (o) => { opts = o; return {}; }, resolveApiBase: Store.resolveApiBase }, mount: () => ({}) }, document: { getElementById: () => ({}) } };
     ctx.window = ctx;
     vm.runInNewContext(inline, ctx);
     return opts.apiBase;

@@ -90,6 +90,16 @@ It uses `better-sqlite3`, which the server already depends on, or Node 22.5+'s b
 
 The running server picks up a rebuilt `bikes.sqlite` by itself within 5 seconds: no restart needed on Linux or macOS. On Windows, stop the server first, because a running process holding `bikes.sqlite` open blocks the replacement. If the file is missing or from an incompatible build, the server still starts. `/api/bikes/search` and `/api/bikes/bundles/…` then answer 503 until a valid build appears, and `/healthz` shows `"bikes": { "available": false }`. Set `BIKES_DB_PATH` if the file lives somewhere other than `build/bikedb/bikes.sqlite`.
 
+### My bike in the app (Step 7)
+
+- **Where riders find it:** Settings → **My bike** opens the garage in a sheet over the map. It never navigates away, so the convoy connection stays up.
+- **What it changes:** once a rider picks their bike, SmartDrive's fuel numbers come from that bike's physics instead of the fixed 18 km/L. That covers trip fuel, the efficient-drive comparison and the km/L shared for meetup costing. Fill-ups then refine it.
+- **No bike:** riders who don't pick a bike see no change.
+- **Service worker:** the release bumps the version to `mu-2026-10-03.14`.
+  - It precaches My bike, the bike list and the typical-bike data, and the Socket.IO client library, so the app also opens offline.
+  - Bike data lives in its own cache (`mu-bikedb-v1`), which survives releases.
+- **Testing in a browser:** `node scripts/e2e/garage-offline.mjs` runs the flows in headless Chromium against a local `server.js`. It needs Playwright.
+
 ### Bike catalogue API
 
 The server reads `bikes.sqlite` read-only and serves it under `/api/bikes` (`lib/bikedb/http-api.js`):

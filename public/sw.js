@@ -18,7 +18,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-09-30.13";          // Android build support (server origin, media URLs)
+const VERSION = "mu-2026-10-03.14";          // My bike: garage sheet, physics, bike catalogue offline
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
@@ -28,6 +28,13 @@ const TILE_CACHE_MAX_ENTRIES = 500;
 const MEDIA_CACHE = "mapunite-media-v1";
 const MEDIA_CACHE_MAX_ENTRIES = 300;
 const NETWORK_TIMEOUT_MS = 4000;
+// The bike catalogue (public/bikedb/, Step 3) shares ONE cache with the garage's own
+// data layer (js/garage/store.js, Store.CACHE_NAME): bundles are named by the SHA-256 of
+// their content, so they're valid forever and survive releases. Deliberately not
+// "mapunite-*": activate() deletes those.
+const BIKEDB_CACHE = "mu-bikedb-v1";
+const BIKEDB_CATALOG = "/bikedb/catalog.json";
+const BIKEDB_BUNDLE_RE = /^\/bikedb\/bundles\/([0-9a-f]{16})\.json$/;
 
 const SHELL_INDEX = "/index.html";
 const REQUIRED_PRECACHE = [SHELL_INDEX];       // install FAILS (and retries) without these
@@ -38,6 +45,7 @@ const APP_SCRIPTS = [
     "/js/voice.js",
     "/js/gps.js",
     "/js/navigation.js",
+    "/js/garage/fuel-baseline.js",
     "/js/smartdrive.js",
     "/js/groupnav.js",
     "/js/privacy.js",
@@ -53,10 +61,26 @@ const APP_SCRIPTS = [
     "/js/skunkworks.js",
     "/js/radio.js",
     "/js/convoy.js",
+    "/js/garage-sheet.js",
     "/js/boot.js"
 ];
+// My bike (loaded on demand by js/garage-sheet.js, and the standalone garage.html):
+// precached so the garage opens offline even if it was never opened online.
+const GARAGE_PRECACHE = [
+    "/garage.html", "/js/garage/garage.css",
+    "/js/bikedb/catalog-search.js",
+    "/js/physics/atmosphere.js", "/js/physics/tyre.js", "/js/physics/powertrain.js", "/js/physics/roadload.js",
+    "/js/physics/model.js", "/js/physics/cruise.js", "/js/physics/index.js",
+    "/js/garage/units.js", "/js/garage/store.js", "/js/garage/silhouettes.js", "/js/garage/picker.js",
+    "/js/garage/settings.js", "/js/garage/visualizer.js", "/js/garage/garage.js"
+];
+// The Socket.IO client library: a static script the server ships. index.html can't
+// boot offline without it (core.js calls io() at once; offline it just keeps
+// retrying to connect). Only this one file is cached — the realtime traffic under
+// /socket.io/ is never intercepted.
+const SOCKET_IO_CLIENT = "/socket.io/socket.io.js";
 const OPTIONAL_PRECACHE = [
-    ...APP_SCRIPTS, "/config.js", "/shell.js", "/manifest.json",
+    ...APP_SCRIPTS, ...GARAGE_PRECACHE, SOCKET_IO_CLIENT, "/config.js", "/shell.js", "/manifest.json",
     "/icon-192.png", "/icon-512.png", "/icon-maskable-512.png", "/satyam.png"
 ];
 // Third-party assets the shell needs to render offline (pinned versions).
@@ -104,6 +128,34 @@ async function fetchCorsThenPlain(request) {
     return fetch(request);                        // passes through, never cached
 }
 
+// First 16 hex of the SHA-256 of a response body: a bundle's name. null without WebCrypto.
+async function shortSha(res) {
+    if (!self.crypto || !self.crypto.subtle) return null;
+    const d = await self.crypto.subtle.digest("SHA-256", await res.arrayBuffer());
+    return Array.from(new Uint8Array(d).slice(0, 8), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// The catalogue and every class default's bundle (the "typical bike" the garage offers
+// when a bike isn't listed), so My bike works offline from the first launch.
+// Best effort: a failure here never fails the install.
+async function precacheBikeCatalogue() {
+    const cache = await caches.open(BIKEDB_CACHE);
+    const res = await fetch(new Request(BIKEDB_CATALOG, { cache: "reload" }));
+    if (!res.ok) return;
+    const catalog = await res.clone().json();
+    await cache.put(BIKEDB_CATALOG, res);
+    const hashes = (Array.isArray(catalog.classes) ? catalog.classes : []).map((c) => c && c.bundle).filter((h) => /^[0-9a-f]{16}$/.test(h));
+    await Promise.all(hashes.map(async (h) => {
+        const url = `/bikedb/bundles/${h}.json`;
+        if (await cache.match(url)) return;
+        try {
+            const b = await fetch(new Request(url, { cache: "reload" }));
+            const sha = b.ok ? await shortSha(b.clone()) : "";
+            if (b.ok && (sha === null || sha === h)) await cache.put(url, b);
+        } catch { /* optional */ }
+    }));
+}
+
 // -------------------------------------------------------------------------
 // install — idempotent, tolerant of optional-file failures
 // -------------------------------------------------------------------------
@@ -122,6 +174,7 @@ self.addEventListener("install", (event) => {
                 if (res.ok) await cache.put(shellKey(url), res);
             } catch { /* optional: skip */ }
         }));
+        try { await precacheBikeCatalogue(); } catch { /* optional: the garage fetches it when online */ }
         await Promise.all(CDN_PRECACHE.map(async (url) => {
             try {
                 const res = await fetch(url, { mode: "cors", credentials: "omit" });
@@ -160,6 +213,10 @@ self.addEventListener("fetch", (event) => {
     if (url.protocol !== "http:" && url.protocol !== "https:") return;
 
     if (url.origin === self.location.origin) {
+        if (url.pathname === SOCKET_IO_CLIENT && !url.search) {
+            event.respondWith(networkFirst(event, req, shellKey(req.url)));
+            return;
+        }
         if (NEVER_INTERCEPT_PATHS.some((p) => url.pathname.startsWith(p))) return;
         if (url.pathname === "/sw.js") return;
         if (url.pathname.startsWith("/media/")) {
@@ -169,8 +226,20 @@ self.addEventListener("fetch", (event) => {
         }
 
         if (req.mode === "navigate") {
-            // Only the SPA shell is handled; anything else navigates normally.
+            // The SPA shell, and the standalone My bike page; anything else navigates normally.
             if (url.pathname === "/" || url.pathname === SHELL_INDEX) event.respondWith(handleNavigation(event));
+            else if (url.pathname === "/garage.html") event.respondWith(networkFirst(event, req, shellKey(req.url)));
+            return;
+        }
+        // Bike catalogue: the list network-first (a new build shows up at once), bundles
+        // cache-first (immutable, named by their hash) — in the garage's own cache.
+        if (url.pathname === BIKEDB_CATALOG) {
+            event.respondWith(bikedbCatalog(event, req));
+            return;
+        }
+        const bundle = BIKEDB_BUNDLE_RE.exec(url.pathname);
+        if (bundle) {
+            event.respondWith(bikedbBundle(event, req, bundle[1]));
             return;
         }
         const dest = req.destination;
@@ -192,6 +261,32 @@ self.addEventListener("fetch", (event) => {
     }
     // Everything else (Google Maps JS, OSRM, weather, geocoders): straight to network.
 });
+
+async function bikedbCatalog(event, req) {
+    const cache = await caches.open(BIKEDB_CACHE);
+    try {
+        const res = await withTimeout(fetch(req), NETWORK_TIMEOUT_MS);
+        if (res && res.ok) event.waitUntil(cache.put(BIKEDB_CATALOG, res.clone()));
+        if (res && (res.ok || !(await cache.match(BIKEDB_CATALOG)))) return res;
+    } catch { /* offline or slow: the saved list */ }
+    const cached = await cache.match(BIKEDB_CATALOG);
+    return cached || new Response("", { status: 504, statusText: "Offline and not cached" });
+}
+
+async function bikedbBundle(event, req, hash) {
+    const cache = await caches.open(BIKEDB_CACHE);
+    const key = new URL(req.url).pathname;
+    const hit = await cache.match(key);
+    if (hit) return hit;
+    const res = await fetch(req);
+    if (res && res.ok) {
+        // only content that matches its name is kept (the garage re-checks it anyway);
+        // both copies are taken now, before the page reads the body
+        const forHash = res.clone(), forCache = res.clone();
+        event.waitUntil(shortSha(forHash).then((sha) => (sha === null || sha === hash ? cache.put(key, forCache) : undefined)).catch(() => { }));
+    }
+    return res;
+}
 
 async function mediaHandler(event, req) {
     const cache = await caches.open(MEDIA_CACHE);

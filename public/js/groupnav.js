@@ -212,7 +212,9 @@ const TripFuel = {
             const walking = (window.currentTravelMode || "bike") === "walk";
             let stated = false;
             try { stated = localStorage.getItem("sd_mileage") !== null; } catch (e) { /* storage blocked */ }
-            const km = stated && Number.isFinite(SmartDrive.baseMileage) && SmartDrive.baseMileage > 0 ? SmartDrive.baseMileage : this.defaultKmPerL;
+            if (typeof BikeFuel !== "undefined" && BikeFuel.active()) stated = true;          // the bike from My bike
+            const own = SmartDrive.ratedKmPerL();
+            const km = stated && Number.isFinite(own) && own > 0 ? own : this.defaultKmPerL;
             return { kmPerL: walking ? null : km, assumed: !walking && !stated, walking };
         }
         const p = this.profiles[id];
@@ -557,7 +559,7 @@ const CarpoolPlanner = {
             return { id: f.id, name: f.name, lat: f.lat, lng: f.lng };
         });
 
-        const kmPerL = parseFloat($("carpool-kmpl")?.value) || SmartDrive.baseMileage || 15;
+        const kmPerL = parseFloat($("carpool-kmpl")?.value) || SmartDrive.ratedKmPerL() || 15;
         const pricePerL = parseFloat($("carpool-price")?.value) || 0;
 
         const resultsBox = $("carpool-results");

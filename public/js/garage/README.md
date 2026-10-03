@@ -10,7 +10,8 @@ The bike picker, the rider's settings and the physics visualizer. Plain JavaScri
 | `picker.js` | Type-ahead search (offline index instantly, `GET /api/bikes/search` alongside), then the model year, or "My bike isn't listed": pick the closest type (marked *estimated*) and optionally ask for the bike to be added (make, model, year). |
 | `settings.js` | Rider weight, usual pillion and luggage, sprockets (manual bikes), rear tyre, and the fuel in the tank. |
 | `visualizer.js` | The chart, the headline, the shift guide and a table view. `prepareChart()` is pure and tested. |
-| `garage.js` | `MUGarage.mount(root, { store, physics })` puts it all together. |
+| `garage.js` | `MUGarage.mount(root, { store, physics, onChange })` puts it all together. `onChange` is called whenever the rider's bike or settings are saved. |
+| `fuel-baseline.js` | Turns the rider's bike into SmartDrive's fuel baseline: km/L at each steady speed (a 0.5 km/h grid), the idle burn and the 40–60 km/h reference, from the physics. The result is a ~2 KB snapshot kept on the phone. |
 | `garage.css` | Styles, scoped under `.mu-garage`. |
 
 ## What the rider sees
@@ -43,12 +44,9 @@ The bike picker, the rider's settings and the physics visualizer. Plain JavaScri
 ## Wiring it into the app
 
 1. **Build the catalogue:** `node scripts/build-bike-catalog.mjs` writes `public/bikedb/`. `build-native.mjs` already does this for the Android app.
-2. **Link the page:** for example in the SmartDrive settings, next to "My fuel curve":
-   ```html
-   <a class="btn-secondary-nav" href="garage.html">My bike</a>
-   ```
-   Or mount it in any sheet: load the scripts in the order used by `garage.html`, then call
-   `MUGarage.mount(el, { store: MUGarage.store.createStore({ search: BikeCatalogSearch, physics: MUPhysics }), physics: MUPhysics })`.
+2. **In the app (Step 7):** Settings → **My bike** opens the garage in a sheet on `index.html` (`js/garage-sheet.js`), not a separate page. Opening it never leaves the map, so the Socket.IO connection, the convoy and location sharing carry on.
+   - The garage's code and stylesheet load the first time they're needed, so start-up isn't slowed.
+   - `garage.html` stays as a standalone page.
 3. **Step 5 endpoints** (`lib/bikedb/http-api.js`): `window.MU_GARAGE_API` is the server origin (`""` = this page's origin, `null` = no server).
    - **Defaults.** On the website it defaults to the page's own origin, since `server.js` serves both. In the Android app, `scripts/build-native.mjs` sets it to `MU_SERVER_ORIGIN`. The app's own origin (`https://localhost`, `capacitor:`) is never used as the server.
    - **Search.** The offline index answers instantly. `GET /api/bikes/search?q=…&limit=30` is asked too, debounced. If the server has the same `catalogVersion`, its answer is identical (it ranks with the same code), so it isn't asked again that session. If the server's catalogue is newer, its results replace the list, so a bike added since the phone's `catalog.json` can be found and picked.
@@ -56,11 +54,21 @@ The bike picker, the rider's settings and the physics visualizer. Plain JavaScri
    - **Requests.** `POST /api/bikes/requests` with `{ make, model, year, powertrain, note }`, where the powertrain and note come from the closest type the rider picked.
      - Cleared: 2xx (a `"listed"` answer is offered to the rider), and 400 / 413 / 415, which the server will never accept.
      - Kept for later: no network, 403, 404, 429 and 5xx.
-4. **Website offline:** to make `garage.html` and `js/garage/*` work offline on the web, add them to `OPTIONAL_PRECACHE` in `sw.js` and bump its `VERSION`. The bike data has its own cache either way.
+4. **Offline (`sw.js`, Step 7):**
+   - **Precached:** `garage.html`, the garage, physics and search scripts and the stylesheet, plus `bikedb/catalog.json` and every class default's bundle (the typical bikes). A rider who never opened My bike online can still use it offline.
+   - **Bike data:** shares this store's cache (`mu-bikedb-v1`). `catalog.json` is network-first. Bundles are cache-first and are only cached when they match their hash.
+   - **The app shell:** the Socket.IO client library is cached too, so `index.html` itself boots offline.
+5. **SmartDrive (Step 7):** once a bike is chosen, `js/smartdrive.js` (`BikeFuel`) uses `fuel-baseline.js` to replace the fixed 18 km/L.
+   - **What changes:** SmartDrive uses the bike's km/L at each speed and its idle burn. The fill-up learner (`FuelCurve`) corrects that physics instead of the generic curve. Fill-ups are tagged with the bike.
+   - **No bike:** riders who haven't chosen one get exactly the old behaviour.
+   - **Electric bikes:** no litres are counted for them.
 
 ## Tests
 
-`node --test test/garage/*.test.mjs` runs 33 tests. `integration.test.mjs` runs the store against the real Step 5 router, as the website (one origin) and as the Android app (packaged `www/`, API cross-origin from `https://localhost`, CORS checked on every answer). It also checks which server `garage.html` talks to. The rest (`garage.test.mjs`) covers:
+`node --test test/garage/*.test.mjs` runs 38 tests, including the fuel baseline for every bike in the catalogue (`fuel-baseline.test.mjs`).
+- `test/smartdrive/` covers SmartDrive with and without a bike. Without one, a golden run recorded from the pre-Step-7 file must match number for number.
+- `test/sw/` runs the service worker in a sandbox against a real static server.
+- `scripts/e2e/garage-offline.mjs` is the headless Chromium end-to-end check. It covers the sheet, the socket staying connected, SmartDrive following the bike, and offline use, including a first-time rider. `integration.test.mjs` runs the store against the real Step 5 router, as the website (one origin) and as the Android app (packaged `www/`, API cross-origin from `https://localhost`, CORS checked on every answer). It also checks which server `garage.html` talks to. The rest (`garage.test.mjs`) covers:
 - the units;
 - the store against fake network, Cache Storage and localStorage: offline fallback, a malformed catalogue never replacing the cache, tampered bundles refused (from the static copy and from the API), static-then-endpoint order, the localStorage fallback, the garage following data corrections, settings sanitising, search (same or newer server catalogue, offline and errors), the request outbox and "already listed" offers;
 - settings validation and the fuel rule;

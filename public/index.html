@@ -345,6 +345,8 @@ body:has(#premium-nav-ui[style*="block"]) #toast-container { bottom: calc(250px 
 .modal-card h2 { margin: 0 0 18px; font-family: var(--font-display); font-size: 20px; }
 .modal-card > p { color: var(--soft); font-size: 14px; line-height: 1.5; margin: 0 0 14px; }
 .modal-card.wide { max-width: 520px; }
+#garage-modal .garage-card { max-width: 1120px; padding: 20px 16px 24px; }
+#garage-modal .garage-card .mu-garage-title { margin-top: 0; padding-right: 40px; }
 .close-modal { position: absolute; top: 16px; right: 16px; width: 32px; height: 32px; border-radius: 50%; background: rgba(255,255,255,.08); display: flex; align-items: center; justify-content: center; color: #fff; z-index: 2; }
 .modal-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; }
 .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; padding-right: 40px; }
@@ -963,8 +965,16 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
       <input type="checkbox" id="speed-record-toggle" class="switch">
     </div>
     <div class="modal-row">
-      <span>Mileage (km/L)</span>
+      <label for="fuel-input-val">Mileage (km/L)</label>
       <input type="number" id="fuel-input-val" class="num-input" value="18" min="1" max="100">
+    </div>
+    <p class="field-hint" id="fuel-source-hint" hidden></p>
+
+    <!-- Step 7: "My bike" (js/garage/, mounted in a sheet by js/garage-sheet.js) feeds SmartDrive's fuel baseline -->
+    <div class="form-section" id="my-bike-section">
+      <h3><svg class="i sm" style="width:13px;height:13px;vertical-align:-2px;"><use href="#i-tool"/></svg> My bike</h3>
+      <p class="field-hint" id="bike-fuel-status">No bike chosen: the fuel numbers use the km/L above.</p>
+      <button id="garage-open-btn" type="button" class="btn-secondary-nav btn-block">🏍️ Choose my bike, see its fuel curve</button>
     </div>
     <div class="modal-row">
       <label for="speed-limits-toggle">Road speed limits</label>
@@ -1141,6 +1151,14 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 </div>
 
 <!-- PHASE 3: TRIP ANALYTICS (js/analytics.js TripAnalytics) -->
+<!-- Step 7: My bike (the garage) as a sheet: opening it never leaves the map, so the socket and the convoy stay connected -->
+<div class="modal" id="garage-modal" data-dismissable role="dialog" aria-modal="true" aria-label="My bike">
+  <div class="modal-card garage-card">
+    <button class="close-modal" id="garage-close-btn" type="button" aria-label="Close"><svg class="i sm"><use href="#i-x"/></svg></button>
+    <div id="garage-sheet-root" class="mu-garage"></div>
+  </div>
+</div>
+
 <div class="modal" id="analytics-modal" data-dismissable role="dialog" aria-modal="true" aria-labelledby="analytics-title">
   <div class="modal-card wide">
     <button class="close-modal" id="analytics-close" type="button" aria-label="Close"><svg class="i sm"><use href="#i-x"/></svg></button>
@@ -1487,25 +1505,27 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyASbmXgn0T-B4AQdCe1sp7dfJbDXKgDw5c&libraries=places&loading=async"></script>
 <script src="/shell.js"></script>
 <!-- App scripts, split by concern (Batch 2). Order matters: core first, boot last. -->
-<script src="js/core.js?v=20260930-android"></script>
-<script src="js/voice.js?v=20260930-android"></script>
-<script src="js/gps.js?v=20260930-android"></script>
-<script src="js/navigation.js?v=20260930-android"></script>
-<script src="js/smartdrive.js?v=20260930-android"></script>
-<script src="js/groupnav.js?v=20260930-android"></script>
-<script src="js/privacy.js?v=20260930-android"></script>
-<script src="js/analytics.js?v=20260930-android"></script>
-<script src="js/deadreckoning.js?v=20260930-android"></script>
-<script src="js/presence.js?v=20260930-android"></script>
-<script src="js/controls.js?v=20260930-android"></script>
-<script src="js/chat.js?v=20260930-android"></script>
-<script src="js/memories.js?v=20260930-android"></script>
-<script src="js/calls.js?v=20260930-android"></script>
-<script src="js/sos.js?v=20260930-android"></script>
-<script src="js/pwa.js?v=20260930-android"></script>
-<script src="js/skunkworks.js?v=20260930-android"></script>
-<script src="js/radio.js?v=20260930-android"></script>
-<script src="js/convoy.js?v=20260930-android"></script>
-<script src="js/boot.js?v=20260930-android"></script>
+<script src="js/core.js?v=20261003-garage"></script>
+<script src="js/voice.js?v=20261003-garage"></script>
+<script src="js/gps.js?v=20261003-garage"></script>
+<script src="js/navigation.js?v=20261003-garage"></script>
+<script src="js/garage/fuel-baseline.js?v=20261003-garage"></script>
+<script src="js/smartdrive.js?v=20261003-garage"></script>
+<script src="js/groupnav.js?v=20261003-garage"></script>
+<script src="js/privacy.js?v=20261003-garage"></script>
+<script src="js/analytics.js?v=20261003-garage"></script>
+<script src="js/deadreckoning.js?v=20261003-garage"></script>
+<script src="js/presence.js?v=20261003-garage"></script>
+<script src="js/controls.js?v=20261003-garage"></script>
+<script src="js/chat.js?v=20261003-garage"></script>
+<script src="js/memories.js?v=20261003-garage"></script>
+<script src="js/calls.js?v=20261003-garage"></script>
+<script src="js/sos.js?v=20261003-garage"></script>
+<script src="js/pwa.js?v=20261003-garage"></script>
+<script src="js/skunkworks.js?v=20261003-garage"></script>
+<script src="js/radio.js?v=20261003-garage"></script>
+<script src="js/convoy.js?v=20261003-garage"></script>
+<script src="js/garage-sheet.js?v=20261003-garage"></script>
+<script src="js/boot.js?v=20261003-garage"></script>
 </body>
 </html>

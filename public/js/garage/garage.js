@@ -42,7 +42,8 @@
 
     /**
      * @param {HTMLElement} root
-     * @param {{ store: any, physics: any, env?: any, title?: string }} o
+     * @param {{ store: any, physics: any, env?: any, title?: string, onChange?: (g: any) => void }} o
+     *   onChange: called after the rider's bike or settings are saved (SmartDrive re-reads its fuel baseline)
      */
     function mount(root, o) {
         const { store, physics } = o;
@@ -88,7 +89,12 @@
         function pick(p, prev) {
             const keep = {};
             if (prev && prev.settings) for (const k of PERSONAL) if (prev.settings[k] !== undefined) keep[k] = prev.settings[k];
-            showBike(store.saveGarage(store.garageFromPick(index, { ...p, settings: keep })));
+            showBike(saved(store.saveGarage(store.garageFromPick(index, { ...p, settings: keep }))));
+        }
+        /** Tell the host page (index.html's sheet) the garage changed. @param {any} g */
+        function saved(g) {
+            if (o.onChange) { try { o.onChange(g); } catch (e) { /* the host's problem, not the garage's */ } }
+            return g;
         }
         /** POST queued requests; if the server already lists a requested bike, offer it. */
         function sendRequests() {
@@ -186,7 +192,7 @@
             G.settings.createSettings(settingsBox, {
                 bundle, settings: g.settings, physics,
                 onChange: (st) => {
-                    g = store.saveGarage({ ...g, settings: st });
+                    g = saved(store.saveGarage({ ...g, settings: st }));
                     if (viz) { try { viz.update({ settings: st }); renderEstimates(); } catch (e) { /* invalid combination: keep the last chart */ } }
                 }
             });
