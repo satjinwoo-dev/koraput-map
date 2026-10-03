@@ -1,71 +1,87 @@
 // @ts-check
-"use strict";
-
 /* ============================================================================
-   MapUnite physics — js/physics/roadload.js
+   MapUnite physics — road load (strict SI: N, W, m/s, kg)
    ==============================================================================
-   Force needed at the rear contact patch, N:
-
-     F = Crr·m·g·cos θ          rolling (only while moving)
-       + m·g·sin θ              gradient (θ = atan(grade); grade = rise / run)
-       + ½·ρ·CdA·v_air·|v_air|  aerodynamic, v_air = v + headwind
-       + k·m·a                  acceleration; k ≥ 1 adds the rotating parts' inertia
-
-   Negative F means the bike would speed up on its own (a descent or a
-   tailwind): the rider brakes, or the engine is driven (engine braking).
-   Gradients are accepted up to ±100 % (45°); anything steeper is not a road.
+   Tractive force needed at the rear wheel:
+       F = F_roll + F_aero + F_grade + F_inertia
+       F_roll    = C_rr·m·g·cos θ          (0 at standstill: nothing is rolling)
+       F_aero    = ½·ρ·CdA·v_a·|v_a|,      v_a = v + headwind (a tailwind pushes)
+       F_grade   = m·g·sin θ
+       F_inertia = δ·m·a                    (δ: rotating-mass factor, default 1.05)
+   The gradient is a rise/run fraction (0.1 = 10 %). sin θ and cos θ come from
+   it algebraically (g/√(1+g²), 1/√(1+g²)), so ANY finite gradient, even a wall,
+   gives finite forces.
+   Traction limit: the rear tyre can push with at most μ·(rear share)·m·g·cos θ.
+   Road speed must be ≥ 0 (the model covers riding forwards).
    ============================================================================ */
 
 (function (root, factory) {
-    if (typeof module === "object" && module && module.exports) module.exports = factory(require("./core.js"));
-    else { const ns = /** @type {any} */ (root).MUPhysics; ns.roadload = factory(ns.core); }
-})(typeof globalThis !== "undefined" ? globalThis : self, function (/** @type {any} */ core) {
-    const { G, finite, positive, nonNegative, inRange } = core;
+    if (typeof module === "object" && module.exports) module.exports = factory();
+    else { const ns = /** @type {any} */ (root).MUPhysics || (/** @type {any} */ (root).MUPhysics = {}); ns.roadload = factory(); }
+})(typeof globalThis !== "undefined" ? globalThis : this, function () {
+    "use strict";
 
-    /** Rotating-inertia factor k (model assumption: wheels, drivetrain, engine). */
-    const MASS_FACTOR = 1.05;
-    const MASS_FACTOR_SIGMA = 0.02;
-    const MAX_GRADE = 1;
-
-    /**
-     * @typedef {object} RoadState
-     * @property {number} speed       m/s, ≥ 0
-     * @property {number} [grade]     rise/run, −1…1 (default 0)
-     * @property {number} [accel]     m/s² (default 0)
-     * @property {number} [headwind]  m/s, positive into the rider's face (default 0)
-     * @property {number} rho         air density, kg/m³
-     */
-    /**
-     * @typedef {object} Chassis
-     * @property {number} mass        kg — bike + rider + load
-     * @property {number} crr
-     * @property {number} cda         m²
-     * @property {number} [massFactor]
-     */
+    const G0 = 9.80665;
+    /** Documented assumptions (not bike data). */
+    const ROAD_DEFAULTS = Object.freeze({
+        rotatingMassFactor: 1.05,  // wheels, tyres and drivetrain inertia: +5 % effective mass
+        tyreGrip: 0.8,             // μ, dry asphalt
+        rearShare: 0.6             // share of the weight on the driven (rear) wheel when climbing
+    });
 
     /**
-     * @param {RoadState} s @param {Chassis} c
-     * @returns {{ rolling: number, gradient: number, aero: number, inertia: number, total: number }}  N
+     * sin θ and cos θ for a gradient (rise/run), finite for any finite input.
+     * @param {number} grade
+     * @returns {{ sin: number, cos: number }}
      */
-    function roadLoad(s, c) {
-        const v = nonNegative(s.speed, "speed");
-        const grade = s.grade === undefined ? 0 : inRange(s.grade, -MAX_GRADE, MAX_GRADE, "grade");
-        const a = s.accel === undefined ? 0 : inRange(s.accel, -15, 15, "accel");
-        const wind = s.headwind === undefined ? 0 : inRange(s.headwind, -60, 60, "headwind");
-        const rho = inRange(s.rho, 0.3, 1.5, "rho");
-        const m = positive(c.mass, "mass");
-        const k = c.massFactor === undefined ? MASS_FACTOR : inRange(c.massFactor, 1, 1.5, "massFactor");
-        const theta = Math.atan(grade);
-        const rolling = v > 0 ? finite(c.crr, "crr") * m * G * Math.cos(theta) : 0;
-        const gradient = m * G * Math.sin(theta);
-        const vAir = v + wind;
-        const aero = 0.5 * rho * positive(c.cda, "cda") * vAir * Math.abs(vAir);
-        const inertia = k * m * a;
-        return { rolling, gradient, aero, inertia, total: rolling + gradient + aero + inertia };
+    function slope(grade) {
+        if (typeof grade !== "number" || !Number.isFinite(grade)) throw new TypeError(`grade must be a finite number (got ${String(grade)})`);
+        if (grade === 0) return { sin: 0, cos: 1 };
+        const h = Math.hypot(1, grade);
+        return { sin: grade / h, cos: 1 / h };
     }
 
-    /** Power needed at the rear contact patch, W (negative: surplus to brake or recover). */
-    const wheelPower = (/** @type {RoadState} */ s, /** @type {Chassis} */ c) => roadLoad(s, c).total * s.speed;
+    /**
+     * @typedef {{ mass: number, v: number, grade?: number, cda: number, crr: number, rho: number, wind?: number, accel?: number, rotatingMassFactor?: number }} RoadLoadInput
+     * @typedef {{ rolling: number, aero: number, gravity: number, inertia: number, total: number, power: number }} RoadLoad
+     */
 
-    return Object.freeze({ roadLoad, wheelPower, MASS_FACTOR, MASS_FACTOR_SIGMA, MAX_GRADE });
+    /**
+     * Road-load forces (N) and the wheel power (W) at speed v.
+     * @param {RoadLoadInput} s
+     * @returns {RoadLoad}
+     */
+    function roadLoad(s) {
+        const v = s.v;
+        if (!(v >= 0) || !Number.isFinite(v)) throw new RangeError(`speed must be a finite number ≥ 0 m/s (got ${String(v)})`);
+        if (!(s.mass > 0)) throw new RangeError("mass must be > 0 kg");
+        const { sin, cos } = slope(s.grade === undefined ? 0 : s.grade);
+        const va = v + (s.wind === undefined ? 0 : s.wind);
+        const rolling = v > 0 ? s.crr * s.mass * G0 * cos : 0;
+        const aero = 0.5 * s.rho * s.cda * va * Math.abs(va);
+        const gravity = s.mass * G0 * sin;
+        const inertia = (s.rotatingMassFactor === undefined ? ROAD_DEFAULTS.rotatingMassFactor : s.rotatingMassFactor) * s.mass * (s.accel === undefined ? 0 : s.accel);
+        const total = rolling + aero + gravity + inertia;
+        return { rolling, aero, gravity, inertia, total, power: total * v };
+    }
+
+    /**
+     * Same as roadLoad().total without allocating: the hot path of the table precompute.
+     * @param {number} mass @param {number} v @param {number} sin @param {number} cos @param {number} cda @param {number} crr
+     * @param {number} rho @param {number} wind @param {number} inertiaForce  δ·m·a (N)
+     */
+    function tractiveForce(mass, v, sin, cos, cda, crr, rho, wind, inertiaForce) {
+        const va = v + wind;
+        return (v > 0 ? crr * mass * G0 * cos : 0) + 0.5 * rho * cda * va * Math.abs(va) + mass * G0 * sin + inertiaForce;
+    }
+
+    /**
+     * Largest force the rear tyre can transmit, N.
+     * @param {number} mass @param {number} cos  cos θ  @param {number} [grip] @param {number} [rearShare]
+     */
+    function tractionLimit(mass, cos, grip = ROAD_DEFAULTS.tyreGrip, rearShare = ROAD_DEFAULTS.rearShare) {
+        return grip * rearShare * mass * G0 * cos;
+    }
+
+    return { G0, ROAD_DEFAULTS, slope, roadLoad, tractiveForce, tractionLimit };
 });

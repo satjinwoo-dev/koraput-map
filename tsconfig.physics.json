@@ -3,14 +3,24 @@
     "allowJs": true,
     "checkJs": true,
     "noEmit": true,
-    "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noImplicitReturns": true,
-    "target": "ES2022",
+    "target": "ES2020",
     "module": "commonjs",
-    "lib": ["ES2022", "DOM"],
-    "types": ["node"]
+    "lib": ["ES2020"],
+    "types": [],
+    "strict": true,
+    "noImplicitAny": true,
+    "noImplicitThis": true,
+    "noUnusedParameters": true,
+    "noUnusedLocals": true,
+    "noFallthroughCasesInSwitch": true
   },
-  "include": ["public/js/physics/*.js"]
+  "files": [
+    "public/js/physics/atmosphere.js",
+    "public/js/physics/tyre.js",
+    "public/js/physics/powertrain.js",
+    "public/js/physics/roadload.js",
+    "public/js/physics/model.js",
+    "public/js/physics/cruise.js",
+    "public/js/physics/index.js"
+  ]
 }

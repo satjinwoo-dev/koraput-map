@@ -11,7 +11,9 @@
     "bikes:build": "node --disable-warning=ExperimentalWarning scripts/build-bike-catalog.mjs",
     "bikes:bench": "node --disable-warning=ExperimentalWarning scripts/bikedb/bench-search.mjs",
     "bikes:typecheck": "tsc -p tsconfig.bikedb.json",
-    "physics:typecheck": "tsc -p tsconfig.physics.json"
+    "physics:typecheck": "tsc -p tsconfig.physics.json",
+    "physics:mutation": "node scripts/physics/mutation-check.mjs",
+    "physics:table": "node scripts/physics/cruise-table.mjs"
   },
   "keywords": [],
   "author": "",

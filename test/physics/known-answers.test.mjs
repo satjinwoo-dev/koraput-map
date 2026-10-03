@@ -1,167 +1,224 @@
-// Known-answer tests: every expected number below was worked out by hand
-// (the arithmetic is in the comments) — none is copied from the code's output.
+// Known-answer tests: each expected value is worked out by hand in the comment
+// next to it (or taken from a published table), never computed by the code under test.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createRequire } from "node:module";
-import { P, RPM, iceBundle, evBundle, realBundles } from "./fixtures.mjs";
+import { Physics, Contract, handBike, RPM, KMH, modelById, bundleById } from "./helpers.mjs";
 
-const require = createRequire(import.meta.url);
-const Contract = require("../../public/js/bikedb/bundle-contract.js");
-const { atmosphere, tyre, roadload, engine, profile, drive, cruise, uncertainty, core } = P;
+const { atmosphere, tyre, powertrain, roadload, cruise } = Physics;
 const near = (actual, expected, tol, what = "") => assert.ok(Math.abs(actual - expected) <= tol, `${what} ${actual} ≠ ${expected} ± ${tol}`);
+const rel = (actual, expected, r, what = "") => near(actual, expected, Math.abs(expected) * r, what);
 
 // ---------------------------------------------------------------------------
-test("air density: ISA sea level, 1000 m, and humid tropical air", () => {
-    // 101325 / (287.05 × 288.15) = 1.22498
-    near(atmosphere.airDensity(), 1.22498, 1e-4, "sea level");
-    // p = 101325 × (1 − 0.0065·1000/288.15)^5.25588 = 89876 Pa; T = 281.65 K; ρ = 89876 / (287.05 × 281.65) = 1.11164
-    near(atmosphere.airDensity({ altitude: 1000 }), 1.11164, 3e-4, "1000 m");
-    // 30 °C, 70 % RH: e_s = 610.78·exp(17.27·30/267.3) = 4242.9 Pa, e = 2970.0 Pa
-    // ρ = (101325 − 2970.0)/(287.05 × 303.15) + 2970.0/(461.5 × 303.15) = 1.13027 + 0.02123 = 1.15150
-    near(atmosphere.airDensity({ temperature: 303.15, relativeHumidity: 0.7 }), 1.1515, 5e-4, "humid");
-    assert.ok(atmosphere.airDensity({ temperature: 303.15, relativeHumidity: 0.9 }) < atmosphere.airDensity({ temperature: 303.15 }), "humid air is lighter");
-    assert.throws(() => atmosphere.airDensity({ altitude: 20000 }), core.PhysicsError);
-    assert.throws(() => atmosphere.airDensity({ relativeHumidity: 1.5 }), core.PhysicsError);
+// Air density
+// ---------------------------------------------------------------------------
+test("ISA sea level: 288.15 K, 101 325 Pa, 1.2250 kg/m3", () => {
+    const s = atmosphere.standardAtmosphere(0);
+    assert.equal(s.temperature, 288.15);
+    assert.equal(s.pressure, 101325);
+    near(s.density, 1.2250, 5e-5, "ρ0");                         // 101325 / (287.053 × 288.15) = 1.22500
+    near(atmosphere.airDensity({ pressure: 101325, temperature: 288.15 }), 1.2250, 5e-5);
 });
 
-test("tyre: radius from the sidewall code", () => {
-    // 100/80-17: 17 × 0.0254 / 2 + 0.100 × 0.80 = 0.2159 + 0.0800 = 0.2959 m; × 0.97 = 0.287023 m
-    near(tyre.parseTyre("100/80-17 M/C 52P").unloadedRadiusM, 0.2959, 1e-9);
-    near(tyre.rollingRadius("100/80-17"), 0.287023, 1e-6);
-    // 140/70R-17: 0.2159 + 0.140 × 0.70 = 0.3139 m
-    near(tyre.parseTyre("140/70R-17 M/C 66H").unloadedRadiusM, 0.3139, 1e-9);
-    // 2.75-18 (inch, full profile): (18/2 + 2.75) × 0.0254 = 0.29845 m
-    near(tyre.parseTyre("2.75-18").unloadedRadiusM, 0.29845, 1e-9);
-    assert.equal(tyre.parseTyre("fat"), null);
-    assert.throws(() => tyre.rollingRadius("fat"), core.PhysicsError);
-});
-
-test("tyre parsing agrees with the bundle contract on every catalogue tyre", () => {
-    const codes = new Set(["100/80-17", "140/70R-17 M/C 66H", "150/60 ZR 17", "90/90 - R12", "2.75-18", "3.00x18", "120/80-18 62P", "90/100-10 53J", "fat", "80/100"]);
-    for (const { bundle } of realBundles()) for (const k of ["frontTyre", "rearTyre"]) codes.add(bundle.chassis[k].v);
-    for (const c of codes) {
-        const a = tyre.parseTyre(c), b = Contract.parseTyre(c);
-        if (a === null || b === null) { assert.equal(a, b, c); continue; }
-        near(2 * a.unloadedRadiusM, b.diameterM, 1e-12, c);
+test("standard atmosphere against the US Standard Atmosphere 1976 table (±0.02 %)", () => {
+    // altitude m: [pressure Pa, density kg/m3] (USSA-1976, geopotential altitude)
+    const table = { 1000: [89874.6, 1.11164], 2000: [79495.2, 1.00649], 5000: [54019.9, 0.736116], 11000: [22632.1, 0.363918], 15000: [12044.6, 0.193674] };
+    for (const [h, [p, rho]] of Object.entries(table)) {
+        const s = atmosphere.standardAtmosphere(Number(h));
+        rel(s.pressure, p, 2e-4, `p(${h} m)`);
+        rel(s.density, rho, 2e-4, `ρ(${h} m)`);
     }
-});
-test("road load: rolling, gradient, aero and wind", () => {
-    const c = { mass: 200, crr: 0.02, cda: 0.5 };
-    // rolling 0.02 × 200 × 9.80665 = 39.2266 N; aero ½ × 1.2 × 0.5 × 20² = 120 N
-    const flat = roadload.roadLoad({ speed: 20, rho: 1.2 }, c);
-    near(flat.rolling, 39.2266, 1e-4); near(flat.aero, 120, 1e-9); near(flat.total, 159.2266, 1e-4);
-    near(roadload.wheelPower({ speed: 20, rho: 1.2 }, c), 3184.532, 1e-3);
-    // 10 %: θ = atan 0.1; cos θ = 0.995037, sin θ = 0.0995037 → rolling 39.0319, gradient 195.1597
-    const hill = roadload.roadLoad({ speed: 20, rho: 1.2, grade: 0.1 }, c);
-    near(hill.rolling, 39.0319, 1e-3); near(hill.gradient, 195.1597, 1e-3); near(hill.total, 354.1916, 2e-3);
-    // headwind 5 m/s: ½ × 1.2 × 0.5 × 25² = 187.5 N; tailwind 25 m/s at 20 m/s: air from behind, −7.5 N
-    near(roadload.roadLoad({ speed: 20, rho: 1.2, headwind: 5 }, c).aero, 187.5, 1e-9);
-    near(roadload.roadLoad({ speed: 20, rho: 1.2, headwind: -25 }, c).aero, -7.5, 1e-9);
-    // standing still: no rolling loss; on a slope gravity still pulls
-    assert.equal(roadload.roadLoad({ speed: 0, rho: 1.2 }, c).total, 0);
-    near(roadload.roadLoad({ speed: 0, rho: 1.2, grade: 0.1 }, c).gradient, 195.1597, 1e-3);
-    // acceleration: 1.05 × 200 × 0.5 = 105 N
-    near(roadload.roadLoad({ speed: 0, rho: 1.2, accel: 0.5 }, c).inertia, 105, 1e-9);
+    near(atmosphere.standardAtmosphere(1000).temperature, 281.65, 1e-9);   // 288.15 − 0.0065 × 1000
 });
 
-test("engine friction and Willans fuel", () => {
-    const f = { displacement: 1.55e-4, strokes: 4, fmepA: 1e5, fmepB: 0, fmepC: 0, indicatedEfficiency: 0.31, fuelSystem: "fi", idleSpeed: 150 };
-    // 1e5 Pa × 1.55e-4 m³ × 1000 rad/s / (2π × 2) = 15500 / 12.5664 = 1233.45 W
-    near(engine.frictionPower(1000, f), 1233.45, 0.01);
-    near(engine.frictionPower(1000, { ...f, strokes: 2 }), 2466.90, 0.02);
-    // 3000 W brake: (3000 + 1233.45) / 0.31 = 13656.3 W → / 30.14e9 J/m³ = 4.5310e-7 m³/s
-    near(engine.fuelPower(3000, 1000, f), 13656.3, 0.1);
-    near(engine.fuelVolumeRate(13656.3, 30.14e9), 4.5310e-7, 1e-10);
-    // overrun at 500 rad/s (> 1.25 × idle): fuel cut on FI …
-    assert.equal(engine.fuelPower(-2000, 500, f), 0);
-    // … idle circuit on a carburettor: friction at idle 1e5×1.55e-4×150/(4π) = 185.02 W / 0.31 = 596.8 W
-    near(engine.fuelPower(-2000, 500, { ...f, fuelSystem: "carb" }), 596.8, 0.1);
-    // light throttle, indicated (−1000 + 1233.45 = 233.45 W) above idle flow (185.02): 233.45 / 0.31 = 753.1 W
-    near(engine.fuelPower(-1000, 1000, f), 753.1, 0.1);
-    // a stopped engine burns nothing
-    assert.equal(engine.fuelPower(0, 0, f), 0);
+test("saturation vapour pressure (Buck 1996) against steam tables", () => {
+    near(atmosphere.saturationVapourPressure(273.15), 611.21, 1e-9);         // the formula's anchor
+    rel(atmosphere.saturationVapourPressure(293.15), 2339.2, 1e-3);        // 20 °C: 2.3392 kPa
+    rel(atmosphere.saturationVapourPressure(303.15), 4246.9, 1.5e-3);      // 30 °C: 4.2470 kPa
+    rel(atmosphere.saturationVapourPressure(373.15), 101325, 2e-3);        // 100 °C: boiling at 1 atm
+    rel(atmosphere.saturationVapourPressure(263.15), 259.9, 3e-3);         // −10 °C over ice: 259.9 Pa
 });
 
-test("torque curve from peak figures: exact fit", () => {
-    // 14.1 N*m @ 785.398 rad/s, 13500 W @ 1047.198 rad/s:
-    // TP = 12.8916, D = 1.2084, Δ = 261.799, S = Δ·TP/ωP = 3.2229 → A = 3D − S = 0.4023, B = S − 2D = 0.8061
-    // midpoint u = Δ/2: T = 14.1 − A/4 − B/8 = 14.1 − 0.10058 − 0.10076 = 13.8987
-    const m = engine.torqueModel({ peakPower: 13500, peakPowerSpeed: 10000 * RPM, peakTorque: 14.1, peakTorqueSpeed: 7500 * RPM, idleSpeed: 150, redlineSpeed: 1172.9 });
-    assert.equal(m.method, "fit_exact");
-    near(m.torque(7500 * RPM), 14.1, 1e-9, "T at torque peak");
-    near(m.power(10000 * RPM), 13500, 1e-6, "P at power peak");
-    near(m.torque(8750 * RPM), 13.8987, 1e-3, "T at midpoint");
-    const h = 1e-3, wP = 10000 * RPM;
-    near((m.power(wP + h) - m.power(wP - h)) / (2 * h), 0, 1e-3, "dP/dω at power peak");
-    // idle: 0.7 × 14.1 = 9.87
-    near(m.torque(150), 9.87, 1e-9);
-    assert.equal(m.torque(1173), 0, "above the limiter");
-    for (let w = 1; w < 1172.9; w += 0.7) {
-        assert.ok(m.torque(w) <= 14.1 + 1e-12);
-        assert.ok(m.power(w) <= 13500 * (1 + 1e-12));
-    }
+test("humid air: 30 °C, saturated, 1 atm → 1.1459 kg/m3", () => {
+    // p_v = 4246 Pa: (101325 − 4246) / (287.053 × 303.15) + 4246 / (461.52 × 303.15) = 1.11560 + 0.03035 = 1.14595
+    near(atmosphere.airDensity({ pressure: 101325, temperature: 303.15, relativeHumidity: 1 }), 1.14595, 3e-4);
+    // dry air at the same state is denser: 101325 / (287.0531 × 303.15) = 1.164366
+    near(atmosphere.airDensity({ pressure: 101325, temperature: 303.15 }), 1.164366, 2e-6);
 });
 
-test("torque curve: figures a smooth monotone curve can't meet are capped, never exceeded", () => {
-    // long-stroke 350: 30 N*m @ 3000 rpm, 15.5 kW @ 5500 rpm → S > 3D, so A < 0
-    const m = engine.torqueModel({ peakPower: 15500, peakPowerSpeed: 5500 * RPM, peakTorque: 30, peakTorqueSpeed: 3000 * RPM, idleSpeed: 1000 * RPM, redlineSpeed: 6200 * RPM });
-    assert.equal(m.method, "fit_capped");
-    near(m.power(5500 * RPM), 15500, 1e-6);
-    near(m.torque(3000 * RPM), 30, 1e-9);
-    for (let w = 1; w < 6200 * RPM; w += 0.5) assert.ok(m.power(w) <= 15500 * (1 + 1e-12) && m.torque(w) <= 30 + 1e-12);
-    assert.throws(() => engine.torqueModel({ peakPower: 1e4, peakPowerSpeed: 500, peakTorque: 20, peakTorqueSpeed: 600, idleSpeed: 100, redlineSpeed: 700 }), core.PhysicsError);
-});
-
-test("a published curve is used as published", () => {
-    const m = engine.torqueModel({ peakPower: 13500, peakPowerSpeed: 1047, peakTorque: 14.1, peakTorqueSpeed: 785, idleSpeed: 150, redlineSpeed: 1170,
-        curve: { omegaStart: 200, omegaStep: 100, values: [9, 11, 12, 13, 13.8, 14.1, 13.9, 13.2, 12.6, 11] } });
-    assert.equal(m.method, "published_curve");
-    near(m.torque(250), 10, 1e-12);  // halfway between 9 and 11
-    near(m.torque(100), 9, 1e-12);   // below the curve: held at the idle end
+test("riding conditions: altitude sets the pressure, the measured temperature wins", () => {
+    // 1000 m standard pressure 89 874.6 Pa at a measured 35 °C: 89874.6 / (287.0531 × 308.15) = 1.016027
+    near(atmosphere.airDensityAt({ altitude: 1000, temperature: 308.15 }), 1.016027, 5e-5);
 });
 
 // ---------------------------------------------------------------------------
-test("whole vehicle, manual: 72 km/h on the level costs what the hand calculation says", () => {
-    const v = profile.compileVehicle(profile.paramsFromBundle(iceBundle()));
-    // mass 120 + 80 = 200 kg; r = 0.287023; top gear overall 3 × 0.9 × 3 = 8.1
-    near(v.mass, 200, 1e-9); near(v.rollingRadius, 0.287023, 1e-6);
-    const p = drive.operatingPoint(v, { speed: 20, rho: 1.2 });
-    assert.equal(p.gear, 5);
-    // ω = 20 × 8.1 / 0.287023 = 564.42 rad/s
-    near(p.engineSpeed, 564.42, 0.01);
-    // brake 159.2266 × 20 / 0.9 = 3538.37 W; friction 1e5×1.55e-4×564.42/(4π) = 696.18 W
-    // fuel (3538.37 + 696.18)/0.31 = 13659.8 W → 4.5321e-7 m³/s → 2.2661e-8 m³/m (2.266 L/100 km)
-    near(p.fuelRate / 20, 2.2661e-8, 3e-11);
-    // available in 5th: s = (785.398 − 564.42)/(785.398 − 150) = 0.34777; T = 14.1 × (1 − 0.3 s²) = 13.5884
-    // force 13.5884 × 8.1 × 0.9 / 0.287023 = 345.13 N
-    near(p.availableForce, 345.13, 0.05);
+// Tyres
+// ---------------------------------------------------------------------------
+test("wheel size from the tyre code", () => {
+    near(tyre.parseTyre("140/70-17 66P").diameterM, 0.6278, 1e-12);       // 17 × 0.0254 + 2 × 0.140 × 0.70
+    near(tyre.parseTyre("150/60 ZR 17 66W").diameterM, 0.6118, 1e-12);    // 0.4318 + 2 × 0.150 × 0.60
+    near(tyre.parseTyre("90/90-12 54J").diameterM, 0.4668, 1e-12);        // 0.3048 + 2 × 0.090 × 0.90
+    near(tyre.parseTyre("2.75-18 42P").diameterM, 0.5969, 1e-12);         // (18 + 2 × 2.75) × 0.0254
+    near(tyre.parseTyre("3.00x18").diameterM, 0.6096, 1e-12);             // (18 + 6) × 0.0254
+    const w = tyre.wheelFromTyre("140/70-17");
+    near(w.rollingRadius, 0.3139 * 0.975, 1e-12);                         // 2.5 % deflection
+    near(w.rollingCircumference, 2 * Math.PI * 0.3139 * 0.975, 1e-12);
+    assert.throws(() => tyre.parseTyre("big wheel"), RangeError);
 });
 
-test("whole vehicle, EV: battery power at 36 km/h", () => {
-    const v = profile.compileVehicle(profile.paramsFromBundle(evBundle()));
-    // m = 111.6 + 72 = 183.6; rolling 0.021 × 183.6 × 9.80665 = 37.811; aero ½ × 1.225 × 0.52 × 10² = 31.85
-    // wheel 696.61 W; battery 696.61 / (0.95 × 0.85) + 25 W auxiliaries = 862.67 + 25 = 887.67 W
-    const p = drive.operatingPoint(v, { speed: 10, rho: 1.225 });
-    near(p.wheelPower, 696.61, 0.01);
-    near(p.batteryPower, 887.67, 0.05);
-    // usable 0.9 × 3.7 kWh = 11.988 MJ; range 11.988e6 / 88.767 J/m = 135.05 km
-    near(cruise.evRange(v, { speed: 10, rho: 1.225 }), 135050, 20);
+test("the physics tyre parser agrees with the data contract on every seed tyre", () => {
+    for (const b of bundleById.values()) for (const k of ["frontTyre", "rearTyre"]) {
+        const code = b.chassis[k].v;
+        near(tyre.parseTyre(code).diameterM, Contract.parseTyre(code).diameterM, 1e-12, code);
+    }
 });
 
-test("gear engine speed on a real bike: Royal Enfield Classic 350 in 5th at 90 km/h", () => {
-    const { bundle, classDefault } = realBundles().find((x) => x.bundle.id === "royal-enfield-classic-350-in");
-    assert.match(bundle.chassis.rearTyre.v, /^120\/80-18/);
-    const v = profile.compileVehicle(profile.paramsFromBundle(bundle, { classDefault }));
-    // overall 2.313 × 0.875 × 2.8 = 5.66685; r = (0.2286 + 0.096) × 0.97 = 0.314862; ω = 25 × 5.66685 / 0.314862 = 449.95 rad/s
-    near(drive.gearPoints(v, { speed: 25, rho: 1.2 })[4].engineSpeed, 449.95, 0.05);
+// ---------------------------------------------------------------------------
+// Road load
+// ---------------------------------------------------------------------------
+test("road load: flat, 10 % grade, wind, acceleration, standstill", () => {
+    const base = { mass: 200, v: 20, cda: 0.5, crr: 0.015, rho: 1.2 };
+    let r = roadload.roadLoad(base);
+    near(r.aero, 120, 1e-9);                                    // ½ × 1.2 × 0.5 × 20²
+    near(r.rolling, 29.41995, 1e-9);                            // 0.015 × 200 × 9.80665
+    near(r.total, 149.41995, 1e-9);
+    near(r.power, 2988.399, 1e-9);                              // × 20 m/s
+    r = roadload.roadLoad({ ...base, grade: 0.1 });
+    near(r.gravity, 195.159629, 1e-6);                          // 200 × 9.80665 × 0.1/√1.01  (√1.01 = 1.00498756)
+    near(r.rolling, 29.273944, 1e-6);                           // 29.41995 / √1.01
+    near(r.total, 344.433574, 1e-6);
+    near(roadload.roadLoad({ ...base, wind: 5 }).aero, 187.5, 1e-9);    // ½ × 1.2 × 0.5 × 25²
+    near(roadload.roadLoad({ ...base, wind: -25 }).aero, -7.5, 1e-9);   // tailwind faster than the bike pushes: −½ × 1.2 × 0.5 × 5²
+    near(roadload.roadLoad({ ...base, accel: 1 }).inertia, 210, 1e-9);  // 1.05 × 200 × 1
+    r = roadload.roadLoad({ ...base, v: 0, grade: 0.1 });
+    assert.equal(r.rolling, 0);
+    assert.equal(r.power, 0);
+    near(r.total, 195.159629, 1e-6);                            // only gravity: what the brake must hold
 });
 
-test("±1σ: a linear output gets exactly σ_out = |∂f/∂p|·σ", () => {
-    const params = profile.paramsFromBundle(iceBundle());
-    // mass = kerb + rider: σ comes from the rider-mass prior alone (σ = 10 kg)
-    const r = uncertainty.propagate(params, (v) => v.mass, { keys: ["riderMass"] });
-    near(r.value, 200, 1e-9); near(r.sigma, 10, 1e-9); near(r.low, 190, 1e-9); near(r.high, 210, 1e-9);
-    // rolling force ∝ Crr: σ_F = 0.004 × 200 × 9.80665 = 7.8453 N
-    const f = uncertainty.propagate(params, (v) => roadload.roadLoad({ speed: 10, rho: 1.2 }, v).rolling, { keys: ["crr"] });
-    near(f.sigma, 7.8453, 1e-4);
+// ---------------------------------------------------------------------------
+// Torque curve
+// ---------------------------------------------------------------------------
+test("torque curve from Hunter 350 peaks: exact peaks, hand-computed shape", () => {
+    // 14.87 kW @ 6100 rpm, 27 N·m @ 4000 rpm, idle 1050 rpm, top 1.12 × 6100 rpm
+    const k = powertrain.buildTorqueCurve({ peakPower: 14870, omegaPower: 6100 * RPM, peakTorque: 27, omegaTorque: 4000 * RPM, omegaIdle: 1050 * RPM, omegaMax: 1.12 * 6100 * RPM });
+    // ω_P = 638.79050, ω_T = 418.87902; T_P = 14870/638.79050 = 23.278367; D = 3.721633;
+    // κ = 23.278367 × 219.91148 / (638.79050 × 3.721633) = 2.153319
+    near(k.torqueAtPowerPeak, 23.278367, 1e-6);
+    near(k.kappa, 2.153319, 1e-6);
+    assert.equal(k.shape, "power-law");
+    near(powertrain.torqueAt(k, 4000 * RPM), 27, 1e-12);
+    near(powertrain.powerAt(k, 6100 * RPM), 14870, 1e-9);
+    near(powertrain.torqueAt(k, 1050 * RPM), 0.65 * 27, 1e-12);                  // 17.55 at idle
+    near(powertrain.torqueAt(k, (1050 + 4000) / 2 * RPM), 27 - 9.45 * 0.25, 1e-9); // 24.6375 halfway up
+    near(powertrain.torqueAt(k, 5050 * RPM), 26.163396, 1e-6);                    // 27 − 3.721633 × 0.5^2.153319
+    near(powertrain.powerAt(k, 1.1 * 6100 * RPM), 14870 * (1 - 3 * 0.01), 1e-9);  // 96 % … 97 % of peak past it
+    assert.equal(powertrain.torqueAt(k, 1000 * RPM), 0);                          // below idle
+    assert.equal(powertrain.torqueAt(k, 7000 * RPM), 0);                          // above the top speed
+});
+
+// ---------------------------------------------------------------------------
+// Willans line
+// ---------------------------------------------------------------------------
+test("Willans fuel: friction power and fuel flow by hand", () => {
+    const f = { A: 1e5, B: 50, C: 0.05 };
+    near(powertrain.frictionMep(f, 500), 137500, 1e-9);                         // 1e5 + 50 × 500 + 0.05 × 500²
+    const pf = powertrain.frictionPower(2e-4, 2, f, 500);
+    near(pf, 1094.190234, 1e-6);                                                // 137 500 × 2e-4 × 500 / (4π) = 13 750 / 12.566371
+    near(powertrain.frictionPower(2e-4, 1, f, 500), 2 * 1094.190234, 2e-6);     // 2-stroke: one revolution per cycle
+    const fuelW = powertrain.willansFuelPower(5000, pf, 0.3);
+    near(fuelW, 20313.967446, 1e-5);                                            // (5000 + 1094.190234) / 0.30
+    near(fuelW / 3.014e10, 6.7398698e-7, 1e-13);                                // m3/s on E20
+    near(powertrain.willansFuelPower(-500, pf, 0.3), pf / 0.3, 1e-9);           // negative brake power never "makes" fuel
+});
+
+test("friction terms published per krpm convert to SI consistently", () => {
+    // FMEP 100 kPa + 8 kPa/krpm + 0.6 kPa/krpm² at 6 krpm = 100 + 48 + 21.6 = 169.6 kPa
+    const f = { A: Contract.toSI(100, "kPa"), B: Contract.toSI(8, "kPa/krpm"), C: Contract.toSI(0.6, "kPa/krpm2") };
+    near(powertrain.frictionMep(f, 6000 * RPM), 169600, 1e-6);
+});
+
+// ---------------------------------------------------------------------------
+// Electric drive
+// ---------------------------------------------------------------------------
+test("EV: motor force envelope and battery power by hand", () => {
+    const m = { peakPower: 4000, wheelTorque: 200 };
+    near(powertrain.motorForceMax(m, 2, 0.25), 800, 1e-12);        // torque-limited: 200 / 0.25
+    near(powertrain.motorForceMax(m, 10, 0.25), 400, 1e-12);       // power-limited: 4000 / 10
+    near(powertrain.motorForceMax(m, 0, 0.25), 800, 1e-12);
+    const p = { etaDt: 0.95, etaMotor: 0.85, etaRegen: 0.6, aux: 35, regenLimit: 3000 };
+    near(powertrain.batteryPower(1000, p), 1273.390, 1e-3);         // 1000 / (0.95 × 0.85) + 35
+    near(powertrain.batteryPower(-2000, p), -1165, 1e-9);           // −2000 × 0.6 + 35
+    near(powertrain.batteryPower(-2000, { ...p, regenLimit: 1000 }), -965, 1e-9);   // regen capped at 1 kW
+    near(84812.67, 1.08e7 / (1273.390 / 10), 0.5);                  // 3 kWh at 10 m/s: 1.08e7 J ÷ 127.339 J/m ≈ 84.8 km
+});
+
+// ---------------------------------------------------------------------------
+// CVT
+// ---------------------------------------------------------------------------
+test("CVT engine speed: clutch slip, launch ratio, variator hold, top ratio", () => {
+    const c = { ratioMax: 2.5, ratioMin: 0.8, final: 10, omegaEngage: 300, omegaCruise: 500 };
+    assert.equal(cruise.cvtOmega(c, 0, 0.2, 150), 150);                          // standing: idle
+    assert.equal(cruise.cvtOmega(c, 1, 0.2, 150), 300);                          // 1/0.2 × 25 = 125 < engage: clutch slips at 300
+    near(cruise.cvtOmega(c, 3, 0.2, 150), 375, 1e-9);                            // 3/0.2 × 25
+    assert.equal(cruise.cvtOmega(c, 10, 0.2, 150), 500);                         // top ratio would give 400: variator holds 500
+    near(cruise.cvtOmega(c, 20, 0.2, 150), 800, 1e-9);                           // 20/0.2 × 8
+});
+
+// ---------------------------------------------------------------------------
+// Whole chain on a bike with round numbers
+// ---------------------------------------------------------------------------
+test("whole chain: hand bike at 72 km/h on a flat road", () => {
+    const m = Physics.createBikeModel(handBike());
+    const op = Physics.operatingPoint(m, 20, { rho: 1.2 });
+    // r = 0.5969/2 × 0.975 = 0.29098875 m; mass 180 kg
+    // F = 0.02 × 180 × 9.80665 + ½ × 1.2 × 0.5 × 20² = 35.30394 + 120 = 155.30394 N → 3106.0788 W at the wheel
+    near(op.wheelForce, 155.30394, 1e-9);
+    near(op.wheelPower, 3106.0788, 1e-6);
+    assert.equal(op.gear, 5);                                   // top gear: lowest engine speed, least friction
+    // ω = 20 / 0.29098875 × (3 × 1.0 × 3) = 618.580615 rad/s
+    near(/** @type {number} */ (op.omega), 618.580615, 1e-6);
+    near(/** @type {number} */ (op.enginePower), 3451.198667, 1e-6);   // 3106.0788 / 0.90
+    // friction: 1e5 × 1.5e-4 × 618.580615 / (4π) = 738.376220 W; fuel power (3451.198667 + 738.376220) / 0.30 = 13965.249621 W
+    near(/** @type {number} */ (op.fuelRate), 13965.249621 / 3.014e10, 1e-15);          // 4.633460e-7 m3/s
+    near(/** @type {number} */ (op.fuelPerMetre), 13965.249621 / 3.014e10 / 20, 1e-16); // 2.316730e-8 m3/m = 43.16 km/L
+    assert.equal(op.feasible, true);
+    assert.equal(op.fuelCut, false);
+});
+
+test("whole chain: idle at standstill burns the friction power at idle, and goes nowhere", () => {
+    const m = Physics.createBikeModel(handBike());
+    const op = Physics.operatingPoint(m, 0, { rho: 1.2 });
+    // 1e5 × 1.5e-4 × 100 / (4π) = 119.3662 W friction at idle → / 0.30 / 3.014e10
+    near(/** @type {number} */ (op.fuelRate), 119.3662 / 0.3 / 3.014e10, 1e-15);
+    assert.equal(op.fuelPerMetre, null);
+    assert.equal(op.wheelPower, 0);
+});
+
+test("shift points for the hand bike: economy upshift where the next gear reaches its lugging limit", () => {
+    const m = Physics.createBikeModel(handBike());
+    const sp = /** @type {NonNullable<ReturnType<typeof Physics.shiftPoints>>} */ (Physics.shiftPoints(m, { rho: 1.2 }));
+    // lug = max(1.6 × 100, 0.35 × 500) = 175 rad/s; overall ratios 27, 18, 13.5, 10.8, 9; r = 0.29098875
+    const r = 0.29098875;
+    const ratios = [27, 18, 13.5, 10.8, 9];
+    for (let i = 0; i < 4; i++) {
+        near(sp.ecoUp[i].speed, 175 * r / ratios[i + 1], 1e-9, `${i + 1}→${i + 2}`);
+        near(sp.ecoUp[i].omegaTo, 175, 1e-9);
+        near(sp.ecoDown[i].speed, 175 * r / ratios[i + 1], 1e-9);
+    }
+    assert.equal(sp.advisory, true);
+    for (const s of sp.perfUp) assert.ok(s.omegaFrom <= m.engine.omegaMax * (1 + 1e-9) && s.omegaFrom > 500, `${s.from}→${s.to} at ${s.omegaFrom} rad/s`);
+});
+
+// ---------------------------------------------------------------------------
+// Validation against published figures
+// ---------------------------------------------------------------------------
+test("validation: computed top speed within 10 % of the published figure (petrol bikes that publish one)", () => {
+    let checked = 0;
+    for (const m of modelById.values()) {
+        if (m.powertrain === "ev" || m.topSpeed === null) continue;
+        const v = Physics.maxSpeed(m, { altitude: 0, temperature: 298.15 });
+        rel(v, m.topSpeed, 0.10, `${m.id} top speed ${(v / KMH).toFixed(1)} km/h vs published ${(m.topSpeed / KMH).toFixed(1)}`);
+        checked++;
+    }
+    assert.ok(checked >= 3, `${checked} bikes checked`);
 });

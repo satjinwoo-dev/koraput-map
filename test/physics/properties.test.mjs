@@ -1,263 +1,281 @@
-// Property tests over every bike in the real catalogue (and synthetic edge
-// cases): invariants that must hold for ANY input, checked on thousands of
-// seeded random states — no NaN, fuel never negative, standstill and extreme
-// gradients handled, descents free on fuel-injected bikes, results within the
-// published peaks, uncertainty bands well formed.
+// Property tests: invariants that must hold for every bike in the catalogue and
+// thousands of seeded random conditions (same numbers on every run).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { P, RPM, iceBundle, cvtBundle, evBundle, realBundles, rng } from "./fixtures.mjs";
+import { Physics, models, handBike, prng, between, numbersIn, RPM } from "./helpers.mjs";
 
-const { profile, drive, cruise, uncertainty, core } = P;
-const STATES_PER_BIKE = 400;
+const { powertrain, atmosphere } = Physics;
+const ice = models.filter((m) => m.powertrain !== "ev");
+const ev = models.filter((m) => m.powertrain === "ev");
+const fi = ice.filter((m) => m.engine && m.engine.fuelInjected);
+const randomEnv = (rnd) => ({ altitude: between(rnd, -100, 4500), temperature: between(rnd, 263, 323), relativeHumidity: rnd(), wind: between(rnd, -12, 12) });
+const allFinite = (x) => numbersIn(x).every((n) => Number.isFinite(n));
 
-const vehicles = () => realBundles().map(({ bundle, classDefault }) => {
-    const params = profile.paramsFromBundle(bundle, { classDefault });
-    return { id: bundle.id, params, vehicle: profile.compileVehicle(params) };
+// ---------------------------------------------------------------------------
+// Torque curve
+// ---------------------------------------------------------------------------
+test("torque curve: peaks exact, never above either peak, zero outside its range (5,000 random engines)", () => {
+    const rnd = prng(1);
+    for (let i = 0; i < 5000; i++) {
+        const wT = between(rnd, 150, 1000);
+        const wP = wT * between(rnd, 1, 1.8);
+        const Tp = between(rnd, 3, 150);
+        // torque at the power peak, from peaky to flat, but consistent: T̂·ω_T ≤ P̂ ≤ T̂·ω_P
+        const TP = Tp * between(rnd, Math.max(0.25, wT / wP), 1);
+        const k = powertrain.buildTorqueCurve({ peakPower: TP * wP, omegaPower: wP, peakTorque: Tp, omegaTorque: wT, omegaIdle: wT * between(rnd, 0.1, 0.6), omegaMax: wP * between(rnd, 1, 1.3) });
+        assert.ok(Math.abs(powertrain.torqueAt(k, k.omegaTorque) - k.peakTorque) <= 1e-9 * k.peakTorque, `T(ω_T) case ${i}`);
+        assert.ok(Math.abs(powertrain.powerAt(k, k.omegaPower) - k.peakPower) <= 1e-9 * k.peakPower, `P(ω_P) case ${i}`);
+        let prevT = powertrain.torqueAt(k, k.omegaIdle);
+        for (let j = 0; j <= 400; j++) {
+            const w = j === 400 ? k.omegaMax : k.omegaIdle + ((k.omegaMax - k.omegaIdle) * j) / 400;
+            const T = powertrain.torqueAt(k, w);
+            assert.ok(Number.isFinite(T) && T >= 0, `finite, ≥ 0 (case ${i})`);
+            assert.ok(T <= k.peakTorque * (1 + 1e-12), `T ≤ T̂ (case ${i}, shape ${k.shape})`);
+            assert.ok(T * w <= k.peakPower * (1 + 1e-12), `P ≤ P̂ (case ${i}, shape ${k.shape}, κ ${k.kappa})`);
+            assert.ok(Math.abs(T - prevT) <= 0.25 * k.peakTorque, `continuous (case ${i})`);
+            prevT = T;
+        }
+        assert.equal(powertrain.torqueAt(k, k.omegaIdle * 0.99), 0);
+        assert.equal(powertrain.torqueAt(k, k.omegaMax * 1.01), 0);
+    }
 });
 
-/** Every number in an operating point must be finite (Number.MAX_VALUE stands in for "unlimited"). */
-function assertFinitePoint(p, where) {
-    for (const k of ["engineSpeed", "wheelForce", "wheelPower", "availableForce", "fuelRate", "batteryPower"]) {
-        assert.ok(Number.isFinite(p[k]), `${where}: ${k} = ${p[k]}`);
-    }
-    assert.equal(typeof p.feasible, "boolean", where);
-}
-
-test("every catalogue bike builds a vehicle; flags say where estimates were used", () => {
-    for (const { id, params, vehicle } of vehicles()) {
-        assert.ok(vehicle.mass > 100 && vehicle.mass < 400, `${id} mass ${vehicle.mass}`);
-        assert.ok(vehicle.rollingRadius > 0.2 && vehicle.rollingRadius < 0.4, `${id} r ${vehicle.rollingRadius}`);
-        for (const [k, pr] of Object.entries(params.priors)) assert.ok(pr.sigma > 0 && ["bundle", "class_default", "rider", "model"].includes(pr.origin), `${id} ${k}`);
-        if (params.kind === "class_default") assert.ok(params.flags.some((f) => /class default/i.test(f)), id);
-    }
-});
-
-test("random states: no NaN anywhere, fuel never negative, chosen gears inside the rev range", () => {
-    const rand = rng(4242);
-    const u = (lo, hi) => lo + (hi - lo) * rand();
-    for (const { id, vehicle } of vehicles()) {
-        const vmax = cruise.maxSpeed(vehicle, { rho: 1.2 });
-        for (let k = 0; k < STATES_PER_BIKE; k++) {
-            const c = { speed: k % 25 === 0 ? 0 : u(0, vmax * 1.1), grade: u(-0.3, 0.3), accel: u(-3, 3), headwind: u(-10, 10), rho: u(0.9, 1.3) };
-            const where = `${id} ${JSON.stringify(c)}`;
-            const p = drive.operatingPoint(vehicle, c);
-            assertFinitePoint(p, where);
-            assert.ok(p.fuelRate >= 0, `${where}: negative fuel`);
-            if (params(vehicle).powertrain === "ice_manual" && p.feasible && p.gear !== null) {
-                assert.ok(p.engineSpeed <= vehicle.engine.redline + 1e-9, `${where}: over redline`);
-                assert.ok(p.engineSpeed >= vehicle.engine.lugSpeed - 1e-9, `${where}: lugging`);
-            }
-            if (vehicle.ev && p.wheelPower < 0) assert.ok(p.batteryPower - vehicle.ev.auxPower >= p.wheelPower - 1e-9, `${where}: regen recovered more than the wheel gave`);
+test("torque curve: peaks that contradict each other still never exceed either peak (2,000 random cases)", () => {
+    const rnd = prng(11);
+    for (let i = 0; i < 2000; i++) {
+        const wT = between(rnd, 150, 1000), wP = wT * between(rnd, 0.8, 1.8), Tp = between(rnd, 3, 150);
+        const k = powertrain.buildTorqueCurve({ peakPower: Tp * wP * between(rnd, 0.2, 1.2), omegaPower: wP, peakTorque: Tp, omegaTorque: wT, omegaIdle: wT * between(rnd, 0.05, 1.2), omegaMax: wP * between(rnd, 0.8, 1.3) });
+        for (let j = 0; j <= 200; j++) {
+            const w = j === 200 ? k.omegaMax : k.omegaIdle + ((k.omegaMax - k.omegaIdle) * j) / 200, T = powertrain.torqueAt(k, w);
+            assert.ok(Number.isFinite(T) && T >= 0 && T <= k.peakTorque * (1 + 1e-12) && T * w <= k.peakPower * (1 + 1e-12), `case ${i}: ${k.flags.join("; ")}`);
         }
     }
 });
-const params = (v) => v.params;
 
-test("standstill: the engine idles (or the EV draws only its auxiliaries) — no NaN", () => {
-    for (const { id, vehicle } of vehicles()) {
-        const p = drive.operatingPoint(vehicle, { speed: 0, rho: 1.2 });
-        assertFinitePoint(p, id);
-        if (vehicle.engine) {
-            assert.equal(p.engineSpeed, vehicle.engine.fuel.idleSpeed, id);
-            assert.ok(p.fuelRate > 0, `${id}: an idling engine burns fuel`);
-        } else assert.equal(p.batteryPower, vehicle.ev.auxPower, id);
-        // pulling away up a 10 % hill: first gear (or the CVT's launch ratio), finite
-        const go = drive.operatingPoint(vehicle, { speed: 0, rho: 1.2, grade: 0.1, accel: 1 });
-        assertFinitePoint(go, `${id} launch`);
+test("torque curve: inconsistent peaks are repaired and flagged, never NaN", () => {
+    const k = powertrain.buildTorqueCurve({ peakPower: 20000, omegaPower: 600, peakTorque: 20, omegaTorque: 700, omegaIdle: 800, omegaMax: 500 });
+    assert.ok(k.flags.length >= 3, k.flags.join("; "));
+    assert.ok(allFinite(powertrain.sampleCurve(k, 50)));
+    assert.throws(() => powertrain.buildTorqueCurve({ peakPower: NaN, omegaPower: 600, peakTorque: 20, omegaTorque: 400, omegaIdle: 100, omegaMax: 700 }), TypeError);
+});
+
+// ---------------------------------------------------------------------------
+// Standstill and finiteness
+// ---------------------------------------------------------------------------
+test("standstill: no NaN or Infinity in an operating point, any bike, any weather, any slope", () => {
+    const rnd = prng(2);
+    for (const m of models) for (let i = 0; i < 40; i++) {
+        const env = { ...randomEnv(rnd), grade: between(rnd, -1, 1) };
+        const op = Physics.operatingPoint(m, 0, env);
+        assert.ok(allFinite(op), `${m.id} ${JSON.stringify(env)} → ${JSON.stringify(op)}`);
+        if (m.powertrain === "ev") {
+            assert.equal(op.energyPerMetre, null);
+            assert.ok(/** @type {number} */ (op.batteryPower) > 0, "auxiliary load only");
+        } else {
+            assert.equal(op.fuelPerMetre, null);
+            assert.ok(/** @type {number} */ (op.fuelRate) > 0, `${m.id}: idling burns fuel`);
+            assert.equal(op.omega, m.engine.omegaIdle);
+        }
     }
 });
 
-// Physics, stated precisely: a fuel-injected engine cuts fuel whenever the road
-// drives it — i.e. whenever gravity overcomes the engine's own braking. On a
-// gentle descent, holding a steady speed can still need a little throttle (the
-// engine's friction is the bigger drag), so the plan's "descents cost no fuel"
-// is checked where it is true: a steep descent (25 %) and, for every descent,
-// "never more than riding on the level". A centrifugal-clutch CVT is driven
-// only while the road keeps the engine above clutch engagement; slower, the
-// clutch lets go and the engine idles (idle flow, no more).
-test("descents cost no fuel on fuel-injected bikes once gravity beats engine braking", () => {
-    let manual = 0, cvtCut = 0;
-    for (const { id, vehicle } of vehicles()) {
-        if (!vehicle.engine || vehicle.engine.fuel.fuelSystem !== "fi") continue;
-        const idleFlow = drive.idlePoint(vehicle, 0, 0).fuelRate;
-        for (const kmh of [30, 40, 50, 60, 70]) {
-            const v = kmh / 3.6;
-            if (v > cruise.maxSpeed(vehicle, { rho: 1.2 })) continue;
-            const steep = drive.operatingPoint(vehicle, { speed: v, grade: -0.25, rho: 1.2 });
-            if (vehicle.overallRatios) { assert.equal(steep.fuelRate, 0, `${id} at ${kmh} km/h on -25 %`); manual++; }
-            else if (steep.engineSpeed === vehicle.engine.fuel.idleSpeed) assert.equal(steep.fuelRate, idleFlow, `${id}: clutch out means idle flow, no more`);
-            else { assert.equal(steep.fuelRate, 0, `${id} at ${kmh} km/h on -25 %`); cvtCut++; }
-            for (const grade of [-0.03, -0.06, -0.12]) {
-                const level = drive.operatingPoint(vehicle, { speed: v, rho: 1.2 });
-                const down = drive.operatingPoint(vehicle, { speed: v, grade, rho: 1.2 });
-                assert.ok(down.fuelRate <= level.fuelRate + 1e-18, `${id} at ${kmh} km/h: ${grade * 100} % costs more than the level`);
-            }
+test("cruise tables: no NaN anywhere; per-metre cost is +Infinity only at standstill", () => {
+    const rnd = prng(3);
+    for (const m of models) for (let i = 0; i < 5; i++) {
+        const t = Physics.cruiseTable(m, { ...randomEnv(rnd), grade: between(rnd, -0.15, 0.15) });
+        for (const k of ["speed", "omega", "wheelPower", "enginePower", "perMetre", "perMetreLo", "perMetreHi", "fuelRate", "range", "rangeLo", "rangeHi"]) {
+            const arr = /** @type {any} */ (t)[k];
+            if (!arr) continue;
+            for (let j = 0; j < arr.length; j++) assert.ok(!Number.isNaN(arr[j]), `${m.id} ${k}[${j}] is NaN`);
         }
-    }
-    assert.ok(manual > 60, `${manual} manual descents`);
-    assert.ok(cvtCut > 0, "a CVT at speed is driven by the road: fuel cut");
-    const b = iceBundle();
-    b.engine.fuelSystem = { v: "carb", conf: 0.9, src: "test" };
-    const carb = profile.compileVehicle(profile.paramsFromBundle(b));
-    assert.ok(drive.operatingPoint(carb, { speed: 14, grade: -0.12, rho: 1.2 }).fuelRate > 0);
-});
-
-test("extreme gradients: ±100 % gives finite answers (and an honest 'not enough power'); steeper is rejected", () => {
-    for (const { id, vehicle } of vehicles()) {
-        for (const grade of [1, -1, 0.6, -0.6]) {
-            const p = drive.operatingPoint(vehicle, { speed: 8, grade, rho: 1.2 });
-            assertFinitePoint(p, `${id} grade ${grade}`);
-            if (grade === 1) assert.equal(p.feasible, false, `${id} can't climb a 45° wall`);
-            if (grade < 0) assert.ok(p.fuelRate >= 0);
-        }
-        assert.throws(() => drive.operatingPoint(vehicle, { speed: 8, grade: 1.5, rho: 1.2 }), core.PhysicsError);
-        assert.throws(() => drive.operatingPoint(vehicle, { speed: Number.NaN, rho: 1.2 }), core.PhysicsError);
-        assert.throws(() => drive.operatingPoint(vehicle, { speed: -1, rho: 1.2 }), core.PhysicsError);
+        assert.equal(t.perMetre[0], Infinity);
+        for (let j = 1; j < t.speed.length; j++) assert.ok(Number.isFinite(t.perMetre[j]), `${m.id} perMetre[${j}]`);
     }
 });
 
-test("torque models: never above the published peaks; exact at the peaks they were fitted to", () => {
-    for (const { id, vehicle } of vehicles()) {
-        if (!vehicle.engine) continue;
-        const m = vehicle.engine.torque, map = m.map;
-        for (let w = 1; w <= vehicle.engine.limiter * 1.05; w += 2) {
-            assert.ok(m.torque(w) >= 0 && m.torque(w) <= Math.max(map.peakTorque, map.peakPower / map.peakPowerSpeed) * (1 + 1e-12), `${id} T(${w})`);
-            assert.ok(m.power(w) <= map.peakPower * (1 + 1e-12), `${id} P(${w})`);
-        }
-        if (m.method !== "published_curve") {
-            assert.ok(Math.abs(m.power(map.peakPowerSpeed) - map.peakPower) < 1e-6, `${id} P(ωP)`);
-            assert.ok(m.torque(map.peakTorqueSpeed) <= map.peakTorque + 1e-9, `${id} T(ωT)`);
-        }
-        assert.equal(m.torque(vehicle.engine.limiter * 1.01), 0, `${id} above the limiter`);
+// ---------------------------------------------------------------------------
+// Fuel
+// ---------------------------------------------------------------------------
+test("fuel is never negative (20,000 random states, including braking and steep descents)", () => {
+    const rnd = prng(4);
+    for (let i = 0; i < 20000; i++) {
+        const m = ice[i % ice.length];
+        const env = { ...randomEnv(rnd), grade: between(rnd, -2, 2), accel: between(rnd, -4, 3) };
+        const op = Physics.operatingPoint(m, between(rnd, 0, 45), env);
+        assert.ok(/** @type {number} */ (op.fuelRate) >= 0 && Number.isFinite(op.fuelRate), `${m.id} ${JSON.stringify(env)} fuel ${op.fuelRate}`);
+        if (op.fuelPerMetre !== null) assert.ok(op.fuelPerMetre >= 0);
     }
 });
 
-test("road load grows with speed on the level; fuel per hour grows with speed in a fixed gear", () => {
-    for (const { id, vehicle } of vehicles()) {
-        let prevF = -Infinity;
-        for (let v = 0.5; v < 30; v += 0.5) {
-            const f = drive.demand(vehicle, { speed: v, rho: 1.2 }).force;
-            assert.ok(f > prevF, `${id} at ${v}`);
-            prevF = f;
-        }
-        if (!vehicle.overallRatios) continue;
-        const top = vehicle.overallRatios.length - 1;
+test("descents cost no fuel on fuel-injected bikes (overrun fuel cut)", () => {
+    const rnd = prng(5);
+    let checked = 0;
+    for (const m of fi) for (let i = 0; i < 60; i++) {
+        const v = between(rnd, 8, 25), grade = -between(rnd, 0.12, 0.6);
+        const op = Physics.operatingPoint(m, v, { altitude: 500, grade });
+        if (!op.overrun || op.clutchSlipping) continue;   // engine braking not yet enough to shut the throttle at this speed
+        assert.equal(op.fuelRate, 0, `${m.id} at ${v.toFixed(1)} m/s on ${(grade * 100).toFixed(0)} %`);
+        assert.equal(op.fuelCut, true);
+        checked++;
+    }
+    assert.ok(checked > fi.length * 30, `${checked} descents checked`);
+});
+
+test("carburettor bikes keep burning their idle feed downhill — less than on the flat, more than zero", () => {
+    const m = Physics.createBikeModel(handBike({ fuelSystem: "carb" }));
+    const down = Physics.operatingPoint(m, 15, { rho: 1.2, grade: -0.2 });
+    const flat = Physics.operatingPoint(m, 15, { rho: 1.2 });
+    assert.ok(down.wheelPower < 0);
+    assert.ok(/** @type {number} */ (down.fuelRate) > 0 && /** @type {number} */ (down.fuelRate) < /** @type {number} */ (flat.fuelRate));
+    assert.equal(down.fuelCut, false);
+});
+
+test("climbing costs more: fuel and battery energy per metre never fall as the road gets steeper", () => {
+    const rnd = prng(6);
+    for (const m of models) for (let i = 0; i < 25; i++) {
+        const v = between(rnd, 6, 25), env = randomEnv(rnd);
         let prev = -Infinity;
-        for (let v = 10; v < 25; v += 1) {
-            const p = drive.gearPoints(vehicle, { speed: v, rho: 1.2 })[top];
-            assert.ok(p.fuelRate >= prev, `${id} ${v} m/s`);
-            prev = p.fuelRate;
+        for (let g = -0.1; g <= 0.12 + 1e-9; g += 0.02) {
+            const op = Physics.operatingPoint(m, v, { ...env, grade: g });
+            if (!op.feasible) break;
+            const c = /** @type {number} */ (m.powertrain === "ev" ? op.energyPerMetre : op.fuelPerMetre);
+            assert.ok(c >= prev - 1e-15, `${m.id} v=${v.toFixed(1)} grade=${g.toFixed(2)}: ${c} < ${prev}`);
+            prev = c;
         }
     }
 });
 
-test("gear advice: only for a real bike with its own published gearing — never CVT, EV or class defaults", () => {
-    for (const { id, params: p } of vehicles()) {
-        if (p.powertrain !== "ice_manual" || p.kind === "class_default") assert.equal(p.gearAdvice, false, id);
-        if (p.gearAdvice) assert.equal(p.ice.gearing.origin, "variant", id);
-        if (p.powertrain === "ice_manual" && p.ice.gearing.origin === "class_default") {
-            assert.equal(p.gearAdvice, false, id);
-            assert.ok(p.flags.some((f) => /class-default gearing/.test(f)), id);
+test("more drag, more mass or a less efficient engine always costs more fuel", () => {
+    for (const m of ice) {
+        const P = Physics.cruise.meanParams(m);
+        const base = /** @type {number} */ (Physics.operatingPoint(m, 15, { rho: 1.2 }, { params: P }).fuelRate);
+        const worse = (k, f) => /** @type {number} */ (Physics.operatingPoint(m, 15, { rho: 1.2 }, { params: { ...P, [k]: P[k] * f } }).fuelRate);
+        assert.ok(worse("cda", 1.2) > base, `${m.id} cda`);
+        assert.ok(worse("crr", 1.2) > base, `${m.id} crr`);
+        assert.ok(worse("riderMass", 1.3) > base, `${m.id} mass`);
+        assert.ok(worse("etaInd", 0.9) > base, `${m.id} η_ind`);
+        assert.ok(worse("etaDt", 0.95) > base, `${m.id} η_dt`);
+    }
+});
+
+// ---------------------------------------------------------------------------
+// Extreme gradients
+// ---------------------------------------------------------------------------
+test("extreme gradients: walls and cliffs give finite answers — climbs infeasible, descents free (FI) or regenerating (EV)", () => {
+    for (const m of models) for (const grade of [1, -1, 10, -10, 1e6, -1e6, 1e300, -1e300]) {
+        const op = Physics.operatingPoint(m, 10, { altitude: 0, grade });
+        assert.ok(allFinite(op), `${m.id} grade ${grade}: ${JSON.stringify(op)}`);
+        if (grade > 0) assert.equal(op.feasible, false, `${m.id} can't climb a ${grade * 100} % slope`);
+        else if (m.powertrain === "ev") {
+            assert.ok(/** @type {number} */ (op.batteryPower) < 0, `${m.id} regenerates downhill`);
+            assert.ok(/** @type {number} */ (op.batteryPower) >= -m.motor.regenLimit + 0, `${m.id} regen within the motor's limit`);
+        } else if (m.engine.fuelInjected) assert.equal(op.fuelRate, 0, `${m.id} fuel cut on a ${grade * 100} % descent`);
+    }
+    assert.throws(() => Physics.operatingPoint(models[0], 10, { grade: Infinity }), TypeError);
+    assert.throws(() => Physics.operatingPoint(models[0], 10, { grade: NaN }), TypeError);
+    assert.throws(() => Physics.operatingPoint(models[0], -1), RangeError);
+});
+
+test("a road too steep for the tyre is infeasible because of traction, before power", () => {
+    const m = Physics.createBikeModel(handBike());
+    // tyre limit: 0.8 × 0.6 × m g cos θ ⇒ grade where m g sin θ alone exceeds it: tan θ > 0.48
+    assert.equal(Physics.operatingPoint(m, 2, { rho: 1.2, grade: 0.6 }, { gear: 1 }).reason, "traction");
+});
+
+// ---------------------------------------------------------------------------
+// Gears
+// ---------------------------------------------------------------------------
+test("gear choice: the chosen gear is real, within the rev range, carries the load, and respects the lugging limit", () => {
+    const rnd = prng(7);
+    for (const m of ice.filter((x) => x.drive.kind === "manual")) for (let i = 0; i < 80; i++) {
+        const v = between(rnd, 1, 40), env = { ...randomEnv(rnd), grade: between(rnd, -0.08, 0.12) };
+        const op = Physics.operatingPoint(m, v, env);
+        const g = /** @type {number} */ (op.gear);
+        assert.ok(Number.isInteger(g) && g >= 1 && g <= m.drive.ratios.length);
+        if (op.reason !== "over-rev") assert.ok(/** @type {number} */ (op.omega) <= m.engine.omegaMax * (1 + 1e-9), `${m.id} over-rev at ${v}`);
+        if (op.feasible && op.wheelPower > 0) {
+            assert.ok(/** @type {number} */ (op.enginePower) <= op.availablePower * (1 + 1e-9));
+            if (op.reason === null && g > 1) assert.ok(/** @type {number} */ (op.omega) >= m.engine.omegaLug - 1e-9, `${m.id} lugging in gear ${g}`);
+        }
+        if (op.reason === "over-rev") {
+            assert.equal(op.feasible, false);
+            assert.equal(g, m.drive.ratios.length, "over-revving in every gear: reported in the tallest");
+        }
+        // no other advisable gear burns less
+        if (op.feasible && op.reason === null && op.wheelPower > 0) {
+            for (let other = 1; other <= m.drive.ratios.length; other++) {
+                const o = Physics.operatingPoint(m, v, env, { gear: other });
+                const advisable = o.feasible && !o.clutchSlipping && /** @type {number} */ (o.omega) >= m.engine.omegaLug && /** @type {number} */ (o.enginePower) <= 0.85 * o.availablePower;
+                if (advisable) assert.ok(/** @type {number} */ (o.fuelRate) >= /** @type {number} */ (op.fuelRate) - 1e-15, `${m.id} gear ${other} beats chosen ${g}`);
+            }
         }
     }
-    const byId = Object.fromEntries(vehicles().map((x) => [x.id, x.params]));
-    assert.equal(byId["royal-enfield-classic-350-in"].gearAdvice, true);
-    assert.equal(byId["yamaha-mt-15-v2-in"].gearAdvice, false, "MT-15 V2: primary and final ratios not published");
 });
 
-test("shift points: upshifts inside the rev range, economy no later than performance", () => {
-    for (const { id, vehicle } of vehicles()) {
-        if (!vehicle.overallRatios) continue;
-        const sp = drive.shiftPoints(vehicle, { rho: 1.2 });
-        assert.equal(sp.length, vehicle.overallRatios.length - 1, id);
-        let prev = 0;
-        for (const s of sp) {
-            assert.ok(s.performanceEngineSpeed <= vehicle.engine.redline + 1e-6, `${id} ${s.from}→${s.to}`);
-            assert.ok(s.performanceSpeed >= prev, `${id}: upshift speeds rise with gear`);
-            prev = s.performanceSpeed;
-            if (s.economySpeed !== null) assert.ok(s.economySpeed <= s.performanceSpeed + 0.05, `${id} ${s.from}→${s.to}`);
+test("shift points: finite, in order, up-shifts below the redline and landing above the lugging limit", () => {
+    for (const m of ice.filter((x) => x.drive.kind === "manual")) {
+        const sp = /** @type {NonNullable<ReturnType<typeof Physics.shiftPoints>>} */ (Physics.shiftPoints(m, { altitude: 300 }));
+        assert.ok(allFinite(sp), m.id);
+        assert.equal(sp.advisory, m.gearAdvice);
+        for (let i = 0; i < sp.ecoUp.length; i++) {
+            assert.ok(sp.ecoUp[i].omegaTo >= m.engine.omegaLug - 1e-9);
+            assert.ok(sp.perfUp[i].omegaFrom <= m.engine.omegaMax * (1 + 1e-9));
+            if (i > 0) assert.ok(sp.ecoUp[i].speed > sp.ecoUp[i - 1].speed && sp.perfUp[i].speed > sp.perfUp[i - 1].speed, `${m.id} order`);
         }
     }
+    assert.equal(Physics.shiftPoints(ev[0]), null, "EVs get no gear advice");
+    assert.equal(Physics.shiftPoints(/** @type {any} */ (ice.find((x) => x.drive.kind === "cvt"))), null, "nor do CVT scooters");
 });
 
-test("cruise tables: finite, non-negative cost, eco band inside the feasible range", () => {
-    for (const { id, vehicle } of vehicles()) {
-        const t = cruise.cruiseTable(vehicle, { rho: 1.17 });
-        assert.ok(t.speeds.length > 10, id);
-        for (let i = 0; i < t.speeds.length; i++) {
-            assert.ok(Number.isFinite(t.perDistance[i]) && t.perDistance[i] >= 0, `${id} row ${i}`);
-            assert.ok(Number.isFinite(t.engineSpeed[i]), `${id} row ${i}`);
+// ---------------------------------------------------------------------------
+// ±1σ
+// ---------------------------------------------------------------------------
+test("±1σ: lo ≤ mean ≤ hi, petrol lo ≥ 0, and the band collapses when nothing is uncertain", () => {
+    for (const m of models) {
+        const t = Physics.cruiseTable(m, { altitude: 200 });
+        for (let j = 1; j < t.speed.length; j++) {
+            assert.ok(t.perMetreLo[j] <= t.perMetre[j] + 1e-18 && t.perMetre[j] <= t.perMetreHi[j] + 1e-18, `${m.id} row ${j}`);
+            if (m.powertrain !== "ev") assert.ok(t.perMetreLo[j] >= 0);
+            if (t.range && t.rangeLo && t.rangeHi && Number.isFinite(t.range[j])) assert.ok(t.rangeLo[j] <= t.range[j] && t.range[j] <= t.rangeHi[j]);
         }
-        assert.ok(t.eco, `${id}: some speed must be feasible on the level`);
-        assert.ok(t.eco.lo <= t.eco.best && t.eco.best <= t.eco.hi, id);
-        const iBest = t.speeds.indexOf(t.eco.best);
-        assert.equal(t.feasible[iBest], 1, id);
-        for (let i = 0; i < t.speeds.length; i++) if (t.feasible[i]) assert.ok(t.perDistance[i] >= t.perDistance[iBest] - 1e-18, `${id}: best isn't the cheapest`);
+        const exact = { ...m, params: Object.fromEntries(Object.entries(m.params).map(([k, u]) => [k, { mean: u.mean, sigma: 0 }])) };
+        const t0 = Physics.cruiseTable(exact, { altitude: 200 });
+        for (let j = 1; j < t0.speed.length; j++) assert.equal(t0.perMetreHi[j] - t0.perMetreLo[j], 0);
     }
 });
 
-test("±1σ bands are well formed for every bike, and every prior is accounted for", () => {
-    for (const { id, params: p } of vehicles()) {
-        const u = cruise.cruiseTableWithUncertainty(p, { rho: 1.17 }, { step: 1 });
-        for (let i = 0; i < u.table.speeds.length; i++) {
-            assert.ok(u.perDistanceSigma[i] >= 0 && Number.isFinite(u.perDistanceSigma[i]), `${id} row ${i}`);
-            assert.ok(u.perDistanceLow[i] <= u.table.perDistance[i] && u.table.perDistance[i] <= u.perDistanceHigh[i], `${id} row ${i}`);
+test("±1σ grows when a prior gets less certain", () => {
+    const m = models.find((x) => x.id === "royal-enfield-hunter-350-metro-in");
+    const wide = { ...m, params: { ...m.params, cda: { mean: m.params.cda.mean, sigma: m.params.cda.sigma * 3 } } };
+    const a = Physics.cruiseTable(m, { altitude: 0 }), b = Physics.cruiseTable(wide, { altitude: 0 });
+    const j = Math.round(20 / a.step);
+    assert.ok(b.perMetreHi[j] - b.perMetreLo[j] > a.perMetreHi[j] - a.perMetreLo[j]);
+});
+
+// ---------------------------------------------------------------------------
+// EV
+// ---------------------------------------------------------------------------
+test("EV: positive energy and finite range on the flat; nothing above the controller's speed limit", () => {
+    for (const m of ev) {
+        const t = Physics.cruiseTable(m, { altitude: 0 });
+        for (let j = 1; j < t.speed.length; j++) if (t.feasible[j]) {
+            assert.ok(t.perMetre[j] > 0, `${m.id} energy at ${t.speed[j]}`);
+            assert.ok(t.range && Number.isFinite(t.range[j]) && t.range[j] > 0);
         }
-        const keys = new Set(u.contributions.map((c) => c.key));
-        for (const k of Object.keys(p.priors)) assert.ok(keys.has(k), `${id}: prior ${k} not propagated`);
-        assert.ok(u.contributions[0].sigma >= u.contributions[u.contributions.length - 1].sigma, `${id}: contributions sorted`);
+        if (m.motor.speedLimit !== null) assert.equal(Physics.operatingPoint(m, m.motor.speedLimit + 1, { altitude: 0 }).reason, "speed-limit");
     }
 });
 
-test("rider settings: mass, sprockets, tyre and fuel move the answer the right way; nonsense is refused", () => {
-    const base = profile.paramsFromBundle(iceBundle());
-    const v0 = profile.compileVehicle(base);
-    const heavy = profile.compileVehicle(profile.paramsFromBundle(iceBundle(), { rider: { riderMass: 95, pillionMass: 60, luggageMass: 10 } }));
-    assert.equal(heavy.mass, 120 + 95 + 60 + 10);
-    assert.equal(profile.paramsFromBundle(iceBundle(), { rider: { riderMass: 95 } }).priors.riderMass.origin, "rider");
-    // a bigger rear sprocket raises the final ratio and the engine speed in the same gear
-    const geared = profile.compileVehicle(profile.paramsFromBundle(iceBundle(), { rider: { frontSprocket: 14, rearSprocket: 46 } }));
-    const w0 = drive.gearPoints(v0, { speed: 20, rho: 1.2 })[4].engineSpeed, w1 = drive.gearPoints(geared, { speed: 20, rho: 1.2 })[4].engineSpeed;
-    assert.ok(Math.abs(w1 / w0 - (46 / 14) / 3) < 1e-9);
-    // E10 carries more energy per litre than E20: fewer litres for the same ride
-    const e10 = profile.compileVehicle(profile.paramsFromBundle(iceBundle(), { rider: { fuelGrade: "E10" } }));
-    assert.ok(drive.operatingPoint(e10, { speed: 20, rho: 1.2 }).fuelRate < drive.operatingPoint(v0, { speed: 20, rho: 1.2 }).fuelRate);
-    for (const bad of [{ riderMass: 5 }, { frontSprocket: 14.5, rearSprocket: 40 }, { frontSprocket: 14 }, { rearTyre: "fat" }, { fuelGrade: "E85" }, { pillionMass: -3 }]) {
-        assert.throws(() => profile.paramsFromBundle(iceBundle(), { rider: bad }), core.PhysicsError, JSON.stringify(bad));
-    }
-});
-
-test("missing data is never guessed: no class default → a clear error, not a made-up number", () => {
-    const b = iceBundle();
-    delete b.engine.idleRpm;
-    assert.throws(() => profile.paramsFromBundle(b), /idle speed/);
-    const c = cvtBundle();
-    delete c.transmission.cvtRatioMax;
-    assert.throws(() => profile.paramsFromBundle(c), /CVT/);
-    assert.throws(() => profile.paramsFromBundle({ ...evBundle(), units: "published" }), /SI/);
-});
-
-test("CVT and EV specifics", () => {
-    const cvt = profile.compileVehicle(profile.paramsFromBundle(cvtBundle()));
-    for (let v = 1; v < 22; v += 1) {
-        const p = drive.operatingPoint(cvt, { speed: v, rho: 1.2 });
-        assert.equal(p.gear, null);
-        assert.ok(p.engineSpeed >= cvt.engine.fuel.idleSpeed - 1e-9 && p.engineSpeed <= cvt.engine.limiter + 1e-9, `${v} m/s`);
-    }
-    // coasting slowly with the throttle shut: the clutch lets go and the engine idles
-    const coast = drive.operatingPoint(cvt, { speed: 3, grade: -0.05, rho: 1.2 });
-    assert.equal(coast.engineSpeed, cvt.engine.fuel.idleSpeed);
-    const ev = profile.compileVehicle(profile.paramsFromBundle(evBundle()));
-    assert.equal(drive.operatingPoint(ev, { speed: 26, rho: 1.2 }).feasible, false, "beyond the published top speed");
-    // regenerating downhill: the battery gains, but never more than the wheel gave up
-    const down = drive.operatingPoint(ev, { speed: 15, grade: -0.08, rho: 1.2 });
-    assert.ok(down.batteryPower < ev.ev.auxPower && down.batteryPower - ev.ev.auxPower >= down.wheelPower);
-});
-
-test("determinism: the same inputs give bit-identical tables", () => {
-    const p = profile.paramsFromBundle(iceBundle());
-    const a = cruise.cruiseTableWithUncertainty(p, { rho: 1.2 }), b = cruise.cruiseTableWithUncertainty(p, { rho: 1.2 });
-    assert.deepEqual(Array.from(a.table.perDistance), Array.from(b.table.perDistance));
-    assert.deepEqual(Array.from(a.perDistanceSigma), Array.from(b.perDistanceSigma));
+// ---------------------------------------------------------------------------
+// Air
+// ---------------------------------------------------------------------------
+test("air density falls with altitude, temperature and humidity; noisy inputs are clamped, not NaN", () => {
+    for (let h = 0; h < 19000; h += 500) assert.ok(atmosphere.standardAtmosphere(h + 500).density < atmosphere.standardAtmosphere(h).density);
+    for (let T = 250; T < 320; T += 5) assert.ok(atmosphere.airDensity({ pressure: 1e5, temperature: T + 5 }) < atmosphere.airDensity({ pressure: 1e5, temperature: T }));
+    for (let i = 0; i < 10; i++) assert.ok(atmosphere.airDensity({ pressure: 1e5, temperature: 300, relativeHumidity: (i + 1) / 10 }) < atmosphere.airDensity({ pressure: 1e5, temperature: 300, relativeHumidity: i / 10 }));
+    assert.equal(atmosphere.airDensity({ pressure: 1e5, temperature: 300, relativeHumidity: 7 }), atmosphere.airDensity({ pressure: 1e5, temperature: 300, relativeHumidity: 1 }));
+    assert.equal(atmosphere.standardAtmosphere(-5000).altitude, -610);
+    assert.throws(() => atmosphere.airDensity({ pressure: -1, temperature: 300 }), RangeError);
+    assert.throws(() => atmosphere.airDensity({ pressure: 1e5, temperature: NaN }), TypeError);
     void RPM;
 });

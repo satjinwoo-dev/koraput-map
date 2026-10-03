@@ -1,32 +1,53 @@
 // @ts-check
-"use strict";
-
 /* ============================================================================
-   MapUnite physics — js/physics/index.js
+   MapUnite physics core — entry point (strict SI, no dependencies, no DOM)
    ==============================================================================
-   Node entry point: require("public/js/physics/index.js") gives every module.
+   Node / tests:   const Physics = require("./public/js/physics/index.js");
+   Browser / app:  load in this order, then use window.MUPhysics:
+       atmosphere.js, tyre.js, powertrain.js, roadload.js, model.js, cruise.js, index.js
 
-   In the browser / app, load the modules as plain scripts in this order (each
-   attaches itself to window.MUPhysics; nothing else is global):
-     core.js, atmosphere.js, tyre.js, engine.js, roadload.js,
-     profile.js, drive.js, uncertainty.js, cruise.js
+   Typical use (the bike picker has fetched the bike's bundle and its class default):
+       const model = Physics.createBikeModel(bundle, { classDefault, settings: { riderMass: 78 } });
+       const table = Physics.cruiseTable(model, { altitude: 920, temperature: 303.15 });
+       table.eco  → { speedLow, speedHigh, speedBest, perMetreBest }   (m/s, m3/m or J/m)
 
-   Typical use:
-     const params  = profile.paramsFromBundle(bundle, { classDefault, rider });
-     const vehicle = profile.compileVehicle(params);
-     const rho     = atmosphere.airDensity({ altitude: 200, temperature: 305, relativeHumidity: 0.7 });
-     const point   = drive.operatingPoint(vehicle, { speed: 13.9, grade: 0.02, rho });
-     const table   = cruise.cruiseTableWithUncertainty(params, { rho });
+   Every input and output is SI: m/s, rad/s, W, N, kg, m, m3, J, Pa, K.
+   Unit conversion for display (km/h, rpm, km/L) belongs in the UI layer.
    ============================================================================ */
 
-module.exports = Object.freeze({
-    core: require("./core.js"),
-    atmosphere: require("./atmosphere.js"),
-    tyre: require("./tyre.js"),
-    engine: require("./engine.js"),
-    roadload: require("./roadload.js"),
-    profile: require("./profile.js"),
-    drive: require("./drive.js"),
-    uncertainty: require("./uncertainty.js"),
-    cruise: require("./cruise.js")
+(function (root, factory) {
+    if (typeof module === "object" && module.exports) {
+        module.exports = factory(require("./atmosphere.js"), require("./tyre.js"), require("./powertrain.js"), require("./roadload.js"), require("./model.js"), require("./cruise.js"));
+    } else {
+        const ns = /** @type {any} */ (root).MUPhysics;
+        if (!ns || !ns.atmosphere || !ns.tyre || !ns.powertrain || !ns.roadload || !ns.model || !ns.cruise) throw new Error("MUPhysics: load atmosphere, tyre, powertrain, roadload, model and cruise before index.js");
+        Object.assign(ns, factory(ns.atmosphere, ns.tyre, ns.powertrain, ns.roadload, ns.model, ns.cruise));
+    }
+})(typeof globalThis !== "undefined" ? globalThis : this, function (
+    /** @type {typeof import("./atmosphere.js")} */ atmosphere,
+    /** @type {typeof import("./tyre.js")} */ tyre,
+    /** @type {typeof import("./powertrain.js")} */ powertrain,
+    /** @type {typeof import("./roadload.js")} */ roadload,
+    /** @type {typeof import("./model.js")} */ model,
+    /** @type {typeof import("./cruise.js")} */ cruise
+) {
+    "use strict";
+    return {
+        VERSION: "1.0.0",
+        atmosphere, tyre, powertrain, roadload, model, cruise,
+        // the everyday API
+        airDensity: atmosphere.airDensity,
+        airDensityAt: atmosphere.airDensityAt,
+        standardAtmosphere: atmosphere.standardAtmosphere,
+        wheelFromTyre: tyre.wheelFromTyre,
+        buildTorqueCurve: powertrain.buildTorqueCurve,
+        torqueAt: powertrain.torqueAt,
+        powerAt: powertrain.powerAt,
+        roadLoad: roadload.roadLoad,
+        createBikeModel: model.createBikeModel,
+        operatingPoint: cruise.operatingPoint,
+        shiftPoints: cruise.shiftPoints,
+        maxSpeed: cruise.maxSpeed,
+        cruiseTable: cruise.cruiseTable
+    };
 });
