@@ -1,0 +1,86 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "default-ice-manual-cruiser",
+  "kind": "class_default",
+  "classKey": "ice_manual.cruiser",
+  "segment": "cruiser",
+  "powertrain": "ice_manual",
+  "identity": {
+    "make": "Generic",
+    "model": "350 cc class cruiser / retro motorcycle",
+    "variant": "Class default — used when the exact bike isn't in the catalogue",
+    "market": "IN",
+    "yearFrom": 2023,
+    "yearTo": null,
+    "aliases": ["cruiser", "retro bike", "350cc bike", "thumper"]
+  },
+  "sources": [
+    {
+      "id": "class-prior",
+      "kind": "class_prior",
+      "title": "MapUnite class prior v1 — representative vehicle",
+      "retrieved": "2026-10-02",
+      "note": "Representative engine, gearing, mass and tyres for the class, chosen from the seed variants in this class and typical Indian-market figures. Used only when the rider's bike is not in the catalogue; never used for fuel advice."
+    },
+    {
+      "id": "class-prior-physics",
+      "kind": "class_prior",
+      "title": "MapUnite class prior v1 — model parameters",
+      "retrieved": "2026-10-02",
+      "note": "Drag area (bike + rider), rolling resistance, drivetrain efficiency, Willans indicated efficiency and friction-MEP terms from typical published ranges for small spark-ignition engines and motorcycles (e.g. Heywood, Internal Combustion Engine Fundamentals, friction chapter; motorcycle CdA ≈ 0.3 m² tucked on a faired bike to ≈ 0.7 m² upright). Wide sigmas on purpose; per-rider calibration narrows them."
+    }
+  ],
+  "engine": {
+    "displacement": { "v": 349, "u": "cm3", "src": "class-prior", "conf": 0.4 },
+    "cylinders": { "v": 1, "u": "1", "src": "class-prior", "conf": 0.5 },
+    "strokes": { "v": 4, "u": "1", "src": "class-prior", "conf": 0.5 },
+    "bore": { "v": 72, "u": "mm", "src": "class-prior", "conf": 0.3 },
+    "stroke": { "v": 85.8, "u": "mm", "src": "class-prior", "conf": 0.3 },
+    "compressionRatio": { "v": 9.5, "u": "1", "src": "class-prior", "conf": 0.3 },
+    "cooling": { "v": "air_oil", "src": "class-prior", "conf": 0.4 },
+    "fuelSystem": { "v": "fi", "src": "class-prior", "conf": 0.5 },
+    "flexFuel": { "v": false, "src": "class-prior", "conf": 0.5 },
+    "peakPower": { "v": 14.87, "u": "kW", "src": "class-prior", "conf": 0.35 },
+    "peakPowerRpm": { "v": 6100, "u": "rpm", "src": "class-prior", "conf": 0.35 },
+    "peakTorque": { "v": 27, "u": "N*m", "src": "class-prior", "conf": 0.35 },
+    "peakTorqueRpm": { "v": 4000, "u": "rpm", "src": "class-prior", "conf": 0.35 },
+    "idleRpm": { "v": 1050, "u": "rpm", "src": "class-prior", "conf": 0.35 }
+  },
+  "transmission": {
+    "kind": { "v": "manual", "src": "class-prior", "conf": 0.5 },
+    "speeds": { "v": 5, "u": "1", "src": "class-prior", "conf": 0.4 },
+    "primaryRatio": { "v": 2.313, "u": "1", "src": "class-prior", "conf": 0.3 },
+    "gearRatios": { "v": [2.615, 1.706, 1.3, 1.04, 0.875], "u": "1", "src": "class-prior", "conf": 0.3 },
+    "finalRatio": { "v": 2.8, "u": "1", "src": "class-prior", "conf": 0.3 },
+    "drive": { "v": "chain", "src": "class-prior", "conf": 0.5 }
+  },
+  "chassis": {
+    "mass": { "v": 191, "u": "kg", "src": "class-prior", "conf": 0.35, "basis": "kerb" },
+    "fuelTank": { "v": 14, "u": "L", "src": "class-prior", "conf": 0.35 },
+    "frontTyre": { "v": "100/90-19", "src": "class-prior", "conf": 0.4 },
+    "rearTyre": { "v": "140/70-17", "src": "class-prior", "conf": 0.4 }
+  },
+  "emission": {
+    "standard": { "v": "BS6-P2", "src": "class-prior", "conf": 0.5 },
+    "obd": { "v": "OBD-2B", "src": "class-prior", "conf": 0.4 }
+  },
+  "fuel": {
+    "compat": [
+      { "fuel": "E20", "status": "compatible", "src": "class-prior", "conf": 0.4, "note": "Typical for current Indian vehicles; never used for advice (estimate)" },
+      { "fuel": "E10", "status": "compatible", "src": "class-prior", "conf": 0.45 }
+    ]
+  },
+  "priors": {
+    "cda": { "mean": 0.62, "sigma": 0.12, "u": "m2", "src": "class-prior-physics", "conf": 0.35 },
+    "crr": { "mean": 0.02, "sigma": 0.0044, "u": "1", "src": "class-prior-physics", "conf": 0.35 },
+    "drivetrainEfficiency": { "mean": 0.9, "sigma": 0.03, "u": "1", "src": "class-prior-physics", "conf": 0.4 },
+    "riderMass": { "mean": 72, "sigma": 12, "u": "kg", "src": "class-prior-physics", "conf": 0.4, "note": "Adult rider with riding gear" },
+    "indicatedEfficiency": { "mean": 0.3, "sigma": 0.04, "u": "1", "src": "class-prior-physics", "conf": 0.3 },
+    "fmepA": { "mean": 110, "sigma": 33, "u": "kPa", "src": "class-prior-physics", "conf": 0.3 },
+    "fmepB": { "mean": 10, "sigma": 4, "u": "kPa/krpm", "src": "class-prior-physics", "conf": 0.3 },
+    "fmepC": { "mean": 1, "sigma": 0.5, "u": "kPa/krpm2", "src": "class-prior-physics", "conf": 0.3 },
+    "redlineFactor": { "mean": 1.15, "sigma": 0.06, "u": "1", "src": "class-prior-physics", "conf": 0.3 }
+  },
+  "notes": ["Representative of the 349 cc long-stroke class (Classic/Meteor/Hunter seed variants); higher friction terms for the long stroke."]
+}

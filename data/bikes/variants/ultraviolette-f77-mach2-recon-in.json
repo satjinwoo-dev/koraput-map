@@ -1,0 +1,42 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "ultraviolette-f77-mach2-recon-in",
+  "kind": "variant",
+  "classKey": "ev.sport",
+  "segment": "sport",
+  "powertrain": "ev",
+  "identity": { "make": "Ultraviolette", "model": "F77 Mach 2", "variant": "Recon, 10.3 kWh", "market": "IN", "yearFrom": 2024, "yearTo": null, "aliases": ["F77", "Ultraviolette F77", "F77 Recon", "F77 Mach 2"] },
+  "sources": [
+    {
+      "id": "uv-f77-om-2025",
+      "kind": "owners_manual",
+      "title": "F77 Mach 2 owner's manual REV.01 (18 Feb 2025)",
+      "url": "https://s3.ap-south-1.amazonaws.com/www.ultraviolette.com/app/manual.pdf",
+      "publisher": "Ultraviolette Automotive",
+      "retrieved": "2026-10-02"
+    },
+    { "id": "uv-f77-site", "kind": "manufacturer", "title": "Ultraviolette F77", "url": "https://www.ultraviolette.com/f77", "publisher": "Ultraviolette Automotive", "retrieved": "2026-10-02" }
+  ],
+  "motor": {
+    "type": { "v": "pmac", "src": "uv-f77-om-2025", "conf": 0.75 },
+    "mount": { "v": "unspecified", "src": "uv-f77-om-2025", "conf": 0.5, "note": "Not stated" },
+    "peakPower": { "v": 30, "u": "kW", "src": "uv-f77-om-2025", "conf": 0.85, "note": "40.2 hp" },
+    "peakTorque": { "v": 100, "u": "N*m", "src": "uv-f77-om-2025", "conf": 0.85, "at": "unspecified" }
+  },
+  "battery": {
+    "grossCapacity": { "v": 10.3, "u": "kWh", "src": "uv-f77-site", "conf": 0.85 },
+    "certifiedRange": { "v": 323, "u": "km", "src": "uv-f77-om-2025", "conf": 0.85, "cycle": "IDC", "note": "Website: 231 km WMTC estimate" }
+  },
+  "transmission": {
+    "kind": { "v": "single_speed", "src": "uv-f77-om-2025", "conf": 0.6 },
+    "drive": { "v": "chain", "src": "uv-f77-om-2025", "conf": 0.6 }
+  },
+  "chassis": {
+    "mass": { "v": 207, "u": "kg", "src": "uv-f77-om-2025", "conf": 0.85, "basis": "kerb" },
+    "frontTyre": { "v": "110/70ZR17 M/C 54W", "src": "uv-f77-om-2025", "conf": 0.85 },
+    "rearTyre": { "v": "150/60ZR17 M/C 66W", "src": "uv-f77-om-2025", "conf": 0.85 },
+    "topSpeed": { "v": 155, "u": "km/h", "src": "uv-f77-om-2025", "conf": 0.85 }
+  },
+  "notes": ["The standard Mach 2 (not Recon) is 27 kW / 90 N·m / 197 kg / 211 km IDC — a separate variant."]
+}

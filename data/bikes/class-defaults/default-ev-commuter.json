@@ -1,0 +1,65 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "default-ev-commuter",
+  "kind": "class_default",
+  "classKey": "ev.commuter",
+  "segment": "commuter",
+  "powertrain": "ev",
+  "identity": {
+    "make": "Generic",
+    "model": "Electric commuter motorcycle",
+    "variant": "Class default — used when the exact vehicle isn't in the catalogue",
+    "market": "IN",
+    "yearFrom": 2023,
+    "yearTo": null,
+    "aliases": ["electric motorcycle", "electric bike", "EV bike"]
+  },
+  "sources": [
+    {
+      "id": "class-prior",
+      "kind": "class_prior",
+      "title": "MapUnite class prior v1 — representative vehicle",
+      "retrieved": "2026-10-02",
+      "note": "Representative engine, gearing, mass and tyres for the class, chosen from the seed variants in this class and typical Indian-market figures. Used only when the rider's bike is not in the catalogue; never used for fuel advice."
+    },
+    {
+      "id": "class-prior-physics",
+      "kind": "class_prior",
+      "title": "MapUnite class prior v1 — model parameters",
+      "retrieved": "2026-10-02",
+      "note": "Drag area (bike + rider), rolling resistance, drivetrain efficiency, Willans indicated efficiency and friction-MEP terms from typical published ranges for small spark-ignition engines and motorcycles (e.g. Heywood, Internal Combustion Engine Fundamentals, friction chapter; motorcycle CdA ≈ 0.3 m² tucked on a faired bike to ≈ 0.7 m² upright). Wide sigmas on purpose; per-rider calibration narrows them."
+    }
+  ],
+  "motor": {
+    "type": { "v": "pmsm", "src": "class-prior", "conf": 0.4 },
+    "mount": { "v": "mid_drive", "src": "class-prior", "conf": 0.4 },
+    "peakPower": { "v": 4, "u": "kW", "src": "class-prior", "conf": 0.35 },
+    "ratedPower": { "v": 3, "u": "kW", "src": "class-prior", "conf": 0.3 },
+    "peakTorque": { "v": 45, "u": "N*m", "src": "class-prior", "conf": 0.3, "at": "motor" }
+  },
+  "battery": {
+    "grossCapacity": { "v": 3.5, "u": "kWh", "src": "class-prior", "conf": 0.35 },
+    "nominalVoltage": { "v": 72, "u": "V", "src": "class-prior", "conf": 0.3 },
+    "certifiedRange": { "v": 150, "u": "km", "src": "class-prior", "conf": 0.3, "cycle": "IDC" }
+  },
+  "transmission": {
+    "kind": { "v": "single_speed", "src": "class-prior", "conf": 0.5 },
+    "drive": { "v": "belt", "src": "class-prior", "conf": 0.4 },
+    "reductionRatio": { "v": 6.5, "u": "1", "src": "class-prior", "conf": 0.3 }
+  },
+  "chassis": {
+    "mass": { "v": 115, "u": "kg", "src": "class-prior", "conf": 0.35, "basis": "kerb" },
+    "frontTyre": { "v": "90/80-17", "src": "class-prior", "conf": 0.4 },
+    "rearTyre": { "v": "120/80-17", "src": "class-prior", "conf": 0.4 }
+  },
+  "priors": {
+    "cda": { "mean": 0.48, "sigma": 0.086, "u": "m2", "src": "class-prior-physics", "conf": 0.35 },
+    "crr": { "mean": 0.019, "sigma": 0.0042, "u": "1", "src": "class-prior-physics", "conf": 0.35 },
+    "drivetrainEfficiency": { "mean": 0.95, "sigma": 0.02, "u": "1", "src": "class-prior-physics", "conf": 0.4 },
+    "riderMass": { "mean": 72, "sigma": 12, "u": "kg", "src": "class-prior-physics", "conf": 0.4, "note": "Adult rider with riding gear" },
+    "motorEfficiency": { "mean": 0.85, "sigma": 0.05, "u": "1", "src": "class-prior-physics", "conf": 0.35 },
+    "regenEfficiency": { "mean": 0.45, "sigma": 0.15, "u": "1", "src": "class-prior-physics", "conf": 0.3 }
+  },
+  "notes": ["Representative of RV400-class electric commuter motorcycles."]
+}

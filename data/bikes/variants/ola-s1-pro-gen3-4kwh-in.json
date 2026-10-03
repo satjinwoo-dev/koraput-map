@@ -1,0 +1,44 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "ola-s1-pro-gen3-4kwh-in",
+  "kind": "variant",
+  "classKey": "ev.scooter",
+  "segment": "scooter",
+  "powertrain": "ev",
+  "identity": { "make": "Ola", "model": "S1 Pro", "variant": "Gen 3, 4 kWh", "market": "IN", "yearFrom": 2025, "yearTo": null, "aliases": ["Ola S1 Pro", "S1 Pro", "Ola S1", "S1 Pro Gen 3"] },
+  "sources": [
+    { "id": "ola-s1pro-gen3", "kind": "manufacturer", "title": "Ola S1 Pro Gen 3", "url": "https://www.olaelectric.com/s1pro-gen3", "publisher": "Ola Electric", "retrieved": "2026-10-02" },
+    { "id": "ola-s1pro", "kind": "manufacturer", "title": "Ola S1 Pro", "url": "https://www.olaelectric.com/s1-pro", "publisher": "Ola Electric", "retrieved": "2026-10-02" },
+    {
+      "id": "zigwheels-s1pro",
+      "kind": "aggregator",
+      "title": "Ola S1 Pro (2025) specifications",
+      "url": "https://www.zigwheels.com/ola-electric-bikes/2025-s1-pro/specifications/",
+      "publisher": "ZigWheels",
+      "retrieved": "2026-10-02"
+    }
+  ],
+  "motor": {
+    "type": { "v": "ipm", "src": "ola-s1pro", "conf": 0.85, "note": "Interior permanent-magnet, mid-drive" },
+    "mount": { "v": "mid_drive", "src": "ola-s1pro", "conf": 0.85 },
+    "peakPower": { "v": 11, "u": "kW", "src": "ola-s1pro-gen3", "conf": 0.85 },
+    "ratedPower": { "v": 5.5, "u": "kW", "src": "ola-s1pro-gen3", "conf": 0.8, "note": "'Nominal Power'" }
+  },
+  "battery": {
+    "grossCapacity": { "v": 4, "u": "kWh", "src": "ola-s1pro", "conf": 0.8 },
+    "chemistry": { "v": "Li-ion", "src": "zigwheels-s1pro", "conf": 0.6 },
+    "certifiedRange": { "v": 242, "u": "km", "src": "ola-s1pro-gen3", "conf": 0.85, "cycle": "IDC" }
+  },
+  "transmission": {
+    "kind": { "v": "single_speed", "src": "ola-s1pro", "conf": 0.75 },
+    "drive": { "v": "chain", "src": "ola-s1pro", "conf": 0.75, "note": "Manufacturer: chain drive; aggregators say belt" }
+  },
+  "chassis": {
+    "mass": { "v": 113, "u": "kg", "src": "ola-s1pro-gen3", "conf": 0.8, "basis": "kerb" },
+    "frontTyre": { "v": "90/90-12", "src": "ola-s1pro-gen3", "conf": 0.7, "note": "Published as '90/90 - R12'" },
+    "rearTyre": { "v": "90/90-12", "src": "ola-s1pro-gen3", "conf": 0.7 },
+    "topSpeed": { "v": 125, "u": "km/h", "src": "ola-s1pro-gen3", "conf": 0.85 }
+  },
+  "notes": ["Peak torque not published for this variant (58 N·m in the press is the S1 Pro+ 5.2 kWh).", "A 3 kWh option is sold too (117 km/h, 176 km IDC, 109 kg) — a separate variant."]
+}

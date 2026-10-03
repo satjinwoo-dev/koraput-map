@@ -1,0 +1,79 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "ktm-390-duke-r-399cc-in",
+  "kind": "variant",
+  "classKey": "ice_manual.naked",
+  "segment": "naked",
+  "powertrain": "ice_manual",
+  "identity": {
+    "make": "KTM",
+    "model": "390 Duke R",
+    "variant": "398.63 cc third generation (sold as '390 Duke' Sept 2023 – Apr 2026)",
+    "market": "IN",
+    "yearFrom": 2023,
+    "yearTo": null,
+    "aliases": ["390 Duke", "Duke 390", "KTM Duke 390", "KTM 390"]
+  },
+  "sources": [
+    {
+      "id": "ktm-390-duke-r-spec",
+      "kind": "manufacturer",
+      "title": "KTM 390 Duke R specifications",
+      "url": "https://www.ktmindia.com/ktm-bikes/naked-bike/ktm-390-duke-r/specifications",
+      "publisher": "KTM India (Bajaj Auto)",
+      "retrieved": "2026-10-02"
+    },
+    {
+      "id": "ktm-390-om-eu-2024",
+      "kind": "owners_manual",
+      "title": "KTM 390 DUKE 2024 owner's manual, Art. no. 3214960en (EU)",
+      "url": "https://www.manualslib.com/manual/3308061/Ktm-390-Duke-2024.html?page=112",
+      "publisher": "ManualsLib",
+      "retrieved": "2026-10-02"
+    },
+    { "id": "bikewale-390-duke-r", "kind": "aggregator", "title": "KTM 390 Duke R", "url": "https://www.bikewale.com/ktm-bikes/390-duke-r/", "publisher": "BikeWale", "retrieved": "2026-10-02" }
+  ],
+  "engine": {
+    "displacement": { "v": 398.63, "u": "cm3", "src": "ktm-390-duke-r-spec", "conf": 0.9 },
+    "cylinders": { "v": 1, "u": "1", "src": "ktm-390-duke-r-spec", "conf": 0.9 },
+    "strokes": { "v": 4, "u": "1", "src": "ktm-390-om-eu-2024", "conf": 0.85 },
+    "bore": { "v": 89, "u": "mm", "src": "ktm-390-duke-r-spec", "conf": 0.9 },
+    "stroke": { "v": 64, "u": "mm", "src": "ktm-390-duke-r-spec", "conf": 0.9 },
+    "compressionRatio": { "v": 12.71, "u": "1", "src": "ktm-390-duke-r-spec", "conf": 0.8, "note": "EU manual: 12.59:1" },
+    "cooling": { "v": "liquid", "src": "ktm-390-duke-r-spec", "conf": 0.9 },
+    "fuelSystem": { "v": "fi", "src": "ktm-390-duke-r-spec", "conf": 0.9 },
+    "peakPower": { "v": 33.83, "u": "kW", "src": "ktm-390-duke-r-spec", "conf": 0.9, "note": "Published as 46 PS; converted at 0.7355 kW/PS" },
+    "peakPowerRpm": { "v": 8500, "u": "rpm", "src": "ktm-390-duke-r-spec", "conf": 0.9 },
+    "peakTorque": { "v": 39, "u": "N*m", "src": "ktm-390-duke-r-spec", "conf": 0.9 },
+    "peakTorqueRpm": { "v": 6500, "u": "rpm", "src": "ktm-390-duke-r-spec", "conf": 0.9 }
+  },
+  "transmission": {
+    "kind": { "v": "manual", "src": "ktm-390-duke-r-spec", "conf": 0.9 },
+    "speeds": { "v": 6, "u": "1", "src": "ktm-390-om-eu-2024", "conf": 0.85 },
+    "primaryRatio": { "v": 2.606, "u": "1", "src": "ktm-390-om-eu-2024", "conf": 0.55, "note": "Teeth 33:86" },
+    "gearRatios": { "v": [2.667, 1.857, 1.421, 1.143, 0.957, 0.84], "u": "1", "src": "ktm-390-om-eu-2024", "conf": 0.55, "note": "Teeth 12:32, 14:26, 19:27, 21:24, 23:22, 25:21 (EU manual)" },
+    "finalRatio": { "v": 3, "u": "1", "src": "ktm-390-om-eu-2024", "conf": 0.5 },
+    "frontSprocket": { "v": 15, "u": "1", "src": "ktm-390-om-eu-2024", "conf": 0.5 },
+    "rearSprocket": { "v": 45, "u": "1", "src": "ktm-390-om-eu-2024", "conf": 0.5, "note": "EU gearing; India not verified (one aggregator lists 14:43)" },
+    "drive": { "v": "chain", "src": "ktm-390-om-eu-2024", "conf": 0.8 }
+  },
+  "chassis": {
+    "mass": { "v": 168.3, "u": "kg", "src": "ktm-390-duke-r-spec", "conf": 0.8, "basis": "kerb" },
+    "fuelTank": { "v": 15, "u": "L", "src": "ktm-390-duke-r-spec", "conf": 0.85 },
+    "frontTyre": { "v": "110/70 R17", "src": "ktm-390-duke-r-spec", "conf": 0.85 },
+    "rearTyre": { "v": "150/60 R17", "src": "ktm-390-duke-r-spec", "conf": 0.85 }
+  },
+  "emission": {
+    "standard": { "v": "BS6-P2", "src": "bikewale-390-duke-r", "conf": 0.5, "note": "Listed as 'BS6 Phase 2B'" },
+    "obd": { "v": "OBD-2B", "src": "bikewale-390-duke-r", "conf": 0.5 }
+  },
+  "fuel": {
+    "minRon": { "v": 95, "u": "RON", "src": "ktm-390-om-eu-2024", "conf": 0.35, "note": "EU manual: 'Super unleaded (ROZ 95)'; India recommendation not found" },
+    "compat": [
+      { "fuel": "E0", "status": "compatible", "src": "ktm-390-om-eu-2024", "conf": 0.35, "note": "Unleaded petrol (EU manual). No India ethanol statement found." },
+      { "fuel": "E20", "status": "unknown", "src": "ktm-390-duke-r-spec", "conf": 0.5, "note": "KTM India publishes no E20 statement" }
+    ]
+  },
+  "notes": ["PENDING (2026-10-03): blocked by the fuel-safety rule — no manufacturer certification for any fuel. KTM India publishes no ethanol statement; the only fuel line is from the 2024 EU owner's manual (ROZ 95 unleaded, conf 0.35). Move to variants/ once the Indian owner's manual's fuel line is sourced.", "From 20 Apr 2026 KTM India sells a 349 cc bike as '390 Duke' (89 × 56.15 mm, 41.5 PS); this record is the 399 cc engine, now called '390 Duke R' (BikeDekho, 2026 launch report).", "Gearing is from the EU owner's manual; India gearing not verified. Fuel advice is off for this bike (no India ethanol approval found)."]
+}

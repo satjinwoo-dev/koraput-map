@@ -1,0 +1,87 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "yamaha-mt-15-v2-in",
+  "kind": "variant",
+  "classKey": "ice_manual.naked",
+  "segment": "naked",
+  "powertrain": "ice_manual",
+  "identity": { "make": "Yamaha", "model": "MT-15 Version 2.0", "variant": "STD / DLX (Aug 2025 update)", "market": "IN", "yearFrom": 2022, "yearTo": null, "aliases": ["MT 15", "MT15", "MT-15 V2", "MT15 V2"] },
+  "sources": [
+    {
+      "id": "yamaha-mt15-site",
+      "kind": "manufacturer",
+      "title": "MT-15 Version 2.0 specifications",
+      "url": "https://www.yamaha-motor-india.com/yamaha-mt-15-v2.html",
+      "publisher": "India Yamaha Motor",
+      "retrieved": "2026-10-02"
+    },
+    {
+      "id": "manualslib-mtn155-thai",
+      "kind": "owners_manual",
+      "title": "Yamaha MTN155 (Thailand) owner's manual B7D-F8199-E0 (Oct 2018)",
+      "url": "https://www.manualslib.com/manual/1608632/Yamaha-Mt-15.html?page=88",
+      "publisher": "ManualsLib",
+      "retrieved": "2026-10-02"
+    },
+    { "id": "bikedekho-mt15", "kind": "aggregator", "title": "Yamaha MT-15 V2 specifications", "url": "https://www.bikedekho.com/yamaha/mt-15-v2/specifications", "publisher": "BikeDekho", "retrieved": "2026-10-02" },
+    {
+      "id": "single-cylinder-geometry",
+      "kind": "derived",
+      "title": "Cylinder count from bore, stroke and displacement",
+      "retrieved": "2026-10-02",
+      "note": "π/4 × 58.0² × 58.7 mm = 155.1 cm3, the full published displacement, so the engine has one cylinder (the same 155 cc engine is documented as single-cylinder in the R15 V4 service manual)."
+    },
+    {
+      "id": "lower-blend-rule",
+      "kind": "derived",
+      "title": "Lower-ethanol blends of a certified fuel",
+      "retrieved": "2026-10-02",
+      "note": "A vehicle certified for a higher-ethanol petrol (e.g. E20) is materials-compatible with lower-ethanol petrol (E10, E0). Listed as compatible, never as certified."
+    },
+    {
+      "id": "regulatory-inference",
+      "kind": "derived",
+      "title": "Emission stage implied by date of manufacture",
+      "retrieved": "2026-10-02",
+      "note": "Sold new after 2023-04-01 means BS6 phase 2; manufactured on or after 2025-04-01 means OBD-2B (data/bikes/reference/emission-standards.json). Used only where the manufacturer does not state the stage."
+    }
+  ],
+  "engine": {
+    "displacement": { "v": 155, "u": "cm3", "src": "yamaha-mt15-site", "conf": 0.9 },
+    "cylinders": { "v": 1, "u": "1", "src": "single-cylinder-geometry", "conf": 0.9 },
+    "strokes": { "v": 4, "u": "1", "src": "yamaha-mt15-site", "conf": 0.9 },
+    "bore": { "v": 58, "u": "mm", "src": "yamaha-mt15-site", "conf": 0.9 },
+    "stroke": { "v": 58.7, "u": "mm", "src": "yamaha-mt15-site", "conf": 0.9 },
+    "compressionRatio": { "v": 11.6, "u": "1", "src": "yamaha-mt15-site", "conf": 0.9 },
+    "cooling": { "v": "liquid", "src": "yamaha-mt15-site", "conf": 0.9 },
+    "fuelSystem": { "v": "fi", "src": "yamaha-mt15-site", "conf": 0.9 },
+    "peakPower": { "v": 13.5, "u": "kW", "src": "yamaha-mt15-site", "conf": 0.9, "note": "18.4 PS" },
+    "peakPowerRpm": { "v": 10000, "u": "rpm", "src": "yamaha-mt15-site", "conf": 0.9 },
+    "peakTorque": { "v": 14.1, "u": "N*m", "src": "yamaha-mt15-site", "conf": 0.9 },
+    "peakTorqueRpm": { "v": 7500, "u": "rpm", "src": "yamaha-mt15-site", "conf": 0.9 }
+  },
+  "transmission": {
+    "kind": { "v": "manual", "src": "yamaha-mt15-site", "conf": 0.9 },
+    "speeds": { "v": 6, "u": "1", "src": "yamaha-mt15-site", "conf": 0.9 },
+    "gearRatios": { "v": [2.833, 1.875, 1.364, 1.143, 0.957, 0.84], "u": "1", "src": "manualslib-mtn155-thai", "conf": 0.45, "note": "Thai 2018 manual; matches the India R15 V4 service manual for the same engine" }
+  },
+  "chassis": {
+    "mass": { "v": 141, "u": "kg", "src": "yamaha-mt15-site", "conf": 0.9, "basis": "kerb", "note": "With oil and full fuel tank" },
+    "fuelTank": { "v": 10, "u": "L", "src": "yamaha-mt15-site", "conf": 0.9 },
+    "frontTyre": { "v": "100/80-17 M/C 52P", "src": "yamaha-mt15-site", "conf": 0.9 },
+    "rearTyre": { "v": "140/70R-17 M/C 66H", "src": "yamaha-mt15-site", "conf": 0.9 }
+  },
+  "emission": {
+    "standard": { "v": "BS6-P2", "src": "bikedekho-mt15", "conf": 0.6, "note": "Listed as 'bs6.2'" },
+    "obd": { "v": "OBD-2B", "src": "regulatory-inference", "conf": 0.7, "note": "Aug 2025 update built after 2025-04-01" }
+  },
+  "fuel": {
+    "compat": [
+      { "fuel": "E20", "status": "certified", "src": "yamaha-mt15-site", "conf": 0.8, "note": "\"E20 Compatible: Yes\"" },
+      { "fuel": "E10", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 },
+      { "fuel": "E0", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 }
+    ]
+  },
+  "notes": ["Primary and final reduction for the India MT-15 V2 not found: gear advice stays off until sourced (the R15 V4's 3.042 / 48:14 are not copied — sprockets may differ).", "No idle speed or minimum octane found for the India model."]
+}

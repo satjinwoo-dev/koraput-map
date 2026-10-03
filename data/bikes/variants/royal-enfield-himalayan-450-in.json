@@ -1,0 +1,107 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "royal-enfield-himalayan-450-in",
+  "kind": "variant",
+  "classKey": "ice_manual.adventure",
+  "segment": "adventure",
+  "powertrain": "ice_manual",
+  "identity": {
+    "make": "Royal Enfield",
+    "model": "Himalayan 450",
+    "variant": "Base / Kaza Brown (spoke wheels)",
+    "market": "IN",
+    "yearFrom": 2023,
+    "yearTo": null,
+    "aliases": ["Himalayan", "RE Himalayan", "Himalayan 452", "Sherpa 450"]
+  },
+  "sources": [
+    {
+      "id": "re-himalayan-site",
+      "kind": "manufacturer",
+      "title": "Himalayan 450 specifications",
+      "url": "https://www.royalenfield.com/in/en/motorcycles/new-himalayan/",
+      "publisher": "Royal Enfield",
+      "retrieved": "2026-10-02"
+    },
+    {
+      "id": "re-himalayan-spec-pdf",
+      "kind": "manufacturer",
+      "title": "Himalayan technical specifications (PDF)",
+      "url": "https://www.royalenfield.com/content/dam/open-pdf/royal-enfield-himalayan-technical-specifications.pdf",
+      "publisher": "Royal Enfield",
+      "retrieved": "2026-10-02"
+    },
+    {
+      "id": "manualslib-himalayan-in",
+      "kind": "owners_manual",
+      "title": "Himalayan 450 India BS VI owner's manual (ManualsLib copy)",
+      "url": "https://www.manualslib.com/manual/3376590/Royal-Enfield-Himalayan.html?page=17",
+      "publisher": "ManualsLib",
+      "retrieved": "2026-10-02"
+    },
+    {
+      "id": "re-himalayan-om-uk",
+      "kind": "owners_manual",
+      "title": "New Himalayan 450 owner's manual, UK English RAM00819/B (Nov 2025)",
+      "url": "https://www.royalenfield.com/content/dam/open-pdf/royal-enfield-new-himalayan-450-owners-manual-uk-english.pdf",
+      "publisher": "Royal Enfield",
+      "retrieved": "2026-10-02"
+    },
+    {
+      "id": "lower-blend-rule",
+      "kind": "derived",
+      "title": "Lower-ethanol blends of a certified fuel",
+      "retrieved": "2026-10-02",
+      "note": "A vehicle certified for a higher-ethanol petrol (e.g. E20) is materials-compatible with lower-ethanol petrol (E10, E0). Listed as compatible, never as certified."
+    },
+    {
+      "id": "regulatory-inference",
+      "kind": "derived",
+      "title": "Emission stage implied by date of manufacture",
+      "retrieved": "2026-10-02",
+      "note": "Sold new after 2023-04-01 means BS6 phase 2; manufactured on or after 2025-04-01 means OBD-2B (data/bikes/reference/emission-standards.json). Used only where the manufacturer does not state the stage."
+    }
+  ],
+  "engine": {
+    "displacement": { "v": 451.65, "u": "cm3", "src": "re-himalayan-spec-pdf", "conf": 0.9 },
+    "cylinders": { "v": 1, "u": "1", "src": "re-himalayan-site", "conf": 0.95 },
+    "strokes": { "v": 4, "u": "1", "src": "manualslib-himalayan-in", "conf": 0.9 },
+    "bore": { "v": 84, "u": "mm", "src": "re-himalayan-site", "conf": 0.95 },
+    "stroke": { "v": 81.5, "u": "mm", "src": "re-himalayan-site", "conf": 0.95 },
+    "compressionRatio": { "v": 11.5, "u": "1", "src": "re-himalayan-spec-pdf", "conf": 0.95 },
+    "cooling": { "v": "liquid", "src": "re-himalayan-site", "conf": 0.95 },
+    "fuelSystem": { "v": "fi", "src": "re-himalayan-site", "conf": 0.95 },
+    "peakPower": { "v": 29.44, "u": "kW", "src": "re-himalayan-site", "conf": 0.95, "note": "40.02 PS" },
+    "peakPowerRpm": { "v": 8000, "u": "rpm", "src": "re-himalayan-site", "conf": 0.95 },
+    "peakTorque": { "v": 40, "u": "N*m", "src": "re-himalayan-site", "conf": 0.95 },
+    "peakTorqueRpm": { "v": 5500, "u": "rpm", "src": "re-himalayan-site", "conf": 0.95 },
+    "idleRpm": { "v": 1300, "u": "rpm", "src": "manualslib-himalayan-in", "conf": 0.8 }
+  },
+  "transmission": {
+    "kind": { "v": "manual", "src": "manualslib-himalayan-in", "conf": 0.95 },
+    "speeds": { "v": 6, "u": "1", "src": "manualslib-himalayan-in", "conf": 0.95 },
+    "primaryRatio": { "v": 2.028, "u": "1", "src": "re-himalayan-om-uk", "conf": 0.75, "note": "UK and US manuals agree; the India manual page extraction was blank for this line" },
+    "gearRatios": { "v": [3.083, 2.059, 1.6, 1.286, 1.087, 0.958], "u": "1", "src": "manualslib-himalayan-in", "conf": 0.85 },
+    "finalRatio": { "v": 3.133, "u": "1", "src": "manualslib-himalayan-in", "conf": 0.85, "note": "Sprocket tooth counts not published" },
+    "drive": { "v": "chain", "src": "manualslib-himalayan-in", "conf": 0.85 }
+  },
+  "chassis": {
+    "mass": { "v": 196, "u": "kg", "src": "manualslib-himalayan-in", "conf": 0.9, "basis": "kerb", "note": "With 90 % fuel and oil (UK manual 195 kg, US 198 kg)" },
+    "fuelTank": { "v": 17, "u": "L", "src": "re-himalayan-spec-pdf", "conf": 0.95 },
+    "frontTyre": { "v": "90/90-21 M/C 54H", "src": "re-himalayan-om-uk", "conf": 0.85 },
+    "rearTyre": { "v": "140/80R17 M/C 69H", "src": "re-himalayan-om-uk", "conf": 0.85 }
+  },
+  "emission": {
+    "standard": { "v": "BS6-P2", "src": "regulatory-inference", "conf": 0.7 },
+    "obd": { "v": "OBD-2B", "src": "regulatory-inference", "conf": 0.7 }
+  },
+  "fuel": {
+    "compat": [
+      { "fuel": "E20", "status": "certified", "src": "manualslib-himalayan-in", "conf": 0.75, "note": "India manual: 'Up to E20' (UK manual: E5/E10 — market difference)" },
+      { "fuel": "E10", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 },
+      { "fuel": "E0", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 }
+    ]
+  },
+  "notes": ["No India minimum octane found (the US manual's '91 octane' is likely AKI, not RON — not used)."]
+}

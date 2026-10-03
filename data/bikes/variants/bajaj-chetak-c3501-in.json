@@ -1,0 +1,49 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "bajaj-chetak-c3501-in",
+  "kind": "variant",
+  "classKey": "ev.scooter",
+  "segment": "scooter",
+  "powertrain": "ev",
+  "identity": { "make": "Bajaj", "model": "Chetak", "variant": "C3501 (35 Series, 3.5 kWh)", "market": "IN", "yearFrom": 2025, "yearTo": null, "aliases": ["Chetak", "Bajaj Chetak", "Chetak 3501", "Chetak 35"] },
+  "sources": [
+    { "id": "chetak-c3501-site", "kind": "manufacturer", "title": "Chetak C3501", "url": "https://www.chetak.com/series-35/chetak-c3501", "publisher": "Bajaj Auto (Chetak)", "retrieved": "2026-10-03" },
+    {
+      "id": "autocar-chetak-3501",
+      "kind": "aggregator",
+      "title": "Bajaj Chetak 3501 specifications",
+      "url": "https://www.autocarindia.com/bikes/bajaj/chetak/3501",
+      "publisher": "Autocar India",
+      "retrieved": "2026-10-03"
+    },
+    {
+      "id": "etv-chetak-35-launch",
+      "kind": "press",
+      "title": "Bajaj launches Chetak 35 Series (Dec 2024)",
+      "url": "https://etvbharat.com/en/!technology/bajaj-launched-chetak-35-series-in-india-with-a-bigger-battery-and-seat-enn24122005409",
+      "publisher": "ETV Bharat",
+      "retrieved": "2026-10-03"
+    }
+  ],
+  "motor": {
+    "type": { "v": "bldc", "src": "autocar-chetak-3501", "conf": 0.45, "note": "\"Motor Type: BLDC Motor\"" },
+    "mount": { "v": "unspecified", "src": "chetak-c3501-site", "conf": 0.5, "note": "Drive layout not stated for the C3501" },
+    "peakPower": { "v": 4.2, "u": "kW", "src": "etv-chetak-35-launch", "conf": 0.4, "note": "\"powered by a 4.2kW electric motor\" — no maker figure; other sites give 4.0 / 3.1 kW" },
+    "peakTorque": { "v": 20, "u": "N*m", "src": "autocar-chetak-3501", "conf": 0.45, "at": "motor", "note": "\"Max Motor Torque: 20 Nm\"" }
+  },
+  "battery": {
+    "grossCapacity": { "v": 3.5, "u": "kWh", "src": "chetak-c3501-site", "conf": 0.85, "note": "\"The battery capacity is 3.5 kWh.\" — gross vs usable not stated" },
+    "certifiedRange": { "v": 153, "u": "km", "src": "chetak-c3501-site", "conf": 0.85, "cycle": "IDC", "note": "\"IDC/Certified Range: 153 km\" (the page also mentions 'up to 95 km' elsewhere, unexplained)" }
+  },
+  "transmission": {
+    "kind": { "v": "single_speed", "src": "chetak-c3501-site", "conf": 0.5, "note": "An electric scooter has a single fixed reduction; the layout isn't published" }
+  },
+  "chassis": {
+    "mass": { "v": 125, "u": "kg", "src": "chetak-c3501-site", "conf": 0.8, "basis": "kerb", "note": "\"weighs approximately 125 kg\" — taken as kerb (an EV carries no fuel)" },
+    "frontTyre": { "v": "90/90-12", "src": "autocar-chetak-3501", "conf": 0.45 },
+    "rearTyre": { "v": "90/90-12", "src": "autocar-chetak-3501", "conf": 0.45 },
+    "topSpeed": { "v": 80, "u": "km/h", "src": "chetak-c3501-site", "conf": 0.85, "note": "\"Top Speed: 80 km/h\" (launch coverage said 73 km/h)" }
+  },
+  "notes": ["Charging 0–80 % in 3 h, about 1 h 25 min more to full (Chetak page)."]
+}

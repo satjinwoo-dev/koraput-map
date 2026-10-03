@@ -1,0 +1,85 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "bajaj-pulsar-150-single-disc-in",
+  "kind": "variant",
+  "classKey": "ice_manual.commuter",
+  "segment": "commuter",
+  "powertrain": "ice_manual",
+  "identity": {
+    "make": "Bajaj",
+    "model": "Pulsar 150",
+    "variant": "Single Disc, twin-shock generation (sold until Aug 2026)",
+    "market": "IN",
+    "yearFrom": 2023,
+    "yearTo": 2026,
+    "aliases": ["Pulsar", "Pulsar 150", "P150", "Bajaj Pulsar 150"]
+  },
+  "sources": [
+    {
+      "id": "bajaj-pulsar150-om-2025",
+      "kind": "owners_manual",
+      "title": "Pulsar 150 BS VI owner's manual (single disc), Doc. 71113403 REV. 02, Jul 2025",
+      "url": "https://cdn.bajajauto.com/-/media/assets/bajajauto/customer-service/owners-manual/owners-manual-pdf/om-for-website/pulsar_150_sd_om.pdf",
+      "publisher": "Bajaj Auto",
+      "retrieved": "2026-10-03"
+    },
+    {
+      "id": "single-cylinder-check",
+      "kind": "derived",
+      "title": "Cylinder count from bore × stroke",
+      "retrieved": "2026-10-03",
+      "note": "Bore × stroke reproduces the stated displacement to within 0.1 % with exactly one cylinder (π/4 · bore² · stroke)."
+    },
+    {
+      "id": "lower-blend-rule",
+      "kind": "derived",
+      "title": "Lower-ethanol blends of a certified fuel",
+      "retrieved": "2026-10-03",
+      "note": "A vehicle certified for a higher-ethanol petrol (e.g. E20) is materials-compatible with lower-ethanol petrol (E10, E0). Listed as compatible, never as certified."
+    },
+    {
+      "id": "regulatory-inference",
+      "kind": "derived",
+      "title": "Emission stage implied by date of manufacture",
+      "retrieved": "2026-10-03",
+      "note": "Sold new after 2023-04-01 means BS6 phase 2 (data/bikes/reference/emission-standards.json). Used only where the manufacturer does not state the stage."
+    }
+  ],
+  "engine": {
+    "displacement": { "v": 149.5, "u": "cm3", "src": "bajaj-pulsar150-om-2025", "conf": 0.85, "note": "\"Displacement 149.5 cc\"" },
+    "cylinders": { "v": 1, "u": "1", "src": "single-cylinder-check", "conf": 0.9 },
+    "strokes": { "v": 4, "u": "1", "src": "bajaj-pulsar150-om-2025", "conf": 0.85, "note": "\"4 stroke, Natural air cooled\"" },
+    "bore": { "v": 56, "u": "mm", "src": "bajaj-pulsar150-om-2025", "conf": 0.85, "note": "\"56 mm x 60.7 mm\"" },
+    "stroke": { "v": 60.7, "u": "mm", "src": "bajaj-pulsar150-om-2025", "conf": 0.85 },
+    "compressionRatio": { "v": 9.8, "u": "1", "src": "bajaj-pulsar150-om-2025", "conf": 0.85, "tol": 0.3 },
+    "cooling": { "v": "air", "src": "bajaj-pulsar150-om-2025", "conf": 0.85, "note": "\"Natural air cooled\"" },
+    "fuelSystem": { "v": "fi", "src": "bajaj-pulsar150-om-2025", "conf": 0.85, "note": "\"FI system\"" },
+    "peakPower": { "v": 10.3, "u": "kW", "src": "bajaj-pulsar150-om-2025", "conf": 0.85, "note": "\"10.3 Kw (14 PS) at 8500 RPM\"" },
+    "peakPowerRpm": { "v": 8500, "u": "rpm", "src": "bajaj-pulsar150-om-2025", "conf": 0.85 },
+    "peakTorque": { "v": 13.4, "u": "N*m", "src": "bajaj-pulsar150-om-2025", "conf": 0.85, "note": "\"13.4 Nm at 6500 RPM\"" },
+    "peakTorqueRpm": { "v": 6500, "u": "rpm", "src": "bajaj-pulsar150-om-2025", "conf": 0.85 },
+    "idleRpm": { "v": 1400, "u": "rpm", "src": "bajaj-pulsar150-om-2025", "conf": 0.85, "tol": 100 }
+  },
+  "transmission": {
+    "kind": { "v": "manual", "src": "bajaj-pulsar150-om-2025", "conf": 0.85, "note": "\"5 speed constant mesh\"" },
+    "speeds": { "v": 5, "u": "1", "src": "bajaj-pulsar150-om-2025", "conf": 0.85 }
+  },
+  "chassis": {
+    "mass": { "v": 148, "u": "kg", "src": "bajaj-pulsar150-om-2025", "conf": 0.85, "basis": "kerb", "note": "\"Vehicle Kerb Weight 148 Kg\"" },
+    "fuelTank": { "v": 15, "u": "L", "src": "bajaj-pulsar150-om-2025", "conf": 0.85, "note": "\"15 litres, No Reserve\"" },
+    "frontTyre": { "v": "80/100-17 46P", "src": "bajaj-pulsar150-om-2025", "conf": 0.85 },
+    "rearTyre": { "v": "100/90-17 55P", "src": "bajaj-pulsar150-om-2025", "conf": 0.85 }
+  },
+  "emission": {
+    "standard": { "v": "BS6-P2", "src": "regulatory-inference", "conf": 0.75, "note": "Manual: 'Owner's Manual 150 BS VI'" }
+  },
+  "fuel": {
+    "compat": [
+      { "fuel": "E20", "status": "certified", "src": "bajaj-pulsar150-om-2025", "conf": 0.85, "note": "\"This vehicle is compatible for \\\"E20\\\" Petrol i.e. Petrol blended with 20% Ethanol.\"" },
+      { "fuel": "E10", "status": "certified", "src": "bajaj-pulsar150-om-2025", "conf": 0.85, "note": "\"'E10' Petrol (existing) i.e. Petrol blended with 10% Ethanol also can be filled.\"" },
+      { "fuel": "E0", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 }
+    ]
+  },
+  "notes": ["IMPORTANT: Bajaj launched an all-new Pulsar 150 (new engine, gearbox and frame) on 24 Aug 2026. This bundle is the outgoing generation; the new model needs its own bundle once an official spec sheet exists.", "Gear ratios aren't in Bajaj's owner's manual — the class default's ratios apply until they're sourced."]
+}

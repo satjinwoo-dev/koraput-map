@@ -1,0 +1,100 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "tvs-raider-125-split-seat-in",
+  "kind": "variant",
+  "classKey": "ice_manual.commuter",
+  "segment": "commuter",
+  "powertrain": "ice_manual",
+  "identity": { "make": "TVS", "model": "Raider 125", "variant": "Split Seat (front disc)", "market": "IN", "yearFrom": 2021, "yearTo": null, "aliases": ["Raider", "TVS Raider"] },
+  "sources": [
+    { "id": "tvs-raider-spec", "kind": "manufacturer", "title": "TVS Raider specifications", "url": "https://www.tvsmotor.com/tvs-raider/specifications", "publisher": "TVS Motor Company", "retrieved": "2026-10-02" },
+    {
+      "id": "tvs-raider-om-2023",
+      "kind": "owners_manual",
+      "title": "TVS Raider owner's manual, Revision 3 (03 May 2023)",
+      "url": "https://www.tvsmotor.com/-/media/UpdatedUserManuals2026/Before-April-2025/Motorcycles/Raider/TVS-Raider.pdf",
+      "publisher": "TVS Motor Company",
+      "retrieved": "2026-10-02"
+    },
+    {
+      "id": "tvs-raider-om-2026",
+      "kind": "owners_manual",
+      "title": "TVS Raider owner's manual, Revision 1 (06 Jan 2026)",
+      "url": "https://www.tvsmotor.com/-/media/Feature/Owners/UserManual2026/TVS-Raider.pdf",
+      "publisher": "TVS Motor Company",
+      "retrieved": "2026-10-02"
+    },
+    {
+      "id": "manualslib-raider",
+      "kind": "owners_manual",
+      "title": "TVS Raider owner's manual (earlier revision, ManualsLib copy)",
+      "url": "https://www.manualslib.com/manual/2890859/Tvs-Raider.html?page=108",
+      "publisher": "ManualsLib",
+      "retrieved": "2026-10-02"
+    },
+    {
+      "id": "lower-blend-rule",
+      "kind": "derived",
+      "title": "Lower-ethanol blends of a certified fuel",
+      "retrieved": "2026-10-02",
+      "note": "A vehicle certified for a higher-ethanol petrol (e.g. E20) is materials-compatible with lower-ethanol petrol (E10, E0). Listed as compatible, never as certified."
+    },
+    {
+      "id": "regulatory-inference",
+      "kind": "derived",
+      "title": "Emission stage implied by date of manufacture",
+      "retrieved": "2026-10-02",
+      "note": "Sold new after 2023-04-01 means BS6 phase 2; manufactured on or after 2025-04-01 means OBD-2B (data/bikes/reference/emission-standards.json). Used only where the manufacturer does not state the stage."
+    }
+  ],
+  "engine": {
+    "displacement": { "v": 124.8, "u": "cm3", "src": "tvs-raider-spec", "conf": 0.95 },
+    "cylinders": { "v": 1, "u": "1", "src": "tvs-raider-spec", "conf": 0.95 },
+    "strokes": { "v": 4, "u": "1", "src": "tvs-raider-om-2023", "conf": 0.95 },
+    "bore": { "v": 53.5, "u": "mm", "src": "tvs-raider-spec", "conf": 0.95 },
+    "stroke": { "v": 55.5, "u": "mm", "src": "tvs-raider-spec", "conf": 0.95 },
+    "compressionRatio": { "v": 10.3, "u": "1", "src": "tvs-raider-om-2023", "conf": 0.85 },
+    "cooling": { "v": "air_oil", "src": "tvs-raider-spec", "conf": 0.75, "note": "Spec page: air & oil cooled; owner's manuals say air cooled" },
+    "fuelSystem": { "v": "fi", "src": "tvs-raider-om-2023", "conf": 0.95 },
+    "peakPower": { "v": 8.37, "u": "kW", "src": "tvs-raider-spec", "conf": 0.95 },
+    "peakPowerRpm": { "v": 7500, "u": "rpm", "src": "tvs-raider-spec", "conf": 0.95 },
+    "peakTorque": { "v": 11.2, "u": "N*m", "src": "tvs-raider-spec", "conf": 0.9, "note": "iGO Assist variant: 11.75 N·m with electric assist" },
+    "peakTorqueRpm": { "v": 6000, "u": "rpm", "src": "tvs-raider-spec", "conf": 0.9 },
+    "idleRpm": { "v": 1400, "u": "rpm", "src": "tvs-raider-om-2023", "conf": 0.85, "tol": 200 }
+  },
+  "transmission": {
+    "kind": { "v": "manual", "src": "tvs-raider-spec", "conf": 0.95 },
+    "speeds": { "v": 5, "u": "1", "src": "tvs-raider-spec", "conf": 0.95 },
+    "primaryRatio": { "v": 3.25, "u": "1", "src": "tvs-raider-om-2023", "conf": 0.85 },
+    "gearRatios": { "v": [2.917, 1.857, 1.333, 1.05, 0.88], "u": "1", "src": "tvs-raider-om-2023", "conf": 0.85 },
+    "finalRatio": { "v": 3.285, "u": "1", "src": "manualslib-raider", "conf": 0.75 },
+    "drive": { "v": "chain", "src": "manualslib-raider", "conf": 0.8 }
+  },
+  "chassis": {
+    "mass": { "v": 123, "u": "kg", "src": "tvs-raider-spec", "conf": 0.85, "basis": "kerb", "note": "Manual: with tool kit and 90 % fuel" },
+    "fuelTank": { "v": 10, "u": "L", "src": "tvs-raider-spec", "conf": 0.95 },
+    "frontTyre": { "v": "80/100-17 46P", "src": "tvs-raider-spec", "conf": 0.9 },
+    "rearTyre": { "v": "100/90-17 55P", "src": "tvs-raider-spec", "conf": 0.9 },
+    "topSpeed": { "v": 99, "u": "km/h", "src": "manualslib-raider", "conf": 0.75, "note": "With idle-stop disabled; 90 km/h with it enabled" }
+  },
+  "emission": {
+    "standard": { "v": "BS6-P2", "src": "regulatory-inference", "conf": 0.75 },
+    "obd": { "v": "OBD-2B", "src": "regulatory-inference", "conf": 0.7 }
+  },
+  "fuel": {
+    "minRon": {
+      "v": 91,
+      "u": "RON",
+      "src": "tvs-raider-om-2023",
+      "conf": 0.45,
+      "note": "Conflict: an independent read (2026-10-03) of TVS's own manual text layer gave 'minimum RON 98' — implausible for this class, so probably an extraction error, but verify against the PDF. Confidence held at 0.45 until checked."
+    },
+    "compat": [
+      { "fuel": "E20", "status": "certified", "src": "tvs-raider-om-2026", "conf": 0.9, "note": "\"BS VI petrol containing upto 20% of ethanol by volume can be used.\"" },
+      { "fuel": "E10", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 },
+      { "fuel": "E0", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 }
+    ]
+  },
+  "notes": ["Kerb weight varies by variant: 123 kg (Split Seat, SSE, iGO), 124 kg (Single Seat, Drum), 127 kg (TFT DD / SXC DD, which also use 90/90-17 and 120/70-17 tyres)."]
+}

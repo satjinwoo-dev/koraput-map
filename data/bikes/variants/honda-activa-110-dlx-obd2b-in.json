@@ -1,0 +1,107 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "honda-activa-110-dlx-obd2b-in",
+  "kind": "variant",
+  "classKey": "ice_cvt.scooter",
+  "segment": "scooter",
+  "powertrain": "ice_cvt",
+  "identity": { "make": "Honda", "model": "Activa 110", "variant": "DLX, 2025 (OBD-2B)", "market": "IN", "yearFrom": 2025, "yearTo": null, "aliases": ["Activa", "Activa 6G", "Honda Activa", "Activa 110 DLX"] },
+  "sources": [
+    {
+      "id": "honda-activa-site",
+      "kind": "manufacturer",
+      "title": "Activa 110 product page",
+      "url": "https://www.honda2wheelersindia.com/scooter/activa110",
+      "publisher": "Honda Motorcycle & Scooter India",
+      "retrieved": "2026-10-02"
+    },
+    {
+      "id": "honda-activa-brochure-2025",
+      "kind": "manufacturer",
+      "title": "Activa 110 / 125 OBD-2B brochure (dealer-hosted HMSI copy)",
+      "url": "https://haikuhonda.com/wp-content/uploads/2025/05/Activa-110-OBD2BBrochure.pdf",
+      "publisher": "Honda Motorcycle & Scooter India",
+      "retrieved": "2026-10-02"
+    },
+    {
+      "id": "honda-activa-launch-2025",
+      "kind": "manufacturer",
+      "title": "New 2025 Activa launch release",
+      "url": "https://www.honda2wheelersindia.com/news/honda-motorcycle-and-scooter-india-launches-new-2025-activa-scooter-bole-toh-activa",
+      "publisher": "Honda Motorcycle & Scooter India",
+      "retrieved": "2026-10-02"
+    },
+    {
+      "id": "activa-6g-om-2020",
+      "kind": "owners_manual",
+      "title": "Activa 6G (K0PA) owner's manual (2020, dealer-platform copy)",
+      "url": "https://s3-ap-southeast-1.amazonaws.com/assetsin.izmocars.com/userfiles/104202/Manual/Manual%20pdf/Activa_6G__K0PA__English.pdf",
+      "publisher": "Honda Motorcycle & Scooter India",
+      "retrieved": "2026-10-02"
+    },
+    {
+      "id": "autocar-e20-honda",
+      "kind": "press",
+      "title": "How E20 petrol affects your bike and scooter, explained",
+      "url": "https://www.autocarindia.com/auto-features/how-e20-petrol-affects-your-bike-and-scooter-explained-437169",
+      "publisher": "Autocar India",
+      "retrieved": "2026-10-02",
+      "note": "Quotes Honda: 'starting April 2025, all our two-wheelers produced in India are fully compliant with OBD2B standards and E20 fuel-ready'"
+    },
+    {
+      "id": "zigwheels-activa",
+      "kind": "aggregator",
+      "title": "Honda Activa 6G specifications",
+      "url": "https://www.zigwheels.com/honda-bikes/activa-6g/specifications/",
+      "publisher": "ZigWheels",
+      "retrieved": "2026-10-02"
+    }
+  ],
+  "engine": {
+    "displacement": { "v": 109.51, "u": "cm3", "src": "honda-activa-site", "conf": 0.95 },
+    "cylinders": { "v": 1, "u": "1", "src": "honda-activa-launch-2025", "conf": 0.9 },
+    "strokes": { "v": 4, "u": "1", "src": "honda-activa-brochure-2025", "conf": 0.9 },
+    "bore": { "v": 47, "u": "mm", "src": "honda-activa-brochure-2025", "conf": 0.75, "note": "Anniversary Edition material says 47.10 × 63.10 mm, which gives 109.9 cm3 and doesn't match the published 109.51" },
+    "stroke": { "v": 63.121, "u": "mm", "src": "activa-6g-om-2020", "conf": 0.75 },
+    "compressionRatio": { "v": 10, "u": "1", "src": "honda-activa-brochure-2025", "conf": 0.9 },
+    "cooling": { "v": "air", "src": "zigwheels-activa", "conf": 0.6, "note": "Fan-assisted air cooling" },
+    "fuelSystem": { "v": "fi", "src": "honda-activa-brochure-2025", "conf": 0.9 },
+    "peakPower": { "v": 5.88, "u": "kW", "src": "honda-activa-brochure-2025", "conf": 0.9 },
+    "peakPowerRpm": { "v": 8000, "u": "rpm", "src": "honda-activa-brochure-2025", "conf": 0.9 },
+    "peakTorque": { "v": 9.05, "u": "N*m", "src": "honda-activa-site", "conf": 0.95 },
+    "peakTorqueRpm": { "v": 5500, "u": "rpm", "src": "honda-activa-site", "conf": 0.95 },
+    "idleRpm": { "v": 1700, "u": "rpm", "src": "activa-6g-om-2020", "conf": 0.6, "tol": 100, "note": "2020 Activa 6G manual" }
+  },
+  "transmission": {
+    "kind": { "v": "cvt", "src": "honda-activa-brochure-2025", "conf": 0.85 },
+    "cvtRatioMax": { "v": 2.55, "u": "1", "src": "activa-6g-om-2020", "conf": 0.6 },
+    "cvtRatioMin": { "v": 0.8, "u": "1", "src": "activa-6g-om-2020", "conf": 0.6 },
+    "finalRatio": { "v": 10.208, "u": "1", "src": "activa-6g-om-2020", "conf": 0.6 }
+  },
+  "chassis": {
+    "mass": { "v": 106, "u": "kg", "src": "honda-activa-brochure-2025", "conf": 0.85, "basis": "kerb", "note": "Std & DLX; H-Smart 105 kg" },
+    "fuelTank": { "v": 5.3, "u": "L", "src": "honda-activa-site", "conf": 0.95 },
+    "frontTyre": { "v": "90/90-12 54J", "src": "honda-activa-brochure-2025", "conf": 0.9 },
+    "rearTyre": { "v": "90/100-10 53J", "src": "honda-activa-brochure-2025", "conf": 0.9 }
+  },
+  "emission": {
+    "standard": { "v": "BS6-P2", "src": "honda-activa-brochure-2025", "conf": 0.9, "note": "\"meets Bharat Stage VI OBD-2B norms\"" },
+    "obd": { "v": "OBD-2B", "src": "honda-activa-brochure-2025", "conf": 0.9 }
+  },
+  "fuel": {
+    "minRon": { "v": 90, "u": "RON", "src": "activa-6g-om-2020", "conf": 0.6 },
+    "compat": [
+      {
+        "fuel": "E20",
+        "status": "certified",
+        "src": "autocar-e20-honda",
+        "conf": 0.7,
+        "note": "Honda statement via the press; no E20 line on the Activa 110 page or 2025 brochure — not used for fuel advice until confirmed"
+      },
+      { "fuel": "E10", "status": "certified", "src": "activa-6g-om-2020", "conf": 0.6, "note": "2020 manual: 'ETHANOL up to 10% by volume'" },
+      { "fuel": "E0", "status": "compatible", "src": "activa-6g-om-2020", "conf": 0.6 }
+    ]
+  },
+  "notes": ["Idle, CVT ratio range, final reduction and octane are from the 2020 Activa 6G manual; likely unchanged for 2025 but not verified, so confidence is lowered.", "Fuel-advice effect: no entry reaches the authoritative-source + 0.7 confidence bar yet, so the app shows approvals as 'not confirmed' for this scooter."]
+}

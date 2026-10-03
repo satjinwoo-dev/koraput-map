@@ -4,9 +4,10 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "node --test \"test/**/*.test.js\"",
-    "bikes:validate": "node scripts/validate-bikes.mjs",
-    "bikes:schema": "node scripts/build-bike-schema.mjs",
+    "test": "node --test \"test/bikedb/*.test.mjs\"",
+    "bikes:validate": "node scripts/bikedb/validate.mjs",
+    "bikes:format": "node scripts/bikedb/format.mjs",
+    "bikes:schema": "node scripts/bikedb/gen-schema.mjs",
     "bikes:typecheck": "tsc -p tsconfig.bikedb.json"
   },
   "keywords": [],
@@ -21,8 +22,6 @@
     "better-sqlite3": "^11.3.0"
   },
   "devDependencies": {
-    "@types/node": "^22.20.5",
-    "ajv": "^8.20.0",
     "typescript": "^5.9.3"
   }
 }

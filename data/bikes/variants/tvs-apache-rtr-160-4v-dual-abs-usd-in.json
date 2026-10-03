@@ -1,0 +1,101 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "tvs-apache-rtr-160-4v-dual-abs-usd-in",
+  "kind": "variant",
+  "classKey": "ice_manual.naked",
+  "segment": "naked",
+  "powertrain": "ice_manual",
+  "identity": {
+    "make": "TVS",
+    "model": "Apache RTR 160 4V",
+    "variant": "Dual-channel ABS, USD fork (2026 model)",
+    "market": "IN",
+    "yearFrom": 2026,
+    "yearTo": null,
+    "aliases": ["Apache 160 4V", "RTR 160 4V", "Apache RTR 160", "Apache 4V"]
+  },
+  "sources": [
+    {
+      "id": "tvs-apache-160-4v-site",
+      "kind": "manufacturer",
+      "title": "Apache RTR 160 4V specifications",
+      "url": "https://www.tvsmotor.com/tvs-apache/apache-rtr-160-4v",
+      "publisher": "TVS Motor Company",
+      "retrieved": "2026-10-02"
+    },
+    {
+      "id": "tvs-apache-160-4v-2026-blog",
+      "kind": "manufacturer",
+      "title": "The all-new 2026 TVS Apache RTR 160 4V",
+      "url": "https://www.tvsmotor.com/media/blog/dominance-redefined-the-all-new-2026-tvs-apache-rtr-160-4v",
+      "publisher": "TVS Motor Company",
+      "retrieved": "2026-10-02"
+    },
+    {
+      "id": "manualslib-apache-160-4v",
+      "kind": "owners_manual",
+      "title": "Apache RTR 160 4V owner's manual (earlier BS6 edition, ManualsLib copy)",
+      "url": "https://www.manualslib.com/manual/2349748/Tvs-Apache-Rtr-160-4v.html?page=101",
+      "publisher": "ManualsLib",
+      "retrieved": "2026-10-02"
+    },
+    {
+      "id": "tvs-apache-160-4v-om-pre2025",
+      "kind": "owners_manual",
+      "title": "Apache RTR 160 4V (USD) owner's manual, before April 2025",
+      "url": "https://www.tvsmotor.com/-/media/UpdatedUserManuals2026/Before-April-2025/Motorcycles/RTR/TVS-Apache-RTR-160-4V-USD.pdf",
+      "publisher": "TVS Motor Company",
+      "retrieved": "2026-10-02"
+    }
+  ],
+  "engine": {
+    "displacement": { "v": 159.7, "u": "cm3", "src": "tvs-apache-160-4v-site", "conf": 0.9 },
+    "cylinders": { "v": 1, "u": "1", "src": "manualslib-apache-160-4v", "conf": 0.85 },
+    "strokes": { "v": 4, "u": "1", "src": "tvs-apache-160-4v-site", "conf": 0.9 },
+    "bore": { "v": 62, "u": "mm", "src": "manualslib-apache-160-4v", "conf": 0.75 },
+    "stroke": { "v": 52.9, "u": "mm", "src": "manualslib-apache-160-4v", "conf": 0.75 },
+    "compressionRatio": { "v": 10.15, "u": "1", "src": "manualslib-apache-160-4v", "conf": 0.7, "tol": 0.3 },
+    "cooling": { "v": "oil", "src": "tvs-apache-160-4v-site", "conf": 0.9, "note": "Oil cooled with ram-air assist" },
+    "fuelSystem": { "v": "fi", "src": "tvs-apache-160-4v-site", "conf": 0.9 },
+    "peakPower": { "v": 12.91, "u": "kW", "src": "tvs-apache-160-4v-site", "conf": 0.9, "note": "Sport mode (17.55 PS); Urban/Rain 11.50 kW @ 8650 rpm" },
+    "peakPowerRpm": { "v": 9250, "u": "rpm", "src": "tvs-apache-160-4v-site", "conf": 0.9 },
+    "peakTorque": { "v": 14.73, "u": "N*m", "src": "tvs-apache-160-4v-site", "conf": 0.85, "note": "Sport mode; Urban/Rain 14.14 N·m @ 7250 rpm" },
+    "peakTorqueRpm": { "v": 7500, "u": "rpm", "src": "tvs-apache-160-4v-site", "conf": 0.85 },
+    "idleRpm": { "v": 1650, "u": "rpm", "src": "manualslib-apache-160-4v", "conf": 0.7, "tol": 200, "note": "Sport mode; 1500 ± 200 in Urban and Rain" }
+  },
+  "transmission": {
+    "kind": { "v": "manual", "src": "tvs-apache-160-4v-site", "conf": 0.9 },
+    "speeds": { "v": 5, "u": "1", "src": "tvs-apache-160-4v-site", "conf": 0.9 },
+    "primaryRatio": { "v": 3.095, "u": "1", "src": "manualslib-apache-160-4v", "conf": 0.7 },
+    "gearRatios": {
+      "v": [2.917, 1.857, 1.333, 1.05, 0.88],
+      "u": "1",
+      "src": "manualslib-apache-160-4v",
+      "conf": 0.5,
+      "note": "Identical to the TVS Raider 125's published ratios (2.917/1.857/1.333/1.050/0.880). A shared gearbox is possible, but this was read from a third-party copy of an earlier manual — verify before relying on gear advice."
+    },
+    "finalRatio": { "v": 3.461, "u": "1", "src": "manualslib-apache-160-4v", "conf": 0.7 },
+    "drive": { "v": "chain", "src": "manualslib-apache-160-4v", "conf": 0.7 }
+  },
+  "chassis": {
+    "mass": { "v": 146, "u": "kg", "src": "tvs-apache-160-4v-site", "conf": 0.85, "basis": "kerb", "note": "Single-channel ABS variant: 143 kg" },
+    "fuelTank": { "v": 12, "u": "L", "src": "tvs-apache-160-4v-site", "conf": 0.9 },
+    "frontTyre": { "v": "90/90-17 49P", "src": "tvs-apache-160-4v-site", "conf": 0.9 },
+    "rearTyre": { "v": "130/70 R17 M/C 62P", "src": "tvs-apache-160-4v-site", "conf": 0.9 },
+    "topSpeed": { "v": 114, "u": "km/h", "src": "tvs-apache-160-4v-site", "conf": 0.85, "note": "Sport mode; 103 km/h in Urban/Rain" }
+  },
+  "emission": {
+    "standard": { "v": "BS6-P2", "src": "tvs-apache-160-4v-2026-blog", "conf": 0.8 },
+    "obd": { "v": "OBD-2B", "src": "tvs-apache-160-4v-2026-blog", "conf": 0.8, "note": "\"OBD-2B system for improved emission control\"" }
+  },
+  "fuel": {
+    "minRon": { "v": 91, "u": "RON", "src": "tvs-apache-160-4v-om-pre2025", "conf": 0.5, "note": "Post-April-2025 manuals read 'minimum RON 98' — implausible for a 10:1 engine, likely a misprint; verify" },
+    "compat": [
+      { "fuel": "E20", "status": "certified", "src": "tvs-apache-160-4v-2026-blog", "conf": 0.8, "note": "\"fully compatible with E20 fuel\"" },
+      { "fuel": "E10", "status": "certified", "src": "tvs-apache-160-4v-om-pre2025", "conf": 0.75 },
+      { "fuel": "E0", "status": "compatible", "src": "tvs-apache-160-4v-om-pre2025", "conf": 0.75 }
+    ]
+  },
+  "notes": ["Bore, stroke, idle and gearing come from an earlier BS6 manual edition; the current manual's spec table could not be read."]
+}
