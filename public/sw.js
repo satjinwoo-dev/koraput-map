@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-04.5";           // the bike list says when the server has none (HTTP error) instead of "connect to the internet"
+const VERSION = "mu-2026-10-04.6";           // the bike list logs why it failed; the server builds a missing catalogue at start-up
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;

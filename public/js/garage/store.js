@@ -123,7 +123,11 @@
                 ? `The bike list isn't available from the server right now (HTTP ${status}). Try again in a few minutes.`
                 : "The bike list isn't on this phone yet. Connect to the internet once to download it.");
             /** @type {any} */ (err).cause = networkError;
-            if (status && typeof console !== "undefined") console.warn(`[garage] ${catalogUrl}: HTTP ${status} — on the server, run npm run bikes:build (it writes public/bikedb/catalog.json)`);
+            if (typeof console !== "undefined") {
+                // the reason, for whoever runs the server (the rider's message stays plain)
+                if (status) console.warn(`[garage] ${catalogUrl}: HTTP ${status} — on the server, run npm run bikes:build (it writes public/bikedb/catalog.json)`);
+                else console.warn(`[garage] couldn't load ${catalogUrl} (${networkError && /** @type {any} */ (networkError).name === "AbortError" ? `no answer within ${timeoutMs / 1000} s` : String(networkError && /** @type {any} */ (networkError).message || networkError)}) and there's no saved copy`);
+            }
             throw err;
         }
 

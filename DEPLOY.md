@@ -12,11 +12,13 @@ npm start       # builds the bike catalogue from data/bikes/, then starts server
 ```
 
 - **`npm start`** runs `npm run bikes:build` first. That build writes `public/bikedb/catalog.json`, the bundles and `build/bikedb/bikes.sqlite`, which are gitignored and so missing from a fresh clone. It then runs `node server.js`.
+- **Plain `node server.js` works too.** If the built catalogue is missing at start-up, the server builds it from `data/bikes/` before serving and logs `[bikes] … missing: building the bike catalogue`. `BIKES_AUTOBUILD=0` turns this off.
+- **Without any SQLite driver** (Node older than 22.13 and no `better-sqlite3`), the build still writes `catalog.json` and the bundles, so the app's bike list works. It skips `bikes.sqlite` with a warning, and the server's search API answers 503 until it exists. The server's own database does need a driver, though: use Node 22.13 or newer.
 - **The startup log names the SQLite driver**: `DB: … (node:sqlite)` and `[bikes] catalogue … (node:sqlite)`.
   - `better-sqlite3` is used when its native addon is installed. Otherwise both the catalogue and the server's own database use Node's built-in `node:sqlite`. They're the same file format, so you can switch either way without losing data.
   - `BIKEDB_SQLITE_DRIVER=node:sqlite` (or `better-sqlite3`) forces one.
 - **If you installed with `npm install --ignore-scripts`:** that's fine too. `better-sqlite3` is then present but has no addon, and the server falls back to `node:sqlite` the same way.
-- **Seeing "The bike list isn't on this phone yet"** means the browser couldn't fetch `/bikedb/catalog.json` and has no copy saved. Usually the server wasn't running, and the page came from the service worker's cache. If the server is up but has no catalogue, the app now says so ("isn't available from the server right now (HTTP 404)"), and the browser console names the fix: `npm run bikes:build`. Reload the page once the server is running.
+- **Seeing "The bike list isn't on this phone yet"** means the browser couldn't fetch `/bikedb/catalog.json` and has no copy saved. Usually the server wasn't running, and the page came from the service worker's cache. If the server is up but has no catalogue, the app now says so ("isn't available from the server right now (HTTP 404)"). In either case the browser console logs a `[garage]` line with the cause, e.g. the HTTP status or "no answer within 6 s". Start the server, then press **Try again** or reload.
 
 ## 1. What's in this delivery
 

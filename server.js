@@ -40,7 +40,9 @@
      ADMIN_TOKEN              bearer token for the bike curator's admin API
                               (/api/admin, public/admin/curator.html). At least 16
                               characters; unset = the admin API doesn't exist (404).
-     BIKES_DATA_DIR           the curated bike files the curator writes, default ./data/bikes
+     BIKES_DATA_DIR           the curated bike files (the curator writes them; built into the
+                              catalogue at start-up if it's missing), default ./data/bikes
+     BIKES_AUTOBUILD          "0" = don't build a missing catalogue at start-up
      SERVER_SECRET            HMAC key for pseudonymous owner keys (auto-generated
                               and persisted in the DB if unset). MUST be the same on
                               every process of a cluster (it is, when they share the DB).
@@ -104,6 +106,7 @@ const PUBLIC_DIR = process.env.PUBLIC_DIR || path.join(__dirname, "public");
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, "data", "mapunite.db");
 const MEDIA_DIR = process.env.MEDIA_DIR || path.join(path.dirname(DB_PATH), "media");
 const BIKES_DB_PATH = process.env.BIKES_DB_PATH || path.join(__dirname, "build", "bikedb", "bikes.sqlite");
+const BIKES_DATA_DIR = process.env.BIKES_DATA_DIR || path.join(__dirname, "data", "bikes");
 const OSRM_BASE = process.env.OSRM_BASE_URL || "https://router.project-osrm.org";
 const OSRM_PUBLIC_URL = (process.env.OSRM_PUBLIC_URL || "https://router.project-osrm.org").replace(/\/+$/, "");
 const OVERPASS_URL = process.env.OVERPASS_URL || "https://overpass-api.de/api/interpreter";
@@ -277,6 +280,25 @@ const mediaLimiter = rateLimit({ windowMs: 60 * 1000, max: 600, standardHeaders:
 app.get("/media/:dir/:file", mediaLimiter, media.handler());
 app.head("/media/:dir/:file", mediaLimiter, media.handler());
 
+// The bike catalogue's built files are gitignored, so a fresh checkout has none, and without
+// public/bikedb/catalog.json the app's bike list can't load ("The bike list isn't on this phone
+// yet"). If they're missing, build them from data/bikes/ now, before serving (about a second).
+// The build validates every bike first and writes nothing if one is wrong; without a SQLite
+// driver it still writes catalog.json and the bundles. BIKES_AUTOBUILD=0 turns this off.
+(function ensureBikeCatalogue() {
+    const catalogFile = path.join(PUBLIC_DIR, "bikedb", "catalog.json");
+    const missing = [catalogFile, BIKES_DB_PATH].filter((f) => !fs.existsSync(f));
+    if (!missing.length || process.env.BIKES_AUTOBUILD === "0") return;
+    if (!fs.existsSync(path.join(BIKES_DATA_DIR, "variants"))) { console.warn(`[bikes] ${missing.map((f) => path.relative(__dirname, f)).join(" and ")} missing, and no bike data in ${BIKES_DATA_DIR} to build from`); return; }
+    console.log(`[bikes] ${missing.map((f) => path.relative(__dirname, f)).join(" and ")} missing: building the bike catalogue from ${path.relative(__dirname, BIKES_DATA_DIR) || "."} …`);
+    const r = require("child_process").spawnSync(process.execPath, [
+        "--disable-warning=ExperimentalWarning", path.join(__dirname, "scripts", "build-bike-catalog.mjs"),
+        "--data", BIKES_DATA_DIR, "--out-public", path.join(PUBLIC_DIR, "bikedb"), "--out-db", BIKES_DB_PATH
+    ], { cwd: __dirname, stdio: "inherit", timeout: 120000 });
+    if (r.status === 0) console.log("[bikes] catalogue built");
+    else console.error(`[bikes] the catalogue build failed (${r.error ? r.error.message : `exit ${r.status}`}): the app's bike list won't load until \`npm run bikes:build\` succeeds`);
+})();
+
 // Bike catalogue API (lib/bikedb/http-api.js): search, bundles, requests for
 // missing bikes. Mounted before the global JSON parser and rate limiter: it has
 // its own 4 KB body limit and per-route limits sized for type-ahead search.
@@ -297,7 +319,7 @@ app.use("/api/bikes", bikeApi.router);
 const adminApi = createAdminApi({
     queueDb: () => db,
     token: () => process.env.ADMIN_TOKEN,
-    dataDir: process.env.BIKES_DATA_DIR || path.join(__dirname, "data", "bikes"),
+    dataDir: BIKES_DATA_DIR,
     publicDir: path.join(PUBLIC_DIR, "bikedb"),
     dbFile: BIKES_DB_PATH,
     catalog: bikeApi.catalog

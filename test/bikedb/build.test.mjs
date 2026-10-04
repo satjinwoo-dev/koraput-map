@@ -473,3 +473,26 @@ test("CLI: builds, --check passes, a data change makes --check fail, bad argumen
         assert.equal(bad.status, 2);
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("no SQLite driver on this machine: catalog.json and the bundles are still built, bikes.sqlite is skipped with the reason", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mu-nodriver-"));
+    try {
+        // node:sqlite switched off and better-sqlite3 not allowed: no driver at all
+        const r = spawnSync(process.execPath, ["--no-experimental-sqlite", "--disable-warning=ExperimentalWarning", path.join(ROOT, "scripts", "build-bike-catalog.mjs"), "--json",
+            "--out-public", path.join(dir, "pub"), "--out-db", path.join(dir, "bikes.sqlite")],
+        { encoding: "utf8", env: { ...process.env, BIKEDB_SQLITE_DRIVER: "node:sqlite" } });
+        assert.equal(r.status, 0, r.stderr);
+        const out = JSON.parse(r.stdout);
+        assert.equal(out.sqlite, null);
+        assert.match(out.sqliteSkipped, /no SQLite driver/);
+        assert.match(r.stderr, /WARNING: bikes\.sqlite was not built/);
+        assert.equal(JSON.parse(fs.readFileSync(path.join(dir, "pub", "catalog.json"), "utf8")).version, art.catalog.version);
+        assert.equal(fs.readdirSync(path.join(dir, "pub", "bundles")).length, art.bundles.length);
+        assert.ok(!fs.existsSync(path.join(dir, "bikes.sqlite")));
+        // a driver asked for by name is still required
+        const named = spawnSync(process.execPath, ["--no-experimental-sqlite", path.join(ROOT, "scripts", "build-bike-catalog.mjs"), "--driver", "node:sqlite",
+            "--out-public", path.join(dir, "pub2"), "--out-db", path.join(dir, "b2.sqlite")], { encoding: "utf8" });
+        assert.equal(named.status, 1);
+        assert.ok(!fs.existsSync(path.join(dir, "pub2")), "nothing written");
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
