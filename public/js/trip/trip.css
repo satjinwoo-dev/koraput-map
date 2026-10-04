@@ -159,3 +159,35 @@ a.tool-btn { text-decoration: none; }
   #fuel-dash-modal .fuel-dash-card { max-width: none; max-height: none; height: calc(var(--app-h, 100vh) - 64px - var(--safe-t, 0px)); border-radius: 24px 24px 0 0; padding: 16px 14px calc(24px + var(--safe-b, 0px)); }
 }
 #pitstop-plan-btn { width: 100%; margin-top: 2px; }
+
+/* ---------- HUD, share card, gradient sheet, ride summaries: shells (always loaded, so they are sized before their UI loads) ---------- */
+#share-ride-btn { width: 100%; margin-top: 8px; }
+#share-modal .share-card { max-width: 960px; }
+
+/* Roadmap Step 9: entry to the gradient sheet, under the trip card's elevation chart (js/gradient/gradient-app.js) */
+.grd-open-btn { display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 8px; padding: 9px 12px; border: 1px solid var(--line, rgba(255,255,255,.085)); border-radius: 12px;
+  background: rgba(255,255,255,.04); color: var(--text, #f2f6f8); font: 600 13px/1.2 var(--font-ui, "Inter", sans-serif); cursor: pointer; text-align: left; }
+.grd-open-btn[hidden] { display: none; }
+.grd-open-btn svg { width: 18px; height: 18px; flex: none; color: var(--mint, #34e0b4); }
+.grd-open-btn span { white-space: nowrap; }
+.grd-open-btn small { flex: 1 1 auto; min-width: 0; margin-left: 8px; text-align: right; font-size: 12px; font-weight: 500; color: var(--soft, #c6d2db); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.grd-open-btn:focus-visible { outline: 2px solid var(--mint, #34e0b4); outline-offset: 2px; }
+#gradient-modal .gradient-card { max-width: 1000px; width: 100%; padding: 20px 18px 22px; max-height: calc(var(--app-h, 100vh) - 40px); overflow-y: auto; }
+@media (max-width: 760px) {
+  #gradient-modal { padding: calc(56px + var(--safe-t, 0px)) 0 0; align-items: stretch; }
+  #gradient-modal .gradient-card { max-width: none; max-height: none; height: calc(var(--app-h, 100vh) - 56px - var(--safe-t, 0px)); border-radius: 24px 24px 0 0; padding: 16px 14px calc(22px + var(--safe-b, 0px)); }
+}
+
+/* Roadmap Step 10: modal shells for ride summaries, consent and delete (js/rides/; inner styles in rides.css) */
+#rides-modal .rides-card { max-width: 920px; width: 100%; padding: 20px 18px 22px; max-height: calc(var(--app-h, 100vh) - 40px); overflow-y: auto; }
+#fleet-consent-modal, #wipe-modal { z-index: calc(var(--z-modal, 5000) + 10); }
+#fleet-consent-modal .consent-card, #wipe-modal .consent-card { max-width: 620px; width: 100%; padding: 22px 20px 20px; max-height: calc(var(--app-h, 100vh) - 40px); overflow-y: auto; }
+#rides-all-btn { width: 100%; margin-top: 8px; }
+.rides-open-btn { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.rides-open-btn small { font-size: 12px; font-weight: 500; color: var(--soft, #c6d2db); }
+.rides-open-btn small:empty { display: none; }
+.fleet-consent-btn { white-space: nowrap; flex: none; }
+@media (max-width: 760px) {
+  #rides-modal, #fleet-consent-modal, #wipe-modal { padding: calc(56px + var(--safe-t, 0px)) 0 0; align-items: stretch; }
+  #rides-modal .rides-card, #fleet-consent-modal .consent-card, #wipe-modal .consent-card { max-width: none; max-height: none; height: calc(var(--app-h, 100vh) - 56px - var(--safe-t, 0px)); border-radius: 24px 24px 0 0; padding: 16px 14px calc(22px + var(--safe-b, 0px)); }
+}

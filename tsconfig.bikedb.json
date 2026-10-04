@@ -21,6 +21,7 @@
     "lib/bikedb/request-queue.js",
     "lib/bikedb/http-api.js",
     "lib/bikedb/calibration.js",
-    "lib/bikedb/fleet.js"
+    "lib/bikedb/fleet.js",
+    "lib/bikedb/admin-api.js"
   ]
 }

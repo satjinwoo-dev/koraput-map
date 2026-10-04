@@ -743,9 +743,52 @@
             const pri = resolvePriors(b, d);
             for (const f of FIELDS) if (f.path.startsWith("priors.") && f.allow && f.allow.includes(b.powertrain) && !pri[f.path.slice(7)]) R.err(e.file || b.id, "priors_unresolved", `${f.path} resolves neither from the variant nor from ${d.id}`);
         }
+        // The picture rule: every bike in the catalogue ships a real picture (image.url → image_url), never the
+        // class silhouette. Only the variants that predate the rule may still lack one; they're named below and
+        // the list can only shrink (a bike that gets its picture should be taken off it).
+        for (const e of entries) {
+            const b = e.bundle;
+            if (!isObj(b) || b.kind !== "variant") continue;
+            const has = isObj(b.image) && typeof b.image.url === "string" && b.image.url.trim() !== "";
+            if (!has && !PICTURE_GRANDFATHERED.includes(b.id)) R.err(e.file || b.id, "picture_required", "a bike in the catalogue needs a picture: image { url (https), src } — the class silhouette isn't one");
+            if (has && PICTURE_GRANDFATHERED.includes(b.id)) R.warn(e.file || b.id, "picture_grandfathered", `${b.id} has a picture now: take it off PICTURE_GRANDFATHERED in bundle-contract.js`);
+        }
         const ok = R.errors.length === 0 && perFile.every((p) => p.result.ok);
         return { ok, errors: R.errors, warnings: R.warnings, perFile };
     }
+
+    /**
+     * Variants that were in the catalogue before the picture rule (2026-10-04) and have no
+     * sourced picture yet. Frozen: nothing may be added; ids leave as their pictures arrive.
+     * The admin approve endpoint (lib/bikedb/admin-api.js) never consults this list.
+     */
+    const PICTURE_GRANDFATHERED = Object.freeze([
+        "ather-450x-2-9kwh-2025-in",
+        "ather-450x-3-7kwh-2025-in",
+        "bajaj-chetak-c3501-in",
+        "bajaj-pulsar-150-single-disc-in",
+        "bajaj-pulsar-n160-2v-twin-disc-in",
+        "bajaj-pulsar-ns200-dual-abs-in",
+        "hero-splendor-plus-obd2b-in",
+        "hero-xpulse-200-4v-std-in",
+        "honda-activa-110-dlx-obd2b-in",
+        "honda-hness-cb350-dlx-in",
+        "honda-shine-125-obd2b-in",
+        "ola-s1-pro-gen3-4kwh-in",
+        "revolt-rv400-std-in",
+        "royal-enfield-bullet-350-dual-abs-in",
+        "royal-enfield-classic-350-in",
+        "royal-enfield-himalayan-450-in",
+        "royal-enfield-hunter-350-metro-in",
+        "royal-enfield-meteor-350-in",
+        "tvs-apache-rtr-160-4v-dual-abs-usd-in",
+        "tvs-iqube-3-5kwh-in",
+        "tvs-jupiter-110-disc-sxc-in",
+        "tvs-raider-125-split-seat-in",
+        "ultraviolette-f77-mach2-recon-in",
+        "yamaha-mt-15-v2-in",
+        "yamaha-yzf-r15-v4-in"
+    ]);
 
     // ------------------------------------------------------------------
     // Runtime helpers used by the app
@@ -871,6 +914,7 @@
     }
 
     return {
+        PICTURE_GRANDFATHERED,
         SCHEMA_VERSION, POWERTRAINS, SEGMENTS, CLASS_MATRIX, TRANSMISSION_FOR, SOURCE_KINDS, AUTHORITATIVE_KINDS, CONF_CAP, CERT_MIN_CONF, ADVISE_MIN_CONF, FUEL_STATUS, FIELDS, SI_UNITS, siUnit, toSI,
         validateBundle, validateCatalog, validateFuelGrades, validateEmissionStandards,
         resolvePriors, isFuelAdvisable, parseTyre, sweptVolumeCm3, buildJsonSchema

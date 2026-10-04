@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-04.2";           // roadmap Steps 8–10: advice gate, bridges/tunnels, ride summaries (before: dashboard, pitstop planner, fleet calibration)
+const VERSION = "mu-2026-10-04.4";           // roadmap Steps 8–10 with their screens: advice badge, gradient sheet, ride dashboard + consent, HUD, share card
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
@@ -107,6 +107,29 @@ const BIKE_SCRIPTS = [
     "/js/advice/advice-app.js",
     "/js/rides/ride-log.js",
     "/js/rides/rides-app.js",
+    // their screens (loaded on first open, so they must be here): the road-conditions badge, the ride
+    // dashboard and consent, the gradient sheet, the SmartDrive HUD and the post-ride share card
+    "/js/advice/conditions.js",
+    "/js/advice/overlay.js",
+    "/js/advice/advice-ui.js",
+    "/js/advice/advice.css",
+    "/js/rides/ride-model.js",
+    "/js/rides/rides-ui.js",
+    "/js/rides/consent-ui.js",
+    "/js/rides/rides.css",
+    "/js/gradient/gradient.js",
+    "/js/gradient/gradient-app.js",
+    "/js/gradient/profile-chart.js",
+    "/js/gradient/gradient.css",
+    "/js/hud/live.js",
+    "/js/hud/hud.js",
+    "/js/hud/hud-app.js",
+    "/js/hud/hud.css",
+    "/js/share/share-app.js",
+    "/js/share/card-model.js",
+    "/js/share/card-render.js",
+    "/js/share/share-ui.js",
+    "/js/share/share.css",
     // Advanced analytics: fuel learner dashboard + convoy pitstop planner (both lazy-loaded by their *-app.js)
     "/js/insights/fuel-insights.js",
     "/js/insights/fuel-dashboard.js",

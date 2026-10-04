@@ -75,6 +75,8 @@ On Render, or anywhere with an ephemeral disk: the persistent disk must hold **b
 | `NODE_ID` | host-pid-random | This process's name in the cluster |
 | `STICKY_SESSIONS` | — | Set to `1` if your load balancer pins clients to one process |
 | `NATIVE_APP_ORIGINS` | `https://localhost,capacitor://localhost` | Android app origins allowed in addition to `CORS_ORIGIN` (see `ANDROID.md`); empty turns app access off |
+| `ADMIN_TOKEN` | — | Bearer token for the bike curator's admin API (`/api/admin`, `public/admin/curator.html`). At least 16 characters; unset = the admin API doesn't exist (404). Use a long random value (`openssl rand -hex 32`) and keep it out of the repo |
+| `BIKES_DATA_DIR` | `./data/bikes` | The curated bike files the curator's **Approve** writes into (and rebuilds from) |
 
 `OSRM_BASE_URL`, `OVERPASS_URL`, `TRIP_RETENTION_DAYS` and the rest are unchanged.
 
@@ -150,7 +152,7 @@ These run on the phone; the server only stores the anonymous tanks of riders who
   - **Already there:** the planned route's heights come from Open-Meteo's elevation API, cached offline (`js/trip/elevation.js`).
   - **New:** bridges and tunnels are now held at a straight grade from one end to the other. Their positions come from OpenStreetMap (one Overpass query per route, cached 30 days), or, where OSM has nothing, from the DEM's own tell-tale dips and humps. A 30 m gully under a bridge no longer costs a phantom descent and climb.
 - **Step 10: ride summaries and privacy** (`public/js/rides/`).
-  - **What's stored.** Every ride leaves a summary on the phone: distance and time per speed band and per 5 km/h, moving and idle time, coasting (an estimate from GPS speed), hard braking, the fill-ups logged during the ride, and the fuel estimate. There are no coordinates and no route. At most 400 rides or 365 days are kept (`MURides.app.summaries()`).
+  - **What's stored.** Every ride leaves a summary on the phone: distance and time per speed band and per 5 km/h, moving and idle time, coasting (an estimate from GPS speed), hard braking, the fill-ups logged during the ride, the fuel estimate, the nearest town, and the route simplified to ≤ 160 points for the ride's own drawing and share card. None of it is uploaded. At most 400 rides or 365 days are kept (`MURides.app.summaries()`).
   - **Opt-in upload.** Sharing the anonymous tanks is off until the app's consent screen calls `MURides.app.optIn()`. Opting out (`optOut()`) erases them on the server.
   - **Clear my history** now also deletes:
     - the ride summaries;
@@ -158,6 +160,26 @@ These run on the phone; the server only stores the anonymous tanks of riders who
     - the convoy levels typed in;
     - the cached route heights, bridges and fuel stations;
     - and, on the server, every tank this phone shared. If the phone is offline, the server erasure is retried until the server confirms it.
+
+### The screens for Steps 8–11 (the Web Architect's UI, wired to the backend above)
+
+There's one backend for each feature. The screens read it and drive it; none has a second copy of its rules.
+
+- **Advice badge and settings** (`js/advice/advice-ui.js`, `conditions.js`, `overlay.js`). Live road conditions (Open-Meteo, the position rounded to ~5 km, only while riding) give an **advised** speed under the limit sign, always below the posted limit and never presented as a legal one. A wet road is handed to the gate, so tips are held there too. Quiet ride is the gate's one setting, whether it's switched from settings, the badge or the HUD. The CSP already allows `api.open-meteo.com`.
+- **Gradient sheet** (`js/gradient/`). "Gradient & bridges" under the trip card's elevation chart: the profile with steep climbs, every clamped bridge or tunnel, and a sections table. It reads the same `buildProfile` and the same OSM cache (`mu-trip-v1`) as the trip card, so the two never disagree.
+- **Ride dashboard, consent and Delete my history** (`js/rides/ride-model.js`, `rides-ui.js`, `consent-ui.js`). Settings → Ride summaries, or **All rides** in the trip summary. The consent screen shows the rider's own latest tank and the exact request `POST /api/bikes/fillups` would carry, with the token redacted. "Delete my history" lets the rider pick what to erase.
+- **Live HUD** (`js/hud/`) while navigating or on a SmartDrive trip: live km/L (or Wh/km), the cost so far, the eco band on a speed scale with the posted limit and the advised speed, and the next fuel or charge stop. The grade under you comes from the gradient sheet's fixed profile. At the end of a ride its physics totals are merged into the ride's summary (`mu:ride-summary`).
+- **Share card** (`js/share/`): after a ride of 1 km or more, or from **Share** in the trip summary, an image card with the route shape (the first and last 400 m cut off by default), eco score, distance, mileage, cost and moving time. It's drawn on a canvas on the phone with no map tiles; nothing is uploaded.
+- **Service worker.** The version is now `mu-2026-10-04.4`. All of the above is precached; the bike curator isn't (it's an admin page).
+
+### Bike curator (admin)
+
+`/admin/curator.html` (not linked from the app, `noindex`) turns riders' "my bike isn't listed" requests into reviewed bike files. See `public/js/curator/README.md`.
+
+- **Turning it on.** Set `ADMIN_TOKEN` and restart. Without it, `/api/admin/*` answers 404. The page asks for the token and keeps it in `sessionStorage` for the tab only.
+- **Approve writes to disk.** An approved bike becomes `data/bikes/variants/<id>.json` (`BIKES_DATA_DIR`), and the server rebuilds the catalogue in a child process (`public/bikedb/`, `BIKES_DB_PATH`). The running server picks it up within 5 s. The server's user therefore needs write access to `data/bikes/`, `public/bikedb/` and the folder of `bikes.sqlite`. Commit `data/bikes/` from the server afterwards (or copy the file into your checkout): an approval that isn't committed is lost at the next deploy, which rebuilds from the repository.
+- **The picture rule.** An approved bike must have a picture: `image.url` (https) and the source that published it. The server checks this on every approve, whatever the browser sent. A bike without one is kept in `data/bikes/pending/` with the reasons and is never shipped. The catalogue build also refuses any variant without a picture, except the 25 older bikes on the frozen `PICTURE_GRANDFATHERED` list in `public/js/bikedb/bundle-contract.js`. Their pictures haven't been sourced yet; the list can only shrink.
+- **Several processes.** Approve rebuilds on the process that received it; the other processes pick up the new `bikes.sqlite` within 5 s if they share the folder. With several machines, curate on one and deploy the commit.
 
 ## 3. The features (what riders see)
 

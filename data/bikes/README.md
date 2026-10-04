@@ -141,13 +141,20 @@ In a bundle, a converted value looks like `{ "v": 14870, "u": "W", "src": …, "
 
 ### Picture (`image_url`)
 
-Every runtime bundle, every catalogue row and every class entry has an `image_url`: an https URL for the bike picker, or `null` until a picture is sourced, in which case the picker shows a class silhouette. To add one, give the data file an optional top-level `image`. It needs a source like any other value, and a credit if the publisher asks for one:
+Every runtime bundle, every catalogue row and every class entry has an `image_url`: an https URL for the bike picker, or `null`, in which case the picker shows a class silhouette. The picture comes from the data file's top-level `image`. It needs a source like any other value, and a credit if the publisher asks for one:
 
 ```json
 "image": { "url": "https://…/hunter-350.webp", "src": "re-hunter-spec-2026", "credit": "Royal Enfield" }
 ```
 
 The validator rejects an http URL (an http image is blocked inside the app, whose pages are https), a `src` that isn't in `sources[]`, and unknown keys. Manufacturer photos are usually copyrighted: use pictures you're licensed to use, ideally hosted on your own CDN.
+
+**The picture rule: every variant needs a picture.** `validateCatalog` fails the build (`picture_required`) for a variant without `image.url`. A bike in the catalogue never falls back to the class silhouette.
+- **Exempt:** only the variants on `PICTURE_GRANDFATHERED` in `public/js/bikedb/bundle-contract.js`, a frozen list of the 25 bikes that were here before the rule. Their pictures haven't been sourced yet, and no URL is invented to fill the gap.
+- **The list only shrinks.** When one of them gets its `image`, the validator warns (`picture_grandfathered`) until it's taken off.
+- **Class defaults** are the silhouettes and need no picture.
+- **`pending/` files** are never shipped, so the rule doesn't apply to them.
+- **The bike curator's admin API** (`lib/bikedb/admin-api.js`) enforces the same rule on every approve, with no exemptions: a bike without a picture goes to `pending/`, never `variants/`.
 
 ### What the validator rejects
 

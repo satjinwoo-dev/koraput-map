@@ -736,6 +736,8 @@ const SmartDrive = {
     // low-confidence) so the rider can see the app isn't trusting it.
     tick(fix) {
         if (!fix) return;
+        // The SmartDrive HUD and the advice badge (js/hud/, js/advice/) read every GPS verdict. Only an event: nothing here waits on it.
+        try { document.dispatchEvent(new CustomEvent("mu:fix", { detail: { ...fix, t: Number.isFinite(fix.t) ? fix.t : Date.now() } })); } catch (e) { /* optional listeners */ }
         const smoothedSpeed = fix.smoothedKmh;
         const conf = fix.accepted ? fix.confidence : Math.min(fix.confidence, GpsFilter.GATE - 0.01);
         const dt = Number.isFinite(fix.dtSec) ? fix.dtSec : 1;
@@ -945,6 +947,14 @@ const SmartDrive = {
                 fuelUsedL: this.trip.actualFuel, idleFuelL, idleMin, points: this.trip.points
             });
         }
+        // The HUD closes its trip (and sends its physics totals as "mu:ride-summary" for the share card
+        // and the ride log); js/hud/, js/share/, js/rides/.
+        try {
+            document.dispatchEvent(new CustomEvent("mu:trip-end", { detail: {
+                startedAt: this.trip.startTime, endedAt: Date.now(), totalDistKm: this.trip.totalDist, avgSpeed: avg, maxSpeed: this.trip.maxSpeed,
+                fuelUsedL: this.trip.actualFuel, idleMin, points: this.trip.points.slice(), place: typeof cityName !== "undefined" ? cityName : ""
+            } }));
+        } catch (e) { /* optional listeners */ }
         emitDriveState();
     }
 };

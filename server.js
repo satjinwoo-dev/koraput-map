@@ -37,6 +37,10 @@
      BIKES_DB_PATH            bike catalogue built by npm run bikes:build, default
                               ./build/bikedb/bikes.sqlite (read-only; re-read after a rebuild)
      MEDIA_DIR                default <DB_PATH dir>/media — memory photos + chat files
+     ADMIN_TOKEN              bearer token for the bike curator's admin API
+                              (/api/admin, public/admin/curator.html). At least 16
+                              characters; unset = the admin API doesn't exist (404).
+     BIKES_DATA_DIR           the curated bike files the curator writes, default ./data/bikes
      SERVER_SECRET            HMAC key for pseudonymous owner keys (auto-generated
                               and persisted in the DB if unset). MUST be the same on
                               every process of a cluster (it is, when they share the DB).
@@ -88,6 +92,7 @@ const Database = require("better-sqlite3");
 const { createBus, attachSocketIoAdapter } = require("./lib/cluster");
 const { MediaStore } = require("./lib/media");
 const { createBikeApi } = require("./lib/bikedb/http-api");
+const { createAdminApi } = require("./lib/bikedb/admin-api");
 const { cleanSettings: cleanBikeSettings } = require("./public/js/garage/store.js");
 
 // ==========================================================================
@@ -284,6 +289,20 @@ const bikeApi = createBikeApi({
     requesterKey: (req) => crypto.createHmac("sha256", SERVER_SECRET).update(`mu-bike-request-v1|${req.ip}`).digest("hex").slice(0, 32)
 });
 app.use("/api/bikes", bikeApi.router);
+
+// Bike curator's admin API (lib/bikedb/admin-api.js): the request queue, drafts, and
+// approve → data/bikes/variants + rebuild, with the picture rule enforced here (an approved
+// bike has image.url). Bearer ADMIN_TOKEN; without one the routes don't exist. Own JSON
+// parser (512 KB, a draft with its sources) and rate limit, so mounted before the global ones.
+const adminApi = createAdminApi({
+    queueDb: () => db,
+    token: () => process.env.ADMIN_TOKEN,
+    dataDir: process.env.BIKES_DATA_DIR || path.join(__dirname, "data", "bikes"),
+    publicDir: path.join(PUBLIC_DIR, "bikedb"),
+    dbFile: BIKES_DB_PATH,
+    catalog: bikeApi.catalog
+});
+app.use("/api/admin", adminApi.router);
 
 // Static assets. sw.js must NEVER be served from a stale HTTP cache, otherwise
 // a client can run new app scripts against an old worker (the classic PWA

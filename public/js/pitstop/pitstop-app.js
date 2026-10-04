@@ -366,6 +366,18 @@
         if (layer) layer.clearLayers();
     }
 
+    /**
+     * Your current level as a share of capacity: what you set in the fuel plan (6 h), else the
+     * estimate from your last full fill-up. null when neither is known. Used by the HUD.
+     * @param {any} model BikeModel @param {number|null} capacity m³ or J
+     */
+    function levelFor(model, capacity) {
+        const lv = readLevels().me;
+        if (lv && Date.now() - lv.at < LEVEL_TTL) return { share: lv.share, note: `Set by you, ${agoText(lv.at)}` };
+        if (!model || model.powertrain === "ev" || !(capacity > 0)) return null;
+        return myLevelFromFillups(g(), capacity, model, W.MUPhysics);
+    }
+
     /** What the server can relay to the group so others plan with your real bike and level. */
     async function myShare() {
         const b = W.MUTrip && W.MUTrip.app ? await W.MUTrip.app.loadBike().catch(() => null) : null;
@@ -404,5 +416,5 @@
     }
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init); else init();
     W.MUPitstop = W.MUPitstop || {};
-    W.MUPitstop.app = { open, close, myShare, shareFuel, wireShare, buildModel, get panel() { return panel; } };
+    W.MUPitstop.app = { open, close, myShare, shareFuel, wireShare, levelFor, buildModel, get panel() { return panel; } };
 })(typeof globalThis !== "undefined" ? globalThis : this);

@@ -224,5 +224,6 @@
     }
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init); else init();
 
-    W.MUTrip.app = { store, openGarage, loadBike, get card() { return card; } };
+    // the gradient sheet (js/gradient/) reuses this terrain lookup, so its cache is shared
+    W.MUTrip.app = { store, openGarage, loadBike, get card() { return card; }, get elevation() { return elevation; } };
 })(typeof globalThis !== "undefined" ? globalThis : this);

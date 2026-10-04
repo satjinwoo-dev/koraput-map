@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "node --disable-warning=ExperimentalWarning --test \"test/bikedb/*.test.mjs\" \"test/physics/*.test.mjs\" \"test/server/*.test.mjs\" \"test/garage/*.test.mjs\" \"test/smartdrive/*.test.mjs\" \"test/sw/*.test.mjs\" \"test/trip/*.test.mjs\" \"test/fleet/*.test.mjs\" \"test/insights/*.test.mjs\" \"test/pitstop/*.test.mjs\" \"test/advice/*.test.mjs\" \"test/rides/*.test.mjs\"",
+    "test": "node --disable-warning=ExperimentalWarning --test \"test/bikedb/*.test.mjs\" \"test/physics/*.test.mjs\" \"test/server/*.test.mjs\" \"test/garage/*.test.mjs\" \"test/smartdrive/*.test.mjs\" \"test/sw/*.test.mjs\" \"test/trip/*.test.mjs\" \"test/fleet/*.test.mjs\" \"test/insights/*.test.mjs\" \"test/pitstop/*.test.mjs\" \"test/advice/*.test.mjs\" \"test/rides/*.test.mjs\" \"test/gradient/*.test.mjs\" \"test/hud/*.test.mjs\" \"test/share/*.test.mjs\" \"test/curator/*.test.mjs\"",
     "bikes:validate": "node scripts/bikedb/validate.mjs",
     "bikes:format": "node scripts/bikedb/format.mjs",
     "bikes:schema": "node scripts/bikedb/gen-schema.mjs",
@@ -18,6 +18,7 @@
     "trip:typecheck": "tsc -p tsconfig.trip.json",
     "step8:typecheck": "tsc -p tsconfig.step8.json",
     "ride:typecheck": "tsc -p tsconfig.ride.json",
+    "ui:typecheck": "tsc -p tsconfig.ui.json",
     "physics:mutation": "node scripts/physics/mutation-check.mjs",
     "physics:table": "node scripts/physics/cruise-table.mjs"
   },

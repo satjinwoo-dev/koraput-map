@@ -19,7 +19,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<link rel="stylesheet" href="js/trip/trip.css?v=20261003-step7"><!-- Step 7: trip energy + My bike -->
+<link rel="stylesheet" href="js/trip/trip.css?v=20261004-ui"><!-- Step 7: trip energy + My bike -->
+<link rel="stylesheet" href="js/hud/hud.css?v=20261004-ui"><!-- SmartDrive HUD (needed the moment a ride starts, so not lazy) -->
+<link rel="stylesheet" href="js/advice/advice.css?v=20261004-ui"><!-- Roadmap Step 8: the road-conditions badge (shows during a ride) -->
 <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js"></script>
 
 <style>
@@ -915,6 +917,10 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
     </div>
     <!-- Posted limit for the road you're on (js/gps.js SpeedLimits, OpenStreetMap) -->
     <div class="speed-limit-sign" id="speed-limit-sign" role="img" aria-label="" hidden><span id="speed-limit-n"></span></div>
+    <!-- Roadmap Step 8: speed advice for the road conditions, stacked on the limit sign (js/advice/advice-ui.js) -->
+    <div id="advice-overlay" hidden></div>
+    <!-- SmartDrive HUD (js/hud/): live km/L, eco band, trip cost, pitstop alerts; sits beside the speed dial -->
+    <section id="smartdrive-hud" hidden></section>
     <div class="speed-dial" id="speed-dial">
       <div class="n" id="speed-n">0</div>
       <div class="u">KM/H</div>
@@ -953,6 +959,10 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
     <p id="res-model-note" class="estimate-note"></p>
     <p class="estimate-note">Estimate from GPS speed samples — not a substitute for your odometer.</p>
   </div>
+  <!-- Post-ride share card (js/share/) -->
+  <button id="share-ride-btn" class="btn-secondary-nav" type="button" hidden>Share ride</button>
+  <!-- Roadmap Step 10: all ride summaries on this phone -->
+  <button id="rides-all-btn" class="btn-secondary-nav" type="button" hidden>All rides</button>
   <button id="close-results-btn" class="btn-secondary-nav" type="button">Dismiss</button>
 </div>
 
@@ -1031,7 +1041,7 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
         <button id="fillup-log-btn" type="button" class="btn-secondary-nav btn-block">⛽ Log a fill-up</button>
       </div>
       <div id="fillup-list" class="fc-fill-list"></div>
-      <p class="field-hint">Litres between two full tanks, matched with the drives the app recorded in between, tell it your real km/L below 40, at 40–60, 60–80 and over 80 km/h, and your idle burn. It needs 3 full-to-full tanks, and it's only used when it predicts your fill-ups better than the generic curve. The odometer lets it spot tanks where you drove without the app. Stays on this phone.</p>
+      <p class="field-hint">Litres between two full tanks, matched with the drives the app recorded in between, tell it your real km/L below 40, at 40–60, 60–80 and over 80 km/h, and your idle burn. It needs 3 full-to-full tanks, and it's only used when it predicts your fill-ups better than the generic curve. The odometer lets it spot tanks where you drove without the app. Stays on this phone unless you turn on anonymous fuel data (Ride summaries &amp; privacy).</p>
       <button id="fuel-curve-reset-btn" type="button" class="btn-secondary-nav btn-block">Clear fill-up history</button>
     </div>
 
@@ -1048,6 +1058,31 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
       </div>
       <p class="field-hint" id="voice-support-hint">Tap the microphone on the map or in navigation and say “help” to hear the commands.</p>
       <button id="voice-test-btn" type="button" class="btn-secondary-nav btn-block">🔊 Test voice</button>
+    </div>
+
+    <!-- Roadmap Step 8: ride advice & its safety gate (js/advice/advice-app.js; this section: js/advice/advice-ui.js) -->
+    <div class="form-section" id="advice-section">
+      <h3><svg class="i sm" style="width:13px;height:13px;vertical-align:-2px;"><use href="#i-shield"/></svg> Ride advice &amp; safety</h3>
+      <div class="modal-row">
+        <label for="quiet-ride-toggle">Quiet ride</label>
+        <input type="checkbox" id="quiet-ride-toggle" class="switch">
+      </div>
+      <p class="field-hint">Quiet ride: no riding tips. Directions, speed alerts and safety warnings are spoken as usual. Also on the riding dashboard, or say “quiet ride”. Tips are only ever given on a steady road: never in a corner, right after hard braking, on a wet road, near a turn or on a weak GPS signal, and never above the speed limit.</p>
+      <ul class="advice-always" aria-label="Always spoken">
+        <li>Speed alerts</li><li>Directions</li><li>Emergency SOS</li>
+      </ul>
+      <div class="modal-row">
+        <label for="weather-alerts-toggle">Wet-road &amp; weather alerts</label>
+        <input type="checkbox" id="weather-alerts-toggle" class="switch" checked>
+      </div>
+      <p class="field-hint">While you ride, checks the weather where you are (Open-Meteo, only your rounded position is sent) at the start and every 10 minutes or 8 km. Rain, fog, storms, gusts or ice risk: you hear it once, the speed advice drops below the limit, and tips pause. Roads count as wet for 30 minutes after the rain stops.</p>
+      <div class="modal-row">
+        <label for="speed-advice-toggle">Speed advice on the map</label>
+        <input type="checkbox" id="speed-advice-toggle" class="switch" checked>
+      </div>
+      <p class="field-hint">A small badge above the speed-limit sign: the speed advised for the conditions (e.g. 50 on a wet 60 road), or how far over the posted limit you are. Advice only, never a legal limit: road signs always win.</p>
+      <p class="advice-status" id="advice-status" role="status" aria-live="polite">All advice on.</p>
+      <p class="advice-held" id="advice-held" hidden></p>
     </div>
 
     <!-- Route options (roadmap Section 4): js/navigation.js RoutePrefs -->
@@ -1151,6 +1186,19 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
       </select>
       <p class="field-hint">A circle trip is only offered to that circle. Several groups can run their own trips at the same time.</p>
     </div>
+    <!-- Roadmap Step 10: ride summaries, anonymous fuel data (FLEET.md), delete my history (js/rides/rides-app.js) -->
+    <div class="form-section" id="rides-privacy-section">
+      <h3><svg class="i sm" style="width:13px;height:13px;vertical-align:-2px;"><use href="#i-shield"/></svg> Ride summaries &amp; privacy</h3>
+      <button id="open-rides-btn" type="button" class="btn-secondary-nav btn-block rides-open-btn">Ride summaries <small></small></button>
+      <p class="field-hint">Every ride, summarised on this phone: distance, time, fuel, cost and eco score, with a drawing of the route. Nothing about your rides is uploaded.</p>
+      <div class="modal-row">
+        <span>Anonymous fuel data</span>
+        <button id="fleet-consent-btn" type="button" class="btn-secondary-nav fleet-consent-btn">Learn more</button>
+      </div>
+      <p class="field-hint" id="fleet-status">Off. Your fill-ups stay on this phone.</p>
+      <button id="delete-my-history-btn" type="button" class="btn-warn-outline btn-block"><svg class="i sm"><use href="#i-trash"/></svg>&nbsp; Delete my history</button>
+      <p class="field-hint">Ride summaries, fill-ups and the learned fuel curve, fuel data you shared, saved route data, and (if you choose) your trips and chat on the server.</p>
+    </div>
     <div class="form-section">
       <h3>Your Data</h3>
       <button id="export-data-btn" type="button" class="btn-secondary-nav btn-block"><svg class="i sm"><use href="#i-download"/></svg>&nbsp; Export my data</button>
@@ -1175,6 +1223,29 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
     <button class="close-modal" id="close-fuel-dash-btn" type="button" aria-label="Close" data-close="fuel-dash-modal"><svg class="i sm"><use href="#i-x"/></svg></button>
     <div id="fuel-dash-mount"></div>
   </div>
+</div>
+
+<!-- Roadmap Step 10: RIDE SUMMARIES, PRIVACY CONSENT, DELETE MY HISTORY (js/rides/ mounts these on first open) -->
+<div class="modal" id="rides-modal" data-dismissable role="dialog" aria-modal="true" aria-labelledby="rds-title" aria-hidden="true">
+  <div class="modal-card rides-card"><div id="rides-mount"></div></div>
+</div>
+<div class="modal" id="fleet-consent-modal" role="dialog" aria-modal="true" aria-hidden="true">
+  <div class="modal-card consent-card"><div id="fleet-consent-mount"></div></div>
+</div>
+<div class="modal" id="wipe-modal" role="dialog" aria-modal="true" aria-hidden="true">
+  <div class="modal-card consent-card"><div id="wipe-mount"></div></div>
+</div>
+
+<!-- Roadmap Step 9: ELEVATION & GRADIENT (js/gradient/ mounts here on first open; works offline) -->
+<div class="modal" id="gradient-modal" data-dismissable role="dialog" aria-modal="true" aria-labelledby="grd-title" aria-hidden="true">
+  <div class="modal-card gradient-card">
+    <div id="gradient-mount"></div>
+  </div>
+</div>
+
+<!-- SHARE YOUR RIDE (js/share/ mounts here when a ride ends) -->
+<div class="modal" id="share-modal" data-dismissable role="dialog" aria-modal="true" aria-label="Share your ride" aria-hidden="true">
+  <div class="modal-card share-card"><div id="share-mount"></div></div>
 </div>
 
 <!-- Step 8: CONVOY FUEL PLAN overlay (js/pitstop/ renders here) -->
@@ -1534,7 +1605,7 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="js/gps.js?v=20261003-step7"></script>
 <script src="js/navigation.js?v=20261004-step10"></script>
 <script src="js/garage/fuel-baseline.js?v=20261003-step8"></script>
-<script src="js/smartdrive.js?v=20261004-step10"></script>
+<script src="js/smartdrive.js?v=20261004-ui"></script>
 <script src="js/groupnav.js?v=20261004-step8"></script>
 <script src="js/privacy.js?v=20261004-step10"></script>
 <script src="js/analytics.js?v=20261003-step7"></script>
@@ -1567,15 +1638,27 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="js/trip/structures.js?v=20261004-step10"></script>
 <script src="js/trip/energy.js?v=20261003-step7"></script>
 <script src="js/trip/trip-card.js?v=20261004-step10"></script>
-<script src="js/trip/trip-app.js?v=20261004-step10"></script>
-<!-- Steps 8–10 of the roadmap: the advice safety gate, ride summaries and the opt-in fleet share
+<script src="js/trip/trip-app.js?v=20261004-ui"></script>
+<!-- Roadmap Steps 8–10: the advice safety gate and its badge, ride summaries, the opt-in fleet share and their screens
      (SmartDrive calls them; js/advice/, js/rides/) -->
 <script src="js/advice/advice.js?v=20261004-step10"></script>
-<script src="js/advice/advice-app.js?v=20261004-step10"></script>
-<script src="js/rides/ride-log.js?v=20261004-step10"></script>
-<script src="js/rides/rides-app.js?v=20261004-step10"></script>
+<script src="js/advice/advice-app.js?v=20261004-ui"></script>
+<script src="js/advice/conditions.js?v=20261004-ui"></script>
+<script src="js/advice/overlay.js?v=20261004-ui"></script>
+<script src="js/advice/advice-ui.js?v=20261004-ui"></script>
+<script src="js/rides/ride-log.js?v=20261004-ui"></script>
+<script src="js/rides/ride-model.js?v=20261004-ui"></script>
+<script src="js/rides/rides-app.js?v=20261004-ui"></script>
+<!-- Roadmap Step 9: the gradient sheet (bridges & tunnels from js/trip/structures.js); its chart loads on first open -->
+<script src="js/gradient/gradient.js?v=20261004-ui"></script>
+<script src="js/gradient/gradient-app.js?v=20261004-ui"></script>
+<!-- SmartDrive HUD and the post-ride share card (the card's drawing code loads when a ride ends) -->
+<script src="js/hud/live.js?v=20261004-ui"></script>
+<script src="js/hud/hud.js?v=20261004-ui"></script>
+<script src="js/hud/hud-app.js?v=20261004-ui"></script>
+<script src="js/share/share-app.js?v=20261004-ui"></script>
 <!-- Step 8: fuel learner dashboard + convoy pitstop planner (their UI loads on first open) -->
 <script src="js/insights/insights-app.js?v=20261004-step8"></script>
-<script src="js/pitstop/pitstop-app.js?v=20261004-step10"></script>
+<script src="js/pitstop/pitstop-app.js?v=20261004-ui"></script>
 </body>
 </html>

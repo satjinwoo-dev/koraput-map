@@ -22,7 +22,7 @@ function feed(acc, speeds, t0 = 0) {
 test("summary: distance and time per speed band and 5 km/h bin; moving vs idle; top speed", () => {
     const a = R.createAccumulator(Date.parse("2026-10-04T08:00:00+05:30"));
     feed(a, [...Array(61).fill(50), ...Array(30).fill(0), ...Array(60).fill(72)]);
-    const s = R.finish(a, { endedAt: Date.parse("2026-10-04T08:03:00+05:30"), id: "r1" });
+    const s = R.finish(a, { endedAt: Date.parse("2026-10-04T08:03:00+05:30") });
     assert.equal(s.bands.length, 4);
     assert.deepEqual(s.bands.map((b) => [Math.round(b.from * 3.6), b.to === null ? null : Math.round(b.to * 3.6)]), [[0, 40], [40, 60], [60, 80], [80, null]]);
     assert.ok(Math.abs(s.bands[1].distance - 60 * kmh(50)) < 2 && s.bands[1].time === 60, JSON.stringify(s.bands[1]));
@@ -31,7 +31,9 @@ test("summary: distance and time per speed band and 5 km/h bin; moving vs idle; 
     assert.ok(Math.abs(s.hist[10] - 60 * kmh(50)) < 2 && Math.abs(s.hist[14] - 60 * kmh(72)) < 2, "50 → bin 10, 72 → bin 14");
     assert.equal(s.binWidth, 1.389);
     assert.equal(s.idleTime, 30);
-    assert.equal(s.movingTime, 120);
+    assert.equal(s.moving, 120);
+    assert.ok(Math.abs(s.avgSpeed - s.distance / 120) < 0.01);
+    assert.equal(s.id, `ride-${a.startedAt}`, "one record per ride, keyed by its start (the HUD's totals merge into it)");
     assert.ok(Math.abs(s.distance - 60 * (kmh(50) + kmh(72))) < 3);
     assert.equal(s.maxSpeed, 20);
     assert.equal(s.duration, 180);
@@ -62,17 +64,21 @@ test("summary: a hard stop counts once; a single jittery fix doesn't count at al
     assert.equal(s.hardBrakes, 1);
 });
 
-test("summary: fill-ups during the ride (SI volumes), the fuel estimate, and nothing about where", () => {
+test("summary: fill-ups during the ride (SI volumes), the fuel estimate; the route only as given, for this phone", () => {
     const a = R.createAccumulator(1_000_000);
     feed(a, Array(30).fill(40), 1000);
     const s = R.finish(a, {
-        endedAt: 1_100_000, id: "f", fuelL: 0.4321, idleFuelL: 0.01, fuelSource: "physics", bike: "bike:royal-enfield-hunter-350-metro-in", mode: "bike",
+        endedAt: 1_100_000, id: "f", fuelL: 0.4321, idleFuelL: 0.01, fuelSource: "physics", bikeTag: "bike:royal-enfield-hunter-350-metro-in", bike: "Hunter 350", mode: "bike",
         fills: [{ ts: 900_000, litres: 9 }, { ts: 1_050_000, litres: 8.456, full: true }, { ts: 1_200_000, litres: 3 }]
     });
     assert.deepEqual(s.fillups, [{ volume: 0.008456, full: true, at: 1_050_000 }]);
-    assert.deepEqual(s.fuel, { volume: 0.000432, idleVolume: 0.00001, source: "physics" });
+    assert.deepEqual([s.fuel, s.fuelIdle, s.fuelSource], [0.000432, 0.00001, "physics"]);
+    assert.deepEqual([s.bike, s.bikeTag, s.source], ["Hunter 350", "bike:royal-enfield-hunter-350-metro-in", "smartdrive"]);
+    assert.deepEqual(s.route, [], "no route unless the app passed the simplified one");
     const text = JSON.stringify(s);
-    for (const k of ["lat", "lng", "lon", "route", "points", "name", "city", "odometer"]) assert.ok(!text.includes(`"${k}`), `no ${k}`);
+    for (const k of ["lat", "lng", "lon", "points", "odometer", "contributor", "token"]) assert.ok(!text.includes(`"${k}`), `no ${k}`);
+    const withRoute = R.finish(a, { endedAt: 1_100_000, route: [[20, 85], [20.001, 85.001]], place: "Koraput" });
+    assert.deepEqual([withRoute.route.length, withRoute.place], [2, "Koraput"]);
 });
 
 // ---------------------------------------------------------------------------- the log
@@ -189,10 +195,10 @@ test("a ride end to end: summary stored on the phone; Clear my history wipes it,
     const s = saved[0];
     assert.ok(Math.abs(s.distance - 60 * (kmh(50) + kmh(70))) < 25, `${s.distance}`);
     assert.deepEqual(s.fillups.map((f) => f.volume), [0.0062]);
-    assert.equal(s.fuel.source, "generic");
-    assert.ok(s.fuel.volume > 0);
+    assert.equal(s.fuelSource, "generic");
+    assert.ok(s.fuel > 0);
     assert.equal(sd.run("SmartDrive.trip.rideSum"), null);
-    assert.ok(events.some((e) => e.type === "mu:ride-summary" && e.detail.id === s.id));
+    assert.ok(events.some((e) => e.type === "mu:ride-saved" && e.detail.id === s.id), "mu:ride-saved (mu:ride-summary is the HUD's)");
     assert.equal(sd.run("MURides.app.summaries().length"), 1);
 
     const r = await sd.run("MURides.app.clearAll()");

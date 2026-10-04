@@ -54,6 +54,10 @@
     }
 
     let gate = null, last = null, lastPos = null, quiet = readQuiet();
+    /** Road conditions from the weather tracker (js/advice/advice-ui.js): { wet: boolean|null, at } — preferred to the bare weather code */
+    let road = { wet: /** @type {boolean|null} */ (null), at: 0 };
+    /** Per ride: economy advice the gate held back, by reason ({ reason: count }), counted at most once a minute per reason */
+    let held = /** @type {Record<string, number>} */ ({}), heldAt = /** @type {Record<string, number>} */ ({});
     let gyro = { rate: null, at: 0, listening: false, handler: /** @type {any} */ (null) };
 
     function readQuiet() { try { return localStorage.getItem(QUIET_KEY) === "1"; } catch { return false; } }
@@ -120,7 +124,8 @@
             const rc = C.routeCurvature(nav.routePath, pos.lat, pos.lng, Math.max(C.GATE.lookaheadMin, C.GATE.lookaheadTime * v));
             curvatureHere = rc.curvatureHere; radiusAhead = rc.radiusAhead;
         }
-        const wet = G.weatherCode !== null && Date.now() - G.weatherAt < WEATHER_MAX_AGE ? C.isWetWeather(G.weatherCode) : null;
+        const wet = road.wet !== null && Date.now() - road.at < WEATHER_MAX_AGE ? road.wet
+            : G.weatherCode !== null && Date.now() - G.weatherAt < WEATHER_MAX_AGE ? C.isWetWeather(G.weatherCode) : null;
         const gyroRate = gyro.rate !== null && Date.now() - gyro.at < 2000 ? gyro.rate : null;
         last = C.evaluateGate(gate, {
             t, v, gpsOk: !!fix.accepted, accuracy: Number.isFinite(fix.accuracyM) ? fix.accuracyM : null,
@@ -128,29 +133,71 @@
             maneuverDistance: nav && nav.active ? nav.nextManeuverM : null, quiet, riding
         });
         if (last.canAdvise) maybeAdvise(C, G, t, v);
+        else if (riding && (last.state === "hold" || last.state === "quiet" || last.state === "cooldown") && candidate(C, G, v)) {
+            for (const r of last.reasons) if (!heldAt[r] || t - heldAt[r] >= 60) { held[r] = (held[r] || 0) + 1; heldAt[r] = t; }
+        }
         return last;
+    }
+
+    /** The advice there would be right now, or null (no bike, nothing worth saying). */
+    function candidate(/** @type {any} */ C, /** @type {any} */ G, /** @type {number} */ v) {
+        const BF = G.BikeFuel;
+        if (!BF || !BF.active() || !BF.snap || !BF.snap.eco) return null;
+        const FC = G.FuelCurve;
+        const kmPerLAt = (/** @type {number} */ kmh) => { const own = FC && typeof FC.kmPerL === "function" ? FC.kmPerL(kmh) : null; return own !== null && own !== undefined ? own : BF.kmPerL(kmh); };
+        const SL = G.SpeedLimits;
+        return C.ecoAdvice({ v, limit: SL && SL.known() ? SL.current.limit / 3.6 : null, kmPerLAt, eco: BF.snap.eco });
     }
 
     /** Economy advice, if the bike's physics has something worth saying. */
     function maybeAdvise(/** @type {any} */ C, /** @type {any} */ G, /** @type {number} */ t, /** @type {number} */ v) {
-        const BF = G.BikeFuel;
-        if (!BF || !BF.active() || !BF.snap || !BF.snap.eco || !G.voiceAnnounce) return;
-        const FC = G.FuelCurve;
-        const kmPerLAt = (/** @type {number} */ kmh) => {
-            const own = FC && typeof FC.kmPerL === "function" ? FC.kmPerL(kmh) : null;       // the learner's curve when it's in use
-            return own !== null && own !== undefined ? own : BF.kmPerL(kmh);
-        };
-        const SL = G.SpeedLimits;
-        const limit = SL && SL.known() ? SL.current.limit / 3.6 : null;
-        const a = C.ecoAdvice({ v, limit, kmPerLAt, eco: BF.snap.eco });
+        if (!G.voiceAnnounce) return;
+        const a = candidate(C, G, v);
         if (!a || C.repeatedTooSoon(gate, t, a.key)) return;
         const spoken = G.voiceAnnounce(a.text, { priority: 30, category: "advice", drivingOnly: true, dropIfBusy: true, maxAgeMs: 3000, key: `advice-${a.key}`, cooldownMs: C.GATE.repeatCooldown * 1000 });
         if (spoken) C.noteAdvice(gate, t, a.key);
     }
 
     function reset() { gate = null; last = null; lastPos = null; listenGyro(false); }
-    document.addEventListener("mu:drive-state", (/** @type {any} */ e) => { if (!e.detail || !e.detail.driving) reset(); });
+    let wasDriving = false;
+    document.addEventListener("mu:drive-state", (/** @type {any} */ e) => {
+        const on = Boolean(e.detail && e.detail.driving);
+        if (on && !wasDriving) { held = {}; heldAt = {}; }               // a new ride: new "held back" counts
+        if (!on) reset();
+        wasDriving = on;
+    });
+
+    /**
+     * Road conditions from the weather tracker (js/advice/conditions.js): a wet, drying, heavy-rain,
+     * storm or ice condition holds advice like rain does; dry releases it; unknown falls back to the
+     * weather code core.js fetches.
+     * @param {{ kind: string } | null} cond
+     */
+    function setRoadCondition(cond) {
+        const k = cond && cond.kind;
+        road = { wet: !k || k === "unknown" ? null : ["wet", "drying", "heavy", "storm", "ice"].includes(k), at: Date.now() };
+    }
+    const HELD_WORDS = /** @type {Record<string, string>} */ ({
+        "quiet-ride": "quiet ride", cornering: "in a corner", "curve-ahead": "a bend ahead", braking: "right after hard braking",
+        wet: "a wet road", unsteady: "speed not steady", maneuver: "a turn coming up", gps: "weak GPS", slow: "slow traffic", cooldown: "too soon after another tip"
+    });
+    /** The held-back counts in words, for settings. */
+    function heldSummary() {
+        const parts = Object.entries(held).filter(([k, n]) => n > 0 && k in HELD_WORDS).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${n} (${HELD_WORDS[k]})`);
+        if (!parts.length) return "";
+        const total = Object.entries(held).filter(([k]) => k in HELD_WORDS).reduce((a, [, n]) => a + n, 0);
+        return `This ride: ${total} tip${total === 1 ? "" : "s"} held back: ${parts.join(", ")}.`;
+    }
+    /** What the gate is doing, in words (the badge and settings). */
+    function mode() {
+        if (quiet) return { key: "quiet", label: "Quiet ride", detail: "No riding tips. Directions, speed alerts and safety warnings are spoken as usual." };
+        const r = last && last.state === "hold" ? last.reasons : [];
+        if (r.includes("wet")) return { key: "storm", label: "Wet road", detail: "Tips are held back so you can watch the road. Warnings still come through." };
+        if (r.includes("gps")) return { key: "degraded", label: "GPS is weak", detail: "Tips pause until the signal is trusted again. Speed and safety alerts are unaffected." };
+        if (r.some((x) => ["cornering", "curve-ahead", "braking", "maneuver"].includes(x))) return { key: "busy", label: "Holding tips", detail: "In a corner, near a turn, or right after hard braking, tips wait." };
+        return { key: "open", label: "All advice on", detail: "Tips only on a steady road, at most every 3 minutes, never above the speed limit. Safety alerts always come through." };
+    }
 
     W.MUAdvice = W.MUAdvice || {};
-    W.MUAdvice.app = { onTick, setQuiet, get quiet() { return quiet; }, status: () => last, reset };
+    W.MUAdvice.app = { onTick, setQuiet, setRoadCondition, heldSummary, mode, get quiet() { return quiet; }, get held() { return { ...held }; }, status: () => last, reset };
 })(typeof globalThis !== "undefined" ? globalThis : this);
