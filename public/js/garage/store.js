@@ -94,7 +94,7 @@
             const t = ctl ? setTimeout(() => ctl.abort(), ms) : null;
             try {
                 const res = await doFetch(url, { cache: "no-cache", signal: ctl ? ctl.signal : undefined, headers: { Accept: "application/json" } });
-                if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
+                if (!res.ok) throw Object.assign(new Error(`${url}: HTTP ${res.status}`), { status: res.status });
                 return await res.text();
             } finally { if (t) clearTimeout(t); }
         }
@@ -116,8 +116,14 @@
             } catch (e) { networkError = e; }
             const cached = await cacheGet(catalogUrl).catch(() => null);
             if (cached) return { index: new search.CatalogIndex(JSON.parse(cached)), source: /** @type {"cache"} */ ("cache") };
-            const err = new Error("The bike list isn't on this phone yet. Connect to the internet once to download it.");
+            // the server answered, but without the list (e.g. 404: catalog.json was never built there) —
+            // not the rider's connection, so don't send them looking for one
+            const status = networkError && /** @type {any} */ (networkError).status;
+            const err = new Error(status
+                ? `The bike list isn't available from the server right now (HTTP ${status}). Try again in a few minutes.`
+                : "The bike list isn't on this phone yet. Connect to the internet once to download it.");
             /** @type {any} */ (err).cause = networkError;
+            if (status && typeof console !== "undefined") console.warn(`[garage] ${catalogUrl}: HTTP ${status} — on the server, run npm run bikes:build (it writes public/bikedb/catalog.json)`);
             throw err;
         }
 

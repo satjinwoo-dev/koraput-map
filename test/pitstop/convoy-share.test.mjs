@@ -13,8 +13,8 @@ import { art, drivers, tmpDir, buildDb, raw, ROOT } from "../server/helpers.mjs"
 const require = createRequire(import.meta.url);
 const io = require("../../node_modules/socket.io/client-dist/socket.io.js");     // the browser client the server ships
 
-const better = drivers.find((d) => d.name === "better-sqlite3");
-const opts = better ? {} : { skip: "server.js needs better-sqlite3's native addon (npm rebuild better-sqlite3)" };
+const sqlite = drivers[0];                     // whichever SQLite this machine has; server.js picks the same (lib/server-db.js)
+const opts = sqlite ? {} : { skip: "no SQLite driver here: Node 22.13+ (node:sqlite) or better-sqlite3's native addon" };
 const HUNTER = "royal-enfield-hunter-350-metro-in";
 const hunter = art.bundles.find((b) => b.id === HUNTER);
 const freePort = () => new Promise((resolve) => { const s = net.createServer(); s.listen(0, "127.0.0.1", () => { const { port } = s.address(); s.close(() => resolve(port)); }); });
@@ -22,9 +22,9 @@ const freePort = () => new Promise((resolve) => { const s = net.createServer(); 
 let dir, child, base, log = "";
 const sockets = [];
 before(async () => {
-    if (!better) return;
+    if (!sqlite) return;
     dir = tmpDir("convoy");
-    const bikes = buildDb(dir, better);
+    const bikes = buildDb(dir, sqlite);
     const port = await freePort();
     child = spawn(process.execPath, ["server.js"], {
         cwd: ROOT,

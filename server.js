@@ -12,7 +12,7 @@
        and every process applies the same ops in the same order
        (lib/cluster.js), so any number of processes share one live state.
        Inside applyOp() a process only emits to ITS OWN sockets.
-     - SQLite (better-sqlite3) sits beside it: users, trips + breadcrumbs,
+     - SQLite (better-sqlite3, else node:sqlite) sits beside it: users, trips + breadcrumbs,
        memories, geofences, chat history, circles. Files (memory photos,
        chat attachments) live on disk in MEDIA_DIR, not in the database
        (lib/media.js).
@@ -88,7 +88,7 @@ const crypto = require("crypto");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const { Server } = require("socket.io");
-const Database = require("better-sqlite3");
+const { openServerDatabase } = require("./lib/server-db");
 const { createBus, attachSocketIoAdapter } = require("./lib/cluster");
 const { MediaStore } = require("./lib/media");
 const { createBikeApi } = require("./lib/bikedb/http-api");
@@ -465,10 +465,11 @@ app.get("/api/places/details", placesLimiter, async (req, res) => {
 });
 
 // ==========================================================================
-// 3. PERSISTENCE — better-sqlite3
+// 3. PERSISTENCE — SQLite: better-sqlite3, or Node's built-in node:sqlite where
+//    better-sqlite3's native addon isn't installed (lib/server-db.js)
 // ==========================================================================
 fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
-const db = new Database(DB_PATH);
+const { driver: DB_DRIVER, db } = openServerDatabase(DB_PATH);
 db.pragma("journal_mode = WAL");
 db.pragma("synchronous = NORMAL");
 // Several processes may share this file in cluster mode: wait for a lock
@@ -3307,7 +3308,7 @@ process.on("SIGINT", () => shutdown(0));
 function listen() {
     server.listen(PORT, "0.0.0.0", () => {
         console.log(`🚀 MapUnite Server running on http://localhost:${PORT}`);
-        console.log(`   DB: ${DB_PATH}`);
+        console.log(`   DB: ${DB_PATH} (${DB_DRIVER})`);
         const bikes = bikeApi.status();
         console.log(`   Bikes: ${bikes.available ? `catalogue ${bikes.catalogVersion}, ${bikes.variants} variants` : `unavailable (${bikes.message || bikes.reason}) — /api/bikes answers 503 until it's built`}`);
         console.log(`   Media: ${MEDIA_DIR}`);

@@ -8,8 +8,8 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { art, drivers, tmpDir, buildDb, raw, bundleFile, ROOT } from "./helpers.mjs";
 
-const better = drivers.find((d) => d.name === "better-sqlite3");
-const opts = better ? {} : { skip: "server.js needs better-sqlite3's native addon (npm rebuild better-sqlite3)" };
+const sqlite = drivers[0];                     // whichever SQLite this machine has; server.js picks the same (lib/server-db.js)
+const opts = sqlite ? {} : { skip: "no SQLite driver here: Node 22.13+ (node:sqlite) or better-sqlite3's native addon" };
 const HUNTER = "royal-enfield-hunter-350-metro-in";
 const hunterHash = art.bundles.find((b) => b.id === HUNTER).hash;
 
@@ -17,9 +17,9 @@ const freePort = () => new Promise((resolve) => { const s = net.createServer(); 
 
 let dir, child, base, log = "";
 before(async () => {
-    if (!better) return;
+    if (!sqlite) return;
     dir = tmpDir("server");
-    const bikes = buildDb(dir, better);
+    const bikes = buildDb(dir, sqlite);
     const port = await freePort();
     child = spawn(process.execPath, ["server.js"], {
         cwd: ROOT,
@@ -88,7 +88,7 @@ test("server.js: a request for a missing bike lands in the server's database, ke
     child.kill("SIGTERM");
     const code = await new Promise((res) => child.once("exit", res));
     assert.equal(code, 0, `clean shutdown\n${log}`);
-    const db = better.open(path.join(dir, "mapunite.db"), { readonly: true });
+    const db = sqlite.open(path.join(dir, "mapunite.db"), { readonly: true });
     const rows = db.prepare("SELECT make, model, requesters FROM bike_request").all();
     const votes = db.prepare("SELECT requester, year FROM bike_request_vote").all();
     db.close();

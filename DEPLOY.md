@@ -2,6 +2,22 @@
 
 Batch 2 covers privacy, architecture and the backend: trip-only sharing, friend circles, "you were here before", the OSM credit, chat history, photos on disk, the split frontend, and multi-process scaling over Redis.
 
+## 0. Running it locally (quick start)
+
+You need **Node 22.13 or newer** and nothing else: no Python, no C++ build tools.
+
+```bash
+npm install     # better-sqlite3 is optional: if it can't be downloaded or compiled here, npm skips it
+npm start       # builds the bike catalogue from data/bikes/, then starts server.js on http://localhost:3000
+```
+
+- **`npm start`** runs `npm run bikes:build` first. That build writes `public/bikedb/catalog.json`, the bundles and `build/bikedb/bikes.sqlite`, which are gitignored and so missing from a fresh clone. It then runs `node server.js`.
+- **The startup log names the SQLite driver**: `DB: … (node:sqlite)` and `[bikes] catalogue … (node:sqlite)`.
+  - `better-sqlite3` is used when its native addon is installed. Otherwise both the catalogue and the server's own database use Node's built-in `node:sqlite`. They're the same file format, so you can switch either way without losing data.
+  - `BIKEDB_SQLITE_DRIVER=node:sqlite` (or `better-sqlite3`) forces one.
+- **If you installed with `npm install --ignore-scripts`:** that's fine too. `better-sqlite3` is then present but has no addon, and the server falls back to `node:sqlite` the same way.
+- **Seeing "The bike list isn't on this phone yet"** means the browser couldn't fetch `/bikedb/catalog.json` and has no copy saved. Usually the server wasn't running, and the page came from the service worker's cache. If the server is up but has no catalogue, the app now says so ("isn't available from the server right now (HTTP 404)"), and the browser console names the fix: `npm run bikes:build`. Reload the page once the server is running.
+
 ## 1. What's in this delivery
 
 ```
@@ -88,7 +104,7 @@ The bike catalogue is built from `data/bikes/` and isn't committed, so run the b
 node scripts/build-bike-catalog.mjs        # writes public/bikedb/ and build/bikedb/bikes.sqlite
 ```
 
-It uses `better-sqlite3`, which the server already depends on, or Node 22.5+'s built-in `node:sqlite`. It refuses to write anything if a bike file doesn't validate. `node scripts/build-native.mjs` rebuilds `public/bikedb/` by itself before packaging the Android app. See `data/bikes/README.md` for details.
+It uses `better-sqlite3` when its native addon is installed (an optional dependency), else Node 22.13+'s built-in `node:sqlite`. The server's own database (`DB_PATH`) makes the same choice (`lib/server-db.js`). It refuses to write anything if a bike file doesn't validate. `node scripts/build-native.mjs` rebuilds `public/bikedb/` by itself before packaging the Android app. See `data/bikes/README.md` for details.
 
 The running server picks up a rebuilt `bikes.sqlite` by itself within 5 seconds: no restart needed on Linux or macOS. On Windows, stop the server first, because a running process holding `bikes.sqlite` open blocks the replacement. If the file is missing or from an incompatible build, the server still starts. `/api/bikes/search` and `/api/bikes/bundles/…` then answer 503 until a valid build appears, and `/healthz` shows `"bikes": { "available": false }`. Set `BIKES_DB_PATH` if the file lives somewhere other than `build/bikedb/bikes.sqlite`.
 
