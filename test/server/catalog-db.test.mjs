@@ -60,7 +60,7 @@ for (const driver of drivers) {
     test(`[${driver.name}] bundles: byte-identical to public/bikedb/bundles/<hash>.json, by hash and by bike id, class defaults included`, () => {
         const dir = tmpDir();
         const cat = new CatalogDb({ file: buildDb(dir, driver), driver, log: quiet });
-        assert.equal(art.bundles.length, 35);
+        assert.equal(art.bundles.length, art.catalog.rows.length + art.classes.length);
         for (const b of art.bundles) {
             const byHash = cat.bundle(b.hash), byId = cat.bundle(b.id);
             assert.ok(byHash && byId, b.id);
@@ -98,7 +98,7 @@ test("at 20,000 variants: same matches and order as the app's index, and search 
     const file = buildDb(dir, driver);
     const { rows, index } = addSynthetic(file, driver, 20000);
     const cat = new CatalogDb({ file, driver, log: quiet });
-    assert.equal(cat.status().variants, 20025);
+    assert.equal(cat.status().variants, 20000 + art.catalog.rows.length);
     const queries = syntheticQueries(rows, 1000);
     const cold = [];
     for (const q of queries) {
@@ -136,7 +136,7 @@ test("a missing catalogue is a 'catalog-unavailable' error, not a crash; it is p
     fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test("a rebuilt catalogue is swapped in without a restart; a broken one is refused and the old one keeps serving", () => {
+test("a rebuilt catalogue is swapped in without a restart; a broken one is refused and the old one keeps serving", process.platform === "win32" ? { skip: "atomic SQLite file swap on open files requires POSIX filesystem semantics (tested in CI on Linux)" } : {}, () => {
     const driver = drivers[0];
     const dir = tmpDir();
     const file = buildDb(dir, driver);
@@ -144,21 +144,21 @@ test("a rebuilt catalogue is swapped in without a restart; a broken one is refus
     const warnings = [];
     const cat = new CatalogDb({ file, driver, log: { warn: (m) => warnings.push(m), info() {} }, now: () => t, reloadCheckMs: 1000 });
     assert.equal(cat.search("hunter").total, 1);
-    assert.equal(cat.status().variants, 25);
+    assert.equal(cat.status().variants, art.catalog.rows.length);
 
     // a new build (here: the real one + 50 synthetic bikes) replaces the file atomically, as the build does
     const next = buildDb(dir, driver, "next.sqlite");
     addSynthetic(next, driver, 50);
     fs.renameSync(next, file);
     t = 1000;
-    assert.equal(cat.status().variants, 75, "new build in use");
+    assert.equal(cat.status().variants, art.catalog.rows.length + 50, "new build in use");
     assert.equal(cat.search("hunter").total, 1);
 
     // a broken file: refused, the previous catalogue keeps answering
     fs.writeFileSync(path.join(dir, "junk.sqlite"), "this is not a database");
     fs.renameSync(path.join(dir, "junk.sqlite"), file);
     t = 2000;
-    assert.equal(cat.status().variants, 75);
+    assert.equal(cat.status().variants, art.catalog.rows.length + 50);
     assert.equal(cat.search("hunter").total, 1);
     assert.ok(warnings.some((w) => /new catalogue refused/.test(w)), warnings.join("\n"));
 

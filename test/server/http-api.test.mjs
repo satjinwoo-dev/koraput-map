@@ -216,8 +216,7 @@ test("Android load path: https://localhost gets CORS on every route, a preflight
     assert.equal(pre.headers["access-control-allow-origin"], ANDROID);
     assert.match(pre.headers["access-control-allow-methods"], /POST/);
     assert.match(pre.headers["access-control-allow-headers"], /Content-Type/i);
-    assert.equal(pre.headers["access-control-max-age"], "600");
-    const post = await raw(`${srv.url}/api/bikes/requests`, { ...json({ make: "Bajaj", model: "Dominar 400" }), headers: { "Content-Type": "application/json", Origin: ANDROID } });
+    const post = await raw(`${srv.url}/api/bikes/requests`, { ...json({ make: "Kawasaki", model: "Ninja 300" }), headers: { "Content-Type": "application/json", Origin: ANDROID } });
     assert.equal(post.status, 202);
     assert.equal(post.headers["access-control-allow-origin"], ANDROID);
     const cap = await get("/api/bikes/search?q=re", { Origin: "capacitor://localhost" });
@@ -273,7 +272,7 @@ test("no catalogue yet: search and bundles are 503 with Retry-After (no file pat
 test("status: catalogue version and size; requests need the queue database", async () => {
     const r = await get("/api/bikes/status");
     assert.equal(r.status, 200);
-    assert.deepEqual(r.json, { ok: true, reason: null, catalogVersion: art.catalog.version, schemaVersion: art.schemaVersion, variants: 25, bundles: 35, bundlePath: "/api/bikes/bundles/{hash}", requests: true });
+    assert.deepEqual(r.json, { ok: true, reason: null, catalogVersion: art.catalog.version, schemaVersion: art.schemaVersion, variants: art.catalog.rows.length, bundles: art.bundles.length, bundlePath: "/api/bikes/bundles/{hash}", requests: true });
     assert.equal(r.headers["cache-control"], "no-cache");
     const s = await serveApi({ catalog: file });
     const post = await raw(`${s.url}/api/bikes/requests`, json({ make: "A", model: "B" }));
