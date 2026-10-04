@@ -1,0 +1,95 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "honda-hness-cb350-dlx-in",
+  "kind": "variant",
+  "classKey": "ice_manual.cruiser",
+  "segment": "cruiser",
+  "powertrain": "ice_manual",
+  "identity": { "make": "Honda", "model": "H'ness CB350", "variant": "DLX / DLX Pro (2025, OBD2B)", "market": "IN", "yearFrom": 2025, "yearTo": null, "aliases": ["Hness", "Highness", "CB350", "Hness CB350", "Honda CB350"] },
+  "sources": [
+    {
+      "id": "honda-hness-site",
+      "kind": "manufacturer",
+      "title": "H'ness CB350",
+      "url": "https://www.honda2wheelersindia.com/motorcycle/cb350-hness",
+      "publisher": "Honda Motorcycle & Scooter India",
+      "retrieved": "2026-10-03"
+    },
+    {
+      "id": "iamabiker-cb350-2025",
+      "kind": "press",
+      "title": "Honda launches 2025 CB350 series (reproduces Honda's press release)",
+      "url": "https://iamabiker.com/avin/2025/honda-launches-2025-cb350-series-featuring-new-colours/",
+      "publisher": "iamabiker",
+      "retrieved": "2026-10-03"
+    },
+    {
+      "id": "autocar-hness",
+      "kind": "aggregator",
+      "title": "Honda H'ness CB350 specifications",
+      "url": "https://www.autocarindia.com/bikes/honda-bikes/hness-cb350/specifications",
+      "publisher": "Autocar India",
+      "retrieved": "2026-10-03"
+    },
+    {
+      "id": "bikedekho-hness",
+      "kind": "aggregator",
+      "title": "Honda H'ness CB350 specifications",
+      "url": "https://www.bikedekho.com/honda/hness-cb350/specifications",
+      "publisher": "BikeDekho",
+      "retrieved": "2026-10-03"
+    },
+    {
+      "id": "zigwheels-hness",
+      "kind": "aggregator",
+      "title": "Honda H'ness CB350 specifications",
+      "url": "https://www.zigwheels.com/newbikes/Honda/hness-cb350/specifications",
+      "publisher": "ZigWheels",
+      "retrieved": "2026-10-03"
+    },
+    {
+      "id": "lower-blend-rule",
+      "kind": "derived",
+      "title": "Lower-ethanol blends of a certified fuel",
+      "retrieved": "2026-10-03",
+      "note": "A vehicle certified for a higher-ethanol petrol (e.g. E20) is materials-compatible with lower-ethanol petrol (E10, E0). Listed as compatible, never as certified."
+    }
+  ],
+  "engine": {
+    "displacement": { "v": 348.36, "u": "cm3", "src": "honda-hness-site", "conf": 0.9, "note": "\"348.36 cc\"" },
+    "cylinders": { "v": 1, "u": "1", "src": "iamabiker-cb350-2025", "conf": 0.6, "note": "\"348.36cc, air-cooled, 4-stroke, single-cylinder engine\"" },
+    "strokes": { "v": 4, "u": "1", "src": "iamabiker-cb350-2025", "conf": 0.6 },
+    "bore": { "v": 70, "u": "mm", "src": "autocar-hness", "conf": 0.45, "note": "Bore × stroke reproduce 348.3 cm³ — consistent with Honda's 348.36 cc" },
+    "stroke": { "v": 90.5, "u": "mm", "src": "autocar-hness", "conf": 0.45 },
+    "compressionRatio": { "v": 9.5, "u": "1", "src": "bikedekho-hness", "conf": 0.45 },
+    "cooling": { "v": "air", "src": "iamabiker-cb350-2025", "conf": 0.6 },
+    "fuelSystem": { "v": "fi", "src": "bikedekho-hness", "conf": 0.45 },
+    "peakPower": { "v": 15.5, "u": "kW", "src": "iamabiker-cb350-2025", "conf": 0.6, "note": "\"15.5 kW at 5,500 RPM\" — appears to reproduce Honda's release; not confirmed on a Honda domain" },
+    "peakPowerRpm": { "v": 5500, "u": "rpm", "src": "iamabiker-cb350-2025", "conf": 0.6 },
+    "peakTorque": { "v": 30, "u": "N*m", "src": "honda-hness-site", "conf": 0.9, "note": "\"30 Nm @ 3000 rpm\"" },
+    "peakTorqueRpm": { "v": 3000, "u": "rpm", "src": "honda-hness-site", "conf": 0.9 }
+  },
+  "transmission": {
+    "kind": { "v": "manual", "src": "iamabiker-cb350-2025", "conf": 0.6, "note": "\"5-speed gearbox\"" },
+    "speeds": { "v": 5, "u": "1", "src": "iamabiker-cb350-2025", "conf": 0.6 }
+  },
+  "chassis": {
+    "mass": { "v": 181, "u": "kg", "src": "bikedekho-hness", "conf": 0.45, "basis": "kerb", "note": "\"Kerb Weight: 181 kg\"" },
+    "fuelTank": { "v": 15, "u": "L", "src": "autocar-hness", "conf": 0.45, "note": "\"15 L (with 2 L reserve)\"" },
+    "frontTyre": { "v": "100/90-19", "src": "zigwheels-hness", "conf": 0.45 },
+    "rearTyre": { "v": "130/70-18", "src": "zigwheels-hness", "conf": 0.45 }
+  },
+  "emission": {
+    "standard": { "v": "BS6-P2", "src": "honda-hness-site", "conf": 0.9, "note": "\"2025-ready OBD-2B standards\"" },
+    "obd": { "v": "OBD-2B", "src": "honda-hness-site", "conf": 0.9 }
+  },
+  "fuel": {
+    "compat": [
+      { "fuel": "E20", "status": "certified", "src": "honda-hness-site", "conf": 0.9, "note": "\"E20 Compliant\"" },
+      { "fuel": "E10", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 },
+      { "fuel": "E0", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 }
+    ]
+  },
+  "notes": ["Honda's spec table and owner's manual couldn't be read (form-gated); idle speed and gear ratios aren't sourced. Do NOT substitute the Japanese GB350's ratios — its final drive may differ.", "Autocar India marked the model discontinued in Sep 2026 (unverified) — yearTo stays open until confirmed."]
+}

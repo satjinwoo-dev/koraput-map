@@ -4,7 +4,23 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --disable-warning=ExperimentalWarning --test \"test/bikedb/*.test.mjs\" \"test/physics/*.test.mjs\" \"test/server/*.test.mjs\" \"test/garage/*.test.mjs\" \"test/smartdrive/*.test.mjs\" \"test/sw/*.test.mjs\" \"test/trip/*.test.mjs\" \"test/fleet/*.test.mjs\" \"test/insights/*.test.mjs\" \"test/pitstop/*.test.mjs\" \"test/advice/*.test.mjs\" \"test/rides/*.test.mjs\" \"test/gradient/*.test.mjs\" \"test/hud/*.test.mjs\" \"test/share/*.test.mjs\" \"test/curator/*.test.mjs\"",
+    "bikes:validate": "node scripts/bikedb/validate.mjs",
+    "bikes:format": "node scripts/bikedb/format.mjs",
+    "bikes:schema": "node scripts/bikedb/gen-schema.mjs",
+    "bikes:build": "node --disable-warning=ExperimentalWarning scripts/build-bike-catalog.mjs",
+    "bikes:bench": "node --disable-warning=ExperimentalWarning scripts/bikedb/bench-search.mjs",
+    "bikes:typecheck": "tsc -p tsconfig.bikedb.json",
+    "bikes:calibrate": "node --disable-warning=ExperimentalWarning scripts/bikedb/calibrate.mjs",
+    "bikes:requests": "node --disable-warning=ExperimentalWarning scripts/bikedb/requests.mjs",
+    "physics:typecheck": "tsc -p tsconfig.physics.json",
+    "garage:typecheck": "tsc -p tsconfig.garage.json",
+    "trip:typecheck": "tsc -p tsconfig.trip.json",
+    "step8:typecheck": "tsc -p tsconfig.step8.json",
+    "ride:typecheck": "tsc -p tsconfig.ride.json",
+    "ui:typecheck": "tsc -p tsconfig.ui.json",
+    "physics:mutation": "node scripts/physics/mutation-check.mjs",
+    "physics:table": "node scripts/physics/cruise-table.mjs"
   },
   "keywords": [],
   "author": "",
@@ -16,5 +32,9 @@
     "helmet": "^7.1.0",
     "socket.io": "^4.8.0",
     "better-sqlite3": "^11.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^5.9.3"
   }
 }

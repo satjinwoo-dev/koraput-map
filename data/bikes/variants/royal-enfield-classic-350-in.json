@@ -1,0 +1,108 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "royal-enfield-classic-350-in",
+  "kind": "variant",
+  "classKey": "ice_manual.cruiser",
+  "segment": "cruiser",
+  "powertrain": "ice_manual",
+  "identity": {
+    "make": "Royal Enfield",
+    "model": "Classic 350",
+    "variant": "Dual-channel ABS, alloy wheels (2026 update)",
+    "market": "IN",
+    "yearFrom": 2021,
+    "yearTo": null,
+    "aliases": ["Classic", "RE Classic 350", "Royal Enfield Classic", "Classic 350 J-series"]
+  },
+  "sources": [
+    {
+      "id": "re-classic-site",
+      "kind": "manufacturer",
+      "title": "Classic 350 specifications",
+      "url": "https://www.royalenfield.com/in/en/motorcycles/classic-350/",
+      "publisher": "Royal Enfield",
+      "retrieved": "2026-10-02"
+    },
+    {
+      "id": "re-classic-spec-pdf",
+      "kind": "manufacturer",
+      "title": "Classic 350 technical specifications (PDF)",
+      "url": "https://www.royalenfield.com/content/dam/re-platform-images/home/motorcycles/specifications/royal-enfield-classic-350-technical-specifications.pdf",
+      "publisher": "Royal Enfield",
+      "retrieved": "2026-10-02"
+    },
+    {
+      "id": "re-classic-om-2024",
+      "kind": "owners_manual",
+      "title": "Classic 350 owner's manual RAM00347/C (1 Aug 2024), third-party hosted copy",
+      "url": "https://in.rajuginni.com/gear/wp-content/uploads/sites/3/2024/11/royal-enfield-classic-350-owners-manual.pdf",
+      "publisher": "Royal Enfield",
+      "retrieved": "2026-10-02"
+    },
+    {
+      "id": "manualslib-re-classic",
+      "kind": "owners_manual",
+      "title": "Classic 350 owner's manual (ManualsLib copy)",
+      "url": "https://www.manualslib.com/manual/3586345/Royal-Enfield-Classic-350.html?page=17",
+      "publisher": "ManualsLib",
+      "retrieved": "2026-10-02"
+    },
+    {
+      "id": "lower-blend-rule",
+      "kind": "derived",
+      "title": "Lower-ethanol blends of a certified fuel",
+      "retrieved": "2026-10-02",
+      "note": "A vehicle certified for a higher-ethanol petrol (e.g. E20) is materials-compatible with lower-ethanol petrol (E10, E0). Listed as compatible, never as certified."
+    },
+    {
+      "id": "regulatory-inference",
+      "kind": "derived",
+      "title": "Emission stage implied by date of manufacture",
+      "retrieved": "2026-10-02",
+      "note": "Sold new after 2023-04-01 means BS6 phase 2; manufactured on or after 2025-04-01 means OBD-2B (data/bikes/reference/emission-standards.json). Used only where the manufacturer does not state the stage."
+    }
+  ],
+  "engine": {
+    "displacement": { "v": 349.34, "u": "cm3", "src": "re-classic-om-2024", "conf": 0.9 },
+    "cylinders": { "v": 1, "u": "1", "src": "re-classic-site", "conf": 0.95 },
+    "strokes": { "v": 4, "u": "1", "src": "re-classic-site", "conf": 0.95 },
+    "bore": { "v": 72, "u": "mm", "src": "re-classic-site", "conf": 0.95 },
+    "stroke": { "v": 85.8, "u": "mm", "src": "re-classic-site", "conf": 0.95 },
+    "compressionRatio": { "v": 9.5, "u": "1", "src": "re-classic-site", "conf": 0.95 },
+    "cooling": { "v": "air_oil", "src": "re-classic-site", "conf": 0.95 },
+    "fuelSystem": { "v": "fi", "src": "re-classic-site", "conf": 0.95 },
+    "peakPower": { "v": 14.87, "u": "kW", "src": "re-classic-site", "conf": 0.95, "note": "Published as '20.2 BHP (14.87 kW)'; 14.87 kW is 20.2 PS" },
+    "peakPowerRpm": { "v": 6100, "u": "rpm", "src": "re-classic-site", "conf": 0.95 },
+    "peakTorque": { "v": 27, "u": "N*m", "src": "re-classic-site", "conf": 0.95 },
+    "peakTorqueRpm": { "v": 4000, "u": "rpm", "src": "re-classic-site", "conf": 0.95 },
+    "idleRpm": { "v": 1050, "u": "rpm", "src": "re-classic-om-2024", "conf": 0.85, "tol": 100 }
+  },
+  "transmission": {
+    "kind": { "v": "manual", "src": "re-classic-site", "conf": 0.95 },
+    "speeds": { "v": 5, "u": "1", "src": "re-classic-site", "conf": 0.95 },
+    "primaryRatio": { "v": 2.313, "u": "1", "src": "manualslib-re-classic", "conf": 0.8 },
+    "gearRatios": { "v": [2.615, 1.706, 1.3, 1.04, 0.875], "u": "1", "src": "manualslib-re-classic", "conf": 0.8 },
+    "finalRatio": { "v": 2.8, "u": "1", "src": "manualslib-re-classic", "conf": 0.8, "note": "Secondary sprocket ratio 2.800:1, 104-link chain; tooth counts not published" },
+    "drive": { "v": "chain", "src": "manualslib-re-classic", "conf": 0.8 }
+  },
+  "chassis": {
+    "mass": { "v": 195, "u": "kg", "src": "re-classic-site", "conf": 0.95, "basis": "kerb", "note": "With 90 % fuel and oil" },
+    "fuelTank": { "v": 13, "u": "L", "src": "re-classic-om-2024", "conf": 0.9 },
+    "frontTyre": { "v": "100/90-19 57P", "src": "re-classic-spec-pdf", "conf": 0.95 },
+    "rearTyre": { "v": "120/80-18 62P", "src": "re-classic-spec-pdf", "conf": 0.95 }
+  },
+  "emission": {
+    "standard": { "v": "BS6-P2", "src": "regulatory-inference", "conf": 0.75, "note": "Manual: 'meets the BS VI emission norms'" },
+    "obd": { "v": "OBD-2B", "src": "regulatory-inference", "conf": 0.7 }
+  },
+  "fuel": {
+    "minRon": { "v": 91, "u": "RON", "src": "manualslib-re-classic", "conf": 0.8 },
+    "compat": [
+      { "fuel": "E20", "status": "certified", "src": "manualslib-re-classic", "conf": 0.85, "note": "\"Fuel type: Petrol, up to E20\"" },
+      { "fuel": "E10", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 },
+      { "fuel": "E0", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 }
+    ]
+  },
+  "notes": ["Grouped with cruisers: a retro roadster with an upright riding position and similar drag.", "Gear and reduction ratios from the Aug 2024 manual, before the July 2026 assist-and-slipper clutch update (no ratio change reported).", "Do NOT use royalenfield.com/.../Classic350_Owners_Manual_Domestic.pdf: it is the 2016 UCE engine (346 cc, different ratios)."]
+}

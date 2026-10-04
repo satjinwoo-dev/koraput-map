@@ -1,0 +1,53 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "revolt-rv400-std-in",
+  "kind": "variant",
+  "classKey": "ev.commuter",
+  "segment": "commuter",
+  "powertrain": "ev",
+  "identity": { "make": "Revolt", "model": "RV400", "variant": "Standard", "market": "IN", "yearFrom": 2019, "yearTo": null, "aliases": ["RV 400", "Revolt RV400", "Revolt"] },
+  "sources": [
+    {
+      "id": "revolt-compare",
+      "kind": "manufacturer",
+      "title": "RV400 vs RV BlazeX comparison",
+      "url": "https://www.revoltmotors.com/compare-bikes/rv400-vs-rv-blazex",
+      "publisher": "Revolt Motors",
+      "retrieved": "2026-10-02"
+    },
+    { "id": "revolt-blog-rv400", "kind": "manufacturer", "title": "RV400 vs RV1+ (Revolt blog)", "url": "https://www.revoltmotors.com/blog/rv400-vs-rv1-plus", "publisher": "Revolt Motors", "retrieved": "2026-10-02" },
+    {
+      "id": "motoroids-rv400-2019",
+      "kind": "press",
+      "title": "Revolt RV 400 review",
+      "url": "https://www.motoroids.com/reviews/revolt-rv-400-all-electric-motorcycle-review/",
+      "publisher": "Motoroids",
+      "retrieved": "2026-10-02"
+    },
+    { "id": "zigwheels-rv400", "kind": "aggregator", "title": "Revolt RV 400 specifications", "url": "https://www.zigwheels.com/revolt-bikes/rv-400/specifications/", "publisher": "ZigWheels", "retrieved": "2026-10-02" }
+  ],
+  "motor": {
+    "type": { "v": "pmsm", "src": "revolt-blog-rv400", "conf": 0.65 },
+    "mount": { "v": "mid_drive", "src": "revolt-blog-rv400", "conf": 0.65, "note": "Some aggregators say hub motor" },
+    "peakPower": { "v": 4.1, "u": "kW", "src": "revolt-compare", "conf": 0.8, "note": "'Peak Motor Rating'" },
+    "peakTorque": { "v": 45, "u": "N*m", "src": "revolt-blog-rv400", "conf": 0.6, "at": "motor", "note": "180 N·m at the wheel per the same source" }
+  },
+  "battery": {
+    "grossCapacity": { "v": 3.24, "u": "kWh", "src": "revolt-compare", "conf": 0.85 },
+    "nominalVoltage": { "v": 72, "u": "V", "src": "motoroids-rv400-2019", "conf": 0.45, "note": "2019 launch review; no current manufacturer figure" },
+    "chemistry": { "v": "NMC lithium-ion", "src": "revolt-blog-rv400", "conf": 0.65 },
+    "certifiedRange": { "v": 150, "u": "km", "src": "revolt-compare", "conf": 0.85, "cycle": "IDC", "note": "Eco mode" }
+  },
+  "transmission": {
+    "kind": { "v": "single_speed", "src": "revolt-blog-rv400", "conf": 0.65 },
+    "drive": { "v": "belt", "src": "revolt-blog-rv400", "conf": 0.65 }
+  },
+  "chassis": {
+    "mass": { "v": 115, "u": "kg", "src": "revolt-compare", "conf": 0.8, "basis": "kerb", "note": "Older listings say 108 kg" },
+    "frontTyre": { "v": "90/80-17", "src": "zigwheels-rv400", "conf": 0.65 },
+    "rearTyre": { "v": "110/80-17", "src": "zigwheels-rv400", "conf": 0.45, "note": "Some sources list 120/80-17" },
+    "topSpeed": { "v": 85, "u": "km/h", "src": "revolt-compare", "conf": 0.85 }
+  },
+  "notes": ["Several conflicts between sources (motor mount, power, torque, mass, rear tyre) — see field notes. Confidence lowered accordingly."]
+}

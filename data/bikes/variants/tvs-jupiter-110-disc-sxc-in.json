@@ -1,0 +1,91 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "tvs-jupiter-110-disc-sxc-in",
+  "kind": "variant",
+  "classKey": "ice_cvt.scooter",
+  "segment": "scooter",
+  "powertrain": "ice_cvt",
+  "identity": { "make": "TVS", "model": "Jupiter 110", "variant": "Disc SmartXonnect (2025, OBD-2B)", "market": "IN", "yearFrom": 2024, "yearTo": null, "aliases": ["Jupiter", "TVS Jupiter", "Jupiter 113"] },
+  "sources": [
+    { "id": "tvs-jupiter-site", "kind": "manufacturer", "title": "TVS Jupiter specifications", "url": "https://www.tvsmotor.com/tvs-jupiter", "publisher": "TVS Motor Company", "retrieved": "2026-10-02" },
+    {
+      "id": "tvs-jupiter-press-2024",
+      "kind": "manufacturer",
+      "title": "New era of commuting: TVS Jupiter 110 (press release)",
+      "url": "https://www.tvsmotor.com/media/press-release/new-era-commuting-tvs-jupiter-110-design-performance-comfort",
+      "publisher": "TVS Motor Company",
+      "retrieved": "2026-10-02"
+    },
+    {
+      "id": "manualslib-jupiter-110",
+      "kind": "owners_manual",
+      "title": "TVS Jupiter (113.3 cc generation) owner's manual, ManualsLib copy",
+      "url": "https://www.manualslib.com/manual/3568441/Tvs-Jupiter.html?page=117",
+      "publisher": "ManualsLib",
+      "retrieved": "2026-10-02"
+    },
+    {
+      "id": "rushlane-jupiter-obd2b",
+      "kind": "press",
+      "title": "2025 TVS Jupiter gets updated with OBD-2B compliance",
+      "url": "https://www.rushlane.com/2025-tvs-jupiter-gets-updated-with-obd-2b-compliance-12519150.html",
+      "publisher": "Rushlane",
+      "retrieved": "2026-10-02"
+    },
+    {
+      "id": "lower-blend-rule",
+      "kind": "derived",
+      "title": "Lower-ethanol blends of a certified fuel",
+      "retrieved": "2026-10-02",
+      "note": "A vehicle certified for a higher-ethanol petrol (e.g. E20) is materials-compatible with lower-ethanol petrol (E10, E0). Listed as compatible, never as certified."
+    }
+  ],
+  "engine": {
+    "displacement": { "v": 113.3, "u": "cm3", "src": "tvs-jupiter-site", "conf": 0.95 },
+    "cylinders": { "v": 1, "u": "1", "src": "tvs-jupiter-site", "conf": 0.95 },
+    "strokes": { "v": 4, "u": "1", "src": "tvs-jupiter-site", "conf": 0.95 },
+    "bore": { "v": 51, "u": "mm", "src": "manualslib-jupiter-110", "conf": 0.8 },
+    "stroke": { "v": 55.5, "u": "mm", "src": "manualslib-jupiter-110", "conf": 0.8 },
+    "compressionRatio": { "v": 10.5, "u": "1", "src": "manualslib-jupiter-110", "conf": 0.8 },
+    "cooling": { "v": "air", "src": "manualslib-jupiter-110", "conf": 0.85 },
+    "fuelSystem": { "v": "fi", "src": "manualslib-jupiter-110", "conf": 0.85 },
+    "peakPower": { "v": 5.9, "u": "kW", "src": "tvs-jupiter-site", "conf": 0.95 },
+    "peakPowerRpm": { "v": 6500, "u": "rpm", "src": "tvs-jupiter-site", "conf": 0.95 },
+    "peakTorque": { "v": 9.2, "u": "N*m", "src": "tvs-jupiter-press-2024", "conf": 0.9, "note": "Engine only; 9.8 N·m with iGO electric assist" },
+    "peakTorqueRpm": { "v": 5000, "u": "rpm", "src": "tvs-jupiter-press-2024", "conf": 0.9 },
+    "idleRpm": { "v": 1450, "u": "rpm", "src": "manualslib-jupiter-110", "conf": 0.8, "tol": 200 }
+  },
+  "transmission": {
+    "kind": { "v": "cvt", "src": "manualslib-jupiter-110", "conf": 0.85 },
+    "cvtRatioMax": { "v": 2.65, "u": "1", "src": "manualslib-jupiter-110", "conf": 0.8 },
+    "cvtRatioMin": { "v": 0.8, "u": "1", "src": "manualslib-jupiter-110", "conf": 0.8 },
+    "finalRatio": { "v": 9.08, "u": "1", "src": "manualslib-jupiter-110", "conf": 0.8 }
+  },
+  "chassis": {
+    "mass": { "v": 106, "u": "kg", "src": "tvs-jupiter-site", "conf": 0.85, "basis": "kerb", "note": "Drum variants 105 kg" },
+    "fuelTank": { "v": 5.1, "u": "L", "src": "tvs-jupiter-site", "conf": 0.9 },
+    "frontTyre": { "v": "90/90-12 54J", "src": "manualslib-jupiter-110", "conf": 0.9 },
+    "rearTyre": { "v": "90/90-12 54J", "src": "manualslib-jupiter-110", "conf": 0.9 },
+    "topSpeed": { "v": 82, "u": "km/h", "src": "manualslib-jupiter-110", "conf": 0.8 }
+  },
+  "emission": {
+    "standard": { "v": "BS6-P2", "src": "rushlane-jupiter-obd2b", "conf": 0.7 },
+    "obd": { "v": "OBD-2B", "src": "rushlane-jupiter-obd2b", "conf": 0.7 }
+  },
+  "fuel": {
+    "minRon": {
+      "v": 91,
+      "u": "RON",
+      "src": "manualslib-jupiter-110",
+      "conf": 0.45,
+      "note": "Conflict: an independent read (2026-10-03) of TVS's own manual text layer gave 'minimum RON 98' — implausible for this class, so probably an extraction error, but verify against the PDF. Confidence held at 0.45 until checked."
+    },
+    "compat": [
+      { "fuel": "E20", "status": "certified", "src": "manualslib-jupiter-110", "conf": 0.85, "note": "\"BS VI petrol with minimum RON 91 (containing upto 20% of ethanol by volume)\"" },
+      { "fuel": "E10", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 },
+      { "fuel": "E0", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 }
+    ]
+  },
+  "notes": ["The ManualsLib manual is untitled by model; identified as the new 113.3 cc generation from iGO assist, SmartXonnect and dimensions. It may predate the OBD-2B update."]
+}

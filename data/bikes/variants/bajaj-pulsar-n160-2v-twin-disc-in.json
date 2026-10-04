@@ -1,0 +1,71 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "bajaj-pulsar-n160-2v-twin-disc-in",
+  "kind": "variant",
+  "classKey": "ice_manual.naked",
+  "segment": "naked",
+  "powertrain": "ice_manual",
+  "identity": { "make": "Bajaj", "model": "Pulsar N160", "variant": "2-valve, Twin Disc USD, single seat", "market": "IN", "yearFrom": 2022, "yearTo": null, "aliases": ["N160", "Pulsar N 160", "Bajaj N160"] },
+  "sources": [
+    {
+      "id": "bajaj-n160-om-2025",
+      "kind": "owners_manual",
+      "title": "Pulsar N160 (single seat) owner's manual, Doc. 71120252 Rev. 00 (Oct 2025)",
+      "url": "https://cdn.bajajauto.com/-/media/assets/bajajauto/customer-service/owners-manual/owners-manual-pdf/owner-manual-pdf-2026/pulsar-n160_single-seat.pdf",
+      "publisher": "Bajaj Auto",
+      "retrieved": "2026-10-02"
+    },
+    {
+      "id": "lower-blend-rule",
+      "kind": "derived",
+      "title": "Lower-ethanol blends of a certified fuel",
+      "retrieved": "2026-10-02",
+      "note": "A vehicle certified for a higher-ethanol petrol (e.g. E20) is materials-compatible with lower-ethanol petrol (E10, E0). Listed as compatible, never as certified."
+    },
+    {
+      "id": "regulatory-inference",
+      "kind": "derived",
+      "title": "Emission stage implied by date of manufacture",
+      "retrieved": "2026-10-02",
+      "note": "Sold new after 2023-04-01 means BS6 phase 2; manufactured on or after 2025-04-01 means OBD-2B (data/bikes/reference/emission-standards.json). Used only where the manufacturer does not state the stage."
+    }
+  ],
+  "engine": {
+    "displacement": { "v": 164.82, "u": "cm3", "src": "bajaj-n160-om-2025", "conf": 0.95 },
+    "cylinders": { "v": 1, "u": "1", "src": "bajaj-n160-om-2025", "conf": 0.95 },
+    "strokes": { "v": 4, "u": "1", "src": "bajaj-n160-om-2025", "conf": 0.95 },
+    "bore": { "v": 58, "u": "mm", "src": "bajaj-n160-om-2025", "conf": 0.95 },
+    "stroke": { "v": 62.38, "u": "mm", "src": "bajaj-n160-om-2025", "conf": 0.95 },
+    "compressionRatio": { "v": 10.3, "u": "1", "src": "bajaj-n160-om-2025", "conf": 0.9, "tol": 0.3 },
+    "cooling": { "v": "air", "src": "bajaj-n160-om-2025", "conf": 0.75, "note": "Mar 2023 manual said oil cooled; Jul/Oct 2025 manuals and the 2026 site say air cooled" },
+    "fuelSystem": { "v": "fi", "src": "bajaj-n160-om-2025", "conf": 0.95 },
+    "peakPower": { "v": 11.77, "u": "kW", "src": "bajaj-n160-om-2025", "conf": 0.95, "note": "16 PS" },
+    "peakPowerRpm": { "v": 8750, "u": "rpm", "src": "bajaj-n160-om-2025", "conf": 0.95 },
+    "peakTorque": { "v": 14.65, "u": "N*m", "src": "bajaj-n160-om-2025", "conf": 0.9 },
+    "peakTorqueRpm": { "v": 6750, "u": "rpm", "src": "bajaj-n160-om-2025", "conf": 0.9, "note": "Site comparison table shows 6000 rpm; manuals and key specs say 6750" },
+    "idleRpm": { "v": 1400, "u": "rpm", "src": "bajaj-n160-om-2025", "conf": 0.85, "tol": 100 }
+  },
+  "transmission": {
+    "kind": { "v": "manual", "src": "bajaj-n160-om-2025", "conf": 0.95 },
+    "speeds": { "v": 5, "u": "1", "src": "bajaj-n160-om-2025", "conf": 0.95 }
+  },
+  "chassis": {
+    "mass": { "v": 148, "u": "kg", "src": "bajaj-n160-om-2025", "conf": 0.8, "basis": "kerb" },
+    "fuelTank": { "v": 14, "u": "L", "src": "bajaj-n160-om-2025", "conf": 0.95 },
+    "frontTyre": { "v": "100/80-17 52P", "src": "bajaj-n160-om-2025", "conf": 0.95 },
+    "rearTyre": { "v": "130/70-17 62P", "src": "bajaj-n160-om-2025", "conf": 0.95 }
+  },
+  "emission": {
+    "standard": { "v": "BS6-P2", "src": "regulatory-inference", "conf": 0.75, "note": "Manual: 'complies to BS VI standards'" },
+    "obd": { "v": "OBD-2B", "src": "regulatory-inference", "conf": 0.7 }
+  },
+  "fuel": {
+    "compat": [
+      { "fuel": "E20", "status": "certified", "src": "bajaj-n160-om-2025", "conf": 0.95, "note": "\"This vehicle is compatible for 'E20' Petrol i.e. Petrol blended with 20% Ethanol\"" },
+      { "fuel": "E10", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 },
+      { "fuel": "E0", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 }
+    ]
+  },
+  "notes": ["This record is the 2-valve 164.82 cc engine. From 2026 Bajaj also sells a 4-valve N160 S/SS (164.9 cc, 18.5 PS) — a different variant (https://www.bajajauto.com/bikes/pulsar/pulsar-n160).", "Gear ratios and primary/final reduction are not in any Bajaj owner's manual or on the site: gear advice stays off until sourced. (An aftermarket chain kit lists 15T/46T; not used.)", "No minimum octane stated."]
+}

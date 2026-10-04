@@ -1,0 +1,78 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "bajaj-pulsar-ns200-dual-abs-in",
+  "kind": "variant",
+  "classKey": "ice_manual.naked",
+  "segment": "naked",
+  "powertrain": "ice_manual",
+  "identity": { "make": "Bajaj", "model": "Pulsar NS200", "variant": "Dual-channel ABS", "market": "IN", "yearFrom": 2023, "yearTo": null, "aliases": ["NS200", "NS 200", "Pulsar NS 200", "Bajaj NS200"] },
+  "sources": [
+    {
+      "id": "bajaj-ns200-site",
+      "kind": "manufacturer",
+      "title": "Pulsar NS200 specifications",
+      "url": "https://www.bajajauto.com/bikes/pulsar/pulsar-ns200/specifications",
+      "publisher": "Bajaj Auto",
+      "retrieved": "2026-10-03"
+    },
+    {
+      "id": "bajaj-ns200-om-2025",
+      "kind": "owners_manual",
+      "title": "Pulsar NS200 single-channel ABS owner's manual, Doc. 71120236 REV. 01, Jul 2025",
+      "url": "https://cdn.bajajauto.com/-/media/assets/bajajauto/customer-service/owners-manual/owners-manual-pdf/om-for-website/pulsar_ns200_single-channel_om.pdf",
+      "publisher": "Bajaj Auto",
+      "retrieved": "2026-10-03"
+    },
+    {
+      "id": "lower-blend-rule",
+      "kind": "derived",
+      "title": "Lower-ethanol blends of a certified fuel",
+      "retrieved": "2026-10-03",
+      "note": "A vehicle certified for a higher-ethanol petrol (e.g. E20) is materials-compatible with lower-ethanol petrol (E10, E0). Listed as compatible, never as certified."
+    },
+    {
+      "id": "regulatory-inference",
+      "kind": "derived",
+      "title": "Emission stage implied by date of manufacture",
+      "retrieved": "2026-10-03",
+      "note": "Sold new after 2023-04-01 means BS6 phase 2 (data/bikes/reference/emission-standards.json). Used only where the manufacturer does not state the stage."
+    }
+  ],
+  "engine": {
+    "displacement": { "v": 199.5, "u": "cm3", "src": "bajaj-ns200-site", "conf": 0.9, "note": "\"Displacement: 199.5 cc\"" },
+    "cylinders": { "v": 1, "u": "1", "src": "bajaj-ns200-om-2025", "conf": 0.85, "note": "\"4-stroke, single-cylinder\"" },
+    "strokes": { "v": 4, "u": "1", "src": "bajaj-ns200-om-2025", "conf": 0.85 },
+    "bore": { "v": 72, "u": "mm", "src": "bajaj-ns200-om-2025", "conf": 0.85, "note": "\"Bore × Stroke 72 mm × 49 mm\"" },
+    "stroke": { "v": 49, "u": "mm", "src": "bajaj-ns200-om-2025", "conf": 0.85 },
+    "compressionRatio": { "v": 11, "u": "1", "src": "bajaj-ns200-om-2025", "conf": 0.85, "tol": 0.5 },
+    "cooling": { "v": "liquid", "src": "bajaj-ns200-site", "conf": 0.9, "note": "\"Liquid Cooled, 4-valve FI 6-speed\"" },
+    "fuelSystem": { "v": "fi", "src": "bajaj-ns200-site", "conf": 0.9 },
+    "peakPower": { "v": 18, "u": "kW", "src": "bajaj-ns200-site", "conf": 0.9, "note": "\"18 kW (24.5 PS) @ 9750rpm\"" },
+    "peakPowerRpm": { "v": 9750, "u": "rpm", "src": "bajaj-ns200-site", "conf": 0.9, "note": "The Jul 2025 manual prints 8500 rpm — taken as a typo (site and the 2023 manual say 9750)." },
+    "peakTorque": { "v": 18.74, "u": "N*m", "src": "bajaj-ns200-site", "conf": 0.9, "note": "\"18.74 Nm @ 8000 rpm\"" },
+    "peakTorqueRpm": { "v": 8000, "u": "rpm", "src": "bajaj-ns200-site", "conf": 0.9 },
+    "idleRpm": { "v": 1500, "u": "rpm", "src": "bajaj-ns200-om-2025", "conf": 0.85, "tol": 100 }
+  },
+  "transmission": {
+    "kind": { "v": "manual", "src": "bajaj-ns200-om-2025", "conf": 0.85, "note": "\"6-speed constant mesh\"" },
+    "speeds": { "v": 6, "u": "1", "src": "bajaj-ns200-om-2025", "conf": 0.85 }
+  },
+  "chassis": {
+    "mass": { "v": 158, "u": "kg", "src": "bajaj-ns200-site", "conf": 0.9, "basis": "kerb", "note": "\"Kerb Weight: 158 kg\"" },
+    "fuelTank": { "v": 12, "u": "L", "src": "bajaj-ns200-om-2025", "conf": 0.85, "note": "\"12 Liters (No Reserve)\"" },
+    "frontTyre": { "v": "100/80-17 52P", "src": "bajaj-ns200-site", "conf": 0.9 },
+    "rearTyre": { "v": "130/70-17 62P", "src": "bajaj-ns200-site", "conf": 0.9 }
+  },
+  "emission": {
+    "standard": { "v": "BS6-P2", "src": "regulatory-inference", "conf": 0.75, "note": "Manual: 'Pulsar NS200 BSVI'" }
+  },
+  "fuel": {
+    "compat": [
+      { "fuel": "E20", "status": "certified", "src": "bajaj-ns200-om-2025", "conf": 0.85, "note": "\"This vehicle is compatible for \\\"E20\\\" Petrol i.e. Petrol blended with 20% Ethanol.\"" },
+      { "fuel": "E10", "status": "certified", "src": "bajaj-ns200-om-2025", "conf": 0.85, "note": "\"'E10' Petrol (existing) … also can be filled.\"" },
+      { "fuel": "E0", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 }
+    ]
+  },
+  "notes": ["Gear ratios aren't in Bajaj's owner's manual — the class default's ratios apply until they're sourced."]
+}

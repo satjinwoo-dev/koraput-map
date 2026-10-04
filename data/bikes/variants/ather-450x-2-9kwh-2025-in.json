@@ -1,0 +1,53 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "ather-450x-2-9kwh-2025-in",
+  "kind": "variant",
+  "classKey": "ev.scooter",
+  "segment": "scooter",
+  "powertrain": "ev",
+  "identity": { "make": "Ather", "model": "450X", "variant": "2.9 kWh (2025)", "market": "IN", "yearFrom": 2025, "yearTo": null, "aliases": ["Ather 450X", "450 X", "Ather 450X 2.9"] },
+  "sources": [
+    { "id": "ather-450-site", "kind": "manufacturer", "title": "Ather 450 range", "url": "https://www.atherenergy.com/450", "publisher": "Ather Energy", "retrieved": "2026-10-03" },
+    { "id": "ather-450x-site", "kind": "manufacturer", "title": "Ather 450X", "url": "https://www.atherenergy.com/450X", "publisher": "Ather Energy", "retrieved": "2026-10-03" },
+    {
+      "id": "ather-450-specsheet-2025",
+      "kind": "manufacturer",
+      "title": "New Ather 450 (2025) spec sheet",
+      "url": "https://media.atherenergy.com/New-Ather-450-2025-specsheet.pdf",
+      "publisher": "Ather Energy",
+      "retrieved": "2026-10-03",
+      "note": "Cited for the drivetrain and tyres shared with the 3.7 kWh 450X (see ather-450x-3-7kwh-2025-in); not re-read for this pack, hence the lower confidence."
+    },
+    {
+      "id": "autocar-450x-2-9",
+      "kind": "aggregator",
+      "title": "Ather 450X 2.9 kWh specifications",
+      "url": "https://www.autocarindia.com/bikes/ather/450/x-29-kwh",
+      "publisher": "Autocar India",
+      "retrieved": "2026-10-03"
+    }
+  ],
+  "motor": {
+    "type": { "v": "pmsm", "src": "autocar-450x-2-9", "conf": 0.45, "note": "\"Motor Type: PMS Motor\"" },
+    "mount": { "v": "unspecified", "src": "ather-450-site", "conf": 0.5, "note": "Not stated in the sources read" },
+    "peakPower": { "v": 6.4, "u": "kW", "src": "ather-450-site", "conf": 0.9, "note": "\"6.4 kW power, 26 Nm instant torque\"" },
+    "peakTorque": { "v": 26, "u": "N*m", "src": "ather-450-site", "conf": 0.9, "at": "unspecified", "note": "\"26 Nm instant torque\" — Ather doesn't say motor or wheel" }
+  },
+  "battery": {
+    "grossCapacity": { "v": 2.9, "u": "kWh", "src": "autocar-450x-2-9", "conf": 0.45, "note": "\"Battery Capacity: 2.9 kWh\" — gross vs usable not stated" },
+    "certifiedRange": { "v": 126, "u": "km", "src": "ather-450x-site", "conf": 0.9, "cycle": "IDC", "note": "\"450X IDC Range: 126 km / 161 km\" (126 km = 2.9 kWh)" }
+  },
+  "transmission": {
+    "kind": { "v": "single_speed", "src": "ather-450-specsheet-2025", "conf": 0.6 },
+    "drive": { "v": "belt", "src": "ather-450-specsheet-2025", "conf": 0.6 },
+    "reductionRatio": { "v": 7.8, "u": "1", "src": "ather-450-specsheet-2025", "conf": 0.6 }
+  },
+  "chassis": {
+    "mass": { "v": 108, "u": "kg", "src": "autocar-450x-2-9", "conf": 0.45, "basis": "kerb", "note": "\"Kerb Weight: 108 kg\" (another site gives 111.6 kg, the 3.7 kWh figure)" },
+    "frontTyre": { "v": "90/90-12", "src": "ather-450-specsheet-2025", "conf": 0.6 },
+    "rearTyre": { "v": "100/80-12", "src": "ather-450-specsheet-2025", "conf": 0.6 },
+    "topSpeed": { "v": 90, "u": "km/h", "src": "ather-450-site", "conf": 0.9, "note": "\"Top speed: 90 km/h\"" }
+  },
+  "notes": ["0–40 km/h in 3.3 s (Ather 450X page). Regen via 'MagicTwist' throttle."]
+}

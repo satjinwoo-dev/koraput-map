@@ -1,0 +1,94 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "hero-splendor-plus-obd2b-in",
+  "kind": "variant",
+  "classKey": "ice_manual.commuter",
+  "segment": "commuter",
+  "powertrain": "ice_manual",
+  "identity": { "make": "Hero", "model": "Splendor+", "variant": "Drum Brake, OBD-2B", "market": "IN", "yearFrom": 2021, "yearTo": null, "aliases": ["Splendor Plus", "Splendor", "Hero Splendor", "Splendor 100"] },
+  "sources": [
+    {
+      "id": "hero-splendor-site",
+      "kind": "manufacturer",
+      "title": "Splendor+ specifications",
+      "url": "https://www.heromotocorp.com/en-in/motorcycles/splendor-plus.html",
+      "publisher": "Hero MotoCorp",
+      "retrieved": "2026-10-02"
+    },
+    {
+      "id": "hero-splendor-om-2021",
+      "kind": "owners_manual",
+      "title": "Splendor+ Programmed FI owner's manual (Aug 2021)",
+      "url": "https://www.heromotocorp.com/content/dam/hero-aem-website/in/service-owner-manual/Splendor+_FI_(Aug_2021).pdf",
+      "publisher": "Hero MotoCorp",
+      "retrieved": "2026-10-02"
+    },
+    {
+      "id": "hero-splendor-xtec-om-2024",
+      "kind": "owners_manual",
+      "title": "Splendor+ XTEC 2.0 owner's manual (May 2024) — same engine",
+      "url": "https://www.heromotocorp.com/content/dam/hero-aem-website/in/service-owner-manual/splendor_plus_xtec_may_2024.pdf",
+      "publisher": "Hero MotoCorp",
+      "retrieved": "2026-10-02"
+    },
+    {
+      "id": "bikewale-splendor",
+      "kind": "aggregator",
+      "title": "Hero Splendor Plus specifications",
+      "url": "https://www.bikewale.com/hero-bikes/splendor-plus/specifications-features/",
+      "publisher": "BikeWale",
+      "retrieved": "2026-10-02"
+    },
+    {
+      "id": "lower-blend-rule",
+      "kind": "derived",
+      "title": "Lower-ethanol blends of a certified fuel",
+      "retrieved": "2026-10-02",
+      "note": "A vehicle certified for a higher-ethanol petrol (e.g. E20) is materials-compatible with lower-ethanol petrol (E10, E0). Listed as compatible, never as certified."
+    }
+  ],
+  "engine": {
+    "displacement": { "v": 97.2, "u": "cm3", "src": "hero-splendor-om-2021", "conf": 0.95 },
+    "cylinders": { "v": 1, "u": "1", "src": "hero-splendor-site", "conf": 0.95 },
+    "strokes": { "v": 4, "u": "1", "src": "hero-splendor-site", "conf": 0.95 },
+    "bore": { "v": 50, "u": "mm", "src": "hero-splendor-om-2021", "conf": 0.95 },
+    "stroke": { "v": 49.5, "u": "mm", "src": "hero-splendor-om-2021", "conf": 0.95 },
+    "compressionRatio": { "v": 9.9, "u": "1", "src": "hero-splendor-om-2021", "conf": 0.9 },
+    "cooling": { "v": "air", "src": "hero-splendor-site", "conf": 0.95 },
+    "fuelSystem": { "v": "fi", "src": "hero-splendor-site", "conf": 0.95 },
+    "peakPower": { "v": 5.9, "u": "kW", "src": "hero-splendor-om-2021", "conf": 0.95 },
+    "peakPowerRpm": { "v": 8000, "u": "rpm", "src": "hero-splendor-om-2021", "conf": 0.95 },
+    "peakTorque": { "v": 8.05, "u": "N*m", "src": "hero-splendor-om-2021", "conf": 0.95, "note": "Manual: 0.82 kgf-m (8.05 N-m)" },
+    "peakTorqueRpm": { "v": 6000, "u": "rpm", "src": "hero-splendor-om-2021", "conf": 0.95 },
+    "idleRpm": { "v": 1400, "u": "rpm", "src": "hero-splendor-om-2021", "conf": 0.9, "tol": 100, "note": "Hot idle" }
+  },
+  "transmission": {
+    "kind": { "v": "manual", "src": "hero-splendor-site", "conf": 0.95 },
+    "speeds": { "v": 4, "u": "1", "src": "hero-splendor-site", "conf": 0.95 },
+    "primaryRatio": { "v": 3.722, "u": "1", "src": "hero-splendor-om-2021", "conf": 0.9, "note": "67/18 teeth" },
+    "gearRatios": { "v": [3.182, 1.706, 1.238, 0.958], "u": "1", "src": "hero-splendor-om-2021", "conf": 0.9, "note": "Teeth 35/11, 29/17, 26/21, 23/24" },
+    "finalRatio": { "v": 3.143, "u": "1", "src": "hero-splendor-om-2021", "conf": 0.9 },
+    "frontSprocket": { "v": 14, "u": "1", "src": "hero-splendor-om-2021", "conf": 0.9 },
+    "rearSprocket": { "v": 44, "u": "1", "src": "hero-splendor-om-2021", "conf": 0.9 },
+    "drive": { "v": "chain", "src": "hero-splendor-om-2021", "conf": 0.85 }
+  },
+  "chassis": {
+    "mass": { "v": 112, "u": "kg", "src": "hero-splendor-site", "conf": 0.9, "basis": "kerb" },
+    "fuelTank": { "v": 9.8, "u": "L", "src": "hero-splendor-site", "conf": 0.95 },
+    "frontTyre": { "v": "80/100-18 M/C 47P", "src": "hero-splendor-site", "conf": 0.95 },
+    "rearTyre": { "v": "80/100-18 M/C 54P", "src": "hero-splendor-site", "conf": 0.95 }
+  },
+  "emission": {
+    "standard": { "v": "BS6-P2", "src": "hero-splendor-xtec-om-2024", "conf": 0.8, "note": "XTEC 2.0 manual (same engine): BS6 Stage-II" },
+    "obd": { "v": "OBD-2B", "src": "bikewale-splendor", "conf": 0.7, "note": "Listed as BS6 Phase 2B" }
+  },
+  "fuel": {
+    "compat": [
+      { "fuel": "E20", "status": "certified", "src": "hero-splendor-site", "conf": 0.75, "note": "Site quotes \"70 kmpl with E20 fuel\"; the XTEC 2.0 manual (same engine) says parts are compliant up to E20" },
+      { "fuel": "E10", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 },
+      { "fuel": "E0", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 }
+    ]
+  },
+  "notes": ["Engine and gearing from the Aug 2021 base-model manual; identical in the May 2024 XTEC 2.0 manual. No 2025/26 base-model manual found.", "Conflict: Autocar India lists 8.4 hp / 8.3 Nm / 113 kg; the manufacturer gives 5.9 kW / 8.05 N·m / 112 kg (used).", "No minimum octane stated (manual: unleaded BS-VI petrol)."]
+}

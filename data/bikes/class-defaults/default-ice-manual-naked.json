@@ -1,0 +1,86 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "default-ice-manual-naked",
+  "kind": "class_default",
+  "classKey": "ice_manual.naked",
+  "segment": "naked",
+  "powertrain": "ice_manual",
+  "identity": {
+    "make": "Generic",
+    "model": "150–200 cc naked / street motorcycle",
+    "variant": "Class default — used when the exact bike isn't in the catalogue",
+    "market": "IN",
+    "yearFrom": 2023,
+    "yearTo": null,
+    "aliases": ["naked bike", "street bike", "150cc bike", "160cc bike", "200cc bike"]
+  },
+  "sources": [
+    {
+      "id": "class-prior",
+      "kind": "class_prior",
+      "title": "MapUnite class prior v1 — representative vehicle",
+      "retrieved": "2026-10-02",
+      "note": "Representative engine, gearing, mass and tyres for the class, chosen from the seed variants in this class and typical Indian-market figures. Used only when the rider's bike is not in the catalogue; never used for fuel advice."
+    },
+    {
+      "id": "class-prior-physics",
+      "kind": "class_prior",
+      "title": "MapUnite class prior v1 — model parameters",
+      "retrieved": "2026-10-02",
+      "note": "Drag area (bike + rider), rolling resistance, drivetrain efficiency, Willans indicated efficiency and friction-MEP terms from typical published ranges for small spark-ignition engines and motorcycles (e.g. Heywood, Internal Combustion Engine Fundamentals, friction chapter; motorcycle CdA ≈ 0.3 m² tucked on a faired bike to ≈ 0.7 m² upright). Wide sigmas on purpose; per-rider calibration narrows them."
+    }
+  ],
+  "engine": {
+    "displacement": { "v": 160, "u": "cm3", "src": "class-prior", "conf": 0.4 },
+    "cylinders": { "v": 1, "u": "1", "src": "class-prior", "conf": 0.5 },
+    "strokes": { "v": 4, "u": "1", "src": "class-prior", "conf": 0.5 },
+    "bore": { "v": 60, "u": "mm", "src": "class-prior", "conf": 0.3 },
+    "stroke": { "v": 56.6, "u": "mm", "src": "class-prior", "conf": 0.3 },
+    "compressionRatio": { "v": 10.5, "u": "1", "src": "class-prior", "conf": 0.3 },
+    "cooling": { "v": "air_oil", "src": "class-prior", "conf": 0.4 },
+    "fuelSystem": { "v": "fi", "src": "class-prior", "conf": 0.5 },
+    "flexFuel": { "v": false, "src": "class-prior", "conf": 0.5 },
+    "peakPower": { "v": 12, "u": "kW", "src": "class-prior", "conf": 0.35 },
+    "peakPowerRpm": { "v": 8750, "u": "rpm", "src": "class-prior", "conf": 0.35 },
+    "peakTorque": { "v": 14.5, "u": "N*m", "src": "class-prior", "conf": 0.35 },
+    "peakTorqueRpm": { "v": 7000, "u": "rpm", "src": "class-prior", "conf": 0.35 },
+    "idleRpm": { "v": 1450, "u": "rpm", "src": "class-prior", "conf": 0.35 }
+  },
+  "transmission": {
+    "kind": { "v": "manual", "src": "class-prior", "conf": 0.5 },
+    "speeds": { "v": 5, "u": "1", "src": "class-prior", "conf": 0.4 },
+    "primaryRatio": { "v": 3.1, "u": "1", "src": "class-prior", "conf": 0.3 },
+    "gearRatios": { "v": [2.92, 1.86, 1.33, 1.05, 0.88], "u": "1", "src": "class-prior", "conf": 0.3 },
+    "finalRatio": { "v": 3.4, "u": "1", "src": "class-prior", "conf": 0.3 },
+    "drive": { "v": "chain", "src": "class-prior", "conf": 0.5 }
+  },
+  "chassis": {
+    "mass": { "v": 145, "u": "kg", "src": "class-prior", "conf": 0.35, "basis": "kerb" },
+    "fuelTank": { "v": 12, "u": "L", "src": "class-prior", "conf": 0.35 },
+    "frontTyre": { "v": "100/80-17", "src": "class-prior", "conf": 0.4 },
+    "rearTyre": { "v": "130/70-17", "src": "class-prior", "conf": 0.4 }
+  },
+  "emission": {
+    "standard": { "v": "BS6-P2", "src": "class-prior", "conf": 0.5 },
+    "obd": { "v": "OBD-2B", "src": "class-prior", "conf": 0.4 }
+  },
+  "fuel": {
+    "compat": [
+      { "fuel": "E20", "status": "compatible", "src": "class-prior", "conf": 0.4, "note": "Typical for current Indian vehicles; never used for advice (estimate)" },
+      { "fuel": "E10", "status": "compatible", "src": "class-prior", "conf": 0.45 }
+    ]
+  },
+  "priors": {
+    "cda": { "mean": 0.48, "sigma": 0.086, "u": "m2", "src": "class-prior-physics", "conf": 0.35 },
+    "crr": { "mean": 0.019, "sigma": 0.0042, "u": "1", "src": "class-prior-physics", "conf": 0.35 },
+    "drivetrainEfficiency": { "mean": 0.9, "sigma": 0.03, "u": "1", "src": "class-prior-physics", "conf": 0.4 },
+    "riderMass": { "mean": 72, "sigma": 12, "u": "kg", "src": "class-prior-physics", "conf": 0.4, "note": "Adult rider with riding gear" },
+    "indicatedEfficiency": { "mean": 0.31, "sigma": 0.04, "u": "1", "src": "class-prior-physics", "conf": 0.3 },
+    "fmepA": { "mean": 100, "sigma": 30, "u": "kPa", "src": "class-prior-physics", "conf": 0.3 },
+    "fmepB": { "mean": 8, "sigma": 3.2, "u": "kPa/krpm", "src": "class-prior-physics", "conf": 0.3 },
+    "fmepC": { "mean": 0.6, "sigma": 0.3, "u": "kPa/krpm2", "src": "class-prior-physics", "conf": 0.3 },
+    "redlineFactor": { "mean": 1.12, "sigma": 0.06, "u": "1", "src": "class-prior-physics", "conf": 0.3 }
+  },
+  "notes": ["Representative of Pulsar N160 / Apache RTR 160 4V-class nakeds. Larger nakeds (350–400 cc) differ a lot: add the exact variant."]
+}

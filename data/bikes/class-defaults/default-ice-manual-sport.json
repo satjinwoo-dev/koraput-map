@@ -1,0 +1,86 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "default-ice-manual-sport",
+  "kind": "class_default",
+  "classKey": "ice_manual.sport",
+  "segment": "sport",
+  "powertrain": "ice_manual",
+  "identity": {
+    "make": "Generic",
+    "model": "150–400 cc faired sport motorcycle",
+    "variant": "Class default — used when the exact bike isn't in the catalogue",
+    "market": "IN",
+    "yearFrom": 2023,
+    "yearTo": null,
+    "aliases": ["sport bike", "faired bike", "supersport"]
+  },
+  "sources": [
+    {
+      "id": "class-prior",
+      "kind": "class_prior",
+      "title": "MapUnite class prior v1 — representative vehicle",
+      "retrieved": "2026-10-02",
+      "note": "Representative engine, gearing, mass and tyres for the class, chosen from the seed variants in this class and typical Indian-market figures. Used only when the rider's bike is not in the catalogue; never used for fuel advice."
+    },
+    {
+      "id": "class-prior-physics",
+      "kind": "class_prior",
+      "title": "MapUnite class prior v1 — model parameters",
+      "retrieved": "2026-10-02",
+      "note": "Drag area (bike + rider), rolling resistance, drivetrain efficiency, Willans indicated efficiency and friction-MEP terms from typical published ranges for small spark-ignition engines and motorcycles (e.g. Heywood, Internal Combustion Engine Fundamentals, friction chapter; motorcycle CdA ≈ 0.3 m² tucked on a faired bike to ≈ 0.7 m² upright). Wide sigmas on purpose; per-rider calibration narrows them."
+    }
+  ],
+  "engine": {
+    "displacement": { "v": 155, "u": "cm3", "src": "class-prior", "conf": 0.4 },
+    "cylinders": { "v": 1, "u": "1", "src": "class-prior", "conf": 0.5 },
+    "strokes": { "v": 4, "u": "1", "src": "class-prior", "conf": 0.5 },
+    "bore": { "v": 58, "u": "mm", "src": "class-prior", "conf": 0.3 },
+    "stroke": { "v": 58.7, "u": "mm", "src": "class-prior", "conf": 0.3 },
+    "compressionRatio": { "v": 11.6, "u": "1", "src": "class-prior", "conf": 0.3 },
+    "cooling": { "v": "liquid", "src": "class-prior", "conf": 0.4 },
+    "fuelSystem": { "v": "fi", "src": "class-prior", "conf": 0.5 },
+    "flexFuel": { "v": false, "src": "class-prior", "conf": 0.5 },
+    "peakPower": { "v": 13.5, "u": "kW", "src": "class-prior", "conf": 0.35 },
+    "peakPowerRpm": { "v": 10000, "u": "rpm", "src": "class-prior", "conf": 0.35 },
+    "peakTorque": { "v": 14.2, "u": "N*m", "src": "class-prior", "conf": 0.35 },
+    "peakTorqueRpm": { "v": 7500, "u": "rpm", "src": "class-prior", "conf": 0.35 },
+    "idleRpm": { "v": 1400, "u": "rpm", "src": "class-prior", "conf": 0.35 }
+  },
+  "transmission": {
+    "kind": { "v": "manual", "src": "class-prior", "conf": 0.5 },
+    "speeds": { "v": 6, "u": "1", "src": "class-prior", "conf": 0.4 },
+    "primaryRatio": { "v": 3.042, "u": "1", "src": "class-prior", "conf": 0.3 },
+    "gearRatios": { "v": [2.833, 1.875, 1.364, 1.143, 0.957, 0.84], "u": "1", "src": "class-prior", "conf": 0.3 },
+    "finalRatio": { "v": 3.429, "u": "1", "src": "class-prior", "conf": 0.3 },
+    "drive": { "v": "chain", "src": "class-prior", "conf": 0.5 }
+  },
+  "chassis": {
+    "mass": { "v": 141, "u": "kg", "src": "class-prior", "conf": 0.35, "basis": "kerb" },
+    "fuelTank": { "v": 11, "u": "L", "src": "class-prior", "conf": 0.35 },
+    "frontTyre": { "v": "100/80-17", "src": "class-prior", "conf": 0.4 },
+    "rearTyre": { "v": "140/70-17", "src": "class-prior", "conf": 0.4 }
+  },
+  "emission": {
+    "standard": { "v": "BS6-P2", "src": "class-prior", "conf": 0.5 },
+    "obd": { "v": "OBD-2B", "src": "class-prior", "conf": 0.4 }
+  },
+  "fuel": {
+    "compat": [
+      { "fuel": "E20", "status": "compatible", "src": "class-prior", "conf": 0.4, "note": "Typical for current Indian vehicles; never used for advice (estimate)" },
+      { "fuel": "E10", "status": "compatible", "src": "class-prior", "conf": 0.45 }
+    ]
+  },
+  "priors": {
+    "cda": { "mean": 0.36, "sigma": 0.07, "u": "m2", "src": "class-prior-physics", "conf": 0.35 },
+    "crr": { "mean": 0.018, "sigma": 0.004, "u": "1", "src": "class-prior-physics", "conf": 0.35 },
+    "drivetrainEfficiency": { "mean": 0.91, "sigma": 0.03, "u": "1", "src": "class-prior-physics", "conf": 0.4 },
+    "riderMass": { "mean": 72, "sigma": 12, "u": "kg", "src": "class-prior-physics", "conf": 0.4, "note": "Adult rider with riding gear" },
+    "indicatedEfficiency": { "mean": 0.32, "sigma": 0.04, "u": "1", "src": "class-prior-physics", "conf": 0.3 },
+    "fmepA": { "mean": 110, "sigma": 33, "u": "kPa", "src": "class-prior-physics", "conf": 0.3 },
+    "fmepB": { "mean": 9, "sigma": 3.6, "u": "kPa/krpm", "src": "class-prior-physics", "conf": 0.3 },
+    "fmepC": { "mean": 0.5, "sigma": 0.25, "u": "kPa/krpm2", "src": "class-prior-physics", "conf": 0.3 },
+    "redlineFactor": { "mean": 1.08, "sigma": 0.06, "u": "1", "src": "class-prior-physics", "conf": 0.3 }
+  },
+  "notes": ["Representative of the R15 V4 class; drag prior assumes a part-tucked rider behind a fairing."]
+}

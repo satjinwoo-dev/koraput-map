@@ -14,11 +14,20 @@
        message) so an update never swaps code under a driver mid-trip.
      * Map tiles use a separate, size-capped cache that survives releases.
      * Realtime + API traffic (/socket.io/, /api/) is never intercepted.
+     * Step 7 — true offline for "My bike" and trip energy: garage.html is a
+       second cached page (OFFLINE_PAGES); the garage, physics and trip scripts
+       are precached (the map lazy-loads the garage UI, so it must be in the
+       cache already); the Google Fonts stylesheet and its Latin font files are
+       precached; the Socket.IO client library is cached so index.html boots
+       offline. The bike catalogue lives in the garage's own cache
+       (mu-bikedb-v1): catalog.json network-first (fresh whenever online, as
+       the garage store expects), bundles cache-first and verified against
+       their hash; the list and every class default's bundle are precached.
 
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-09-30.13";          // Android build support (server origin, media URLs)
+const VERSION = "mu-2026-10-04.4";           // roadmap Steps 8–10 with their screens: advice badge, gradient sheet, ride dashboard + consent, HUD, share card
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
@@ -28,8 +37,17 @@ const TILE_CACHE_MAX_ENTRIES = 500;
 const MEDIA_CACHE = "mapunite-media-v1";
 const MEDIA_CACHE_MAX_ENTRIES = 300;
 const NETWORK_TIMEOUT_MS = 4000;
+// The bike catalogue (public/bikedb/, Step 3) shares ONE cache with the garage's own
+// data layer (js/garage/store.js, Store.CACHE_NAME): bundles are named by the SHA-256 of
+// their content, so they're valid forever and survive releases. Deliberately not
+// "mapunite-*": activate() deletes those.
+const BIKEDB_CACHE = "mu-bikedb-v1";
+const BIKEDB_CATALOG = "/bikedb/catalog.json";
+const BIKEDB_BUNDLE_RE = /^\/bikedb\/bundles\/([0-9a-f]{16})\.json$/;
 
 const SHELL_INDEX = "/index.html";
+// Other pages that work offline (cached copy served when the network fails).
+const OFFLINE_PAGES = { "/garage.html": "/garage.html", "/garage": "/garage.html" };
 const REQUIRED_PRECACHE = [SHELL_INDEX];       // install FAILS (and retries) without these
 // The app scripts (js/*.js, in index.html's load order) and /config.js,
 // which the server generates (routing server, transports).
@@ -38,6 +56,7 @@ const APP_SCRIPTS = [
     "/js/voice.js",
     "/js/gps.js",
     "/js/navigation.js",
+    "/js/garage/fuel-baseline.js",
     "/js/smartdrive.js",
     "/js/groupnav.js",
     "/js/privacy.js",
@@ -55,8 +74,80 @@ const APP_SCRIPTS = [
     "/js/convoy.js",
     "/js/boot.js"
 ];
+// Step 7: bike catalogue search, physics core, garage UI ("My bike") and trip
+// energy. Keep in step with garage.html, index.html and js/trip/trip-app.js (the
+// garage UI loads on first open, so it must already be in the cache).
+const BIKE_SCRIPTS = [
+    "/js/bikedb/catalog-search.js",
+    "/js/physics/atmosphere.js",
+    "/js/physics/tyre.js",
+    "/js/physics/powertrain.js",
+    "/js/physics/roadload.js",
+    "/js/physics/model.js",
+    "/js/physics/cruise.js",
+    "/js/physics/index.js",
+    "/js/garage/units.js",
+    "/js/garage/store.js",
+    "/js/garage/silhouettes.js",
+    "/js/garage/picker.js",
+    "/js/garage/settings.js",
+    "/js/garage/visualizer.js",
+    "/js/garage/garage.js",
+    "/js/garage/garage-page.js",
+    "/js/garage/garage.css",
+    "/js/trip/profile.js",
+    "/js/trip/elevation.js",
+    "/js/trip/structures.js",
+    "/js/trip/energy.js",
+    "/js/trip/trip-card.js",
+    "/js/trip/trip-app.js",
+    "/js/trip/trip.css",
+    // roadmap Steps 8 and 10: the advice safety gate, ride summaries and the opt-in fleet share (SmartDrive calls them)
+    "/js/advice/advice.js",
+    "/js/advice/advice-app.js",
+    "/js/rides/ride-log.js",
+    "/js/rides/rides-app.js",
+    // their screens (loaded on first open, so they must be here): the road-conditions badge, the ride
+    // dashboard and consent, the gradient sheet, the SmartDrive HUD and the post-ride share card
+    "/js/advice/conditions.js",
+    "/js/advice/overlay.js",
+    "/js/advice/advice-ui.js",
+    "/js/advice/advice.css",
+    "/js/rides/ride-model.js",
+    "/js/rides/rides-ui.js",
+    "/js/rides/consent-ui.js",
+    "/js/rides/rides.css",
+    "/js/gradient/gradient.js",
+    "/js/gradient/gradient-app.js",
+    "/js/gradient/profile-chart.js",
+    "/js/gradient/gradient.css",
+    "/js/hud/live.js",
+    "/js/hud/hud.js",
+    "/js/hud/hud-app.js",
+    "/js/hud/hud.css",
+    "/js/share/share-app.js",
+    "/js/share/card-model.js",
+    "/js/share/card-render.js",
+    "/js/share/share-ui.js",
+    "/js/share/share.css",
+    // Advanced analytics: fuel learner dashboard + convoy pitstop planner (both lazy-loaded by their *-app.js)
+    "/js/insights/fuel-insights.js",
+    "/js/insights/fuel-dashboard.js",
+    "/js/insights/fuel-dashboard.css",
+    "/js/insights/insights-app.js",
+    "/js/pitstop/plan.js",
+    "/js/pitstop/stations.js",
+    "/js/pitstop/convoy-panel.js",
+    "/js/pitstop/convoy-panel.css",
+    "/js/pitstop/pitstop-app.js"
+];
+// The Socket.IO client library: a static script the server ships. index.html can't
+// boot offline without it (core.js calls io() at once; offline it just keeps
+// retrying to connect). Only this one file is cached — the realtime traffic under
+// /socket.io/ is never intercepted.
+const SOCKET_IO_CLIENT = "/socket.io/socket.io.js";
 const OPTIONAL_PRECACHE = [
-    ...APP_SCRIPTS, "/config.js", "/shell.js", "/manifest.json",
+    ...APP_SCRIPTS, ...BIKE_SCRIPTS, "/garage.html", SOCKET_IO_CLIENT, "/config.js", "/shell.js", "/manifest.json",
     "/icon-192.png", "/icon-512.png", "/icon-maskable-512.png", "/satyam.png"
 ];
 // Third-party assets the shell needs to render offline (pinned versions).
@@ -64,6 +155,12 @@ const CDN_PRECACHE = [
     "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css",
     "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
 ];
+
+// The one Google Fonts stylesheet both pages use (same URL in index.html and
+// garage.html, so one cached copy serves both). Its font files are precached
+// for the Latin subsets; other scripts' subsets are cached the first time used.
+const FONT_CSS = "https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap";
+const FONT_SUBSETS_RE = /\/\*\s*(latin|latin-ext)\s*\*\/\s*@font-face\s*{[^}]*?url\((https:\/\/fonts\.gstatic\.com\/[^)\s]+)\)/g;
 
 const NEVER_INTERCEPT_PATHS = ["/socket.io/", "/api/", "/healthz", "/csp-report"];
 const TILE_HOST_RE = /(^|\.)(tile\.openstreetmap\.org|basemaps\.cartocdn\.com|arcgisonline\.com|tile\.opentopomap\.org)$/;
@@ -104,6 +201,54 @@ async function fetchCorsThenPlain(request) {
     return fetch(request);                        // passes through, never cached
 }
 
+// Step 7: the fonts stylesheet + its Latin font files (best effort, CORS so
+// the responses aren't opaque).
+async function precacheFonts(cache) {
+    try {
+        const res = await fetch(FONT_CSS, { mode: "cors", credentials: "omit" });
+        if (!res.ok) return;
+        const css = await res.clone().text();
+        await cache.put(FONT_CSS, res);
+        const urls = new Set();
+        for (const m of css.matchAll(FONT_SUBSETS_RE)) urls.add(m[2]);
+        await Promise.all([...urls].map(async (u) => {
+            try {
+                if (await cache.match(u)) return;
+                const f = await fetch(u, { mode: "cors", credentials: "omit" });
+                if (f.ok) await cache.put(u, f);
+            } catch { /* optional */ }
+        }));
+    } catch { /* offline install or fonts blocked: system fonts are the fallback */ }
+}
+
+// First 16 hex of the SHA-256 of a response body: a bundle's name. null without WebCrypto.
+async function shortSha(res) {
+    if (!self.crypto || !self.crypto.subtle) return null;
+    const d = await self.crypto.subtle.digest("SHA-256", await res.arrayBuffer());
+    return Array.from(new Uint8Array(d).slice(0, 8), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// The catalogue and every class default's bundle (the "typical bike" the garage offers
+// when a bike isn't listed), so My bike works offline from the first launch.
+// Best effort: a failure here never fails the install.
+async function precacheBikeCatalogue() {
+    const cache = await caches.open(BIKEDB_CACHE);
+    const res = await fetch(new Request(BIKEDB_CATALOG, { cache: "reload" }));
+    if (!res.ok || !(res.headers.get("content-type") || "").includes("json")) return;     // not built on this server
+    const catalog = await res.clone().json();
+    await cache.put(BIKEDB_CATALOG, res);
+    const hashes = (Array.isArray(catalog.classes) ? catalog.classes : []).map((c) => c && c.bundle).filter((h) => /^[0-9a-f]{16}$/.test(h));
+    await Promise.all(hashes.map(async (h) => {
+        const url = `/bikedb/bundles/${h}.json`;
+        if (await cache.match(url)) return;
+        try {
+            const b = await fetch(new Request(url, { cache: "reload" }));
+            const sha = b.ok ? await shortSha(b.clone()) : "";
+            if (b.ok && (sha === null || sha === h)) await cache.put(url, b);
+        } catch { /* optional */ }
+    }));
+}
+
 // -------------------------------------------------------------------------
 // install — idempotent, tolerant of optional-file failures
 // -------------------------------------------------------------------------
@@ -122,6 +267,10 @@ self.addEventListener("install", (event) => {
                 if (res.ok) await cache.put(shellKey(url), res);
             } catch { /* optional: skip */ }
         }));
+        await Promise.all([
+            precacheBikeCatalogue().catch(() => { /* optional: the garage fetches it when online */ }),
+            precacheFonts(cache)
+        ]);
         await Promise.all(CDN_PRECACHE.map(async (url) => {
             try {
                 const res = await fetch(url, { mode: "cors", credentials: "omit" });
@@ -160,6 +309,10 @@ self.addEventListener("fetch", (event) => {
     if (url.protocol !== "http:" && url.protocol !== "https:") return;
 
     if (url.origin === self.location.origin) {
+        if (url.pathname === SOCKET_IO_CLIENT && !url.search) {
+            event.respondWith(networkFirst(event, req, shellKey(req.url)));
+            return;
+        }
         if (NEVER_INTERCEPT_PATHS.some((p) => url.pathname.startsWith(p))) return;
         if (url.pathname === "/sw.js") return;
         if (url.pathname.startsWith("/media/")) {
@@ -169,8 +322,20 @@ self.addEventListener("fetch", (event) => {
         }
 
         if (req.mode === "navigate") {
-            // Only the SPA shell is handled; anything else navigates normally.
+            // The SPA shell and the offline pages (garage.html); anything else navigates normally.
             if (url.pathname === "/" || url.pathname === SHELL_INDEX) event.respondWith(handleNavigation(event));
+            else if (Object.prototype.hasOwnProperty.call(OFFLINE_PAGES, url.pathname)) event.respondWith(handleNavigation(event, OFFLINE_PAGES[url.pathname]));
+            return;
+        }
+        // Bike catalogue: the list network-first (a new build shows up at once), bundles
+        // cache-first (immutable, named by their hash) — in the garage's own cache.
+        if (url.pathname === BIKEDB_CATALOG) {
+            event.respondWith(bikedbCatalog(event, req));
+            return;
+        }
+        const bundle = BIKEDB_BUNDLE_RE.exec(url.pathname);
+        if (bundle) {
+            event.respondWith(bikedbBundle(event, req, bundle[1]));
             return;
         }
         const dest = req.destination;
@@ -193,6 +358,32 @@ self.addEventListener("fetch", (event) => {
     // Everything else (Google Maps JS, OSRM, weather, geocoders): straight to network.
 });
 
+async function bikedbCatalog(event, req) {
+    const cache = await caches.open(BIKEDB_CACHE);
+    try {
+        const res = await withTimeout(fetch(req), NETWORK_TIMEOUT_MS);
+        if (res && res.ok) event.waitUntil(cache.put(BIKEDB_CATALOG, res.clone()));
+        if (res && (res.ok || !(await cache.match(BIKEDB_CATALOG)))) return res;
+    } catch { /* offline or slow: the saved list */ }
+    const cached = await cache.match(BIKEDB_CATALOG);
+    return cached || new Response("", { status: 504, statusText: "Offline and not cached" });
+}
+
+async function bikedbBundle(event, req, hash) {
+    const cache = await caches.open(BIKEDB_CACHE);
+    const key = new URL(req.url).pathname;
+    const hit = await cache.match(key);
+    if (hit) return hit;
+    const res = await fetch(req);
+    if (res && res.ok) {
+        // only content that matches its name is kept (the garage re-checks it anyway);
+        // both copies are taken now, before the page reads the body
+        const forHash = res.clone(), forCache = res.clone();
+        event.waitUntil(shortSha(forHash).then((sha) => (sha === null || sha === hash ? cache.put(key, forCache) : undefined)).catch(() => { }));
+    }
+    return res;
+}
+
 async function mediaHandler(event, req) {
     const cache = await caches.open(MEDIA_CACHE);
     const hit = await cache.match(req.url);
@@ -204,15 +395,15 @@ async function mediaHandler(event, req) {
     return res;
 }
 
-async function handleNavigation(event) {
+async function handleNavigation(event, page = SHELL_INDEX) {
     const cache = await caches.open(SHELL_CACHE);
     try {
         const preload = event.preloadResponse ? await event.preloadResponse : null;
         const res = preload || await withTimeout(fetch(event.request), NETWORK_TIMEOUT_MS);
-        if (res && res.ok && !res.redirected) event.waitUntil(cache.put(shellKey(SHELL_INDEX), res.clone()));
+        if (res && res.ok && !res.redirected) event.waitUntil(cache.put(shellKey(page), res.clone()));
         if (res) return res;
-    } catch { /* offline or slow: fall back to the cached shell */ }
-    const cached = await cache.match(shellKey(SHELL_INDEX));
+    } catch { /* offline or slow: fall back to the cached page */ }
+    const cached = await cache.match(shellKey(page));
     return cached || new Response("MapUnite is offline and has not been cached yet. Reconnect once to install it.", {
         status: 503, headers: { "Content-Type": "text/plain; charset=utf-8" }
     });

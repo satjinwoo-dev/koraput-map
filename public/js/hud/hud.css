@@ -1,0 +1,191 @@
+/* ============================================================================
+   MapUnite HUD — SmartDrive head-up display (scoped under .hud)
+   App tokens with fallbacks. Riding-grade legibility: big tabular numerals,
+   high contrast, state = icon + words, no decorative motion.
+   ============================================================================ */
+#smartdrive-hud { position: fixed; z-index: calc(var(--z-nav, 3000) + 1); left: 98px; right: 12px; bottom: var(--hud-bottom, calc(210px + var(--safe-b, 0px))); pointer-events: none; }
+#smartdrive-hud[hidden] { display: none; }
+#smartdrive-hud.is-focus { inset: 0; z-index: var(--z-modal, 5000); }
+#smartdrive-hud.is-solo { left: 12px; }                       /* no speed dial on screen */
+
+.hud { --hud-text: var(--text, #f2f6f8); --hud-soft: var(--soft, #c6d2db); --hud-muted: var(--muted, #8b9bab); --hud-mint: var(--mint, #34e0b4);
+  --hud-warn: var(--c-warn, #ffb020); --hud-crit: var(--c-danger, #ff453a); --hud-glass: var(--glass-strong, rgba(12,19,30,.78)); --hud-line: var(--line-strong, rgba(255,255,255,.16));
+  color: var(--hud-text); font-family: var(--font-ui, "Inter", system-ui, sans-serif); }
+.hud * { box-sizing: border-box; }
+.hud button { font: inherit; color: inherit; cursor: pointer; border: 0; background: none; }
+.hud :focus-visible { outline: 3px solid var(--hud-mint); outline-offset: 2px; }
+
+/* ---------------- strip ---------------- */
+.hud-strip { pointer-events: auto; position: relative; width: 100%; min-height: 72px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; container-type: inline-size; container-name: hudstrip;
+  padding: 8px 26px 8px 14px; border-radius: 22px !important; background: rgba(10,16,26,.93) !important; border: 1px solid var(--hud-line) !important;
+  box-shadow: var(--inner, inset 0 1px 1px rgba(255,255,255,.1)), 0 10px 30px rgba(0,0,0,.45); -webkit-backdrop-filter: var(--blur, blur(24px) saturate(180%)); backdrop-filter: var(--blur, blur(24px) saturate(180%)); text-align: left; }
+.hud-strip[hidden] { display: none; }
+.hud-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow: hidden; }
+.hud-cell + .hud-cell { padding-left: 8px; border-left: 1px solid rgba(255,255,255,.08); }
+.hud-row { display: flex; align-items: baseline; gap: 0; white-space: nowrap; min-width: 0; }
+.hud-big { font-family: var(--font-display, "Sora", sans-serif); font-size: 25px; font-weight: 800; letter-spacing: -.02em; line-height: 1; font-variant-numeric: tabular-nums; }
+.hud-unit { margin-left: 3px; font-size: 11.5px; font-weight: 700; color: var(--hud-soft); }
+.hud-note { font-size: 11px; font-weight: 600; color: var(--hud-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hud-strip[data-tone="good"] .hud-cell-live .hud-big { color: var(--hud-mint); }
+.hud-cell-eco { flex-direction: row; align-items: center; gap: 8px; }
+.hud-eco-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.hud-eco-row { gap: 4px; align-items: center; }
+.hud-eco-t { font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hud-i { width: 15px; height: 15px; flex: none; display: inline-grid; }
+.hud-i svg { width: 100%; height: 100%; }
+.hud-strip[data-eco="good"] .hud-eco-row { color: var(--hud-mint); }
+.hud-strip[data-eco="warn"] .hud-eco-row { color: var(--hud-warn); }
+.hud-strip[data-eco="neutral"] .hud-eco-row { color: var(--hud-soft); }
+.hud-expand { position: absolute; top: 9px; right: 9px; width: 13px; height: 13px; color: var(--hud-muted); }
+.hud-expand svg { width: 100%; height: 100%; display: block; }
+
+.hud-ring { flex: none; display: block; }
+.hud-ring-bg { stroke: rgba(255,255,255,.12); }
+.hud-ring-fg { stroke: var(--hud-mint); transition: stroke-dashoffset .6s ease; }
+.hud-ring[data-band="mid"] .hud-ring-fg { stroke: #9be7c9; }
+.hud-ring[data-band="low"] .hud-ring-fg { stroke: var(--hud-warn); }
+.hud-ring-t { fill: var(--hud-text); font-family: var(--font-display, "Sora", sans-serif); font-weight: 800; font-variant-numeric: tabular-nums; }
+
+/* alert above the strip */
+.hud-alert { pointer-events: auto; display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 10px; margin-bottom: 8px; padding: 9px 10px 9px 10px; border-radius: 18px;
+  background: rgba(10,16,26,.94); border: 1px solid var(--hud-line); -webkit-backdrop-filter: var(--blur, blur(24px)); backdrop-filter: var(--blur, blur(24px)); box-shadow: 0 10px 30px rgba(0,0,0,.4); }
+.hud-alert[hidden] { display: none; }
+.hud-alert-i { width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center; background: rgba(52,224,180,.16); color: var(--hud-mint); }
+.hud-alert-i svg { width: 19px; height: 19px; }
+.hud-alert-t { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.hud-alert-t strong { font-family: var(--font-display, "Sora", sans-serif); font-size: 15.5px; font-weight: 700; }
+.hud-alert-t span { font-size: 12.5px; color: var(--hud-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hud-alert[data-level="warn"] { border-color: rgba(255,176,32,.5); }
+.hud-alert[data-level="warn"] .hud-alert-i { background: rgba(255,176,32,.2); color: var(--hud-warn); }
+.hud-alert[data-level="critical"] { border-color: rgba(255,69,58,.6); background: rgba(48,12,14,.95); }
+.hud-alert[data-level="critical"] .hud-alert-i { background: rgba(255,69,58,.25); color: var(--hud-crit); }
+.hud-alert-x { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: rgba(255,255,255,.08) !important; }
+.hud-alert-x svg { width: 15px; height: 15px; }
+
+/* ---------------- focus (riding dashboard) ---------------- */
+.hudf { pointer-events: auto; position: absolute; inset: 0; display: flex; flex-direction: column; gap: 14px; padding: calc(64px + var(--safe-t, 0px)) 18px calc(18px + var(--safe-b, 0px));   /* clears the status island */
+  background: radial-gradient(120% 70% at 50% 0%, #10202c 0%, var(--ink, #080e17) 62%); overflow-y: auto; }
+.hudf[hidden] { display: none; }
+.hudf-top { display: flex; align-items: center; gap: 10px; }
+.hudf-brand { display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-display, "Sora", sans-serif); font-size: 15px; font-weight: 700; letter-spacing: .02em; color: var(--hud-soft); }
+.hudf-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--hud-mint); box-shadow: 0 0 0 4px rgba(52,224,180,.18); }
+.hudf-chip { margin-top: 6px; white-space: nowrap; font-size: 12px; font-weight: 600; color: var(--hud-soft); padding: 4px 9px; border-radius: 10px; background: rgba(255,255,255,.07); }
+.hudf-chip[hidden] { display: none; }
+.hudf-exit { margin-left: auto; width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; background: rgba(255,255,255,.1) !important; }
+.hudf-exit svg { width: 22px; height: 22px; }
+.hudf-main { flex: 1 0 auto; display: flex; flex-direction: column; gap: 16px; }
+.hudf-hero { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 4px; padding: 14px 6px 6px; }
+.hudf-label { font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--hud-muted); }
+.hudf-hero-row { display: flex; align-items: baseline; gap: 8px; }
+.hudf-hero-v { font-family: var(--font-display, "Sora", sans-serif); font-size: clamp(76px, 24vw, 132px); font-weight: 800; letter-spacing: -.04em; line-height: .95; font-variant-numeric: tabular-nums; }
+.hudf-hero-u { font-family: var(--font-display, "Sora", sans-serif); font-size: 24px; font-weight: 700; color: var(--hud-soft); }
+.hudf[data-tone="good"] .hudf-hero-v { color: var(--hud-mint); }
+.hudf-hero-n { font-size: 15px; font-weight: 600; color: var(--hud-soft); }
+
+/* eco speed scale */
+.hudf-scale { position: relative; width: 100%; max-width: 560px; height: 58px; margin-top: 18px; }
+.hudf-scale-track { position: absolute; left: 0; right: 0; top: 24px; height: 10px; border-radius: 5px; background: rgba(255,255,255,.1); }
+.hudf-scale-band { position: absolute; top: 20px; height: 18px; border-radius: 9px; background: rgba(52,224,180,.35); box-shadow: inset 0 0 0 2px var(--hud-mint); }
+.hudf-scale-limit { position: absolute; top: 14px; width: 3px; height: 30px; margin-left: -1.5px; border-radius: 2px; background: #e53935; }
+.hudf-scale-adv { position: absolute; top: 16px; width: 10px; height: 26px; margin-left: -5px; border-radius: 4px; border: 2px solid var(--hud-warn); background: rgba(255,176,32,.18); }   /* Step 8: advised for conditions */
+.hudf-needle { position: absolute; top: 0; width: 0; height: 44px; }
+.hudf-needle::before { content: ""; position: absolute; left: -2px; top: 12px; width: 4px; height: 34px; border-radius: 2px; background: var(--hud-text); box-shadow: 0 0 0 2px rgba(8,14,23,.8); }
+.hudf-needle-v { position: absolute; top: -10px; transform: translateX(-50%); font-family: var(--font-display, "Sora", sans-serif); font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hudf-needle.is-warn::before { background: var(--hud-warn); }
+.hudf-needle.is-good::before { background: var(--hud-mint); }
+.hudf-tick { position: absolute; top: 42px; transform: translateX(-50%); font-size: 11px; color: var(--hud-muted); font-variant-numeric: tabular-nums; }
+.hudf-guide { display: flex; align-items: center; justify-content: center; gap: 8px; text-wrap: balance; margin: 10px 0 0; font-size: 17px; font-weight: 700; }
+.hudf-guide-i { width: 22px; height: 22px; display: inline-grid; }
+.hudf-guide-i svg { width: 100%; height: 100%; }
+.hudf-guide[data-tone="good"] { color: var(--hud-mint); } .hudf-guide[data-tone="warn"] { color: var(--hud-warn); } .hudf-guide[data-tone="neutral"] { color: var(--hud-soft); }
+
+/* tiles */
+.hudf-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.hudf-tile { display: flex; flex-direction: column; gap: 4px; padding: 14px; border-radius: 20px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); min-width: 0; }
+.hudf-tile-l { font-size: 11.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--hud-muted); }
+.hudf-tile-v { font-family: var(--font-display, "Sora", sans-serif); font-size: 32px; font-weight: 800; letter-spacing: -.02em; line-height: 1.05; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hudf-tile-s { font-size: 12.5px; color: var(--hud-soft); }
+.hudf-ring-wrap { display: flex; align-items: center; gap: 10px; }
+.hudf-ring-wrap .hudf-tile-v:empty { display: none; }
+
+/* next pitstop */
+.hudf-stop { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 12px; align-items: center; padding: 14px; border-radius: 20px; background: rgba(52,224,180,.1); border: 1px solid rgba(52,224,180,.35); }
+.hudf-stop[hidden] { display: none; }
+.hudf-stop-i { width: 48px; height: 48px; border-radius: 15px; display: grid; place-items: center; background: rgba(52,224,180,.18); color: var(--hud-mint); }
+.hudf-stop-i svg { width: 26px; height: 26px; }
+.hudf-stop-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.hudf-stop-t strong { font-family: var(--font-display, "Sora", sans-serif); font-size: 19px; font-weight: 700; }
+.hudf-stop-t span { font-size: 14px; color: var(--hud-soft); }
+.hudf-stop[data-level="warn"] { background: rgba(255,176,32,.1); border-color: rgba(255,176,32,.45); }
+.hudf-stop[data-level="warn"] .hudf-stop-i { background: rgba(255,176,32,.2); color: var(--hud-warn); }
+.hudf-stop[data-level="critical"] { background: rgba(255,69,58,.12); border-color: rgba(255,69,58,.55); }
+.hudf-stop[data-level="critical"] .hudf-stop-i { background: rgba(255,69,58,.25); color: var(--hud-crit); }
+.hudf-foot { margin: 0; text-align: center; font-size: 13px; color: var(--hud-muted); font-variant-numeric: tabular-nums; }
+
+/* Landscape (phone on a handlebar mount, or a tablet): figure + guidance on the left,
+   trip tiles and the next stop on the right. Sized by height so nothing overlaps at 390 px. */
+@media (orientation: landscape) and (min-width: 640px) {
+  .hudf { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); grid-template-rows: auto auto auto 1fr; grid-template-areas: "top top" "hero tiles" "hero stop" "hero foot";
+    column-gap: 22px; row-gap: 10px; align-content: start; padding: calc(12px + var(--safe-t, 0px)) calc(18px + var(--safe-r, 0px)) calc(12px + var(--safe-b, 0px)) calc(18px + var(--safe-l, 0px)); }
+  .hudf-main { display: contents; }
+  .hudf-top { grid-area: top; }
+  .hudf-hero { grid-area: hero; align-self: start; padding: 0; gap: 2px; }
+  .hudf-tiles { grid-area: tiles; align-self: start; }
+  .hudf-stop { grid-area: stop; }
+  .hudf-foot { grid-area: foot; align-self: end; text-align: right; }
+  .hudf-hero-v { font-size: clamp(56px, 21vh, 132px); }
+  .hudf-scale { margin-top: 8px; }
+  .hudf-guide { font-size: 15px; margin-top: 4px; }
+}
+/* Tablet / desktop landscape: centre the dashboard in the space under the header. */
+@media (orientation: landscape) and (min-width: 640px) and (min-height: 521px) {
+  .hudf { grid-template-rows: auto 1fr auto auto 1fr auto; grid-template-areas: "top top" ". ." "hero tiles" "hero stop" ". ." "foot foot"; row-gap: 14px; }
+  .hudf-hero { align-self: center; }
+  .hudf-foot { text-align: center; }
+}
+@media (orientation: landscape) and (min-width: 640px) and (max-height: 520px) {
+  .hudf-exit { width: 44px; height: 44px; }
+  .hudf-label { display: none; }
+  .hudf-tile { padding: 9px 12px; border-radius: 16px; gap: 2px; }
+  .hudf-tile-v { font-size: 24px; }
+  .hudf-tile-s { font-size: 11.5px; }
+  .hudf-ring-wrap svg { width: 46px; height: 46px; }
+  .hudf-stop { padding: 9px 12px; grid-template-columns: 38px minmax(0, 1fr); }
+  .hudf-stop-i { width: 38px; height: 38px; border-radius: 12px; }
+  .hudf-stop-t strong { font-size: 16px; }
+  .hudf-stop-t span { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
+/* Narrow strip (phone with the speed dial beside it): live · ring · cost. The guidance
+   words move to the riding dashboard rather than being cut to "e…". */
+@container hudstrip (max-width: 330px) {
+  .hud-eco-txt { display: none; }
+  .hud-cell-eco { justify-content: center; }
+  .hud-big { font-size: 23px; }
+}
+@media (max-width: 380px) {
+  .hud-strip { padding-left: 11px; gap: 8px; }
+  .hudf-tile-v { font-size: 26px; }
+}
+@media (prefers-reduced-motion: reduce) { .hud-ring-fg { transition: none; } }
+@media (forced-colors: active) { .hudf-scale-band { forced-color-adjust: none; } }
+
+/* Short landscape: no room above the strip without covering the turn banner, so the alert
+   sits beside the strip instead. */
+@media (orientation: landscape) and (max-height: 520px) {
+  #smartdrive-hud:not(.is-focus):not([hidden]) { display: grid; grid-template-columns: minmax(0, 480px) minmax(0, 1fr); align-items: stretch; column-gap: 8px; }
+  #smartdrive-hud:not(.is-focus) .hud-strip { grid-column: 1; grid-row: 1; }
+  #smartdrive-hud:not(.is-focus) .hud-alert { grid-column: 2; grid-row: 1; margin-bottom: 0; }
+  #smartdrive-hud:not(.is-focus) .hud-alert-t strong { font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
+
+/* Step 8: quiet ride toggle + road-conditions line on the riding dashboard */
+.hudf-quiet { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; height: 40px; padding: 0 14px 0 11px; border-radius: 20px; font-size: 13.5px !important; font-weight: 700; color: var(--hud-soft) !important; background: rgba(255,255,255,.08) !important; }
+.hudf-quiet + .hudf-exit { margin-left: 10px; }
+.hudf-quiet[aria-pressed="true"] { color: var(--hud-mint) !important; background: rgba(52,224,180,.16) !important; box-shadow: inset 0 0 0 1px rgba(52,224,180,.45); }
+.hudf-quiet-i { width: 18px; height: 18px; display: inline-grid; }
+.hudf-quiet-i svg { width: 100%; height: 100%; }
+.hudf-adv { display: flex; align-items: center; justify-content: center; gap: 7px; margin: 6px 0 0; padding: 6px 12px; border-radius: 12px; font-size: 14px; font-weight: 600; color: var(--hud-warn); background: rgba(255,176,32,.1); }
+.hudf-adv[hidden] { display: none; }
+.hudf-adv-i { width: 17px; height: 17px; display: inline-grid; flex: none; }
+.hudf-adv-i svg { width: 100%; height: 100%; }
+@media (orientation: landscape) and (min-width: 640px) and (max-height: 520px) { .hudf-quiet { height: 36px; } .hudf-adv { font-size: 12.5px; padding: 4px 10px; margin-top: 2px; } }

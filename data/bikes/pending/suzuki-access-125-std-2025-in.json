@@ -1,0 +1,77 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "suzuki-access-125-std-2025-in",
+  "kind": "variant",
+  "classKey": "ice_cvt.scooter",
+  "segment": "scooter",
+  "powertrain": "ice_cvt",
+  "identity": { "make": "Suzuki", "model": "Access 125", "variant": "Standard Edition (all-new 2025 generation)", "market": "IN", "yearFrom": 2025, "yearTo": null, "aliases": ["Access", "Suzuki Access", "Access 125 2025"] },
+  "sources": [
+    {
+      "id": "suzuki-access-site",
+      "kind": "manufacturer",
+      "title": "All-new Access 125 specifications",
+      "url": "https://www.suzukimotorcycle.co.in/product-details/all-new-access-125-bluetooth-enabled",
+      "publisher": "Suzuki Motorcycle India",
+      "retrieved": "2026-10-02"
+    },
+    {
+      "id": "suzuki-media-2025",
+      "kind": "manufacturer",
+      "title": "All-new Access launch (media release)",
+      "url": "https://suzukimotorcycle.co.in/media",
+      "publisher": "Suzuki Motorcycle India",
+      "retrieved": "2026-10-02"
+    },
+    {
+      "id": "zigwheels-access",
+      "kind": "aggregator",
+      "title": "Suzuki Access 125 specifications",
+      "url": "https://www.zigwheels.com/suzuki-bikes/access-125/specifications/",
+      "publisher": "ZigWheels",
+      "retrieved": "2026-10-02"
+    },
+    {
+      "id": "lower-blend-rule",
+      "kind": "derived",
+      "title": "Lower-ethanol blends of a certified fuel",
+      "retrieved": "2026-10-02",
+      "note": "A vehicle certified for a higher-ethanol petrol (e.g. E20) is materials-compatible with lower-ethanol petrol (E10, E0). Listed as compatible, never as certified."
+    }
+  ],
+  "engine": {
+    "displacement": { "v": 124, "u": "cm3", "src": "suzuki-access-site", "conf": 0.95 },
+    "cylinders": { "v": 1, "u": "1", "src": "suzuki-access-site", "conf": 0.95 },
+    "strokes": { "v": 4, "u": "1", "src": "suzuki-access-site", "conf": 0.95 },
+    "bore": { "v": 52.5, "u": "mm", "src": "suzuki-access-site", "conf": 0.95 },
+    "stroke": { "v": 57.4, "u": "mm", "src": "suzuki-access-site", "conf": 0.95 },
+    "compressionRatio": { "v": 9.4, "u": "1", "src": "zigwheels-access", "conf": 0.45 },
+    "cooling": { "v": "air", "src": "suzuki-access-site", "conf": 0.95 },
+    "fuelSystem": { "v": "fi", "src": "suzuki-access-site", "conf": 0.95 },
+    "peakPower": { "v": 6.2, "u": "kW", "src": "suzuki-access-site", "conf": 0.95 },
+    "peakPowerRpm": { "v": 6500, "u": "rpm", "src": "suzuki-access-site", "conf": 0.95 },
+    "peakTorque": { "v": 10.2, "u": "N*m", "src": "suzuki-access-site", "conf": 0.95 },
+    "peakTorqueRpm": { "v": 5000, "u": "rpm", "src": "suzuki-access-site", "conf": 0.95 }
+  },
+  "transmission": {
+    "kind": { "v": "cvt", "src": "suzuki-access-site", "conf": 0.95 }
+  },
+  "chassis": {
+    "mass": { "v": 107, "u": "kg", "src": "suzuki-access-site", "conf": 0.9, "basis": "kerb", "note": "Special / Ride Connect editions 106 kg" },
+    "fuelTank": { "v": 5.3, "u": "L", "src": "suzuki-access-site", "conf": 0.95 },
+    "frontTyre": { "v": "90/90-12 54J", "src": "suzuki-access-site", "conf": 0.95 },
+    "rearTyre": { "v": "90/100-10 53J", "src": "suzuki-access-site", "conf": 0.95 }
+  },
+  "emission": {
+    "standard": { "v": "BS6-P2", "src": "suzuki-media-2025", "conf": 0.85, "note": "\"compliant with OBD-2B norms\"" },
+    "obd": { "v": "OBD-2B", "src": "suzuki-media-2025", "conf": 0.85 }
+  },
+  "fuel": {
+    "compat": [
+      { "fuel": "E20", "status": "certified", "src": "zigwheels-access", "conf": 0.4, "note": "Aggregator only; Suzuki's 2023 E20 statement covered the previous generation — not used for fuel advice" },
+      { "fuel": "E10", "status": "compatible", "src": "lower-blend-rule", "conf": 0.4 }
+    ]
+  },
+  "notes": ["PENDING (2026-10-03): blocked by the fuel-safety rule — the only E20 statement for the 2025 model is an aggregator listing; Suzuki's 2023 statement covered the previous generation. Suzuki's own E20 page (https://www.suzukimotorcycle.co.in/blog/what-is-e20-petrol/) timed out when checked — read it, or the 2025 owner's manual, then move to variants/.", "No owner's manual for the 2025 generation was found: idle speed, CVT ratio range, final reduction and octane are missing; the class default fills them in for the physics."]
+}

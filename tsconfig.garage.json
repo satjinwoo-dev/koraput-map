@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "target": "ES2020",
+    "module": "commonjs",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "types": [],
+    "strict": false,
+    "noImplicitThis": false,
+    "noUnusedLocals": true
+  },
+  "files": [
+    "public/js/garage/units.js",
+    "public/js/garage/store.js",
+    "public/js/garage/silhouettes.js",
+    "public/js/garage/picker.js",
+    "public/js/garage/settings.js",
+    "public/js/garage/visualizer.js",
+    "public/js/garage/garage.js",
+    "public/js/garage/fuel-baseline.js"
+  ]
+}

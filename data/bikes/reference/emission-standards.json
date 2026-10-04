@@ -1,0 +1,43 @@
+{
+  "schemaVersion": "1.0.0",
+  "description": "Indian emission standards and on-board-diagnostics stages for new two-wheelers. A vehicle's emission.standard and emission.obd must use these codes.",
+  "sources": [
+    {
+      "id": "wiki-bharat-stage",
+      "kind": "aggregator",
+      "title": "Bharat stage emission standards",
+      "publisher": "Wikipedia",
+      "url": "https://en.wikipedia.org/wiki/Bharat_stage_emission_standards",
+      "retrieved": "2026-10-02",
+      "note": "Two-wheelers: BS-IV \"1 April 2017\"; BS-VI \"1 April 2020 with mandate\"."
+    },
+    {
+      "id": "autocar-bs6-p2",
+      "kind": "press",
+      "title": "BS6 Phase II emissions norms for petrol bikes, scooters explained",
+      "publisher": "Autocar India",
+      "url": "https://www.autocarindia.com/auto-features/bs6-phase-ii-emissions-regulations-explained-427790",
+      "retrieved": "2026-10-02",
+      "note": "\"OBD-2 technology becoming mandatory on all two-wheelers sold from April 1, 2023 onwards\""
+    },
+    {
+      "id": "bs-obd2b-2025",
+      "kind": "press",
+      "title": "New OBD emission norms to increase 2W prices by 1-2%: Hero MotoCorp",
+      "publisher": "Business Standard",
+      "url": "https://www.business-standard.com/companies/news/new-obd-emission-norms-to-increase-2w-prices-by-1-2-hero-motocorp-125020700837_1.html",
+      "retrieved": "2026-10-02",
+      "note": "\"from April 1, we have to manufacture vehicles as per the OBD-2 Phase-B\" (2025). Applies to vehicles manufactured on or after 2025-04-01."
+    }
+  ],
+  "standards": [
+    { "code": "BS4", "name": "Bharat Stage IV", "region": "IN", "effectiveFrom": "2017-04-01", "supersededFrom": "2020-04-01", "obdAtIntro": null, "src": "wiki-bharat-stage", "conf": 0.8 },
+    { "code": "BS6-P1", "name": "Bharat Stage VI, phase 1", "region": "IN", "effectiveFrom": "2020-04-01", "supersededFrom": "2023-04-01", "obdAtIntro": "OBD-1", "src": "wiki-bharat-stage", "conf": 0.8 },
+    { "code": "BS6-P2", "name": "Bharat Stage VI, phase 2", "region": "IN", "effectiveFrom": "2023-04-01", "supersededFrom": null, "obdAtIntro": "OBD-2A", "src": "autocar-bs6-p2", "conf": 0.8 }
+  ],
+  "obdLevels": [
+    { "code": "OBD-1", "name": "OBD stage I", "effectiveFrom": "2020-04-01", "src": "wiki-bharat-stage", "conf": 0.7 },
+    { "code": "OBD-2A", "name": "OBD stage II, phase A", "effectiveFrom": "2023-04-01", "src": "autocar-bs6-p2", "conf": 0.8 },
+    { "code": "OBD-2B", "name": "OBD stage II, phase B", "effectiveFrom": "2025-04-01", "src": "bs-obd2b-2025", "conf": 0.8, "note": "Vehicles manufactured on or after this date" }
+  ]
+}

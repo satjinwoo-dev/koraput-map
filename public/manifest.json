@@ -27,6 +27,13 @@
       "icons": [{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" }]
     },
     {
+      "name": "My bike",
+      "short_name": "My bike",
+      "description": "Your bike's fuel curve, eco speed band and gear guide",
+      "url": "/garage.html?source=shortcut",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
       "name": "Send SOS",
       "short_name": "SOS",
       "description": "Open the SOS confirmation",

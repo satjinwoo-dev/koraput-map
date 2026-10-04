@@ -1,0 +1,38 @@
+/* ============================================================================
+   MapUnite share — post-ride share sheet (scoped under .sh)
+   ============================================================================ */
+#share-modal .share-card { max-width: 960px; padding: 20px 18px 22px; }
+.sh { --sh-text: var(--text, #f2f6f8); --sh-soft: var(--soft, #c6d2db); --sh-muted: var(--muted, #8b9bab); --sh-mint: var(--mint, #34e0b4); --sh-line: var(--line, rgba(255,255,255,.085));
+  color: var(--sh-text); font-family: var(--font-ui, "Inter", system-ui, sans-serif); display: flex; flex-direction: column; gap: 14px; }
+.sh * { box-sizing: border-box; }
+.sh button { font: inherit; color: inherit; cursor: pointer; border: 0; background: none; }
+.sh :focus-visible { outline: 2px solid var(--sh-mint); outline-offset: 2px; border-radius: 8px; }
+.sh-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.sh-title { margin: 0; font-family: var(--font-display, "Sora", sans-serif); font-size: 21px; font-weight: 700; }
+.sh-sub { margin: 4px 0 0; font-size: 12.5px; color: var(--sh-muted); }
+.sh-close { flex: none; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: rgba(255,255,255,.08) !important; }
+.sh-close svg { width: 17px; height: 17px; }
+.sh-body { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
+.sh-preview { display: grid; place-items: center; padding: 14px; border-radius: 22px; background: rgba(255,255,255,.03); border: 1px solid var(--sh-line); min-height: 0; }
+.sh-canvas { display: block; width: auto; max-width: 100%; height: auto; max-height: min(68vh, 720px); border-radius: 16px; box-shadow: 0 18px 50px rgba(0,0,0,.55); aspect-ratio: 9 / 16; }
+.sh-canvas[data-format="post"] { aspect-ratio: 4 / 5; }
+.sh-side { display: flex; flex-direction: column; gap: 14px; }
+.sh-seg { display: flex; padding: 3px; border-radius: 14px; background: rgba(255,255,255,.06); }
+.sh-seg-btn { flex: 1; height: 38px; border-radius: 11px; font-size: 13.5px !important; font-weight: 600; color: var(--sh-soft) !important; }
+.sh-seg-btn[aria-checked="true"] { background: rgba(52,224,180,.18) !important; color: var(--sh-mint) !important; }
+.sh-opts { display: flex; flex-direction: column; gap: 4px; }
+.sh-toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; font-size: 13.5px; color: var(--sh-soft); cursor: pointer; }
+.sh-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.sh-btn, .sh-btn-ghost { flex: 1 1 auto; display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 48px; padding: 0 16px; border-radius: 15px; font-family: var(--font-display, "Sora", sans-serif) !important; font-size: 15px; font-weight: 700; }
+.sh-btn { background: linear-gradient(135deg, #34d399, #22c55e) !important; color: #062112 !important; box-shadow: 0 6px 20px rgba(34,197,94,.3); }
+.sh-btn-ghost { background: rgba(255,255,255,.09) !important; }
+.sh-i { width: 18px; height: 18px; display: inline-grid; }
+.sh-i svg { width: 100%; height: 100%; }
+.sh-status { margin: 0; min-height: 18px; font-size: 12.5px; color: var(--sh-soft); }
+@media (max-width: 760px) {
+  .sh-body { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .sh-canvas { max-height: 50vh; }
+  #share-modal { padding: calc(64px + var(--safe-t, 0px)) 0 0; align-items: stretch; }
+  #share-modal .share-card { max-width: none; max-height: none; height: calc(var(--app-h, 100vh) - 64px - var(--safe-t, 0px)); border-radius: 24px 24px 0 0; padding: 16px 14px calc(22px + var(--safe-b, 0px)); }
+}
+#share-ride-btn { width: 100%; margin-top: 8px; }

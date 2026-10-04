@@ -18,7 +18,9 @@
 // plain utterance so safety-critical cues still get through.
 //   opts: { priority 0..100, key (dedupe), cooldownMs, category,
 //           drivingOnly (skip unless a drive is active), force (user-asked
-//           replies / SOS: bypass the settings toggle and mute), maxAgeMs }
+//           replies / SOS: bypass the settings toggle and mute), maxAgeMs,
+//           dropIfBusy (Step 8 advice: say it now or never — never queue it
+//           behind, or interrupt, anything else) }
 function voiceAnnounce(text, opts = {}) {
     if (window.VoiceAssistant && typeof window.VoiceAssistant.announce === "function") {
         return window.VoiceAssistant.announce(text, opts);
@@ -33,7 +35,7 @@ function voiceAnnounce(text, opts = {}) {
 
 // Live navigation state, read by voice commands ("how far?") and by
 // isDriving(). Updated only inside startSearchNavigation()/stopDrive().
-const navState = { ready: false, active: false, destName: "", remainingM: null, etaSec: null, nextManeuver: "", routePath: null };
+const navState = { ready: false, active: false, destName: "", remainingM: null, etaSec: null, nextManeuver: "", nextManeuverM: null, routePath: null };
 
 // Broadcast drive start/stop so features.js can arm hands-free listening and
 // the convoy loop without app.js knowing about either.
@@ -108,6 +110,8 @@ const VOICE_COMMANDS = [
     { name: "cancelPending", test: (t, ctx) => ctx.pendingSos && /\b(cancel|no|nahi|stop|don'?t)\b/.test(t) },
     { name: "sos", test: (t) => /\b(send|trigger|raise|call)\b.*\b(sos|s o s|emergency)\b|\bemergency\b|\bhelp me\b|\bsos\b|\bs o s\b/.test(t) },
     { name: "help", test: (t) => /\b(help|what can i say|commands|options)\b/.test(t) },
+    // Step 8: "quiet ride" switches off riding advice only (safety alerts stay); before "mute", which also matches "quiet"
+    { name: "quietRide", test: (t) => (/\b(quiet ride|no (coaching|advice|tips)|(coaching|advice|tips) off)\b/.test(t) ? "on" : /\b((coaching|advice|tips) (on|back)|normal ride)\b/.test(t) ? "off" : false) },
     { name: "unmute", test: (t) => /\b(unmute|un mute|voice on|alerts on|sound on|speak again)\b/.test(t) },
     { name: "mute", test: (t) => /\b(mute|quiet|silence|shut up|chup|alerts off|voice off)\b/.test(t) },
     { name: "stopNav", test: (t, ctx) => /\b(stop|end|cancel|exit|finish)\b.*\b(navigation|navigating|drive|ride|trip|route|directions)\b/.test(t) || (ctx.mode === "ptt" && /^(stop|ruko|band karo|end)$/.test(t)) },
@@ -296,6 +300,9 @@ const VoiceAssistant = {
             if (this.isMuted() && priority < 100) return false;
             if (opts.drivingOnly && !this.driving() && priority < 90) return false;
         }
+        // Advice (Step 8) never waits in line or talks over anything: if something is
+        // speaking or queued, it's dropped (and its key isn't burned).
+        if (opts.dropIfBusy && (this.current || this.queue.length)) return false;
         const now = Date.now();
         if (opts.key) {
             const last = this.recentKeys.get(opts.key);
@@ -549,6 +556,13 @@ const VoiceAssistant = {
                 this.reply("Alerts muted for 30 minutes. Emergency alerts still come through.");
                 islandShow({ id: "voice-muted", kind: "info", icon: "🔇", title: "Voice alerts muted", sub: "30 minutes · say “unmute” to undo", ttl: 4000, haptic: false });
                 break;
+            case "quietRide": {
+                const app = window.MUAdvice && window.MUAdvice.app;
+                if (!app) { this.reply("Riding advice isn't available."); break; }
+                app.setQuiet(cmd.arg === "on");
+                this.reply(cmd.arg === "on" ? "Quiet ride. No riding advice; safety alerts stay on." : "Riding advice is back on.");
+                break;
+            }
             case "unmute":
                 this.mutedUntil = 0;
                 this.reply("Voice alerts are back on.");

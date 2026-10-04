@@ -1,0 +1,80 @@
+{
+  "schemaVersion": "1.0.0",
+  "description": "Petrol / ethanol blend grades. lhv = lower heating value per litre (drives the fuel model: same energy needed, fewer MJ per litre of ethanol blend). Blend rows are computed from the E0 and E100 rows by volume mixing; the E10 result (31.25 MJ/L) matches AFDC's own published E10 figure, which cross-checks the method.",
+  "sources": [
+    {
+      "id": "afdc-fuel-properties",
+      "kind": "regulation",
+      "title": "Fuel Properties Comparison (Energy Content, lower heating value)",
+      "publisher": "U.S. Department of Energy, Alternative Fuels Data Center",
+      "url": "https://afdc.energy.gov/fuels/properties",
+      "retrieved": "2026-10-02",
+      "note": "Gasoline 116,090 Btu/gal (E0), E10 112,114 Btu/gal, ethanol 76,330 Btu/gal. Converted with 1 Btu = 1055.056 J, 1 US gal = 3.785412 L."
+    },
+    {
+      "id": "hpcl-ms-bs6-spec",
+      "kind": "regulation",
+      "title": "MS (petrol) BS-VI specification",
+      "publisher": "Hindustan Petroleum Corporation Ltd",
+      "url": "https://www.hindustanpetroleum.com/images/pdf/MS_HSD_BS-VI_SPECS.pdf",
+      "retrieved": "2026-10-02",
+      "note": "Density at 15 °C 720.0–775.0 kg/m3; RON minimum 91.0."
+    },
+    {
+      "id": "e20-ron95-mandate",
+      "kind": "press",
+      "title": "E20 petrol with RON 95 mandatory from April 1",
+      "publisher": "Business Standard",
+      "url": "https://www.business-standard.com/amp/industry/news/e20-petrol-ron-95-mandatory-april-1-india-ethanol-blending-impact-cars-126022600872_1.html",
+      "retrieved": "2026-10-02",
+      "note": "\"From April 1, 2026, all petrol pumps across India will sell petrol blended with up to 20 per cent ethanol and a minimum Research Octane Number (RON) of 95.\""
+    },
+    {
+      "id": "volume-mixing",
+      "kind": "derived",
+      "title": "Volume-weighted mixing of E0 and E100 properties",
+      "retrieved": "2026-10-02",
+      "note": "x = ethanol volume fraction; property = (1 − x)·E0 + x·E100. LHV: E0 32.356, E100 21.274 MJ/L. Density: E0 0.7475 kg/L (midpoint of the BS-VI 720–775 kg/m3 band), ethanol 0.789 kg/L (anhydrous, 20 °C). Real blends deviate by well under 1 %."
+    }
+  ],
+  "grades": [
+    {
+      "code": "E0",
+      "ethanolVolFraction": 0,
+      "flexFuelBlend": false,
+      "lhv": { "v": 32.356, "u": "MJ/L", "src": "afdc-fuel-properties", "conf": 0.9 },
+      "density": { "v": 0.7475, "u": "kg/L", "src": "hpcl-ms-bs6-spec", "conf": 0.7, "note": "Midpoint of the 720–775 kg/m3 specification band" },
+      "typicalRon": { "v": 91, "u": "RON", "src": "hpcl-ms-bs6-spec", "conf": 0.85, "note": "BS-VI regular petrol minimum" }
+    },
+    {
+      "code": "E10",
+      "ethanolVolFraction": 0.1,
+      "flexFuelBlend": false,
+      "lhv": { "v": 31.248, "u": "MJ/L", "src": "afdc-fuel-properties", "conf": 0.9 },
+      "density": { "v": 0.7517, "u": "kg/L", "src": "volume-mixing", "conf": 0.7 },
+      "typicalRon": { "v": 91, "u": "RON", "src": "hpcl-ms-bs6-spec", "conf": 0.7, "note": "Pre-2026 E10 sold to the BS-VI 91 RON minimum" }
+    },
+    {
+      "code": "E20",
+      "ethanolVolFraction": 0.2,
+      "flexFuelBlend": false,
+      "lhv": { "v": 30.14, "u": "MJ/L", "src": "volume-mixing", "conf": 0.85 },
+      "density": { "v": 0.7558, "u": "kg/L", "src": "volume-mixing", "conf": 0.7 },
+      "typicalRon": { "v": 95, "u": "RON", "src": "e20-ron95-mandate", "conf": 0.75, "note": "Mandated minimum at Indian pumps from 2026-04-01" }
+    },
+    {
+      "code": "E85",
+      "ethanolVolFraction": 0.85,
+      "flexFuelBlend": true,
+      "lhv": { "v": 22.937, "u": "MJ/L", "src": "volume-mixing", "conf": 0.75, "note": "Nominal 85 % ethanol; marketed E85 varies in ethanol content" },
+      "density": { "v": 0.7828, "u": "kg/L", "src": "volume-mixing", "conf": 0.7 }
+    },
+    {
+      "code": "E100",
+      "ethanolVolFraction": 1,
+      "flexFuelBlend": true,
+      "lhv": { "v": 21.274, "u": "MJ/L", "src": "afdc-fuel-properties", "conf": 0.9 },
+      "density": { "v": 0.789, "u": "kg/L", "src": "volume-mixing", "conf": 0.8, "note": "Anhydrous ethanol at 20 °C" }
+    }
+  ]
+}

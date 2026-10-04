@@ -1,0 +1,85 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "royal-enfield-meteor-350-in",
+  "kind": "variant",
+  "classKey": "ice_manual.cruiser",
+  "segment": "cruiser",
+  "powertrain": "ice_manual",
+  "identity": { "make": "Royal Enfield", "model": "Meteor 350", "variant": "All variants (Sept 2025 update)", "market": "IN", "yearFrom": 2020, "yearTo": null, "aliases": ["Meteor", "RE Meteor", "Royal Enfield Meteor"] },
+  "sources": [
+    { "id": "re-meteor-site", "kind": "manufacturer", "title": "Meteor 350 specifications", "url": "https://www.royalenfield.com/in/en/motorcycles/meteor-350/", "publisher": "Royal Enfield", "retrieved": "2026-10-02" },
+    {
+      "id": "re-meteor-om-2024",
+      "kind": "owners_manual",
+      "title": "Meteor 350 India BS VI owner's manual RAM00244/D (11 Mar 2024), third-party hosted copy",
+      "url": "https://in.rajuginni.com/bikes/wp-content/uploads/2024/12/royal-enfield_meteor-owners-manual.pdf",
+      "publisher": "Royal Enfield",
+      "retrieved": "2026-10-02"
+    },
+    {
+      "id": "manualslib-meteor-eu",
+      "kind": "owners_manual",
+      "title": "Meteor 350 Europe/UK owner's manual RAM00316/A (Mar 2023)",
+      "url": "https://www.manualslib.com/manual/3151169/Royal-Enfield-Meteor-350.html",
+      "publisher": "ManualsLib",
+      "retrieved": "2026-10-02"
+    },
+    {
+      "id": "lower-blend-rule",
+      "kind": "derived",
+      "title": "Lower-ethanol blends of a certified fuel",
+      "retrieved": "2026-10-02",
+      "note": "A vehicle certified for a higher-ethanol petrol (e.g. E20) is materials-compatible with lower-ethanol petrol (E10, E0). Listed as compatible, never as certified."
+    },
+    {
+      "id": "regulatory-inference",
+      "kind": "derived",
+      "title": "Emission stage implied by date of manufacture",
+      "retrieved": "2026-10-02",
+      "note": "Sold new after 2023-04-01 means BS6 phase 2; manufactured on or after 2025-04-01 means OBD-2B (data/bikes/reference/emission-standards.json). Used only where the manufacturer does not state the stage."
+    }
+  ],
+  "engine": {
+    "displacement": { "v": 349.34, "u": "cm3", "src": "re-meteor-site", "conf": 0.95 },
+    "cylinders": { "v": 1, "u": "1", "src": "re-meteor-site", "conf": 0.95 },
+    "strokes": { "v": 4, "u": "1", "src": "re-meteor-site", "conf": 0.95 },
+    "bore": { "v": 72, "u": "mm", "src": "re-meteor-site", "conf": 0.95 },
+    "stroke": { "v": 85.8, "u": "mm", "src": "re-meteor-site", "conf": 0.95 },
+    "compressionRatio": { "v": 9.5, "u": "1", "src": "re-meteor-site", "conf": 0.95 },
+    "cooling": { "v": "air_oil", "src": "re-meteor-site", "conf": 0.95 },
+    "fuelSystem": { "v": "fi", "src": "re-meteor-site", "conf": 0.95 },
+    "peakPower": { "v": 14.87, "u": "kW", "src": "re-meteor-site", "conf": 0.95, "note": "Published as '20.2 BHP (14.87 kW)'; 14.87 kW is 20.2 PS" },
+    "peakPowerRpm": { "v": 6100, "u": "rpm", "src": "re-meteor-site", "conf": 0.95 },
+    "peakTorque": { "v": 27, "u": "N*m", "src": "re-meteor-site", "conf": 0.95 },
+    "peakTorqueRpm": { "v": 4000, "u": "rpm", "src": "re-meteor-site", "conf": 0.95 },
+    "idleRpm": { "v": 1050, "u": "rpm", "src": "re-meteor-om-2024", "conf": 0.8, "tol": 100 }
+  },
+  "transmission": {
+    "kind": { "v": "manual", "src": "re-meteor-site", "conf": 0.95 },
+    "speeds": { "v": 5, "u": "1", "src": "re-meteor-site", "conf": 0.95 },
+    "primaryRatio": { "v": 2.313, "u": "1", "src": "re-meteor-om-2024", "conf": 0.75 },
+    "gearRatios": { "v": [2.615, 1.706, 1.3, 1.04, 0.875], "u": "1", "src": "re-meteor-om-2024", "conf": 0.75 },
+    "finalRatio": { "v": 2.8, "u": "1", "src": "re-meteor-om-2024", "conf": 0.75, "note": "Secondary sprocket ratio 2.800:1, 104-link chain; tooth counts not published" },
+    "drive": { "v": "chain", "src": "re-meteor-om-2024", "conf": 0.75 }
+  },
+  "chassis": {
+    "mass": { "v": 191, "u": "kg", "src": "re-meteor-site", "conf": 0.95, "basis": "kerb", "note": "With 90 % fuel and oil" },
+    "fuelTank": { "v": 15, "u": "L", "src": "re-meteor-site", "conf": 0.9 },
+    "frontTyre": { "v": "100/90-19 57P", "src": "re-meteor-site", "conf": 0.9 },
+    "rearTyre": { "v": "140/70-17 66P", "src": "re-meteor-site", "conf": 0.9 }
+  },
+  "emission": {
+    "standard": { "v": "BS6-P2", "src": "regulatory-inference", "conf": 0.75 },
+    "obd": { "v": "OBD-2B", "src": "regulatory-inference", "conf": 0.7 }
+  },
+  "fuel": {
+    "minRon": { "v": 91, "u": "RON", "src": "manualslib-meteor-eu", "conf": 0.5, "note": "From the EU/UK manual; the India manual gives no RON" },
+    "compat": [
+      { "fuel": "E20", "status": "certified", "src": "re-meteor-om-2024", "conf": 0.85, "note": "\"Fuel type: Petrol, up to E20\" (India manual)" },
+      { "fuel": "E10", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 },
+      { "fuel": "E0", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 }
+    ]
+  },
+  "notes": ["Ratios from the March 2024 manual, before the Sept 2025 slip-assist clutch update (no ratio change reported)."]
+}

@@ -1,0 +1,47 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "tvs-iqube-3-5kwh-in",
+  "kind": "variant",
+  "classKey": "ev.scooter",
+  "segment": "scooter",
+  "powertrain": "ev",
+  "identity": { "make": "TVS", "model": "iQube", "variant": "3.5 kWh (2025 battery update)", "market": "IN", "yearFrom": 2025, "yearTo": null, "aliases": ["iQube", "TVS iQube", "iQube 3.5"] },
+  "sources": [
+    {
+      "id": "tvs-iqube-3-5",
+      "kind": "manufacturer",
+      "title": "TVS iQube 3.5 kWh variant details",
+      "url": "https://www.tvsmotor.com/electric-scooters/tvs-iqube/tvs-iqube-3-5-kwh-variant-details",
+      "publisher": "TVS Motor Company",
+      "retrieved": "2026-10-02"
+    },
+    { "id": "zigwheels-iqube", "kind": "aggregator", "title": "TVS iQube specifications", "url": "https://www.zigwheels.com/tvs-bikes/iqube-electric/specifications/", "publisher": "ZigWheels", "retrieved": "2026-10-02" },
+    { "id": "hub-direct-drive", "kind": "derived", "title": "Direct hub motor reduction", "retrieved": "2026-10-02", "note": "A hub motor drives the wheel directly, so the motor-to-wheel reduction is 1." }
+  ],
+  "motor": {
+    "type": { "v": "bldc", "src": "tvs-iqube-3-5", "conf": 0.85 },
+    "mount": { "v": "hub", "src": "tvs-iqube-3-5", "conf": 0.85 },
+    "peakPower": { "v": 4.4, "u": "kW", "src": "tvs-iqube-3-5", "conf": 0.85 },
+    "ratedPower": { "v": 3, "u": "kW", "src": "tvs-iqube-3-5", "conf": 0.85 },
+    "peakTorque": { "v": 140, "u": "N*m", "src": "tvs-iqube-3-5", "conf": 0.8, "at": "unspecified", "note": "TVS doesn't say motor or wheel; ZigWheels calls 140 N·m wheel torque and the 33 N·m rated torque motor torque" }
+  },
+  "battery": {
+    "grossCapacity": { "v": 3.5, "u": "kWh", "src": "tvs-iqube-3-5", "conf": 0.8 },
+    "nominalVoltage": { "v": 52, "u": "V", "src": "tvs-iqube-3-5", "conf": 0.8 },
+    "chemistry": { "v": "Lithium ion", "src": "tvs-iqube-3-5", "conf": 0.8 },
+    "certifiedRange": { "v": 145, "u": "km", "src": "tvs-iqube-3-5", "conf": 0.85, "cycle": "IDC" }
+  },
+  "transmission": {
+    "kind": { "v": "single_speed", "src": "tvs-iqube-3-5", "conf": 0.8 },
+    "drive": { "v": "hub_direct", "src": "zigwheels-iqube", "conf": 0.7 },
+    "reductionRatio": { "v": 1, "u": "1", "src": "hub-direct-drive", "conf": 0.8 }
+  },
+  "chassis": {
+    "mass": { "v": 119.1, "u": "kg", "src": "tvs-iqube-3-5", "conf": 0.75, "basis": "kerb", "note": "TVS labels it 'Weight'; ZigWheels lists the same figure as kerb weight" },
+    "frontTyre": { "v": "90/90-12", "src": "tvs-iqube-3-5", "conf": 0.85 },
+    "rearTyre": { "v": "90/90-12", "src": "tvs-iqube-3-5", "conf": 0.85 },
+    "topSpeed": { "v": 82, "u": "km/h", "src": "tvs-iqube-3-5", "conf": 0.85 }
+  },
+  "notes": []
+}

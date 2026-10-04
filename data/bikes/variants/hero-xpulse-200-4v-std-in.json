@@ -1,0 +1,72 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "hero-xpulse-200-4v-std-in",
+  "kind": "variant",
+  "classKey": "ice_manual.adventure",
+  "segment": "adventure",
+  "powertrain": "ice_manual",
+  "identity": { "make": "Hero", "model": "XPulse 200 4V", "variant": "STD, OBD-2B", "market": "IN", "yearFrom": 2021, "yearTo": null, "aliases": ["XPulse", "Xpulse 200", "X Pulse 200"] },
+  "sources": [
+    {
+      "id": "hero-xpulse-om-2024",
+      "kind": "owners_manual",
+      "title": "XPulse 200 4V owner's manual (Oct 2024)",
+      "url": "https://www.heromotocorp.com/content/dam/hero-aem-website/in/service-owner-manual/xpulse_200_4V_oct_2024.pdf",
+      "publisher": "Hero MotoCorp",
+      "retrieved": "2026-10-02"
+    },
+    {
+      "id": "lower-blend-rule",
+      "kind": "derived",
+      "title": "Lower-ethanol blends of a certified fuel",
+      "retrieved": "2026-10-02",
+      "note": "A vehicle certified for a higher-ethanol petrol (e.g. E20) is materials-compatible with lower-ethanol petrol (E10, E0). Listed as compatible, never as certified."
+    }
+  ],
+  "engine": {
+    "displacement": { "v": 199.6, "u": "cm3", "src": "hero-xpulse-om-2024", "conf": 0.95 },
+    "cylinders": { "v": 1, "u": "1", "src": "hero-xpulse-om-2024", "conf": 0.9 },
+    "strokes": { "v": 4, "u": "1", "src": "hero-xpulse-om-2024", "conf": 0.9 },
+    "bore": { "v": 66.5, "u": "mm", "src": "hero-xpulse-om-2024", "conf": 0.95 },
+    "stroke": { "v": 57.5, "u": "mm", "src": "hero-xpulse-om-2024", "conf": 0.95 },
+    "compressionRatio": { "v": 10, "u": "1", "src": "hero-xpulse-om-2024", "conf": 0.5, "note": "Printed as '10:01' (read as 10:1); BikeWale (bikewale.com/hero-bikes/xpulse-200-4v) says 10.5:1 — unresolved" },
+    "cooling": { "v": "air_oil", "src": "hero-xpulse-om-2024", "conf": 0.75, "note": "Manual mentions an engine oil cooler" },
+    "fuelSystem": { "v": "fi", "src": "hero-xpulse-om-2024", "conf": 0.9 },
+    "peakPower": { "v": 14.1, "u": "kW", "src": "hero-xpulse-om-2024", "conf": 0.95 },
+    "peakPowerRpm": { "v": 8500, "u": "rpm", "src": "hero-xpulse-om-2024", "conf": 0.95 },
+    "peakTorque": { "v": 17.35, "u": "N*m", "src": "hero-xpulse-om-2024", "conf": 0.95 },
+    "peakTorqueRpm": { "v": 6500, "u": "rpm", "src": "hero-xpulse-om-2024", "conf": 0.95 },
+    "idleRpm": { "v": 1600, "u": "rpm", "src": "hero-xpulse-om-2024", "conf": 0.9, "tol": 100 }
+  },
+  "transmission": {
+    "kind": { "v": "manual", "src": "hero-xpulse-om-2024", "conf": 0.95 },
+    "speeds": { "v": 5, "u": "1", "src": "hero-xpulse-om-2024", "conf": 0.95 },
+    "primaryRatio": { "v": 3.05, "u": "1", "src": "hero-xpulse-om-2024", "conf": 0.9, "note": "67/22 teeth" },
+    "gearRatios": { "v": [2.916, 1.875, 1.35, 1.043, 0.88], "u": "1", "src": "hero-xpulse-om-2024", "conf": 0.9, "note": "Teeth 35/12, 30/16, 27/20, 24/23, 22/25" },
+    "finalRatio": { "v": 3.461, "u": "1", "src": "hero-xpulse-om-2024", "conf": 0.9 },
+    "frontSprocket": { "v": 13, "u": "1", "src": "hero-xpulse-om-2024", "conf": 0.9 },
+    "rearSprocket": { "v": 45, "u": "1", "src": "hero-xpulse-om-2024", "conf": 0.9 },
+    "drive": { "v": "chain", "src": "hero-xpulse-om-2024", "conf": 0.9 }
+  },
+  "chassis": {
+    "mass": { "v": 159, "u": "kg", "src": "hero-xpulse-om-2024", "conf": 0.9, "basis": "kerb", "note": "Pro variant: 161 kg" },
+    "fuelTank": { "v": 13, "u": "L", "src": "hero-xpulse-om-2024", "conf": 0.95 },
+    "frontTyre": { "v": "90/90-21 M/C 54S", "src": "hero-xpulse-om-2024", "conf": 0.95 },
+    "rearTyre": { "v": "120/80-18 M/C 62S", "src": "hero-xpulse-om-2024", "conf": 0.95 }
+  },
+  "emission": {
+    "standard": { "v": "BS6-P2", "src": "hero-xpulse-om-2024", "conf": 0.9, "note": "\"latest BS-VI OBD Stage II-B regulation\"" },
+    "obd": { "v": "OBD-2B", "src": "hero-xpulse-om-2024", "conf": 0.9 }
+  },
+  "fuel": {
+    "compat": [
+      { "fuel": "E20", "status": "certified", "src": "hero-xpulse-om-2024", "conf": 0.9, "note": "Tank sticker: parts compliant up to 20 % ethanol" },
+      { "fuel": "E10", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 },
+      { "fuel": "E0", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 },
+      { "fuel": "E85", "status": "not_approved", "src": "hero-xpulse-om-2024", "conf": 0.8, "note": "Parts compliant only up to 20 % ethanol" },
+      { "fuel": "E100", "status": "not_approved", "src": "hero-xpulse-om-2024", "conf": 0.8 }
+    ]
+  },
+  "notes": ["No minimum octane stated (manual: BS-VI grade fuel)."]
+}

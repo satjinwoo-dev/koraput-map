@@ -1,0 +1,88 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "yamaha-yzf-r15-v4-in",
+  "kind": "variant",
+  "classKey": "ice_manual.sport",
+  "segment": "sport",
+  "powertrain": "ice_manual",
+  "identity": { "make": "Yamaha", "model": "YZF-R15 V4", "variant": "Standard", "market": "IN", "yearFrom": 2021, "yearTo": null, "aliases": ["R15", "R15 V4", "YZF R15", "R15 version 4"] },
+  "sources": [
+    { "id": "yamaha-r15-site", "kind": "manufacturer", "title": "YZF-R15 V4 specifications", "url": "https://www.yamaha-motor-india.com/yamaha-r15v4.html", "publisher": "India Yamaha Motor", "retrieved": "2026-10-02" },
+    {
+      "id": "yamaha-r15-sm-2021",
+      "kind": "service_manual",
+      "title": "YZF155-A service manual, India, 1st edition (Sept 2021)",
+      "url": "https://www.manualslib.com/manual/2979738/Yamaha-R15-2022.html?page=61",
+      "publisher": "ManualsLib",
+      "retrieved": "2026-10-02"
+    },
+    {
+      "id": "yamaha-r15-om-id-2022",
+      "kind": "owners_manual",
+      "title": "YZF155 owner's manual, Indonesia BNC-F8199-EY (Jan 2022)",
+      "url": "https://www.manualslib.com/manual/2547305/Yamaha-R15.html?page=91",
+      "publisher": "ManualsLib",
+      "retrieved": "2026-10-02"
+    },
+    { "id": "zigwheels-r15", "kind": "aggregator", "title": "Yamaha R15 V4 specifications", "url": "https://www.zigwheels.com/yamaha-bikes/r15-v4/specifications/", "publisher": "ZigWheels", "retrieved": "2026-10-02" },
+    {
+      "id": "lower-blend-rule",
+      "kind": "derived",
+      "title": "Lower-ethanol blends of a certified fuel",
+      "retrieved": "2026-10-02",
+      "note": "A vehicle certified for a higher-ethanol petrol (e.g. E20) is materials-compatible with lower-ethanol petrol (E10, E0). Listed as compatible, never as certified."
+    },
+    {
+      "id": "regulatory-inference",
+      "kind": "derived",
+      "title": "Emission stage implied by date of manufacture",
+      "retrieved": "2026-10-02",
+      "note": "Sold new after 2023-04-01 means BS6 phase 2; manufactured on or after 2025-04-01 means OBD-2B (data/bikes/reference/emission-standards.json). Used only where the manufacturer does not state the stage."
+    }
+  ],
+  "engine": {
+    "displacement": { "v": 155, "u": "cm3", "src": "yamaha-r15-site", "conf": 0.9 },
+    "cylinders": { "v": 1, "u": "1", "src": "yamaha-r15-sm-2021", "conf": 0.8 },
+    "strokes": { "v": 4, "u": "1", "src": "yamaha-r15-site", "conf": 0.9 },
+    "bore": { "v": 58, "u": "mm", "src": "yamaha-r15-site", "conf": 0.9 },
+    "stroke": { "v": 58.7, "u": "mm", "src": "yamaha-r15-site", "conf": 0.9 },
+    "compressionRatio": { "v": 11.6, "u": "1", "src": "yamaha-r15-site", "conf": 0.9 },
+    "cooling": { "v": "liquid", "src": "yamaha-r15-site", "conf": 0.9 },
+    "fuelSystem": { "v": "fi", "src": "yamaha-r15-site", "conf": 0.9 },
+    "peakPower": { "v": 13.5, "u": "kW", "src": "yamaha-r15-site", "conf": 0.9, "note": "18.4 PS" },
+    "peakPowerRpm": { "v": 10000, "u": "rpm", "src": "yamaha-r15-site", "conf": 0.9 },
+    "peakTorque": { "v": 14.2, "u": "N*m", "src": "yamaha-r15-site", "conf": 0.9 },
+    "peakTorqueRpm": { "v": 7500, "u": "rpm", "src": "yamaha-r15-site", "conf": 0.9 },
+    "idleRpm": { "v": 1400, "u": "rpm", "src": "yamaha-r15-sm-2021", "conf": 0.75, "tol": 100, "note": "Service manual: 1300–1500 r/min" }
+  },
+  "transmission": {
+    "kind": { "v": "manual", "src": "yamaha-r15-site", "conf": 0.9 },
+    "speeds": { "v": 6, "u": "1", "src": "yamaha-r15-site", "conf": 0.9 },
+    "primaryRatio": { "v": 3.042, "u": "1", "src": "yamaha-r15-sm-2021", "conf": 0.65, "note": "73/24 teeth" },
+    "gearRatios": { "v": [2.833, 1.875, 1.364, 1.143, 0.957, 0.84], "u": "1", "src": "yamaha-r15-om-id-2022", "conf": 0.7, "note": "Teeth 34/12, 30/16, 30/22, 24/21, 22/23, 21/25; the India service manual lists the same values" },
+    "finalRatio": { "v": 3.429, "u": "1", "src": "yamaha-r15-sm-2021", "conf": 0.65 },
+    "frontSprocket": { "v": 14, "u": "1", "src": "yamaha-r15-sm-2021", "conf": 0.65 },
+    "rearSprocket": { "v": 48, "u": "1", "src": "yamaha-r15-sm-2021", "conf": 0.65 },
+    "drive": { "v": "chain", "src": "yamaha-r15-sm-2021", "conf": 0.65 }
+  },
+  "chassis": {
+    "mass": { "v": 141, "u": "kg", "src": "yamaha-r15-site", "conf": 0.9, "basis": "kerb", "note": "With oil and full fuel tank (service manual: 142 kg)" },
+    "fuelTank": { "v": 11, "u": "L", "src": "yamaha-r15-site", "conf": 0.9 },
+    "frontTyre": { "v": "100/80-17 M/C 52P", "src": "yamaha-r15-site", "conf": 0.9, "note": "Published as '100/80-17M/C 52P'" },
+    "rearTyre": { "v": "140/70R17 M/C 66H", "src": "yamaha-r15-site", "conf": 0.9 }
+  },
+  "emission": {
+    "standard": { "v": "BS6-P2", "src": "zigwheels-r15", "conf": 0.6, "note": "Listed as 'bs6.2'" },
+    "obd": { "v": "OBD-2B", "src": "regulatory-inference", "conf": 0.7 }
+  },
+  "fuel": {
+    "minRon": { "v": 90, "u": "RON", "src": "yamaha-r15-sm-2021", "conf": 0.55, "note": "2021 service manual, written before E20" },
+    "compat": [
+      { "fuel": "E20", "status": "certified", "src": "yamaha-r15-site", "conf": 0.8, "note": "\"E20 Compatible: Yes\"" },
+      { "fuel": "E10", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 },
+      { "fuel": "E0", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 }
+    ]
+  },
+  "notes": []
+}

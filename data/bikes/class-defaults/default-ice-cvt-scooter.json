@@ -1,0 +1,85 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "default-ice-cvt-scooter",
+  "kind": "class_default",
+  "classKey": "ice_cvt.scooter",
+  "segment": "scooter",
+  "powertrain": "ice_cvt",
+  "identity": {
+    "make": "Generic",
+    "model": "110–125 cc CVT scooter",
+    "variant": "Class default — used when the exact bike isn't in the catalogue",
+    "market": "IN",
+    "yearFrom": 2023,
+    "yearTo": null,
+    "aliases": ["scooter", "110cc scooter", "125cc scooter", "automatic scooter"]
+  },
+  "sources": [
+    {
+      "id": "class-prior",
+      "kind": "class_prior",
+      "title": "MapUnite class prior v1 — representative vehicle",
+      "retrieved": "2026-10-02",
+      "note": "Representative engine, gearing, mass and tyres for the class, chosen from the seed variants in this class and typical Indian-market figures. Used only when the rider's bike is not in the catalogue; never used for fuel advice."
+    },
+    {
+      "id": "class-prior-physics",
+      "kind": "class_prior",
+      "title": "MapUnite class prior v1 — model parameters",
+      "retrieved": "2026-10-02",
+      "note": "Drag area (bike + rider), rolling resistance, drivetrain efficiency, Willans indicated efficiency and friction-MEP terms from typical published ranges for small spark-ignition engines and motorcycles (e.g. Heywood, Internal Combustion Engine Fundamentals, friction chapter; motorcycle CdA ≈ 0.3 m² tucked on a faired bike to ≈ 0.7 m² upright). Wide sigmas on purpose; per-rider calibration narrows them."
+    }
+  ],
+  "engine": {
+    "displacement": { "v": 113, "u": "cm3", "src": "class-prior", "conf": 0.4 },
+    "cylinders": { "v": 1, "u": "1", "src": "class-prior", "conf": 0.5 },
+    "strokes": { "v": 4, "u": "1", "src": "class-prior", "conf": 0.5 },
+    "bore": { "v": 51, "u": "mm", "src": "class-prior", "conf": 0.3 },
+    "stroke": { "v": 55.5, "u": "mm", "src": "class-prior", "conf": 0.3 },
+    "compressionRatio": { "v": 10.3, "u": "1", "src": "class-prior", "conf": 0.3 },
+    "cooling": { "v": "air", "src": "class-prior", "conf": 0.4 },
+    "fuelSystem": { "v": "fi", "src": "class-prior", "conf": 0.5 },
+    "flexFuel": { "v": false, "src": "class-prior", "conf": 0.5 },
+    "peakPower": { "v": 6, "u": "kW", "src": "class-prior", "conf": 0.35 },
+    "peakPowerRpm": { "v": 7000, "u": "rpm", "src": "class-prior", "conf": 0.35 },
+    "peakTorque": { "v": 9.3, "u": "N*m", "src": "class-prior", "conf": 0.35 },
+    "peakTorqueRpm": { "v": 5500, "u": "rpm", "src": "class-prior", "conf": 0.35 },
+    "idleRpm": { "v": 1550, "u": "rpm", "src": "class-prior", "conf": 0.35 }
+  },
+  "transmission": {
+    "kind": { "v": "cvt", "src": "class-prior", "conf": 0.5 },
+    "cvtRatioMax": { "v": 2.6, "u": "1", "src": "class-prior", "conf": 0.3 },
+    "cvtRatioMin": { "v": 0.8, "u": "1", "src": "class-prior", "conf": 0.3 },
+    "finalRatio": { "v": 9.6, "u": "1", "src": "class-prior", "conf": 0.3 },
+    "drive": { "v": "gear", "src": "class-prior", "conf": 0.5 }
+  },
+  "chassis": {
+    "mass": { "v": 106, "u": "kg", "src": "class-prior", "conf": 0.35, "basis": "kerb" },
+    "fuelTank": { "v": 5.3, "u": "L", "src": "class-prior", "conf": 0.35 },
+    "frontTyre": { "v": "90/90-12", "src": "class-prior", "conf": 0.4 },
+    "rearTyre": { "v": "90/100-10", "src": "class-prior", "conf": 0.4 }
+  },
+  "emission": {
+    "standard": { "v": "BS6-P2", "src": "class-prior", "conf": 0.5 },
+    "obd": { "v": "OBD-2B", "src": "class-prior", "conf": 0.4 }
+  },
+  "fuel": {
+    "compat": [
+      { "fuel": "E20", "status": "compatible", "src": "class-prior", "conf": 0.4, "note": "Typical for current Indian vehicles; never used for advice (estimate)" },
+      { "fuel": "E10", "status": "compatible", "src": "class-prior", "conf": 0.45 }
+    ]
+  },
+  "priors": {
+    "cda": { "mean": 0.52, "sigma": 0.094, "u": "m2", "src": "class-prior-physics", "conf": 0.35 },
+    "crr": { "mean": 0.022, "sigma": 0.005, "u": "1", "src": "class-prior-physics", "conf": 0.35 },
+    "drivetrainEfficiency": { "mean": 0.8, "sigma": 0.05, "u": "1", "src": "class-prior-physics", "conf": 0.4 },
+    "riderMass": { "mean": 72, "sigma": 12, "u": "kg", "src": "class-prior-physics", "conf": 0.4, "note": "Adult rider with riding gear" },
+    "indicatedEfficiency": { "mean": 0.29, "sigma": 0.04, "u": "1", "src": "class-prior-physics", "conf": 0.3 },
+    "fmepA": { "mean": 110, "sigma": 33, "u": "kPa", "src": "class-prior-physics", "conf": 0.3 },
+    "fmepB": { "mean": 9, "sigma": 3.6, "u": "kPa/krpm", "src": "class-prior-physics", "conf": 0.3 },
+    "fmepC": { "mean": 0.8, "sigma": 0.4, "u": "kPa/krpm2", "src": "class-prior-physics", "conf": 0.3 },
+    "redlineFactor": { "mean": 1.12, "sigma": 0.06, "u": "1", "src": "class-prior-physics", "conf": 0.3 }
+  },
+  "notes": ["Representative of Activa / Jupiter / Access. CVT belt losses make drivetrain efficiency much lower than a chain."]
+}

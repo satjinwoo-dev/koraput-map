@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "target": "ES2020",
+    "module": "commonjs",
+    "lib": [
+      "ES2020",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "types": [],
+    "strict": false,
+    "noImplicitThis": false,
+    "noUnusedLocals": true
+  },
+  "files": [
+    "public/js/trip/profile.js",
+    "public/js/trip/elevation.js",
+    "public/js/trip/structures.js",
+    "public/js/trip/energy.js",
+    "public/js/trip/trip-card.js",
+    "public/js/trip/trip-app.js",
+    "public/js/garage/garage-page.js"
+  ]
+}
