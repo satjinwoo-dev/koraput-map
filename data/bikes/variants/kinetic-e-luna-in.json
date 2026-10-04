@@ -1,0 +1,44 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "kinetic-e-luna-in",
+  "kind": "variant",
+  "classKey": "ev.commuter",
+  "segment": "commuter",
+  "powertrain": "ev",
+  "identity": {
+    "make": "Kinetic",
+    "model": "E-Luna",
+    "variant": "Electric Moped 2 kWh Dual Removable Battery Pack",
+    "market": "IN",
+    "yearFrom": 2024,
+    "yearTo": null,
+    "aliases": ["E-Luna", "Kinetic E-Luna", "Kinetic ELuna", "Electric Luna"]
+  },
+  "image": { "url": "https://images.mapunite.com/bikes/kinetic-e-luna-in.webp", "src": "official-spec" },
+  "sources": [
+    { "id": "official-spec", "kind": "manufacturer", "title": "Kinetic Green E-Luna official specifications", "url": "https://kineticgreen.com/e-luna", "publisher": "Kinetic", "retrieved": "2026-10-04" }
+  ],
+  "motor": {
+    "type": { "v": "bldc", "src": "official-spec", "conf": 0.9 },
+    "mount": { "v": "hub", "src": "official-spec", "conf": 0.9 },
+    "peakPower": { "v": 2.2, "u": "kW", "src": "official-spec", "conf": 0.9 },
+    "ratedPower": { "v": 1.2, "u": "kW", "src": "official-spec", "conf": 0.85 }
+  },
+  "battery": {
+    "grossCapacity": { "v": 2, "u": "kWh", "src": "official-spec", "conf": 0.9 },
+    "chemistry": { "v": "LFP", "src": "official-spec", "conf": 0.85 },
+    "certifiedRange": { "v": 110, "u": "km", "src": "official-spec", "conf": 0.9, "cycle": "IDC" }
+  },
+  "transmission": {
+    "kind": { "v": "single_speed", "src": "official-spec", "conf": 0.95 },
+    "drive": { "v": "hub_direct", "src": "official-spec", "conf": 0.9 },
+    "reductionRatio": { "v": 1, "u": "1", "src": "official-spec", "conf": 0.9 }
+  },
+  "chassis": {
+    "mass": { "v": 96, "u": "kg", "src": "official-spec", "conf": 0.95, "basis": "kerb" },
+    "frontTyre": { "v": "2.50-16", "src": "official-spec", "conf": 0.95 },
+    "rearTyre": { "v": "2.50-16", "src": "official-spec", "conf": 0.95 },
+    "topSpeed": { "v": 50, "u": "km/h", "src": "official-spec", "conf": 0.9 }
+  }
+}

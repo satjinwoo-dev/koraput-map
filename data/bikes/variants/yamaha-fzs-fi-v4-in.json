@@ -1,0 +1,72 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "yamaha-fzs-fi-v4-in",
+  "kind": "variant",
+  "classKey": "ice_manual.naked",
+  "segment": "naked",
+  "powertrain": "ice_manual",
+  "identity": {
+    "make": "Yamaha",
+    "model": "FZS-FI V4",
+    "variant": "Deluxe LED Indicators, Traction Control, OBD-2B",
+    "market": "IN",
+    "yearFrom": 2023,
+    "yearTo": null,
+    "aliases": ["FZS-FI", "Yamaha FZS", "FZS V4", "FZS-FI Version 4.0"]
+  },
+  "image": { "url": "https://images.mapunite.com/bikes/yamaha-fzs-fi-v4-in.webp", "src": "official-spec" },
+  "sources": [
+    {
+      "id": "official-spec",
+      "kind": "manufacturer",
+      "title": "India Yamaha Motor FZS-FI V4 specifications",
+      "url": "https://www.yamaha-motor-india.com/yamaha-fzs-fi.html",
+      "publisher": "Yamaha",
+      "retrieved": "2026-10-04"
+    },
+    {
+      "id": "lower-blend-rule",
+      "kind": "derived",
+      "title": "Lower-ethanol blends of a certified fuel",
+      "retrieved": "2026-10-04",
+      "note": "A vehicle certified for a higher-ethanol petrol is materials-compatible with lower-ethanol petrol. Listed as compatible, never as certified."
+    }
+  ],
+  "engine": {
+    "displacement": { "v": 149, "u": "cm3", "src": "official-spec", "conf": 0.95 },
+    "cylinders": { "v": 1, "u": "1", "src": "official-spec", "conf": 0.95 },
+    "strokes": { "v": 4, "u": "1", "src": "official-spec", "conf": 0.95 },
+    "bore": { "v": 57.3, "u": "mm", "src": "official-spec", "conf": 0.95 },
+    "stroke": { "v": 57.9, "u": "mm", "src": "official-spec", "conf": 0.95 },
+    "cooling": { "v": "air", "src": "official-spec", "conf": 0.95 },
+    "fuelSystem": { "v": "fi", "src": "official-spec", "conf": 0.95 },
+    "peakPower": { "v": 9.1, "u": "kW", "src": "official-spec", "conf": 0.95 },
+    "peakPowerRpm": { "v": 7250, "u": "rpm", "src": "official-spec", "conf": 0.95 },
+    "peakTorque": { "v": 13.3, "u": "N*m", "src": "official-spec", "conf": 0.95 },
+    "peakTorqueRpm": { "v": 5500, "u": "rpm", "src": "official-spec", "conf": 0.95 },
+    "compressionRatio": { "v": 9.6, "u": "1", "src": "official-spec", "conf": 0.9 },
+    "idleRpm": { "v": 1400, "u": "rpm", "src": "official-spec", "conf": 0.9, "tol": 100 }
+  },
+  "transmission": {
+    "kind": { "v": "manual", "src": "official-spec", "conf": 0.95 },
+    "speeds": { "v": 5, "u": "1", "src": "official-spec", "conf": 0.95 }
+  },
+  "chassis": {
+    "mass": { "v": 136, "u": "kg", "src": "official-spec", "conf": 0.95, "basis": "kerb" },
+    "frontTyre": { "v": "100/80-17 M/C 52P", "src": "official-spec", "conf": 0.95 },
+    "rearTyre": { "v": "140/60R-17 M/C 63P", "src": "official-spec", "conf": 0.95 },
+    "fuelTank": { "v": 13, "u": "L", "src": "official-spec", "conf": 0.95 }
+  },
+  "emission": {
+    "standard": { "v": "BS6-P2", "src": "official-spec", "conf": 0.9 },
+    "obd": { "v": "OBD-2B", "src": "official-spec", "conf": 0.9 }
+  },
+  "fuel": {
+    "compat": [
+      { "fuel": "E20", "status": "certified", "src": "official-spec", "conf": 0.8, "note": "Manufacturer E20 material compliance" },
+      { "fuel": "E10", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 },
+      { "fuel": "E0", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 }
+    ]
+  }
+}

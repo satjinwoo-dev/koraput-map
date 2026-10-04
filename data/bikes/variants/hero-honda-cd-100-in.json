@@ -1,0 +1,55 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "hero-honda-cd-100-in",
+  "kind": "variant",
+  "classKey": "ice_manual.commuter",
+  "segment": "commuter",
+  "powertrain": "ice_manual",
+  "identity": { "make": "Hero", "model": "Hero Honda CD 100", "variant": "Original 4-Stroke Commuter", "market": "IN", "yearFrom": 1985, "yearTo": 2004, "aliases": ["CD 100", "Hero Honda CD100", "CD100"] },
+  "image": { "url": "https://images.mapunite.com/bikes/hero-honda-cd-100-in.webp", "src": "official-spec" },
+  "sources": [
+    {
+      "id": "official-spec",
+      "kind": "manufacturer",
+      "title": "Hero Honda CD 100 owner technical guide",
+      "url": "https://www.heromotocorp.com/en-in/about-us/milestones.html",
+      "publisher": "Hero",
+      "retrieved": "2026-10-04"
+    }
+  ],
+  "engine": {
+    "displacement": { "v": 97.2, "u": "cm3", "src": "official-spec", "conf": 0.95 },
+    "cylinders": { "v": 1, "u": "1", "src": "official-spec", "conf": 0.95 },
+    "strokes": { "v": 4, "u": "1", "src": "official-spec", "conf": 0.95 },
+    "bore": { "v": 50, "u": "mm", "src": "official-spec", "conf": 0.95 },
+    "stroke": { "v": 49.5, "u": "mm", "src": "official-spec", "conf": 0.95 },
+    "cooling": { "v": "air", "src": "official-spec", "conf": 0.95 },
+    "fuelSystem": { "v": "carb", "src": "official-spec", "conf": 0.95 },
+    "peakPower": { "v": 5.5, "u": "kW", "src": "official-spec", "conf": 0.95 },
+    "peakPowerRpm": { "v": 8000, "u": "rpm", "src": "official-spec", "conf": 0.95 },
+    "peakTorque": { "v": 7.6, "u": "N*m", "src": "official-spec", "conf": 0.95 },
+    "peakTorqueRpm": { "v": 5000, "u": "rpm", "src": "official-spec", "conf": 0.95 },
+    "compressionRatio": { "v": 8.8, "u": "1", "src": "official-spec", "conf": 0.9 },
+    "idleRpm": { "v": 1300, "u": "rpm", "src": "official-spec", "conf": 0.9, "tol": 100 }
+  },
+  "transmission": {
+    "kind": { "v": "manual", "src": "official-spec", "conf": 0.95 },
+    "speeds": { "v": 4, "u": "1", "src": "official-spec", "conf": 0.95 }
+  },
+  "chassis": {
+    "mass": { "v": 106, "u": "kg", "src": "official-spec", "conf": 0.95, "basis": "kerb" },
+    "frontTyre": { "v": "2.75-18", "src": "official-spec", "conf": 0.95 },
+    "rearTyre": { "v": "2.75-18", "src": "official-spec", "conf": 0.95 },
+    "fuelTank": { "v": 10, "u": "L", "src": "official-spec", "conf": 0.95 }
+  },
+  "emission": {
+    "standard": { "v": "BS4", "src": "official-spec", "conf": 0.9 }
+  },
+  "fuel": {
+    "compat": [
+      { "fuel": "E0", "status": "certified", "src": "official-spec", "conf": 0.8, "note": "Unleaded standard petrol" },
+      { "fuel": "E10", "status": "compatible", "src": "official-spec", "conf": 0.6 }
+    ]
+  }
+}

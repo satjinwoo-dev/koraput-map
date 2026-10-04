@@ -1,0 +1,63 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "hero-honda-karizma-classic-in",
+  "kind": "variant",
+  "classKey": "ice_manual.sport",
+  "segment": "sport",
+  "powertrain": "ice_manual",
+  "identity": {
+    "make": "Hero",
+    "model": "Hero Honda Karizma",
+    "variant": "223 cc Classic Quarter-Fairing",
+    "market": "IN",
+    "yearFrom": 2003,
+    "yearTo": 2014,
+    "aliases": ["Hero Honda Karizma", "Karizma Classic", "Karizma R", "Karizma 223"]
+  },
+  "image": { "url": "https://images.mapunite.com/bikes/hero-honda-karizma-classic-in.webp", "src": "official-spec" },
+  "sources": [
+    {
+      "id": "official-spec",
+      "kind": "manufacturer",
+      "title": "Hero Honda Karizma official brochure & manual",
+      "url": "https://www.heromotocorp.com/en-in/about-us/milestones.html",
+      "publisher": "Hero",
+      "retrieved": "2026-10-04"
+    }
+  ],
+  "engine": {
+    "displacement": { "v": 223, "u": "cm3", "src": "official-spec", "conf": 0.95 },
+    "cylinders": { "v": 1, "u": "1", "src": "official-spec", "conf": 0.95 },
+    "strokes": { "v": 4, "u": "1", "src": "official-spec", "conf": 0.95 },
+    "bore": { "v": 65.5, "u": "mm", "src": "official-spec", "conf": 0.95 },
+    "stroke": { "v": 66.2, "u": "mm", "src": "official-spec", "conf": 0.95 },
+    "cooling": { "v": "air", "src": "official-spec", "conf": 0.95 },
+    "fuelSystem": { "v": "carb", "src": "official-spec", "conf": 0.95 },
+    "peakPower": { "v": 12.68, "u": "kW", "src": "official-spec", "conf": 0.95 },
+    "peakPowerRpm": { "v": 7000, "u": "rpm", "src": "official-spec", "conf": 0.95 },
+    "peakTorque": { "v": 18.35, "u": "N*m", "src": "official-spec", "conf": 0.95 },
+    "peakTorqueRpm": { "v": 6000, "u": "rpm", "src": "official-spec", "conf": 0.95 },
+    "compressionRatio": { "v": 9, "u": "1", "src": "official-spec", "conf": 0.9 },
+    "idleRpm": { "v": 1400, "u": "rpm", "src": "official-spec", "conf": 0.9, "tol": 100 }
+  },
+  "transmission": {
+    "kind": { "v": "manual", "src": "official-spec", "conf": 0.95 },
+    "speeds": { "v": 5, "u": "1", "src": "official-spec", "conf": 0.95 }
+  },
+  "chassis": {
+    "mass": { "v": 150, "u": "kg", "src": "official-spec", "conf": 0.95, "basis": "kerb" },
+    "frontTyre": { "v": "2.75-18", "src": "official-spec", "conf": 0.95 },
+    "rearTyre": { "v": "100/90-18", "src": "official-spec", "conf": 0.95 },
+    "fuelTank": { "v": 15, "u": "L", "src": "official-spec", "conf": 0.95 }
+  },
+  "emission": {
+    "standard": { "v": "BS4", "src": "official-spec", "conf": 0.9 }
+  },
+  "fuel": {
+    "compat": [
+      { "fuel": "E0", "status": "certified", "src": "official-spec", "conf": 0.8, "note": "Unleaded standard petrol" },
+      { "fuel": "E10", "status": "compatible", "src": "official-spec", "conf": 0.6 }
+    ]
+  }
+}

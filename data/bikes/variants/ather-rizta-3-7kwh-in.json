@@ -1,0 +1,44 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "ather-rizta-3-7kwh-in",
+  "kind": "variant",
+  "classKey": "ev.scooter",
+  "segment": "scooter",
+  "powertrain": "ev",
+  "identity": {
+    "make": "Ather",
+    "model": "Rizta",
+    "variant": "Family Electric Scooter 3.7 kWh Pack with SkidControl",
+    "market": "IN",
+    "yearFrom": 2024,
+    "yearTo": null,
+    "aliases": ["Ather Rizta", "Rizta", "Ather Rizta 3.7", "Rizta Z"]
+  },
+  "image": { "url": "https://images.mapunite.com/bikes/ather-rizta-3-7kwh-in.webp", "src": "official-spec" },
+  "sources": [
+    { "id": "official-spec", "kind": "manufacturer", "title": "Ather Energy Rizta official specifications", "url": "https://www.atherenergy.com/rizta", "publisher": "Ather", "retrieved": "2026-10-04" }
+  ],
+  "motor": {
+    "type": { "v": "pmsm", "src": "official-spec", "conf": 0.9 },
+    "mount": { "v": "mid_drive", "src": "official-spec", "conf": 0.9 },
+    "peakPower": { "v": 4.3, "u": "kW", "src": "official-spec", "conf": 0.9 },
+    "ratedPower": { "v": 2.7, "u": "kW", "src": "official-spec", "conf": 0.85 },
+    "peakTorque": { "v": 22, "u": "N*m", "src": "official-spec", "conf": 0.85, "at": "motor" }
+  },
+  "battery": {
+    "grossCapacity": { "v": 3.7, "u": "kWh", "src": "official-spec", "conf": 0.9 },
+    "chemistry": { "v": "Li-ion NMC", "src": "official-spec", "conf": 0.85 },
+    "certifiedRange": { "v": 160, "u": "km", "src": "official-spec", "conf": 0.9, "cycle": "IDC" }
+  },
+  "transmission": {
+    "kind": { "v": "single_speed", "src": "official-spec", "conf": 0.95 },
+    "drive": { "v": "belt", "src": "official-spec", "conf": 0.9 }
+  },
+  "chassis": {
+    "mass": { "v": 119, "u": "kg", "src": "official-spec", "conf": 0.95, "basis": "kerb" },
+    "frontTyre": { "v": "90/90-12", "src": "official-spec", "conf": 0.95 },
+    "rearTyre": { "v": "100/80-12", "src": "official-spec", "conf": 0.95 },
+    "topSpeed": { "v": 80, "u": "km/h", "src": "official-spec", "conf": 0.9 }
+  }
+}

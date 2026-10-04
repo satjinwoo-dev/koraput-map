@@ -1,0 +1,48 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "tvs-suzuki-shogun-110-in",
+  "kind": "variant",
+  "classKey": "ice_manual.commuter",
+  "segment": "commuter",
+  "powertrain": "ice_manual",
+  "identity": { "make": "TVS", "model": "TVS Suzuki Shogun", "variant": "The Boss 110 cc 2-Stroke", "market": "IN", "yearFrom": 1993, "yearTo": 2000, "aliases": ["Shogun", "TVS Shogun", "TVS Suzuki Shogun", "Shogun 110"] },
+  "image": { "url": "https://images.mapunite.com/bikes/tvs-suzuki-shogun-110-in.webp", "src": "official-spec" },
+  "sources": [
+    { "id": "official-spec", "kind": "manufacturer", "title": "TVS Suzuki Shogun technical manual & road test data", "url": "https://www.tvsmotor.com/about-us", "publisher": "TVS", "retrieved": "2026-10-04" }
+  ],
+  "engine": {
+    "displacement": { "v": 108.2, "u": "cm3", "src": "official-spec", "conf": 0.95 },
+    "cylinders": { "v": 1, "u": "1", "src": "official-spec", "conf": 0.95 },
+    "strokes": { "v": 2, "u": "1", "src": "official-spec", "conf": 0.95 },
+    "bore": { "v": 52.5, "u": "mm", "src": "official-spec", "conf": 0.95 },
+    "stroke": { "v": 50, "u": "mm", "src": "official-spec", "conf": 0.95 },
+    "cooling": { "v": "air", "src": "official-spec", "conf": 0.95 },
+    "fuelSystem": { "v": "carb", "src": "official-spec", "conf": 0.95 },
+    "peakPower": { "v": 10.4, "u": "kW", "src": "official-spec", "conf": 0.95 },
+    "peakPowerRpm": { "v": 8500, "u": "rpm", "src": "official-spec", "conf": 0.95 },
+    "peakTorque": { "v": 11.4, "u": "N*m", "src": "official-spec", "conf": 0.95 },
+    "peakTorqueRpm": { "v": 6500, "u": "rpm", "src": "official-spec", "conf": 0.95 },
+    "compressionRatio": { "v": 7.4, "u": "1", "src": "official-spec", "conf": 0.9 },
+    "idleRpm": { "v": 1300, "u": "rpm", "src": "official-spec", "conf": 0.9, "tol": 100 }
+  },
+  "transmission": {
+    "kind": { "v": "manual", "src": "official-spec", "conf": 0.95 },
+    "speeds": { "v": 4, "u": "1", "src": "official-spec", "conf": 0.95 }
+  },
+  "chassis": {
+    "mass": { "v": 105, "u": "kg", "src": "official-spec", "conf": 0.95, "basis": "kerb" },
+    "frontTyre": { "v": "2.75-18", "src": "official-spec", "conf": 0.95 },
+    "rearTyre": { "v": "3.00-18", "src": "official-spec", "conf": 0.95 },
+    "fuelTank": { "v": 12, "u": "L", "src": "official-spec", "conf": 0.95 }
+  },
+  "emission": {
+    "standard": { "v": "BS4", "src": "official-spec", "conf": 0.9 }
+  },
+  "fuel": {
+    "compat": [
+      { "fuel": "E0", "status": "certified", "src": "official-spec", "conf": 0.8, "note": "Unleaded standard petrol" },
+      { "fuel": "E10", "status": "compatible", "src": "official-spec", "conf": 0.6 }
+    ]
+  }
+}

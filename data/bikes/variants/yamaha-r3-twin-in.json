@@ -1,0 +1,57 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "yamaha-r3-twin-in",
+  "kind": "variant",
+  "classKey": "ice_manual.sport",
+  "segment": "sport",
+  "powertrain": "ice_manual",
+  "identity": { "make": "Yamaha", "model": "YZF-R3", "variant": "Parallel Twin Supersport, Dual Channel ABS", "market": "IN", "yearFrom": 2023, "yearTo": null, "aliases": ["YZF-R3", "Yamaha R3", "R3", "Yamaha YZF R3"] },
+  "image": { "url": "https://images.mapunite.com/bikes/yamaha-r3-twin-in.webp", "src": "official-spec" },
+  "sources": [
+    { "id": "official-spec", "kind": "manufacturer", "title": "India Yamaha Motor YZF-R3 specifications", "url": "https://www.yamaha-motor-india.com/yamaha-r3.html", "publisher": "Yamaha", "retrieved": "2026-10-04" },
+    {
+      "id": "lower-blend-rule",
+      "kind": "derived",
+      "title": "Lower-ethanol blends of a certified fuel",
+      "retrieved": "2026-10-04",
+      "note": "A vehicle certified for a higher-ethanol petrol is materials-compatible with lower-ethanol petrol. Listed as compatible, never as certified."
+    }
+  ],
+  "engine": {
+    "displacement": { "v": 321, "u": "cm3", "src": "official-spec", "conf": 0.95 },
+    "cylinders": { "v": 2, "u": "1", "src": "official-spec", "conf": 0.95 },
+    "strokes": { "v": 4, "u": "1", "src": "official-spec", "conf": 0.95 },
+    "bore": { "v": 68, "u": "mm", "src": "official-spec", "conf": 0.95 },
+    "stroke": { "v": 44.1, "u": "mm", "src": "official-spec", "conf": 0.95 },
+    "cooling": { "v": "liquid", "src": "official-spec", "conf": 0.95 },
+    "fuelSystem": { "v": "fi", "src": "official-spec", "conf": 0.95 },
+    "peakPower": { "v": 30.9, "u": "kW", "src": "official-spec", "conf": 0.95 },
+    "peakPowerRpm": { "v": 10750, "u": "rpm", "src": "official-spec", "conf": 0.95 },
+    "peakTorque": { "v": 29.5, "u": "N*m", "src": "official-spec", "conf": 0.95 },
+    "peakTorqueRpm": { "v": 9000, "u": "rpm", "src": "official-spec", "conf": 0.95 },
+    "compressionRatio": { "v": 11.2, "u": "1", "src": "official-spec", "conf": 0.9 },
+    "idleRpm": { "v": 1500, "u": "rpm", "src": "official-spec", "conf": 0.9, "tol": 100 }
+  },
+  "transmission": {
+    "kind": { "v": "manual", "src": "official-spec", "conf": 0.95 },
+    "speeds": { "v": 6, "u": "1", "src": "official-spec", "conf": 0.95 }
+  },
+  "chassis": {
+    "mass": { "v": 169, "u": "kg", "src": "official-spec", "conf": 0.95, "basis": "kerb" },
+    "frontTyre": { "v": "110/70 R17 M/C 54H", "src": "official-spec", "conf": 0.95 },
+    "rearTyre": { "v": "140/70 R17 M/C 66H", "src": "official-spec", "conf": 0.95 },
+    "fuelTank": { "v": 14, "u": "L", "src": "official-spec", "conf": 0.95 }
+  },
+  "emission": {
+    "standard": { "v": "BS6-P2", "src": "official-spec", "conf": 0.9 },
+    "obd": { "v": "OBD-2B", "src": "official-spec", "conf": 0.9 }
+  },
+  "fuel": {
+    "compat": [
+      { "fuel": "E20", "status": "certified", "src": "official-spec", "conf": 0.8, "note": "Manufacturer E20 material compliance" },
+      { "fuel": "E10", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 },
+      { "fuel": "E0", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 }
+    ]
+  }
+}

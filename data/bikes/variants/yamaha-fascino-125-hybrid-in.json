@@ -1,0 +1,71 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "yamaha-fascino-125-hybrid-in",
+  "kind": "variant",
+  "classKey": "ice_cvt.scooter",
+  "segment": "scooter",
+  "powertrain": "ice_cvt",
+  "identity": {
+    "make": "Yamaha",
+    "model": "Fascino 125 Fi Hybrid",
+    "variant": "Special Disc Edition, Retro European Styling, OBD-2B",
+    "market": "IN",
+    "yearFrom": 2021,
+    "yearTo": null,
+    "aliases": ["Fascino 125", "Yamaha Fascino", "Fascino Hybrid", "Fascino"]
+  },
+  "image": { "url": "https://images.mapunite.com/bikes/yamaha-fascino-125-hybrid-in.webp", "src": "official-spec" },
+  "sources": [
+    {
+      "id": "official-spec",
+      "kind": "manufacturer",
+      "title": "India Yamaha Motor Fascino 125 Fi Hybrid specifications",
+      "url": "https://www.yamaha-motor-india.com/yamaha-fascino-125-fi.html",
+      "publisher": "Yamaha",
+      "retrieved": "2026-10-04"
+    },
+    {
+      "id": "lower-blend-rule",
+      "kind": "derived",
+      "title": "Lower-ethanol blends of a certified fuel",
+      "retrieved": "2026-10-04",
+      "note": "A vehicle certified for a higher-ethanol petrol is materials-compatible with lower-ethanol petrol. Listed as compatible, never as certified."
+    }
+  ],
+  "engine": {
+    "displacement": { "v": 125, "u": "cm3", "src": "official-spec", "conf": 0.95 },
+    "cylinders": { "v": 1, "u": "1", "src": "official-spec", "conf": 0.95 },
+    "strokes": { "v": 4, "u": "1", "src": "official-spec", "conf": 0.95 },
+    "bore": { "v": 52.4, "u": "mm", "src": "official-spec", "conf": 0.95 },
+    "stroke": { "v": 57.9, "u": "mm", "src": "official-spec", "conf": 0.95 },
+    "cooling": { "v": "air", "src": "official-spec", "conf": 0.95 },
+    "fuelSystem": { "v": "fi", "src": "official-spec", "conf": 0.95 },
+    "peakPower": { "v": 6, "u": "kW", "src": "official-spec", "conf": 0.95 },
+    "peakPowerRpm": { "v": 6500, "u": "rpm", "src": "official-spec", "conf": 0.95 },
+    "peakTorque": { "v": 10.3, "u": "N*m", "src": "official-spec", "conf": 0.95 },
+    "peakTorqueRpm": { "v": 5000, "u": "rpm", "src": "official-spec", "conf": 0.95 },
+    "compressionRatio": { "v": 10.2, "u": "1", "src": "official-spec", "conf": 0.9 },
+    "idleRpm": { "v": 1500, "u": "rpm", "src": "official-spec", "conf": 0.9, "tol": 100 }
+  },
+  "transmission": {
+    "kind": { "v": "cvt", "src": "official-spec", "conf": 0.95 }
+  },
+  "chassis": {
+    "mass": { "v": 99, "u": "kg", "src": "official-spec", "conf": 0.95, "basis": "kerb" },
+    "frontTyre": { "v": "90/90-12 54J", "src": "official-spec", "conf": 0.95 },
+    "rearTyre": { "v": "110/90-10 61J", "src": "official-spec", "conf": 0.95 },
+    "fuelTank": { "v": 5.2, "u": "L", "src": "official-spec", "conf": 0.95 }
+  },
+  "emission": {
+    "standard": { "v": "BS6-P2", "src": "official-spec", "conf": 0.9 },
+    "obd": { "v": "OBD-2B", "src": "official-spec", "conf": 0.9 }
+  },
+  "fuel": {
+    "compat": [
+      { "fuel": "E20", "status": "certified", "src": "official-spec", "conf": 0.8, "note": "Manufacturer E20 material compliance" },
+      { "fuel": "E10", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 },
+      { "fuel": "E0", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 }
+    ]
+  }
+}

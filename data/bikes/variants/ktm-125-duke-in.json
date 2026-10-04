@@ -1,0 +1,64 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "ktm-125-duke-in",
+  "kind": "variant",
+  "classKey": "ice_manual.naked",
+  "segment": "naked",
+  "powertrain": "ice_manual",
+  "identity": { "make": "KTM", "model": "125 Duke", "variant": "DOHC 4V Liquid Cooled, Single Channel ABS", "market": "IN", "yearFrom": 2021, "yearTo": null, "aliases": ["125 Duke", "KTM 125", "Duke 125", "KTM Duke 125"] },
+  "image": { "url": "https://images.mapunite.com/bikes/ktm-125-duke-in.webp", "src": "official-spec" },
+  "sources": [
+    {
+      "id": "official-spec",
+      "kind": "manufacturer",
+      "title": "KTM India 125 Duke official specifications",
+      "url": "https://www.ktmindia.com/ktm-bikes/naked-bike/ktm-125-duke",
+      "publisher": "KTM",
+      "retrieved": "2026-10-04"
+    },
+    {
+      "id": "lower-blend-rule",
+      "kind": "derived",
+      "title": "Lower-ethanol blends of a certified fuel",
+      "retrieved": "2026-10-04",
+      "note": "A vehicle certified for a higher-ethanol petrol is materials-compatible with lower-ethanol petrol. Listed as compatible, never as certified."
+    }
+  ],
+  "engine": {
+    "displacement": { "v": 124.7, "u": "cm3", "src": "official-spec", "conf": 0.95 },
+    "cylinders": { "v": 1, "u": "1", "src": "official-spec", "conf": 0.95 },
+    "strokes": { "v": 4, "u": "1", "src": "official-spec", "conf": 0.95 },
+    "bore": { "v": 58, "u": "mm", "src": "official-spec", "conf": 0.95 },
+    "stroke": { "v": 47.2, "u": "mm", "src": "official-spec", "conf": 0.95 },
+    "cooling": { "v": "liquid", "src": "official-spec", "conf": 0.95 },
+    "fuelSystem": { "v": "fi", "src": "official-spec", "conf": 0.95 },
+    "peakPower": { "v": 10.7, "u": "kW", "src": "official-spec", "conf": 0.95 },
+    "peakPowerRpm": { "v": 9250, "u": "rpm", "src": "official-spec", "conf": 0.95 },
+    "peakTorque": { "v": 12, "u": "N*m", "src": "official-spec", "conf": 0.95 },
+    "peakTorqueRpm": { "v": 8000, "u": "rpm", "src": "official-spec", "conf": 0.95 },
+    "compressionRatio": { "v": 12.8, "u": "1", "src": "official-spec", "conf": 0.9 },
+    "idleRpm": { "v": 1500, "u": "rpm", "src": "official-spec", "conf": 0.9, "tol": 100 }
+  },
+  "transmission": {
+    "kind": { "v": "manual", "src": "official-spec", "conf": 0.95 },
+    "speeds": { "v": 6, "u": "1", "src": "official-spec", "conf": 0.95 }
+  },
+  "chassis": {
+    "mass": { "v": 159, "u": "kg", "src": "official-spec", "conf": 0.95, "basis": "kerb" },
+    "frontTyre": { "v": "110/70 R17 54H", "src": "official-spec", "conf": 0.95 },
+    "rearTyre": { "v": "150/60 R17 66H", "src": "official-spec", "conf": 0.95 },
+    "fuelTank": { "v": 13.4, "u": "L", "src": "official-spec", "conf": 0.95 }
+  },
+  "emission": {
+    "standard": { "v": "BS6-P2", "src": "official-spec", "conf": 0.9 },
+    "obd": { "v": "OBD-2B", "src": "official-spec", "conf": 0.9 }
+  },
+  "fuel": {
+    "compat": [
+      { "fuel": "E20", "status": "certified", "src": "official-spec", "conf": 0.8, "note": "Manufacturer E20 material compliance" },
+      { "fuel": "E10", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 },
+      { "fuel": "E0", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 }
+    ]
+  }
+}

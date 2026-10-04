@@ -1,0 +1,72 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "royal-enfield-continental-gt-650-in",
+  "kind": "variant",
+  "classKey": "ice_manual.sport",
+  "segment": "sport",
+  "powertrain": "ice_manual",
+  "identity": {
+    "make": "Royal Enfield",
+    "model": "Continental GT 650",
+    "variant": "Cafe Racer Parallel Twin, Dual Channel ABS",
+    "market": "IN",
+    "yearFrom": 2020,
+    "yearTo": null,
+    "aliases": ["Continental GT 650", "GT 650", "RE Continental GT", "Continental GT"]
+  },
+  "image": { "url": "https://images.mapunite.com/bikes/royal-enfield-continental-gt-650-in.webp", "src": "official-spec" },
+  "sources": [
+    {
+      "id": "official-spec",
+      "kind": "manufacturer",
+      "title": "Royal Enfield Continental GT 650 official specification",
+      "url": "https://www.royalenfield.com/in/en/motorcycles/continental-gt-650/",
+      "publisher": "Royal Enfield",
+      "retrieved": "2026-10-04"
+    },
+    {
+      "id": "lower-blend-rule",
+      "kind": "derived",
+      "title": "Lower-ethanol blends of a certified fuel",
+      "retrieved": "2026-10-04",
+      "note": "A vehicle certified for a higher-ethanol petrol is materials-compatible with lower-ethanol petrol. Listed as compatible, never as certified."
+    }
+  ],
+  "engine": {
+    "displacement": { "v": 647.95, "u": "cm3", "src": "official-spec", "conf": 0.95 },
+    "cylinders": { "v": 2, "u": "1", "src": "official-spec", "conf": 0.95 },
+    "strokes": { "v": 4, "u": "1", "src": "official-spec", "conf": 0.95 },
+    "bore": { "v": 78, "u": "mm", "src": "official-spec", "conf": 0.95 },
+    "stroke": { "v": 67.8, "u": "mm", "src": "official-spec", "conf": 0.95 },
+    "cooling": { "v": "air_oil", "src": "official-spec", "conf": 0.95 },
+    "fuelSystem": { "v": "fi", "src": "official-spec", "conf": 0.95 },
+    "peakPower": { "v": 34.9, "u": "kW", "src": "official-spec", "conf": 0.95 },
+    "peakPowerRpm": { "v": 7250, "u": "rpm", "src": "official-spec", "conf": 0.95 },
+    "peakTorque": { "v": 52.3, "u": "N*m", "src": "official-spec", "conf": 0.95 },
+    "peakTorqueRpm": { "v": 5150, "u": "rpm", "src": "official-spec", "conf": 0.95 },
+    "compressionRatio": { "v": 9.5, "u": "1", "src": "official-spec", "conf": 0.9 },
+    "idleRpm": { "v": 1200, "u": "rpm", "src": "official-spec", "conf": 0.9, "tol": 100 }
+  },
+  "transmission": {
+    "kind": { "v": "manual", "src": "official-spec", "conf": 0.95 },
+    "speeds": { "v": 6, "u": "1", "src": "official-spec", "conf": 0.95 }
+  },
+  "chassis": {
+    "mass": { "v": 214, "u": "kg", "src": "official-spec", "conf": 0.95, "basis": "kerb" },
+    "frontTyre": { "v": "100/90-18 56H", "src": "official-spec", "conf": 0.95 },
+    "rearTyre": { "v": "130/70-18 63H", "src": "official-spec", "conf": 0.95 },
+    "fuelTank": { "v": 12.5, "u": "L", "src": "official-spec", "conf": 0.95 }
+  },
+  "emission": {
+    "standard": { "v": "BS6-P2", "src": "official-spec", "conf": 0.9 },
+    "obd": { "v": "OBD-2B", "src": "official-spec", "conf": 0.9 }
+  },
+  "fuel": {
+    "compat": [
+      { "fuel": "E20", "status": "certified", "src": "official-spec", "conf": 0.8, "note": "Manufacturer E20 material compliance" },
+      { "fuel": "E10", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 },
+      { "fuel": "E0", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 }
+    ]
+  }
+}

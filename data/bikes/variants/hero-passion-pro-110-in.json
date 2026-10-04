@@ -1,0 +1,63 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "hero-passion-pro-110-in",
+  "kind": "variant",
+  "classKey": "ice_manual.commuter",
+  "segment": "commuter",
+  "powertrain": "ice_manual",
+  "identity": { "make": "Hero", "model": "Passion Pro", "variant": "Disc Brake, BS6", "market": "IN", "yearFrom": 2020, "yearTo": 2023, "aliases": ["Passion Pro", "Hero Passion Pro", "Passion Pro 110"] },
+  "image": { "url": "https://images.mapunite.com/bikes/hero-passion-pro-110-in.webp", "src": "official-spec" },
+  "sources": [
+    {
+      "id": "official-spec",
+      "kind": "manufacturer",
+      "title": "Hero Passion Pro owner manual and specifications",
+      "url": "https://www.heromotocorp.com/en-in/motorcycles/passion-pro.html",
+      "publisher": "Hero",
+      "retrieved": "2026-10-04"
+    },
+    {
+      "id": "lower-blend-rule",
+      "kind": "derived",
+      "title": "Lower-ethanol blends of a certified fuel",
+      "retrieved": "2026-10-04",
+      "note": "A vehicle certified for a higher-ethanol petrol is materials-compatible with lower-ethanol petrol. Listed as compatible, never as certified."
+    }
+  ],
+  "engine": {
+    "displacement": { "v": 113.2, "u": "cm3", "src": "official-spec", "conf": 0.95 },
+    "cylinders": { "v": 1, "u": "1", "src": "official-spec", "conf": 0.95 },
+    "strokes": { "v": 4, "u": "1", "src": "official-spec", "conf": 0.95 },
+    "bore": { "v": 53.5, "u": "mm", "src": "official-spec", "conf": 0.95 },
+    "stroke": { "v": 50.4, "u": "mm", "src": "official-spec", "conf": 0.95 },
+    "cooling": { "v": "air", "src": "official-spec", "conf": 0.95 },
+    "fuelSystem": { "v": "fi", "src": "official-spec", "conf": 0.95 },
+    "peakPower": { "v": 6.73, "u": "kW", "src": "official-spec", "conf": 0.95 },
+    "peakPowerRpm": { "v": 7500, "u": "rpm", "src": "official-spec", "conf": 0.95 },
+    "peakTorque": { "v": 9.79, "u": "N*m", "src": "official-spec", "conf": 0.95 },
+    "peakTorqueRpm": { "v": 5000, "u": "rpm", "src": "official-spec", "conf": 0.95 },
+    "compressionRatio": { "v": 9.9, "u": "1", "src": "official-spec", "conf": 0.9 },
+    "idleRpm": { "v": 1400, "u": "rpm", "src": "official-spec", "conf": 0.9, "tol": 100 }
+  },
+  "transmission": {
+    "kind": { "v": "manual", "src": "official-spec", "conf": 0.95 },
+    "speeds": { "v": 4, "u": "1", "src": "official-spec", "conf": 0.95 }
+  },
+  "chassis": {
+    "mass": { "v": 118, "u": "kg", "src": "official-spec", "conf": 0.95, "basis": "kerb" },
+    "frontTyre": { "v": "80/100-18 M/C 47P", "src": "official-spec", "conf": 0.95 },
+    "rearTyre": { "v": "80/100-18 M/C 54P", "src": "official-spec", "conf": 0.95 },
+    "fuelTank": { "v": 10, "u": "L", "src": "official-spec", "conf": 0.95 }
+  },
+  "emission": {
+    "standard": { "v": "BS6-P1", "src": "official-spec", "conf": 0.9 },
+    "obd": { "v": "OBD-1", "src": "official-spec", "conf": 0.9 }
+  },
+  "fuel": {
+    "compat": [
+      { "fuel": "E10", "status": "certified", "src": "official-spec", "conf": 0.8, "note": "Manufacturer BS6 Phase 1 E10 compliance" },
+      { "fuel": "E0", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 }
+    ]
+  }
+}

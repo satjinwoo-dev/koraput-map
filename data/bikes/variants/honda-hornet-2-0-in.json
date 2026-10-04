@@ -1,0 +1,64 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "honda-hornet-2-0-in",
+  "kind": "variant",
+  "classKey": "ice_manual.naked",
+  "segment": "naked",
+  "powertrain": "ice_manual",
+  "identity": { "make": "Honda", "model": "Hornet 2.0", "variant": "Golden USD Fork, Dual Disc Single ABS", "market": "IN", "yearFrom": 2020, "yearTo": null, "aliases": ["Hornet 2.0", "Honda Hornet", "Hornet 200", "CB Hornet"] },
+  "image": { "url": "https://images.mapunite.com/bikes/honda-hornet-2-0-in.webp", "src": "official-spec" },
+  "sources": [
+    {
+      "id": "official-spec",
+      "kind": "manufacturer",
+      "title": "Honda Hornet 2.0 official specifications",
+      "url": "https://www.honda2wheelersindia.com/motorcycle/hornet2-0",
+      "publisher": "Honda",
+      "retrieved": "2026-10-04"
+    },
+    {
+      "id": "lower-blend-rule",
+      "kind": "derived",
+      "title": "Lower-ethanol blends of a certified fuel",
+      "retrieved": "2026-10-04",
+      "note": "A vehicle certified for a higher-ethanol petrol is materials-compatible with lower-ethanol petrol. Listed as compatible, never as certified."
+    }
+  ],
+  "engine": {
+    "displacement": { "v": 184.4, "u": "cm3", "src": "official-spec", "conf": 0.95 },
+    "cylinders": { "v": 1, "u": "1", "src": "official-spec", "conf": 0.95 },
+    "strokes": { "v": 4, "u": "1", "src": "official-spec", "conf": 0.95 },
+    "bore": { "v": 61, "u": "mm", "src": "official-spec", "conf": 0.95 },
+    "stroke": { "v": 63.096, "u": "mm", "src": "official-spec", "conf": 0.95 },
+    "cooling": { "v": "air", "src": "official-spec", "conf": 0.95 },
+    "fuelSystem": { "v": "fi", "src": "official-spec", "conf": 0.95 },
+    "peakPower": { "v": 12.7, "u": "kW", "src": "official-spec", "conf": 0.95 },
+    "peakPowerRpm": { "v": 8500, "u": "rpm", "src": "official-spec", "conf": 0.95 },
+    "peakTorque": { "v": 15.9, "u": "N*m", "src": "official-spec", "conf": 0.95 },
+    "peakTorqueRpm": { "v": 6000, "u": "rpm", "src": "official-spec", "conf": 0.95 },
+    "compressionRatio": { "v": 9.5, "u": "1", "src": "official-spec", "conf": 0.9 },
+    "idleRpm": { "v": 1400, "u": "rpm", "src": "official-spec", "conf": 0.9, "tol": 100 }
+  },
+  "transmission": {
+    "kind": { "v": "manual", "src": "official-spec", "conf": 0.95 },
+    "speeds": { "v": 5, "u": "1", "src": "official-spec", "conf": 0.95 }
+  },
+  "chassis": {
+    "mass": { "v": 142, "u": "kg", "src": "official-spec", "conf": 0.95, "basis": "kerb" },
+    "frontTyre": { "v": "110/70-17 M/C 54S", "src": "official-spec", "conf": 0.95 },
+    "rearTyre": { "v": "140/70-17 M/C 66S", "src": "official-spec", "conf": 0.95 },
+    "fuelTank": { "v": 12, "u": "L", "src": "official-spec", "conf": 0.95 }
+  },
+  "emission": {
+    "standard": { "v": "BS6-P2", "src": "official-spec", "conf": 0.9 },
+    "obd": { "v": "OBD-2B", "src": "official-spec", "conf": 0.9 }
+  },
+  "fuel": {
+    "compat": [
+      { "fuel": "E20", "status": "certified", "src": "official-spec", "conf": 0.8, "note": "Manufacturer E20 material compliance" },
+      { "fuel": "E10", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 },
+      { "fuel": "E0", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 }
+    ]
+  }
+}

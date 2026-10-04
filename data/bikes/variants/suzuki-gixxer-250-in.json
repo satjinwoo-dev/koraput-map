@@ -1,0 +1,64 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "suzuki-gixxer-250-in",
+  "kind": "variant",
+  "classKey": "ice_manual.naked",
+  "segment": "naked",
+  "powertrain": "ice_manual",
+  "identity": { "make": "Suzuki", "model": "Gixxer 250", "variant": "SOCS Oil Cooled Naked, Dual Channel ABS", "market": "IN", "yearFrom": 2020, "yearTo": null, "aliases": ["Gixxer 250", "Suzuki Gixxer 250"] },
+  "image": { "url": "https://images.mapunite.com/bikes/suzuki-gixxer-250-in.webp", "src": "official-spec" },
+  "sources": [
+    {
+      "id": "official-spec",
+      "kind": "manufacturer",
+      "title": "Suzuki Motorcycle India Gixxer 250 specifications",
+      "url": "https://www.suzukimotorcycle.co.in/product-details/gixxer-250",
+      "publisher": "Suzuki",
+      "retrieved": "2026-10-04"
+    },
+    {
+      "id": "lower-blend-rule",
+      "kind": "derived",
+      "title": "Lower-ethanol blends of a certified fuel",
+      "retrieved": "2026-10-04",
+      "note": "A vehicle certified for a higher-ethanol petrol is materials-compatible with lower-ethanol petrol. Listed as compatible, never as certified."
+    }
+  ],
+  "engine": {
+    "displacement": { "v": 249, "u": "cm3", "src": "official-spec", "conf": 0.95 },
+    "cylinders": { "v": 1, "u": "1", "src": "official-spec", "conf": 0.95 },
+    "strokes": { "v": 4, "u": "1", "src": "official-spec", "conf": 0.95 },
+    "bore": { "v": 76, "u": "mm", "src": "official-spec", "conf": 0.95 },
+    "stroke": { "v": 54.9, "u": "mm", "src": "official-spec", "conf": 0.95 },
+    "cooling": { "v": "air_oil", "src": "official-spec", "conf": 0.95 },
+    "fuelSystem": { "v": "fi", "src": "official-spec", "conf": 0.95 },
+    "peakPower": { "v": 19.5, "u": "kW", "src": "official-spec", "conf": 0.95 },
+    "peakPowerRpm": { "v": 9300, "u": "rpm", "src": "official-spec", "conf": 0.95 },
+    "peakTorque": { "v": 22.2, "u": "N*m", "src": "official-spec", "conf": 0.95 },
+    "peakTorqueRpm": { "v": 7300, "u": "rpm", "src": "official-spec", "conf": 0.95 },
+    "compressionRatio": { "v": 10.7, "u": "1", "src": "official-spec", "conf": 0.9 },
+    "idleRpm": { "v": 1500, "u": "rpm", "src": "official-spec", "conf": 0.9, "tol": 100 }
+  },
+  "transmission": {
+    "kind": { "v": "manual", "src": "official-spec", "conf": 0.95 },
+    "speeds": { "v": 6, "u": "1", "src": "official-spec", "conf": 0.95 }
+  },
+  "chassis": {
+    "mass": { "v": 156, "u": "kg", "src": "official-spec", "conf": 0.95, "basis": "kerb" },
+    "frontTyre": { "v": "110/70 R17 M/C 54H", "src": "official-spec", "conf": 0.95 },
+    "rearTyre": { "v": "150/60 R17 M/C 66H", "src": "official-spec", "conf": 0.95 },
+    "fuelTank": { "v": 12, "u": "L", "src": "official-spec", "conf": 0.95 }
+  },
+  "emission": {
+    "standard": { "v": "BS6-P2", "src": "official-spec", "conf": 0.9 },
+    "obd": { "v": "OBD-2B", "src": "official-spec", "conf": 0.9 }
+  },
+  "fuel": {
+    "compat": [
+      { "fuel": "E20", "status": "certified", "src": "official-spec", "conf": 0.8, "note": "Manufacturer E20 material compliance" },
+      { "fuel": "E10", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 },
+      { "fuel": "E0", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 }
+    ]
+  }
+}

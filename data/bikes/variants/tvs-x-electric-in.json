@@ -1,0 +1,36 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "tvs-x-electric-in",
+  "kind": "variant",
+  "classKey": "ev.scooter",
+  "segment": "scooter",
+  "powertrain": "ev",
+  "identity": { "make": "TVS", "model": "X", "variant": "Connected Maxi-Scooter 4.44 kWh", "market": "IN", "yearFrom": 2023, "yearTo": null, "aliases": ["TVS X", "TVS X Electric", "X Electric"] },
+  "image": { "url": "https://images.mapunite.com/bikes/tvs-x-electric-in.webp", "src": "official-spec" },
+  "sources": [
+    { "id": "official-spec", "kind": "manufacturer", "title": "TVS X Electric official specifications", "url": "https://www.tvsmotor.com/tvs-x", "publisher": "TVS", "retrieved": "2026-10-04" }
+  ],
+  "motor": {
+    "type": { "v": "pmsm", "src": "official-spec", "conf": 0.9 },
+    "mount": { "v": "mid_drive", "src": "official-spec", "conf": 0.9 },
+    "peakPower": { "v": 11, "u": "kW", "src": "official-spec", "conf": 0.9 },
+    "ratedPower": { "v": 7, "u": "kW", "src": "official-spec", "conf": 0.85 },
+    "peakTorque": { "v": 40, "u": "N*m", "src": "official-spec", "conf": 0.85, "at": "motor" }
+  },
+  "battery": {
+    "grossCapacity": { "v": 4.44, "u": "kWh", "src": "official-spec", "conf": 0.9 },
+    "chemistry": { "v": "Li-ion NMC", "src": "official-spec", "conf": 0.85 },
+    "certifiedRange": { "v": 140, "u": "km", "src": "official-spec", "conf": 0.9, "cycle": "IDC" }
+  },
+  "transmission": {
+    "kind": { "v": "single_speed", "src": "official-spec", "conf": 0.95 },
+    "drive": { "v": "belt", "src": "official-spec", "conf": 0.9 }
+  },
+  "chassis": {
+    "mass": { "v": 118, "u": "kg", "src": "official-spec", "conf": 0.95, "basis": "kerb" },
+    "frontTyre": { "v": "100/80-12", "src": "official-spec", "conf": 0.95 },
+    "rearTyre": { "v": "110/80-12", "src": "official-spec", "conf": 0.95 },
+    "topSpeed": { "v": 105, "u": "km/h", "src": "official-spec", "conf": 0.9 }
+  }
+}
