@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MapUnite AI Master</title>
+<style>
+  :root { --ink: #03070d; --text: #e9f6ff; --muted: #7f97ab; --line: rgba(120, 210, 255, .18); --cyan: #4fd8ff; --mint: #34e0b4; --amber: #ffb020; --slate: #8b9bab; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; color: var(--text); font: 500 13px/1.4 Inter, system-ui, sans-serif;
+    background: radial-gradient(90% 70% at 50% 38%, #0a1a2b 0%, #050c16 55%, var(--ink) 100%); }
+  /* the canvas itself is transparent: the page background shows through */
+  #ai-master-core { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  header { position: fixed; top: calc(16px + env(safe-area-inset-top)); left: 16px; right: 16px; text-align: center; pointer-events: none; }
+  header h1 { margin: 0; font-size: 15px; letter-spacing: .22em; font-weight: 600; }
+  header p { margin: 4px 0 0; color: var(--muted); font-size: 12px; letter-spacing: .06em; }
+  nav { position: fixed; left: 16px; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom)); display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+  nav button, nav label { height: 36px; padding: 0 14px; border-radius: 18px; border: 1px solid var(--line); background: rgba(6, 16, 28, .72);
+    color: var(--text); font: inherit; display: inline-flex; align-items: center; cursor: pointer; backdrop-filter: blur(8px); }
+  nav button[aria-pressed="true"] { border-color: var(--cyan); color: var(--cyan); background: rgba(79, 216, 255, .12); }
+  nav input[type=file] { display: none; }
+  #tip { position: fixed; pointer-events: none; padding: 7px 11px; border-radius: 10px; background: rgba(5, 12, 22, .9); border: 1px solid var(--line);
+    font-size: 12px; white-space: nowrap; transform: translate(-50%, calc(-100% - 16px)); backdrop-filter: blur(6px); }
+  #tip[hidden] { display: none; }
+  #tip b { font-weight: 600; }
+  #tip i { font-style: normal; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin: 0 6px 0 2px; }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<canvas id="ai-master-core" aria-label="MapUnite AI Master hologram and your convoy"></canvas>
+<header><h1>MAPUNITE · AI MASTER</h1><p id="status">Assembling humanoid view…</p></header>
+<div id="tip" role="status" hidden></div>
+<nav aria-label="Test controls">
+  <button data-mode="idle" aria-pressed="true">Idle</button>
+  <button data-mode="listening" aria-pressed="false">Listening</button>
+  <button data-mode="thinking" aria-pressed="false">Thinking</button>
+  <button data-mode="speaking" aria-pressed="false">Speaking</button>
+  <button data-mode="alert" aria-pressed="false">Alert</button>
+  <button id="pulse">Pulse</button>
+  <button id="add">+ Agent</button>
+  <button id="remove">− Agent</button>
+  <button id="bloom" aria-pressed="true">Bloom</button>
+  <label>Load .glb<input id="glb" type="file" accept=".glb,.gltf"></label>
+</nav>
+<script type="module">
+  import { createAIMasterCore } from "./ai-particle-core.js";
+
+  const $ = (id) => document.getElementById(id);
+  const status = $("status"), tip = $("tip");
+  const params = new URLSearchParams(location.search);
+  const names = ["Rahul", "Asha", "Vikram", "Meera", "Arjun", "Priya", "Kabir", "Sana", "Dev", "Isha", "Rohan", "Nila"];
+  const states = ["online", "online", "lagging", "online", "offline", "online"];
+  const dot = { online: "var(--mint)", lagging: "var(--amber)", offline: "var(--slate)" };
+  let n = 0, tipId = null;
+  const agent = () => { const i = n++; return { id: `agent-${i}`, name: names[i % names.length], status: states[i % states.length], link: 0.5 + ((i * 37) % 50) / 100 }; };
+  const summary = () => {
+    const a = core.agents, on = a.filter((x) => x.status === "online").length;
+    return `${core.mode[0].toUpperCase()}${core.mode.slice(1)} · ${a.length} convoy agents · ${on} online`;
+  };
+
+  const core = createAIMasterCore($("ai-master-core"), {
+    modelUrl: params.get("model"),                       // e.g. index.html?model=./models/head.glb
+    model: { fit: params.get("fit") || "bust", rotationY: +(params.get("rot") || 0) },
+    adaptive: params.get("adaptive") !== "0",
+    agents: Array.from({ length: 7 }, agent),
+    onReady: () => { status.textContent = summary(); },
+    onModelLoad: (info) => { status.textContent = `Model loaded · ${info.count.toLocaleString()} particles`; },
+    onModelError: (err) => { status.textContent = `Model failed (${err.message}); showing the procedural bust`; },
+    onQualityChange: ({ bloom }) => { $("bloom").setAttribute("aria-pressed", String(bloom)); },
+    onAgentHover: (a, x, y) => {
+      tip.hidden = !a;
+      if (!a) { tipId = null; return; }
+      tip.style.left = `${x}px`; tip.style.top = `${y}px`;
+      const key = `${a.id}|${a.status}`;
+      if (key === tipId) return;                         // called every frame; only rewrite on change
+      tipId = key;
+      tip.replaceChildren();
+      const b = document.createElement("b"); b.textContent = a.name;
+      const i = document.createElement("i"); i.style.background = dot[a.status];
+      tip.append(b, i, `${a.status} · link ${Math.round(a.link * 100)} %`);
+    },
+    onAgentClick: (a) => core.ping(a.id)
+  });
+  window.core = core;                                    // poke at it from the console
+
+  document.querySelectorAll("[data-mode]").forEach((b) => b.addEventListener("click", () => {
+    core.setMode(b.dataset.mode);
+    document.querySelectorAll("[data-mode]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    status.textContent = summary();
+  }));
+  $("pulse").addEventListener("click", () => core.pulse(1));
+  $("add").addEventListener("click", () => { core.upsertAgent(agent()); status.textContent = summary(); });
+  $("remove").addEventListener("click", () => { const a = core.agents.at(-1); if (a) core.removeAgent(a.id); status.textContent = summary(); });
+  $("bloom").addEventListener("click", (e) => { const on = !core.bloom; core.setBloom(on); e.currentTarget.setAttribute("aria-pressed", String(core.bloom)); });
+  $("glb").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    status.textContent = `Loading ${file.name}…`;
+    const url = URL.createObjectURL(file);
+    await core.loadModel(url);
+    URL.revokeObjectURL(url);
+  });
+
+  // demo traffic: a fake voice level while speaking, and connections that come and go
+  setInterval(() => { if (core.mode === "speaking") core.setLevel(0.2 + Math.random() * 0.8); }, 110);
+  setInterval(() => {
+    const list = core.agents;
+    if (!list.length) return;
+    const a = list[Math.floor(Math.random() * list.length)];
+    const next = { online: Math.random() < 0.7 ? "online" : "lagging", lagging: Math.random() < 0.6 ? "online" : "offline", offline: "online" }[a.status];
+    core.upsertAgent({ ...a, status: next });
+    status.textContent = summary();
+  }, 6000);
+</script>
+</body>
+</html>
