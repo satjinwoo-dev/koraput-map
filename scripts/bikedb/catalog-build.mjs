@@ -436,11 +436,11 @@ export function writeSqlite(art, ref, file, driver) {
         db.exec("INSERT INTO bundle_search(bundle_search) VALUES ('optimize');");
         db.exec("VACUUM;");
     } catch (e) {
-        db.close();
         fs.rmSync(tmp, { force: true });
         throw e;
+    } finally {
+        try { db.close(); } catch { /* ignore */ }
     }
-    db.close();
     try {
         fs.renameSync(tmp, file);
     } catch (e) {
