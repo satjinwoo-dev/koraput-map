@@ -10,9 +10,11 @@
  *
  *  1. copies native/android/perception/*.kt  → android/app/src/main/java/com/mapunite/app/perception/
  *     and    native/android/voice/*.kt       → android/app/src/main/java/com/mapunite/app/voice/  (MapUniteVoice)
+ *     and    native/android/radar/*.kt       → android/app/src/main/java/com/mapunite/app/radar/  (MapUniteRadio, MapUniteMedia)
  *  2. copies native/android/MainActivity.java (registers the plugin) when the appId is com.mapunite.app
  *  3. android/build.gradle      adds the Kotlin Gradle plugin to buildscript (if Kotlin isn't there yet)
  *  4. android/app/build.gradle  applies Kotlin, adds CameraX, matches Kotlin's JVM target to Java's
+ *  5. android/app/src/main/AndroidManifest.xml  declares the Master AI's media listener service
  *
  * If a Gradle file doesn't look like Capacitor's template, the script changes
  * nothing in it and prints the exact lines to add by hand.
@@ -25,7 +27,7 @@ export const MARK = "MapUnite perception";
 export const KOTLIN_VERSION = "2.1.21";
 export const CAMERAX_VERSION = "1.4.2";
 /** native/android/<pkg>/*.kt → android/app/src/main/java/com/mapunite/app/<pkg>/ */
-export const KOTLIN_PACKAGES = ["perception", "voice"];
+export const KOTLIN_PACKAGES = ["perception", "voice", "radar"];
 
 export const DEPS_BLOCK = [
     `    // ${MARK} (scripts/setup-perception-android.mjs): CameraX for the road camera`,
@@ -94,6 +96,24 @@ export function patchRootGradle(src) {
     return { text: src, changes, manual };
 }
 
+/** The Master AI mood agent's NotificationListenerService, inside <application>. */
+export const MEDIA_SERVICE = [
+    `        <!-- ${MARK}: Master AI mood agent (native/android/radar/MediaListenerService.kt) -->`,
+    `        <service android:name="com.mapunite.app.radar.MediaListenerService" android:label="@string/app_name" android:exported="true" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">`,
+    `            <intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter>`,
+    `        </service>`
+].join("\n");
+/**
+ * android/app/src/main/AndroidManifest.xml → { text, changes, manual }
+ * @param {string} src
+ */
+export function patchManifest(src) {
+    if (src.includes("com.mapunite.app.radar.MediaListenerService")) return { text: src, changes: [], manual: [] };
+    const i = src.lastIndexOf("</application>");
+    if (i < 0) return { text: src, changes: [], manual: [`inside <application>:\n${MEDIA_SERVICE}`] };
+    return { text: `${src.slice(0, i)}${MEDIA_SERVICE}\n    ${src.slice(i)}`, changes: ["declares the Master AI media listener service"], manual: [] };
+}
+
 // ---------------------------------------------------------------- run
 
 function main() {
@@ -121,14 +141,14 @@ function main() {
     const maDst = path.join(ANDROID, "app/src/main/java", ...appId.split("."), "MainActivity.java");
     if (appId === "com.mapunite.app") {
         if (!dry) fs.copyFileSync(path.join(ROOT, "native/android/MainActivity.java"), maDst);
-        say(`${dry ? "would copy" : "copied"} MainActivity.java (registers MapUniteNative + MapUnitePerception + MapUniteVoice)`);
+        say(`${dry ? "would copy" : "copied"} MainActivity.java (registers MapUniteNative + MapUnitePerception + MapUniteVoice + MapUniteRadio + MapUniteMedia)`);
     } else {
-        say(`appId is ${appId}: add these lines to your MainActivity.onCreate, before super.onCreate():\n    registerPlugin(com.mapunite.app.perception.PerceptionPlugin.class);\n    registerPlugin(com.mapunite.app.voice.VoicePlugin.class);`);
+        say(`appId is ${appId}: add these lines to your MainActivity.onCreate, before super.onCreate():\n    registerPlugin(com.mapunite.app.perception.PerceptionPlugin.class);\n    registerPlugin(com.mapunite.app.voice.VoicePlugin.class);\n    registerPlugin(com.mapunite.app.radar.RadioPlugin.class);\n    registerPlugin(com.mapunite.app.radar.MediaPlugin.class);`);
     }
 
     // 3 + 4. Gradle
     const manualAll = [];
-    for (const [rel, fn] of [["build.gradle", patchRootGradle], ["app/build.gradle", patchAppGradle]]) {
+    for (const [rel, fn] of [["build.gradle", patchRootGradle], ["app/build.gradle", patchAppGradle], ["app/src/main/AndroidManifest.xml", patchManifest]]) {
         const f = path.join(ANDROID, rel);
         if (!fs.existsSync(f)) { manualAll.push(`android/${rel} not found (Kotlin DSL .kts? add Kotlin + CameraX by hand, see ANDROID.md)`); continue; }
         const before = fs.readFileSync(f, "utf8");

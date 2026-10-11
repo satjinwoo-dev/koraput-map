@@ -1,0 +1,35 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "target": "ES2022",
+    "module": "commonjs",
+    "lib": [
+      "ES2022",
+      "DOM"
+    ],
+    "types": [
+      "node"
+    ],
+    "strict": false,
+    "noImplicitThis": false,
+    "noUnusedLocals": true
+  },
+  "files": [
+    "lib/master/cache.js",
+    "lib/master/upstream.js",
+    "lib/master/geo.js",
+    "lib/master/weather.js",
+    "lib/master/traffic.js",
+    "lib/master/road.js",
+    "lib/master/blackspots.js",
+    "lib/master/poi.js",
+    "lib/master/llm.js",
+    "lib/master/search.js",
+    "lib/master/sun.js",
+    "lib/master/safety.js",
+    "lib/master/music.js",
+    "lib/master/http-api.js"
+  ]
+}

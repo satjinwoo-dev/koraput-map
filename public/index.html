@@ -1700,6 +1700,25 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="js/master/agents/road-agent.js?v=20261011-master"></script>
 <script src="js/master/perception/dynamics.js?v=20261011-d1"></script>
 <script src="js/master/agents/dynamics-agent.js?v=20261011-d1"></script>
-<script src="js/master/master-app.js?v=20261011-d1"></script>
+<!-- Master AI cognitive engines: the 2 km radar (corridor → weather, traffic, topology, blackspot), link, vetted places,
+     Deep Search, destination safety, music mood, rider context; learning/affect/fusion policies. Every third-party call goes
+     through our server's /api/master (keys stay on the server). -->
+<script src="js/master/geo.js?v=20261011-cog1"></script>
+<script src="js/master/remote.js?v=20261011-cog1"></script>
+<script src="js/master/providers.js?v=20261011-cog1"></script>
+<script src="js/master/phrases-radar.js?v=20261011-cog1"></script>
+<script src="js/master/cognition.js?v=20261011-cog1"></script>
+<script src="js/master/agents/corridor-agent.js?v=20261011-cog1"></script>
+<script src="js/master/agents/link-agent.js?v=20261011-cog1"></script>
+<script src="js/master/agents/weather-agent.js?v=20261011-cog1"></script>
+<script src="js/master/agents/traffic-agent.js?v=20261011-cog1"></script>
+<script src="js/master/agents/topology-agent.js?v=20261011-cog1"></script>
+<script src="js/master/agents/blackspot-agent.js?v=20261011-cog1"></script>
+<script src="js/master/agents/poi-agent.js?v=20261011-cog1"></script>
+<script src="js/master/agents/search-agent.js?v=20261011-cog1"></script>
+<script src="js/master/agents/mood-agent.js?v=20261011-cog1"></script>
+<script src="js/master/agents/destination-agent.js?v=20261011-cog1"></script>
+<script src="js/master/agents/context-agent.js?v=20261011-cog1"></script>
+<script src="js/master/master-app.js?v=20261011-cog1"></script>
 </body>
 </html>

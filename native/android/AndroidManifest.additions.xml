@@ -39,3 +39,23 @@
 <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
 <uses-feature android:name="android.hardware.camera" android:required="false" />
 <uses-feature android:name="android.hardware.microphone" android:required="false" />
+
+<!-- ======================================================================
+     Master AI (native/android/radar/). Radio signal needs no extra
+     permission (ACCESS_NETWORK_STATE comes with Capacitor). The mood agent
+     reads other apps' media sessions through this listener service.
+     scripts/setup-perception-android.mjs adds it; by hand, paste it
+     INSIDE <application> (not above it). The rider switches it on once in
+     Settings → Notification access; no app can switch it on for itself.
+     ====================================================================== -->
+<!--
+<service
+    android:name="com.mapunite.app.radar.MediaListenerService"
+    android:label="@string/app_name"
+    android:exported="true"
+    android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+    <intent-filter>
+        <action android:name="android.service.notification.NotificationListenerService" />
+    </intent-filter>
+</service>
+-->

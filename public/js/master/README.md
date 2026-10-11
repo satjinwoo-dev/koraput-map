@@ -34,6 +34,24 @@ The Master never has a voice of its own. It goes through the same `voiceAnnounce
 | `agents/network-agent.js` | Network health (OS flag, connection type, a round trip to our server), plus no-signal zones it learns on this phone and warns about before you reach them. |
 | `agents/vision-agent.js` + `vision/` | The break-time fatigue check: armed by `ride.break-due`, offered only once the bike has stood still ≥ 15 s, front camera + MediaPipe on the phone, reports `fatigue.high/moderate/low`. See `vision/README.md`. |
 | `agents/_template.js` | A fully commented agent to copy. It isn't loaded by `index.html`. |
+| `geo.js` | Shared geometry (SI): route cursor, "2 km ahead" slices, resampling, projection, turn rate (hairpins), sun elevation, POI tiles. |
+| `remote.js` | Capability `master-api`: the phone ↔ `/api/master` (our server; every third-party key stays there). Offline short-circuit, in-flight sharing, "not configured" memory, free bandwidth samples. |
+| `providers.js` | Capabilities `radio` + `media` (Android plugins, `native/android/radar/`), `app-context` (bike, group, destination, searches, what the mic heard), `terrain` (the app's DEM cache). |
+| `cognition.js` | Brain policies: **interest** (learns per category from yes/no answers, Beta posterior, 14-day half-life), **affect** (holds advice while the rider is irritated or stressed), **fusion** (rain × ghat → one compound warning). |
+| `phrases-radar.js` | Words for the engines below (desi spoken, plain on screen), plus the small vocabularies agents use (`WORDS`). |
+| `agents/corridor-agent.js` | `state.corridor`: the road 2 km ahead (the route, else the heading), shared by every radar agent; `state.light`. |
+| `agents/weather-agent.js` | Storms, rain, fog, wind, heat, cold, dust, dry air along the corridor (`weather.<type>`). |
+| `agents/traffic-agent.js` | Jams and closures ahead (`traffic.jam-ahead`, `traffic.closure-ahead`, `traffic.slow-ahead`). Needs `TOMTOM_API_KEY` on the server. |
+| `agents/topology-agent.js` | Ghats (DEM grades), hairpins (geometry), breakers, railway crossings, bad road, long bridges when wet, OSM hazards. Route only. |
+| `agents/blackspot-agent.js` | Official accident blackspots ahead, warned at speed × 30 s (`blackspot.ahead`). |
+| `agents/link-agent.js` | Radio dBm trend → `network.degrading` before the drop; real throughput → `network.slow`; `state.link`. |
+| `agents/poi-agent.js` | Vetted hospitals, mechanics, service centres, hotels, dhabas: ranked every second from a tile cache; `task.poi-best`, `task.emergency`; `rest.stop` on a break. |
+| `agents/search-agent.js` | `task.deep-search`: Gemini + Google Search on the server, falling back to a local Ollama model; answered in the persona with the phone's live facts as context; offline questions answered later. |
+| `agents/mood-agent.js` | Mood of the music playing → what to play next (`music.*`), muted on request; `task.music-control`. |
+| `agents/destination-agent.js` | Arrival risk at the destination (light, weather, blackspots, help nearby) → `destination.*`. |
+| `agents/context-agent.js` | `state.user` (bike, group, destination, searches) and `state.affect` (irritation, stress). |
+
+The server half lives in `lib/master/` (see `MASTER-ENGINES.md` at the repo root).
 
 ## Severities
 
@@ -73,8 +91,9 @@ Nothing else changes. If the agent crashes, it's restarted with back-off (1 s, 2
 | Helmet check | `camera` | `helmet`, `runWhen` riding, every 20 min | `helmet.missing` (warning) |
 | Bluetooth radar | `ble-scan` (wraps `@capacitor-community/bluetooth-le`, already bundled) | `radar` | `radar.close` (critical), `radar.follower` (warning) |
 | AI-to-AI swarm | `mesh` (the trip socket and the existing BLE beacons) | `swarm`, `runWhen` in a group trip | relays trip-mates' reports into `report.swarm.*` |
-| Weather 1 km ahead | (route + Open-Meteo) | `weather`, which takes over from the advice module's own weather voice line | `weather.ahead` (lines already in the pack) |
-| Deep search | (server endpoint) | `deep-search` | `task.deep-search` |
+| Weather 2 km ahead | `master-api` (**done**) | `weather` (**done**); weather already HERE stays the advice module's line | `weather.<type>` |
+| Deep search | `master-api` (**done**) | `deep-search` (**done**) | `task.deep-search` |
+| Radar: traffic, road, blackspots | `master-api`, `terrain` (**done**) | `traffic`, `topology`, `blackspot` (**done**) | see the table above |
 
 ## Console
 
@@ -85,13 +104,18 @@ MUMaster.live.debug.simulate("rest.stop", { data: { distanceM: 2000, place: "Sha
 MUMaster.live.setStyle("plain"); MUMaster.live.setName("Rahul")
 MUMaster.live.disable("network"); MUMaster.live.enable("network")
 MUMaster.live.transcript()
+await MUMaster.live.ask("Araku valley mein kal baarish hogi?")   // Deep Search → { text, display, result }
+await MUMaster.live.nearest("mechanic")      // instant, from the POI cache
+await MUMaster.live.emergency("medical")     // the hospital to head for, + 112
+MUMaster.live.bus.last("state.corridor")     // what "2 km ahead" is right now
+MUMaster.live.cognition.snapshot()           // what the Master has learned about tips
 ```
 
 Settings are kept on the phone only, in localStorage under `mu.master.v1`. The network agent's learned no-signal cells are stored under `mu.master.network.deadCells` (cells of about 1 km, oldest dropped after 600) and are never uploaded.
 
 ## Tests
 
-Run `node --test test/master/*.test.mjs` (fake clock, no browser; also part of `npm test`). They cover:
+Run `node --test test/master/*.test.mjs` (the engines: `test/master/cognitive.test.mjs`; their server side: `test/server/master-api.test.mjs`) (fake clock, no browser; also part of `npm test`). They cover:
 - the contracts and the bus (patterns, ordering, isolation, request timeouts);
 - kernel lifecycles (waiting, `runWhen`, cleanup, back-off, degrade, hot-swap, heartbeat, cycles, lazy loading);
 - the persona and pack lint, and screen text always in English;
