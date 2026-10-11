@@ -54,7 +54,23 @@
      OSRM_PUBLIC_URL          routing URL the BROWSER uses (default the public demo
                               server). Point both at your own OSRM (DEPLOY.md).
      OVERPASS_URL             default https://overpass-api.de/api/interpreter
-     GOOGLE_MAPS_SERVER_KEY   server-side Places key (IP-restrict it in Google Cloud)
+     GOOGLE_MAPS_SERVER_KEY   server-side Places key (IP-restrict it in Google Cloud);
+                              also the Master AI's vetted places (/api/master/poi)
+     TOMTOM_API_KEY           Master AI live traffic ahead (/api/master/traffic); unset = off
+     GEMINI_API_KEY           Master AI reasoning / Deep Search, cloud engine (Google Gemini free tier,
+                              grounded with Google Search). GEMINI_MODEL default gemini-flash-latest;
+                              GEMINI_DAILY_MAX default 200 (stay under the free quota, then go local)
+     OLLAMA_URL               Master AI local engine (Ollama), default http://127.0.0.1:11434;
+                              OLLAMA_MODEL default llama3.2:3b (4 GB GPU; llama3.1:8b / qwen2.5:7b on 6–8 GB);
+                              OLLAMA_RETRIEVAL "wikipedia" (default) | "none"; OLLAMA_KEEP_ALIVE default 30m;
+                              OLLAMA_DISABLED "1" = cloud only
+     MASTER_LLM_ORDER         "gemini,ollama" (default), "ollama,gemini" (local first) or "ollama" (local only)
+     MASTER_SEARCH_DAILY_MAX  Deep Search questions per day for the whole server, default 1000
+     LASTFM_API_KEY           Master AI music mood + suggestions (/api/master/music); unset = title words only
+     OPEN_METEO_API_KEY       only with a commercial Open-Meteo plan (weather is keyless otherwise)
+     PLACES_CACHE_SECONDS     server memory cache for Google Places answers, default 900 (see lib/master/poi.js)
+     MASTER_POI_GOOGLE        "0" = the Master's places use OSM only (no Places cost; the search box keeps Google)
+     MASTER_BLACKSPOTS_DIR    official blackspot datasets, default ./data/master/blackspots
      HTTP_RATE_LIMIT_MAX      default 300 per 15 min per IP
      MAX_SOCKETS_PER_IP       default 20
      RECONNECT_GRACE_MS       default 30000
@@ -100,6 +116,7 @@ const { createBus, attachSocketIoAdapter } = require("./lib/cluster");
 const { MediaStore } = require("./lib/media");
 const { createBikeApi } = require("./lib/bikedb/http-api");
 const { createAdminApi } = require("./lib/bikedb/admin-api");
+const { createMasterApi } = require("./lib/master/http-api");
 const { cleanSettings: cleanBikeSettings } = require("./public/js/garage/store.js");
 
 // ==========================================================================
@@ -273,7 +290,7 @@ const httpLimiter = rateLimit({
     max: Number(process.env.HTTP_RATE_LIMIT_MAX) || 300,
     standardHeaders: true,
     legacyHeaders: false,
-    skip: (req) => req.path.startsWith("/socket.io/") || req.path.startsWith("/media/") || req.path.startsWith("/api/bikes/") || req.path === "/api/native/location"
+    skip: (req) => req.path.startsWith("/socket.io/") || req.path.startsWith("/media/") || req.path.startsWith("/api/bikes/") || req.path.startsWith("/api/master/") || req.path === "/api/native/location"
 });
 
 app.get("/config.js", (_req, res) => {
@@ -327,6 +344,16 @@ const bikeApi = createBikeApi({
     requesterKey: (req) => crypto.createHmac("sha256", SERVER_SECRET).update(`mu-bike-request-v1|${req.ip}`).digest("hex").slice(0, 32)
 });
 app.use("/api/bikes", bikeApi.router);
+
+// Master AI cognitive engines (lib/master/http-api.js): the 2 km radar (weather, traffic, road,
+// blackspots), vetted places, Deep Search, destination safety, music mood. Every third-party
+// key stays in this process. Own JSON parsers and per-route limits (sized for what a phone's
+// agents send, with a convoy behind one carrier IP), so mounted before the global ones.
+const masterApi = createMasterApi({
+    express, rateLimit,
+    allowOrigin: (origin) => CORS_ORIGIN === "*" || (Array.isArray(CORS_ORIGIN) && CORS_ORIGIN.includes(origin))
+});
+app.use("/api/master", masterApi.router);
 
 // Bike curator's admin API (lib/bikedb/admin-api.js): the request queue, drafts, and
 // approve → data/bikes/variants + rebuild, with the picture rule enforced here (an approved
@@ -3353,6 +3380,12 @@ function listen() {
         console.log(`   OSRM: ${OSRM_BASE} (browser: ${OSRM_PUBLIC_URL})`);
         console.log(`   CORS: ${CORS_ORIGIN === false ? "same-origin only" : JSON.stringify(CORS_ORIGIN)}`);
         console.log(`   CSP: ${process.env.ENFORCE_CSP === "1" ? "enforced" : "report-only"}`);
+        // which reasoning engines the Master AI can use right now (Ollama is asked, not assumed)
+        masterApi.services.engines.health().then((h) => {
+            const g = h.gemini ? (h.gemini.configured ? `gemini (${h.gemini.model})` : "gemini: no GEMINI_API_KEY") : "";
+            const o = h.ollama ? (h.ollama.up ? (h.ollama.hasModel ? `ollama (${h.ollama.model})` : `ollama up, but run: ollama pull ${h.ollama.model}`) : "ollama: not running") : "";
+            console.log(`   Master AI reasoning [${h.order.join(" → ")}]: ${[g, o].filter(Boolean).join(" · ")}${h.ready ? "" : "  ⚠ no engine ready: Deep Search will answer \"not available\""}`);
+        }).catch(() => {});
         console.log(`   Cluster: ${bus.mode === "redis" ? `node ${NODE_ID} via Redis${adapterAttached ? " + Socket.IO adapter" : ""}` : "single process"}`);
         if (!GOOGLE_KEY) console.log("   Places proxy: disabled (set GOOGLE_MAPS_SERVER_KEY to enable)");
     });

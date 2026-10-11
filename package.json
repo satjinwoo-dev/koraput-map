@@ -24,7 +24,9 @@
     "master:typecheck": "tsc -p tsconfig.master.json",
     "voice:typecheck": "tsc -p tsconfig.voice.json",
     "physics:mutation": "node scripts/physics/mutation-check.mjs",
-    "physics:table": "node scripts/physics/cruise-table.mjs"
+    "physics:table": "node scripts/physics/cruise-table.mjs",
+    "master-server:typecheck": "tsc -p tsconfig.master-server.json",
+    "master:blackspots": "node scripts/master/import-blackspots.mjs"
   },
   "keywords": [],
   "author": "",

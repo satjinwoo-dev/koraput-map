@@ -41,6 +41,22 @@
     "public/js/master/agents/road-agent.js",
     "public/js/master/perception/dynamics.js",
     "public/js/master/agents/dynamics-agent.js",
+    "public/js/master/geo.js",
+    "public/js/master/remote.js",
+    "public/js/master/providers.js",
+    "public/js/master/phrases-radar.js",
+    "public/js/master/cognition.js",
+    "public/js/master/agents/corridor-agent.js",
+    "public/js/master/agents/link-agent.js",
+    "public/js/master/agents/weather-agent.js",
+    "public/js/master/agents/traffic-agent.js",
+    "public/js/master/agents/topology-agent.js",
+    "public/js/master/agents/blackspot-agent.js",
+    "public/js/master/agents/poi-agent.js",
+    "public/js/master/agents/search-agent.js",
+    "public/js/master/agents/mood-agent.js",
+    "public/js/master/agents/destination-agent.js",
+    "public/js/master/agents/context-agent.js",
     "public/js/master/master-app.js"
   ]
 }

@@ -142,6 +142,20 @@ const VOICE_COMMANDS = [
     { name: "cancelPending", test: (t, ctx) => ctx.pendingSos && /\b(cancel|no|nahi|stop|don'?t)\b/.test(t) },
     { name: "sos", test: (t) => /\b(send|trigger|raise|call)\b.*\b(sos|s o s|emergency)\b|\bemergency\b|\bhelp me\b|\bsos\b|\bs o s\b/.test(t) },
     { name: "help", test: (t) => /\b(help|what can i say|commands|options)\b/.test(t) },
+    // Master AI (js/master/): emergencies and places from the POI agent's cache (instant), music, Deep Search for the rest.
+    // Before whereIs, which would read "where is the nearest hospital" as a rider called "the nearest hospital".
+    { name: "masterEmergency", test: (t) => /\b(accident ho gaya|accident hua|chot lagi|injured|ambulance|hospital le chal|take me to (a |the )?hospital)\b/.test(t) },
+    { name: "masterNearest", test: (t) => {
+        const C = "(hospital|clinic|mechanic|garage|puncture|service cent(?:er|re)|service station|hotel|lodge|dhaba|restaurant|khana|food)";
+        const m = new RegExp(`\\b(?:nearest|nearby|near me|paas|nazdeek|kahan|where|best|koi|find|chahiye)\\b.*\\b${C}\\b`).exec(t) || new RegExp(`\\b${C}\\b.*\\b(?:kahan|chahiye|nearby|nearest|near me|paas)\\b`).exec(t);
+        if (!m) return false;
+        const w = m[1];
+        return /hospital|clinic/.test(w) ? "hospital" : /mechanic|garage|puncture/.test(w) ? "mechanic" : /service/.test(w) ? "service" : /hotel|lodge/.test(w) ? "hotel" : "food";
+    } },
+    { name: "masterMusic", test: (t) => (/\b(next song|agla gaana|agla gana|gaana badal|gana badal|skip (the )?(song|track)|change (the )?song)\b/.test(t) ? "next"
+        : /\b(previous song|pichhla gaana|pichla gana)\b/.test(t) ? "previous"
+        : /\b(no music (tips|suggestions)|music (tips|suggestions) off|gaane suggest mat|gane suggest mat)\b/.test(t) ? "tips-off"
+        : /\b(music (tips|suggestions) on)\b/.test(t) ? "tips-on" : false) },
     // Step 8: "quiet ride" switches off riding advice only (safety alerts stay); before "mute", which also matches "quiet"
     { name: "quietRide", test: (t) => (/\b(quiet ride|no (coaching|advice|tips)|(coaching|advice|tips) off)\b/.test(t) ? "on" : /\b((coaching|advice|tips) (on|back)|normal ride)\b/.test(t) ? "off" : false) },
     { name: "unmute", test: (t) => /\b(unmute|un mute|voice on|alerts on|sound on|speak again)\b/.test(t) },
@@ -726,6 +740,8 @@ const VoiceAssistant = {
 
     handleAlternatives(alts, mode) {
         const ctx = { mode, pendingSos: Boolean(this.pendingConfirm && this.pendingConfirm.type === "sos" && this.pendingConfirm.until > Date.now()) };
+        // the Master's context agent reads what the rider says (irritation, "bas kar"): local only, never stored
+        try { const heard = alts[0] && normalizeSpeech(alts[0].transcript); if (heard) document.dispatchEvent(new CustomEvent("mu:voice-heard", { detail: { text: heard, mode } })); } catch (e) { /* optional */ }
         for (const a of alts) {
             const text = normalizeSpeech(a.transcript);
             if (!text) continue;
@@ -742,6 +758,10 @@ const VoiceAssistant = {
         }
         if (mode === "ptt") {
             islandHide("voice-listen");
+            // not a command: a question for the Master's Deep Search (a few words at least, and the Master is running)
+            const q = alts[0] ? String(alts[0].transcript || "").trim() : "";
+            const M = window.MUMaster && window.MUMaster.live;
+            if (M && typeof M.ask === "function" && q.split(/\s+/).length >= 3) { this.masterAsk(q); return true; }
             this.reply("Sorry, I didn't catch a command. Say help to hear what I can do.");
         }
         return false;
@@ -804,9 +824,47 @@ const VoiceAssistant = {
         }, 600);
     },
 
+    // ---------------------------------------------------------------- Master AI answers
+    /** Speak a Master answer and show it; a Call button only when stopped (never invite a tap while moving). */
+    masterSay(ans, extra = {}) {
+        if (!ans || !ans.text) return;
+        this.reply(ans.text, extra);
+        const v = typeof GpsFilter !== "undefined" ? GpsFilter.lastSmoothed : (myCoords && myCoords.speedKmh) || 0;
+        const p = ans.place;
+        const action = p && p.phone && !(v > 5) ? { label: "Call", onClick: () => { window.location.href = `tel:${String(p.phone).replace(/[^\d+]/g, "")}`; } }
+            : p && p.navUrl && !(v > 5) ? { label: "Route", onClick: () => { window.open(p.navUrl, "_blank", "noopener"); } } : undefined;
+        islandShow({ id: "master-answer", kind: extra.kind || "info", icon: extra.icon || "🧠", title: ans.display.title, sub: ans.display.sub, ttl: 12000, haptic: false, action });
+    },
+    masterStyle() { const M = window.MUMaster && window.MUMaster.live; return M && M.persona && M.persona.style === "plain" ? "plain" : "desi"; },
+    async masterAsk(query) {
+        const M = window.MUMaster.live;
+        this.reply(this.masterStyle() === "plain" ? "One moment, I'll look that up." : "Ek second, dhoondh ke batata hoon.");
+        try { this.masterSay(await M.ask(query)); } catch (e) { this.reply("Sorry, I couldn't look that up right now."); }
+    },
+    async masterHelp(cmd) {
+        const M = window.MUMaster && window.MUMaster.live;
+        if (!M) { this.reply("The Master AI isn't running."); return; }
+        try {
+            if (cmd.name === "masterEmergency") {
+                const a = await M.emergency("medical");
+                if (a.ok) this.masterSay(a, { kind: "sos", icon: "🏥" });
+                else this.reply(this.masterStyle() === "plain" ? "I don't have a hospital nearby saved yet. If it's serious, call 112 now." : "Abhi paas ka hospital save nahi hai. Haalat serious hai toh turant 112 pe call kar.");
+            } else if (cmd.name === "masterNearest") this.masterSay(await M.nearest(cmd.arg || "food"), { icon: cmd.arg === "hospital" ? "🏥" : cmd.arg === "food" ? "🍲" : "📍" });
+            else if (cmd.name === "masterMusic") {
+                if (cmd.arg === "tips-off" || cmd.arg === "tips-on") { await M.musicTips(cmd.arg === "tips-on"); this.reply(cmd.arg === "tips-on" ? "Music tips are back on." : "OK, no more music suggestions this ride."); }
+                else if (!(await M.music(cmd.arg))) this.reply("I can't control the music player right now.");
+            }
+        } catch (e) { this.reply("Sorry, that didn't work."); }
+    },
+
     // ---------------------------------------------------------------- commands
     execute(cmd) {
         switch (cmd.name) {
+            case "masterEmergency":
+            case "masterNearest":
+            case "masterMusic":
+                this.masterHelp(cmd);
+                break;
             case "help":
                 this.reply("You can say: how far, where is, then a name, squad status, radio status, regroup, who's approaching, speed limit, avoid tolls, navigate to, then a place, start navigation, stop navigation, where am I, mute, or send S O S.");
                 break;

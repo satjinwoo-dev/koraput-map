@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-11.4";           // Voice engine: neural Hinglish voice, premium /api/tts cache, native audio pipeline
+const VERSION = "mu-2026-10-11.5";           // Master AI cognitive engines: 2 km radar, vetted places, Deep Search, mood, destination safety
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
@@ -166,6 +166,22 @@ const BIKE_SCRIPTS = [
     "/js/master/agents/road-agent.js",
     "/js/master/perception/dynamics.js",
     "/js/master/agents/dynamics-agent.js",
+    "/js/master/geo.js",
+    "/js/master/remote.js",
+    "/js/master/providers.js",
+    "/js/master/phrases-radar.js",
+    "/js/master/cognition.js",
+    "/js/master/agents/corridor-agent.js",
+    "/js/master/agents/link-agent.js",
+    "/js/master/agents/weather-agent.js",
+    "/js/master/agents/traffic-agent.js",
+    "/js/master/agents/topology-agent.js",
+    "/js/master/agents/blackspot-agent.js",
+    "/js/master/agents/poi-agent.js",
+    "/js/master/agents/search-agent.js",
+    "/js/master/agents/mood-agent.js",
+    "/js/master/agents/destination-agent.js",
+    "/js/master/agents/context-agent.js",
     "/js/master/master-app.js"
 ];
 // The Socket.IO client library: a static script the server ships. index.html can't

@@ -218,6 +218,8 @@ function setupGoogleSearch() {
                 const destLat = place.geometry.location.lat();
                 const destLng = place.geometry.location.lng();
                 const placeName = place.name;
+                // the Master AI's context agent learns what the rider searches for (on the phone only)
+                try { document.dispatchEvent(new CustomEvent("mu:place-search", { detail: { name: placeName, lat: destLat, lng: destLng } })); } catch (e) { /* optional */ }
 
                 searchLayer.clearLayers();
                 if (typeof navigationLayer !== "undefined") navigationLayer.clearLayers();
@@ -530,6 +532,7 @@ function emitRoute(path, distanceM, durationSec, steps, reason) {
 }
 
 function startSearchNavigation(destLat, destLng, destName, routeData) {
+    try { document.dispatchEvent(new CustomEvent("mu:destination", { detail: { name: destName, lat: destLat, lng: destLng } })); } catch (e) { /* Master AI: optional */ }
     navigationLayer.clearLayers();
     if (navWatchId) navigator.geolocation.clearWatch(navWatchId);
 

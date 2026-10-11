@@ -4,9 +4,12 @@
    ==============================================================================
    Wires the pieces together and starts the kernel:
 
-     bus ─┬─ kernel (agents: ride, network, vision, road, dynamics … later radar, swarm)
-          ├─ brain  (policies → queue → persona → output → safety gate → voice)
-          └─ caps   (network, location, route, drive, store; camera/bluetooth later)
+     bus ─┬─ kernel (agents: ride, network, vision, road, dynamics, and the cognitive engines:
+          │          corridor → weather · traffic · topology · blackspot (the 2 km radar),
+          │          link, poi, deep-search, mood, destination, context)
+          ├─ brain  (policies → cognition: interest · affect · fusion → queue → persona → output → gate → voice)
+          └─ caps   (network, location, route, drive, store, master-api, app-context, terrain;
+                     radio + media in the Android app)
 
    Exposes window.MUMaster.live for the rest of the app and for the console:
      MUMaster.live.status()                   every agent and its state
@@ -17,6 +20,10 @@
      MUMaster.live.tell({ kind: "master.reply", severity: "advice", text: "…" })
      MUMaster.live.debug.simulate("network.lost", { severity: "warning" })
      MUMaster.live.debug.log(true)            print every bus message
+     MUMaster.live.ask("kal Araku mein mausam kaisa rahega?")   Deep Search (Gemini, else local Ollama), spoken in the persona
+     MUMaster.live.nearest("hospital")        the best one nearby, instantly, spoken + { place }
+     MUMaster.live.emergency("medical")       the hospital to go to now (+ 112), from the phone's cache
+     MUMaster.live.music("next") / musicTips(false)   control the player / silence music tips
 
    Settings live on the phone only (localStorage "mu.master.v1").
    ============================================================================ */
@@ -64,10 +71,24 @@
         const replay = typeof W.MU_DYNAMICS_REPLAY === "string" || Array.isArray(W.MU_DYNAMICS_REPLAY) ? W.MU_DYNAMICS_REPLAY : null;
         if (plugin || replay) caps.provide("dynamics", M.perception.dynamics.createDynamicsProvider({ plugin, replay }));
     }
+    // the cognitive engines: our server's /api/master (keys stay there), the app's own context, the DEM cache,
+    // and in the Android app the radio-signal and media-session plugins
+    if (M.remote) caps.provide("master-api", M.remote.createMasterApiProvider({ window: W }));
+    if (M.providers) {
+        caps.provide("app-context", M.providers.createAppContextProvider(W, W.document));
+        if (W.MUTrip && W.MUTrip.elevation && typeof W.MUTrip.elevation.createElevation === "function") caps.provide("terrain", M.providers.createTerrainProvider(W.MUTrip.elevation.createElevation()));
+        const radio = M.providers.plugin(W, "MapUniteRadio");
+        if (radio) caps.provide("radio", M.providers.createRadioProvider(radio));
+        const media = M.providers.plugin(W, "MapUniteMedia");
+        if (media) caps.provide("media", M.providers.createMediaProvider(media));
+    }
     const persona = M.phrases.install(M.persona.createPersona({ style: config.style, name: config.name }));
+    for (const pack of Array.isArray(M.phrasePacks) ? M.phrasePacks : []) { try { pack.install(persona); } catch (e) { console.warn("[master] phrase pack failed:", e); } }
     const output = M.output.createOutput({ window: W });
     const brain = M.brain.createBrain({ bus, contracts: M.contracts, persona, output });
     const kernel = M.kernel.createKernel({ bus, caps, contracts: M.contracts, config, onConfigChange: save });
+    // learning, affect and reasoning policies (js/master/cognition.js)
+    const cognition = M.cognition ? M.cognition.install({ brain, bus, store: caps.get("store").namespace("cognition") }) : null;
     // agents that put words on screen themselves (the fatigue check) read the voice's style from here
     const sharePersona = () => bus.publish("state.persona", { style: persona.style, name: persona.name }, { source: "master", sticky: true });
     sharePersona();
@@ -78,9 +99,62 @@
     for (const def of pending) kernel.define(def);
     for (const entry of LAZY) kernel.lazy(entry);
 
+    // the screen side: answers and places for the UI (DOM events, so no UI code depends on the Master)
+    const toDom = (/** @type {string} */ topic, /** @type {string} */ type) => bus.subscribe(topic, (/** @type {any} */ d) => { try { W.document.dispatchEvent(new W.CustomEvent(type, { detail: d })); } catch (e) { /* no DOM */ } }, { owner: "master-app" });
+    toDom("state.answer", "mu:master-answer");
+    toDom("state.poi", "mu:master-poi");
+    toDom("state.destination", "mu:master-destination");
+
+    /** Words for a kind right now, without the queue (a reply to the rider's own question). @param {string} kind @param {any} data @param {"advice"|"warning"} [severity] */
+    const words = (kind, data, severity = "advice") => persona.phrase({ kind, key: kind, severity, data }, brain.world);
+    const WD = M.phrasesRadar ? M.phrasesRadar.WORDS : null;
+    const catWords = (/** @type {string} */ c) => (WD && WD.category[c]) || { desi: c, plain: c };
+
     /** @type {Function|null} */ let untap = null;
     M.live = {
-        bus, caps, kernel, brain, persona, output, config,
+        bus, caps, kernel, brain, persona, output, config, cognition,
+        /**
+         * Ask the Master anything: Deep Search, answered in the persona's voice.
+         * @param {string} query @returns {Promise<{ ok: boolean, text: string, display: { title: string, sub: string }, result?: any }>}
+         */
+        async ask(query) {
+            const r = await brain.delegate("deep-search", { query }, { timeoutMs: 60000 });
+            if (r.ok && r.result && r.result.spoken) {
+                // be honest on screen about an answer nobody checked live (the local model with nothing retrieved)
+                const note = r.result.engine === "ollama" && !r.result.grounded ? "Local AI, not checked live · " : "";
+                return { ok: true, text: r.result.spoken, display: { title: r.result.title, sub: `${note}${r.result.summary}`.slice(0, 140) }, result: r.result };
+            }
+            const w = words("search.failed", {});
+            return { ok: false, text: w.text, display: w.display };
+        },
+        /**
+         * The best place of a category nearby, from memory (instant).
+         * @param {string} category hospital | mechanic | service | hotel | food
+         */
+        async nearest(category) {
+            const r = await brain.delegate("poi-best", { category, count: 3 }, { timeoutMs: 2000 });
+            const p = r.ok && Array.isArray(r.result) ? r.result[0] : null;
+            const cw = catWords(category);
+            const w = p ? words("poi.nearest", { place: p.name, distanceM: Math.max(100, p.distanceM), category: cw.desi, screen: { category: cw.plain } })
+                : words("poi.none", { category: cw.desi, screen: { category: cw.plain } });
+            return { ok: Boolean(p), text: w.text, display: w.display, place: p, alternatives: r.ok ? r.result.slice(1) : [] };
+        },
+        /** @param {"medical"|"breakdown"} kind */
+        async emergency(kind = "medical") {
+            const r = await brain.delegate("emergency", { kind }, { timeoutMs: 2000 });
+            const p = r.ok && r.result ? r.result.primary : null;
+            if (!p) return { ok: false, text: "", display: { title: "", sub: "" }, place: null, emergencyNumber: "112" };
+            const w = kind === "medical" ? words("poi.emergency", { place: p.name, distanceM: Math.max(100, p.distanceM) }, "warning")
+                : words("poi.nearest", { place: p.name, distanceM: Math.max(100, p.distanceM), category: catWords(p.category).desi, screen: { category: catWords(p.category).plain } });
+            return { ok: true, text: w.text, display: w.display, place: p, alternatives: r.result.alternatives || [], emergencyNumber: "112" };
+        },
+        /** @param {"next"|"previous"|"pause"|"play"} action */
+        music: async (action) => { const r = await brain.delegate("music-control", { action }, { timeoutMs: 3000 }); return Boolean(r.ok && r.result && r.result.ok); },
+        /** @param {boolean} on @param {number} [minutes] */
+        musicTips: async (on, minutes) => brain.delegate("music-mute", on ? { on: false } : { minutes }, { timeoutMs: 2000 }),
+        destination: async () => { const r = await brain.delegate("destination-safety", {}, { timeoutMs: 2000 }); return r.ok ? r.result : null; },
+        /** Forget what the Master learned about the rider (privacy). */
+        async forget() { if (cognition) cognition.forget(); await brain.delegate("context-forget", {}, { timeoutMs: 2000 }); },
         status: () => kernel.status(),
         /** @param {string} id */ enable: (id) => kernel.enable(id),
         /** @param {string} id */ disable: (id) => kernel.disable(id),
