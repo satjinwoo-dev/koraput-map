@@ -1,0 +1,64 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "hero-mavrick-440-in",
+  "kind": "variant",
+  "classKey": "ice_manual.cruiser",
+  "segment": "cruiser",
+  "powertrain": "ice_manual",
+  "identity": { "make": "Hero", "model": "Mavrick 440", "variant": "Top Variant, Spoke/Alloy, OBD-2B", "market": "IN", "yearFrom": 2024, "yearTo": null, "aliases": ["Mavrick 440", "Hero Mavrick", "Mavrick"] },
+  "image": { "url": "https://images.mapunite.com/bikes/hero-mavrick-440-in.webp", "src": "official-spec" },
+  "sources": [
+    {
+      "id": "official-spec",
+      "kind": "manufacturer",
+      "title": "Hero Mavrick 440 official specifications",
+      "url": "https://www.heromotocorp.com/en-in/motorcycles/mavrick-440.html",
+      "publisher": "Hero",
+      "retrieved": "2026-10-04"
+    },
+    {
+      "id": "lower-blend-rule",
+      "kind": "derived",
+      "title": "Lower-ethanol blends of a certified fuel",
+      "retrieved": "2026-10-04",
+      "note": "A vehicle certified for a higher-ethanol petrol is materials-compatible with lower-ethanol petrol. Listed as compatible, never as certified."
+    }
+  ],
+  "engine": {
+    "displacement": { "v": 440, "u": "cm3", "src": "official-spec", "conf": 0.95 },
+    "cylinders": { "v": 1, "u": "1", "src": "official-spec", "conf": 0.95 },
+    "strokes": { "v": 4, "u": "1", "src": "official-spec", "conf": 0.95 },
+    "bore": { "v": 79.6, "u": "mm", "src": "official-spec", "conf": 0.95 },
+    "stroke": { "v": 88.4, "u": "mm", "src": "official-spec", "conf": 0.95 },
+    "cooling": { "v": "air_oil", "src": "official-spec", "conf": 0.95 },
+    "fuelSystem": { "v": "fi", "src": "official-spec", "conf": 0.95 },
+    "peakPower": { "v": 20.13, "u": "kW", "src": "official-spec", "conf": 0.95 },
+    "peakPowerRpm": { "v": 6000, "u": "rpm", "src": "official-spec", "conf": 0.95 },
+    "peakTorque": { "v": 36, "u": "N*m", "src": "official-spec", "conf": 0.95 },
+    "peakTorqueRpm": { "v": 4000, "u": "rpm", "src": "official-spec", "conf": 0.95 },
+    "compressionRatio": { "v": 9.65, "u": "1", "src": "official-spec", "conf": 0.9 },
+    "idleRpm": { "v": 1300, "u": "rpm", "src": "official-spec", "conf": 0.9, "tol": 100 }
+  },
+  "transmission": {
+    "kind": { "v": "manual", "src": "official-spec", "conf": 0.95 },
+    "speeds": { "v": 6, "u": "1", "src": "official-spec", "conf": 0.95 }
+  },
+  "chassis": {
+    "mass": { "v": 187, "u": "kg", "src": "official-spec", "conf": 0.95, "basis": "kerb" },
+    "frontTyre": { "v": "110/70 R17 54H", "src": "official-spec", "conf": 0.95 },
+    "rearTyre": { "v": "150/60 R17 66H", "src": "official-spec", "conf": 0.95 },
+    "fuelTank": { "v": 13.5, "u": "L", "src": "official-spec", "conf": 0.95 }
+  },
+  "emission": {
+    "standard": { "v": "BS6-P2", "src": "official-spec", "conf": 0.9 },
+    "obd": { "v": "OBD-2B", "src": "official-spec", "conf": 0.9 }
+  },
+  "fuel": {
+    "compat": [
+      { "fuel": "E20", "status": "certified", "src": "official-spec", "conf": 0.8, "note": "Manufacturer E20 material compliance" },
+      { "fuel": "E10", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 },
+      { "fuel": "E0", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 }
+    ]
+  }
+}

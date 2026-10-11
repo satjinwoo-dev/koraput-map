@@ -101,6 +101,14 @@ async function main() {
     console.log(`  bundles        ${rel(summary.bundles.dir)}/   ${art.bundles.length} files, ${kb(pub.bundleBytes)} (${pub.written} written, ${pub.unchanged} unchanged, ${pub.pruned} removed)`);
     if (db) console.log(`  bikes.sqlite   ${rel(db.file)}   ${kb(db.bytes)} (${db.driver}, SQLite ${db.sqliteVersion})`);
     else console.log(`  bikes.sqlite   skipped (${sqliteSkipped ? "no SQLite driver, see the warning above" : "--skip-sqlite"})`);
+
+    // Force a clean exit NOW, before Node's event-loop drain and V8 isolate
+    // teardown.  On Node 20+ an unclosed better-sqlite3 handle whose C++
+    // destructor runs during teardown calls RemoveEnvironmentCleanupHook()
+    // which trips CHECK(!cleanup_hooks_running_) → SIGABRT (exit 134).
+    // All database handles have been synchronously closed by this point
+    // (writeSqlite's finally block), so this is safe.
+    process.exit(0);
 }
 
 main().catch((e) => {

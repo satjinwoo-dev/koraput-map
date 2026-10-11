@@ -1,0 +1,55 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "honda-cbr-150r-in",
+  "kind": "variant",
+  "classKey": "ice_manual.sport",
+  "segment": "sport",
+  "powertrain": "ice_manual",
+  "identity": { "make": "Honda", "model": "CBR 150R", "variant": "DOHC 4-Valve Liquid Cooled", "market": "IN", "yearFrom": 2012, "yearTo": 2017, "aliases": ["CBR 150R", "Honda CBR 150R", "CBR150R"] },
+  "image": { "url": "https://images.mapunite.com/bikes/honda-cbr-150r-in.webp", "src": "official-spec" },
+  "sources": [
+    {
+      "id": "official-spec",
+      "kind": "manufacturer",
+      "title": "Honda CBR 150R official workshop specification sheet",
+      "url": "https://www.honda2wheelersindia.com/motorcycle/cbr150r",
+      "publisher": "Honda",
+      "retrieved": "2026-10-04"
+    }
+  ],
+  "engine": {
+    "displacement": { "v": 149.4, "u": "cm3", "src": "official-spec", "conf": 0.95 },
+    "cylinders": { "v": 1, "u": "1", "src": "official-spec", "conf": 0.95 },
+    "strokes": { "v": 4, "u": "1", "src": "official-spec", "conf": 0.95 },
+    "bore": { "v": 63.5, "u": "mm", "src": "official-spec", "conf": 0.95 },
+    "stroke": { "v": 47.2, "u": "mm", "src": "official-spec", "conf": 0.95 },
+    "cooling": { "v": "liquid", "src": "official-spec", "conf": 0.95 },
+    "fuelSystem": { "v": "fi", "src": "official-spec", "conf": 0.95 },
+    "peakPower": { "v": 13.1, "u": "kW", "src": "official-spec", "conf": 0.95 },
+    "peakPowerRpm": { "v": 10500, "u": "rpm", "src": "official-spec", "conf": 0.95 },
+    "peakTorque": { "v": 12.66, "u": "N*m", "src": "official-spec", "conf": 0.95 },
+    "peakTorqueRpm": { "v": 8500, "u": "rpm", "src": "official-spec", "conf": 0.95 },
+    "compressionRatio": { "v": 11, "u": "1", "src": "official-spec", "conf": 0.9 },
+    "idleRpm": { "v": 1500, "u": "rpm", "src": "official-spec", "conf": 0.9, "tol": 100 }
+  },
+  "transmission": {
+    "kind": { "v": "manual", "src": "official-spec", "conf": 0.95 },
+    "speeds": { "v": 6, "u": "1", "src": "official-spec", "conf": 0.95 }
+  },
+  "chassis": {
+    "mass": { "v": 138, "u": "kg", "src": "official-spec", "conf": 0.95, "basis": "kerb" },
+    "frontTyre": { "v": "100/80-17", "src": "official-spec", "conf": 0.95 },
+    "rearTyre": { "v": "130/70-17", "src": "official-spec", "conf": 0.95 },
+    "fuelTank": { "v": 13, "u": "L", "src": "official-spec", "conf": 0.95 }
+  },
+  "emission": {
+    "standard": { "v": "BS4", "src": "official-spec", "conf": 0.9 }
+  },
+  "fuel": {
+    "compat": [
+      { "fuel": "E0", "status": "certified", "src": "official-spec", "conf": 0.8, "note": "Unleaded standard petrol" },
+      { "fuel": "E10", "status": "compatible", "src": "official-spec", "conf": 0.6 }
+    ]
+  }
+}

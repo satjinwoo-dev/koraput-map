@@ -1,0 +1,72 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "tvs-apache-rtr-200-4v-in",
+  "kind": "variant",
+  "classKey": "ice_manual.naked",
+  "segment": "naked",
+  "powertrain": "ice_manual",
+  "identity": {
+    "make": "TVS",
+    "model": "Apache RTR 200 4V",
+    "variant": "Dual Channel ABS with Riding Modes, OBD-2B",
+    "market": "IN",
+    "yearFrom": 2021,
+    "yearTo": null,
+    "aliases": ["Apache RTR 200 4V", "Apache 200", "RTR 200 4V", "Apache RTR 200"]
+  },
+  "image": { "url": "https://images.mapunite.com/bikes/tvs-apache-rtr-200-4v-in.webp", "src": "official-spec" },
+  "sources": [
+    {
+      "id": "official-spec",
+      "kind": "manufacturer",
+      "title": "TVS Apache RTR 200 4V official specifications",
+      "url": "https://www.tvsmotor.com/tvs-apache/apache-rtr-200-4v",
+      "publisher": "TVS",
+      "retrieved": "2026-10-04"
+    },
+    {
+      "id": "lower-blend-rule",
+      "kind": "derived",
+      "title": "Lower-ethanol blends of a certified fuel",
+      "retrieved": "2026-10-04",
+      "note": "A vehicle certified for a higher-ethanol petrol is materials-compatible with lower-ethanol petrol. Listed as compatible, never as certified."
+    }
+  ],
+  "engine": {
+    "displacement": { "v": 197.75, "u": "cm3", "src": "official-spec", "conf": 0.95 },
+    "cylinders": { "v": 1, "u": "1", "src": "official-spec", "conf": 0.95 },
+    "strokes": { "v": 4, "u": "1", "src": "official-spec", "conf": 0.95 },
+    "bore": { "v": 66, "u": "mm", "src": "official-spec", "conf": 0.95 },
+    "stroke": { "v": 57.8, "u": "mm", "src": "official-spec", "conf": 0.95 },
+    "cooling": { "v": "air_oil", "src": "official-spec", "conf": 0.95 },
+    "fuelSystem": { "v": "fi", "src": "official-spec", "conf": 0.95 },
+    "peakPower": { "v": 15.3, "u": "kW", "src": "official-spec", "conf": 0.95 },
+    "peakPowerRpm": { "v": 9000, "u": "rpm", "src": "official-spec", "conf": 0.95 },
+    "peakTorque": { "v": 17.25, "u": "N*m", "src": "official-spec", "conf": 0.95 },
+    "peakTorqueRpm": { "v": 7250, "u": "rpm", "src": "official-spec", "conf": 0.95 },
+    "compressionRatio": { "v": 10, "u": "1", "src": "official-spec", "conf": 0.9 },
+    "idleRpm": { "v": 1500, "u": "rpm", "src": "official-spec", "conf": 0.9, "tol": 100 }
+  },
+  "transmission": {
+    "kind": { "v": "manual", "src": "official-spec", "conf": 0.95 },
+    "speeds": { "v": 5, "u": "1", "src": "official-spec", "conf": 0.95 }
+  },
+  "chassis": {
+    "mass": { "v": 152, "u": "kg", "src": "official-spec", "conf": 0.95, "basis": "kerb" },
+    "frontTyre": { "v": "90/90-17 49P", "src": "official-spec", "conf": 0.95 },
+    "rearTyre": { "v": "130/70-17 62P", "src": "official-spec", "conf": 0.95 },
+    "fuelTank": { "v": 12, "u": "L", "src": "official-spec", "conf": 0.95 }
+  },
+  "emission": {
+    "standard": { "v": "BS6-P2", "src": "official-spec", "conf": 0.9 },
+    "obd": { "v": "OBD-2B", "src": "official-spec", "conf": 0.9 }
+  },
+  "fuel": {
+    "compat": [
+      { "fuel": "E20", "status": "certified", "src": "official-spec", "conf": 0.8, "note": "Manufacturer E20 material compliance" },
+      { "fuel": "E10", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 },
+      { "fuel": "E0", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 }
+    ]
+  }
+}

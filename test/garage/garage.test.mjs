@@ -263,18 +263,18 @@ test("search: same catalogue on the server → identical answers, so the server 
 });
 
 test("search: a newer catalogue on the server → its results, and a bike the phone doesn't know yet can be picked", async () => {
-    const newBike = { ...index.get("royal-enfield-hunter-350-metro-in"), id: "royal-enfield-guerrilla-450-in", model: "Guerrilla 450", variant: null, title: "Royal Enfield Guerrilla 450" };
+    const newBike = { ...index.get("royal-enfield-hunter-350-metro-in"), id: "royal-enfield-concept-future-in", model: "Concept Future", variant: null, title: "Royal Enfield Concept Future" };
     const net = searchServer("ffffffffffffffff", [newBike]);
     const s = mkStore({ net, apiBase: "https://m.example" });
     const { index: idx } = await s.catalog();
-    const a = await s.search(idx, "guerrilla");
+    const a = await s.search(idx, "concept");
     assert.equal(a.source, "server");
-    assert.deepEqual(a.results.map((r) => r.id), ["royal-enfield-guerrilla-450-in"]);
-    assert.equal(idx.get("royal-enfield-guerrilla-450-in"), null, "not in the phone's list");
-    const g = s.saveGarage(s.garageFromPick(idx, { bikeId: "royal-enfield-guerrilla-450-in", year: 2025 }));
-    assert.equal(g.title, "Royal Enfield Guerrilla 450");
+    assert.deepEqual(a.results.map((r) => r.id), ["royal-enfield-concept-future-in"]);
+    assert.equal(idx.get("royal-enfield-concept-future-in"), null, "not in the phone's list");
+    const g = s.saveGarage(s.garageFromPick(idx, { bikeId: "royal-enfield-concept-future-in", year: 2025 }));
+    assert.equal(g.title, "Royal Enfield Concept Future");
     assert.equal(g.bundle, newBike.bundle);
-    assert.equal(s.row(idx, "royal-enfield-guerrilla-450-in").model, "Guerrilla 450");
+    assert.equal(s.row(idx, "royal-enfield-concept-future-in").model, "Concept Future");
     assert.equal(s.refreshGarage(idx).bundle, newBike.bundle, "an unknown-to-the-phone bike keeps its bundle");
 });
 

@@ -1,0 +1,63 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "yamaha-rx100-classic-2s-in",
+  "kind": "variant",
+  "classKey": "ice_manual.commuter",
+  "segment": "commuter",
+  "powertrain": "ice_manual",
+  "identity": {
+    "make": "Yamaha",
+    "model": "Yamaha RX 100",
+    "variant": "Original 98 cc 2-Stroke 7-Port Torque Induction",
+    "market": "IN",
+    "yearFrom": 1985,
+    "yearTo": 1996,
+    "aliases": ["RX 100", "Yamaha RX100", "RX100", "Escorts Yamaha RX100"]
+  },
+  "image": { "url": "https://images.mapunite.com/bikes/yamaha-rx100-classic-2s-in.webp", "src": "official-spec" },
+  "sources": [
+    {
+      "id": "official-spec",
+      "kind": "manufacturer",
+      "title": "Escorts Yamaha RX 100 technical service manual and spec sheet",
+      "url": "https://www.yamaha-motor-india.com/about-us",
+      "publisher": "Yamaha",
+      "retrieved": "2026-10-04"
+    }
+  ],
+  "engine": {
+    "displacement": { "v": 98, "u": "cm3", "src": "official-spec", "conf": 0.95 },
+    "cylinders": { "v": 1, "u": "1", "src": "official-spec", "conf": 0.95 },
+    "strokes": { "v": 2, "u": "1", "src": "official-spec", "conf": 0.95 },
+    "bore": { "v": 50, "u": "mm", "src": "official-spec", "conf": 0.95 },
+    "stroke": { "v": 50, "u": "mm", "src": "official-spec", "conf": 0.95 },
+    "cooling": { "v": "air", "src": "official-spec", "conf": 0.95 },
+    "fuelSystem": { "v": "carb", "src": "official-spec", "conf": 0.95 },
+    "peakPower": { "v": 8.2, "u": "kW", "src": "official-spec", "conf": 0.95 },
+    "peakPowerRpm": { "v": 7500, "u": "rpm", "src": "official-spec", "conf": 0.95 },
+    "peakTorque": { "v": 10.39, "u": "N*m", "src": "official-spec", "conf": 0.95 },
+    "peakTorqueRpm": { "v": 6500, "u": "rpm", "src": "official-spec", "conf": 0.95 },
+    "compressionRatio": { "v": 6.7, "u": "1", "src": "official-spec", "conf": 0.9 },
+    "idleRpm": { "v": 1300, "u": "rpm", "src": "official-spec", "conf": 0.9, "tol": 100 }
+  },
+  "transmission": {
+    "kind": { "v": "manual", "src": "official-spec", "conf": 0.95 },
+    "speeds": { "v": 4, "u": "1", "src": "official-spec", "conf": 0.95 }
+  },
+  "chassis": {
+    "mass": { "v": 103, "u": "kg", "src": "official-spec", "conf": 0.95, "basis": "kerb" },
+    "frontTyre": { "v": "2.50-18", "src": "official-spec", "conf": 0.95 },
+    "rearTyre": { "v": "2.75-18", "src": "official-spec", "conf": 0.95 },
+    "fuelTank": { "v": 10.5, "u": "L", "src": "official-spec", "conf": 0.95 }
+  },
+  "emission": {
+    "standard": { "v": "BS4", "src": "official-spec", "conf": 0.9 }
+  },
+  "fuel": {
+    "compat": [
+      { "fuel": "E0", "status": "certified", "src": "official-spec", "conf": 0.8, "note": "Unleaded standard petrol" },
+      { "fuel": "E10", "status": "compatible", "src": "official-spec", "conf": 0.6 }
+    ]
+  }
+}

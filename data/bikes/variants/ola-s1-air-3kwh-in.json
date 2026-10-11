@@ -1,0 +1,36 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "ola-s1-air-3kwh-in",
+  "kind": "variant",
+  "classKey": "ev.scooter",
+  "segment": "scooter",
+  "powertrain": "ev",
+  "identity": { "make": "Ola", "model": "S1 Air", "variant": "Hub Motor Telescopic Forks 3 kWh Pack", "market": "IN", "yearFrom": 2023, "yearTo": null, "aliases": ["Ola S1 Air", "S1 Air", "Ola Air"] },
+  "image": { "url": "https://images.mapunite.com/bikes/ola-s1-air-3kwh-in.webp", "src": "official-spec" },
+  "sources": [
+    { "id": "official-spec", "kind": "manufacturer", "title": "Ola Electric S1 Air official specifications", "url": "https://www.olaelectric.com/s1-air", "publisher": "Ola", "retrieved": "2026-10-04" }
+  ],
+  "motor": {
+    "type": { "v": "bldc", "src": "official-spec", "conf": 0.9 },
+    "mount": { "v": "hub", "src": "official-spec", "conf": 0.9 },
+    "peakPower": { "v": 6, "u": "kW", "src": "official-spec", "conf": 0.9 },
+    "ratedPower": { "v": 2.7, "u": "kW", "src": "official-spec", "conf": 0.85 }
+  },
+  "battery": {
+    "grossCapacity": { "v": 3, "u": "kWh", "src": "official-spec", "conf": 0.9 },
+    "chemistry": { "v": "Li-ion NMC", "src": "official-spec", "conf": 0.85 },
+    "certifiedRange": { "v": 151, "u": "km", "src": "official-spec", "conf": 0.9, "cycle": "IDC" }
+  },
+  "transmission": {
+    "kind": { "v": "single_speed", "src": "official-spec", "conf": 0.95 },
+    "drive": { "v": "hub_direct", "src": "official-spec", "conf": 0.9 },
+    "reductionRatio": { "v": 1, "u": "1", "src": "official-spec", "conf": 0.9 }
+  },
+  "chassis": {
+    "mass": { "v": 108, "u": "kg", "src": "official-spec", "conf": 0.95, "basis": "kerb" },
+    "frontTyre": { "v": "90/90-12", "src": "official-spec", "conf": 0.95 },
+    "rearTyre": { "v": "90/90-12", "src": "official-spec", "conf": 0.95 },
+    "topSpeed": { "v": 90, "u": "km/h", "src": "official-spec", "conf": 0.9 }
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "bajaj-chetak-150-classic-2s-in",
+  "kind": "variant",
+  "classKey": "ice_manual.commuter",
+  "segment": "commuter",
+  "powertrain": "ice_manual",
+  "identity": {
+    "make": "Bajaj",
+    "model": "Bajaj Chetak 150",
+    "variant": "Hamara Bajaj 2-Stroke 4-Speed Hand Shift",
+    "market": "IN",
+    "yearFrom": 1980,
+    "yearTo": 2004,
+    "aliases": ["Chetak 2 Stroke", "Classic Chetak", "Hamara Bajaj Chetak", "Chetak 150"]
+  },
+  "image": { "url": "https://images.mapunite.com/bikes/bajaj-chetak-150-classic-2s-in.webp", "src": "official-spec" },
+  "sources": [
+    { "id": "official-spec", "kind": "manufacturer", "title": "Bajaj Chetak 150 original service manual and owner handbook", "url": "https://www.bajajauto.com/about-us", "publisher": "Bajaj", "retrieved": "2026-10-04" }
+  ],
+  "engine": {
+    "displacement": { "v": 145.45, "u": "cm3", "src": "official-spec", "conf": 0.95 },
+    "cylinders": { "v": 1, "u": "1", "src": "official-spec", "conf": 0.95 },
+    "strokes": { "v": 2, "u": "1", "src": "official-spec", "conf": 0.95 },
+    "bore": { "v": 57, "u": "mm", "src": "official-spec", "conf": 0.95 },
+    "stroke": { "v": 57, "u": "mm", "src": "official-spec", "conf": 0.95 },
+    "cooling": { "v": "air", "src": "official-spec", "conf": 0.95 },
+    "fuelSystem": { "v": "carb", "src": "official-spec", "conf": 0.95 },
+    "peakPower": { "v": 5.5, "u": "kW", "src": "official-spec", "conf": 0.95 },
+    "peakPowerRpm": { "v": 5500, "u": "rpm", "src": "official-spec", "conf": 0.95 },
+    "peakTorque": { "v": 10.8, "u": "N*m", "src": "official-spec", "conf": 0.95 },
+    "peakTorqueRpm": { "v": 3500, "u": "rpm", "src": "official-spec", "conf": 0.95 },
+    "compressionRatio": { "v": 7.4, "u": "1", "src": "official-spec", "conf": 0.9 },
+    "idleRpm": { "v": 1200, "u": "rpm", "src": "official-spec", "conf": 0.9, "tol": 100 }
+  },
+  "transmission": {
+    "kind": { "v": "manual", "src": "official-spec", "conf": 0.95 },
+    "speeds": { "v": 4, "u": "1", "src": "official-spec", "conf": 0.95 }
+  },
+  "chassis": {
+    "mass": { "v": 104, "u": "kg", "src": "official-spec", "conf": 0.95, "basis": "kerb" },
+    "frontTyre": { "v": "3.50-10", "src": "official-spec", "conf": 0.95 },
+    "rearTyre": { "v": "3.50-10", "src": "official-spec", "conf": 0.95 },
+    "fuelTank": { "v": 6, "u": "L", "src": "official-spec", "conf": 0.95 }
+  },
+  "emission": {
+    "standard": { "v": "BS4", "src": "official-spec", "conf": 0.9 }
+  },
+  "fuel": {
+    "compat": [
+      { "fuel": "E0", "status": "certified", "src": "official-spec", "conf": 0.8, "note": "Unleaded standard petrol" },
+      { "fuel": "E10", "status": "compatible", "src": "official-spec", "conf": 0.6 }
+    ]
+  }
+}

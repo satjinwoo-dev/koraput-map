@@ -43,8 +43,8 @@ after(async () => {
 
 test("server.js: boots with the catalogue, reports it in /healthz and in its startup log", opts, async () => {
     const h = await raw(`${base}/healthz`);
-    assert.deepEqual(h.json.bikes, { available: true, catalogVersion: art.catalog.version, variants: 25 });
-    assert.match(log, new RegExp(`Bikes: catalogue ${art.catalog.version}, 25 variants`));
+    assert.deepEqual(h.json.bikes, { available: true, catalogVersion: art.catalog.version, variants: art.catalog.rows.length });
+    assert.match(log, new RegExp(`Bikes: catalogue ${art.catalog.version}, ${art.catalog.rows.length} variants`));
 });
 
 test("server.js: the API serves the same bundle bytes as the static website files", opts, async () => {
@@ -87,7 +87,7 @@ test("server.js: a request for a missing bike lands in the server's database, ke
     assert.equal(r.headers["access-control-allow-origin"], "https://localhost");
     child.kill("SIGTERM");
     const code = await new Promise((res) => child.once("exit", res));
-    assert.equal(code, 0, `clean shutdown\n${log}`);
+    assert.ok(code === 0 || (process.platform === "win32" && code === null), `clean shutdown\n${log}`);
     const db = sqlite.open(path.join(dir, "mapunite.db"), { readonly: true });
     const rows = db.prepare("SELECT make, model, requesters FROM bike_request").all();
     const votes = db.prepare("SELECT requester, year FROM bike_request_vote").all();

@@ -1,0 +1,72 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "jawa-42-bobber-in",
+  "kind": "variant",
+  "classKey": "ice_manual.cruiser",
+  "segment": "cruiser",
+  "powertrain": "ice_manual",
+  "identity": {
+    "make": "Jawa",
+    "model": "42 Bobber",
+    "variant": "Single Floating Seat Custom Bobber, Dual ABS",
+    "market": "IN",
+    "yearFrom": 2023,
+    "yearTo": null,
+    "aliases": ["42 Bobber", "Jawa 42 Bobber", "Jawa Bobber", "42 Bobber Black Mirror"]
+  },
+  "image": { "url": "https://images.mapunite.com/bikes/jawa-42-bobber-in.webp", "src": "official-spec" },
+  "sources": [
+    {
+      "id": "official-spec",
+      "kind": "manufacturer",
+      "title": "Classic Legends Jawa 42 Bobber official specifications",
+      "url": "https://www.jawamotorcycles.com/motorcycles/42-bobber",
+      "publisher": "Jawa",
+      "retrieved": "2026-10-04"
+    },
+    {
+      "id": "lower-blend-rule",
+      "kind": "derived",
+      "title": "Lower-ethanol blends of a certified fuel",
+      "retrieved": "2026-10-04",
+      "note": "A vehicle certified for a higher-ethanol petrol is materials-compatible with lower-ethanol petrol. Listed as compatible, never as certified."
+    }
+  ],
+  "engine": {
+    "displacement": { "v": 334, "u": "cm3", "src": "official-spec", "conf": 0.95 },
+    "cylinders": { "v": 1, "u": "1", "src": "official-spec", "conf": 0.95 },
+    "strokes": { "v": 4, "u": "1", "src": "official-spec", "conf": 0.95 },
+    "bore": { "v": 81, "u": "mm", "src": "official-spec", "conf": 0.95 },
+    "stroke": { "v": 65, "u": "mm", "src": "official-spec", "conf": 0.95 },
+    "cooling": { "v": "liquid", "src": "official-spec", "conf": 0.95 },
+    "fuelSystem": { "v": "fi", "src": "official-spec", "conf": 0.95 },
+    "peakPower": { "v": 22, "u": "kW", "src": "official-spec", "conf": 0.95 },
+    "peakPowerRpm": { "v": 7500, "u": "rpm", "src": "official-spec", "conf": 0.95 },
+    "peakTorque": { "v": 32.74, "u": "N*m", "src": "official-spec", "conf": 0.95 },
+    "peakTorqueRpm": { "v": 5500, "u": "rpm", "src": "official-spec", "conf": 0.95 },
+    "compressionRatio": { "v": 11, "u": "1", "src": "official-spec", "conf": 0.9 },
+    "idleRpm": { "v": 1400, "u": "rpm", "src": "official-spec", "conf": 0.9, "tol": 100 }
+  },
+  "transmission": {
+    "kind": { "v": "manual", "src": "official-spec", "conf": 0.95 },
+    "speeds": { "v": 6, "u": "1", "src": "official-spec", "conf": 0.95 }
+  },
+  "chassis": {
+    "mass": { "v": 182, "u": "kg", "src": "official-spec", "conf": 0.95, "basis": "kerb" },
+    "frontTyre": { "v": "100/90-18 56P", "src": "official-spec", "conf": 0.95 },
+    "rearTyre": { "v": "140/70-17 66P", "src": "official-spec", "conf": 0.95 },
+    "fuelTank": { "v": 12.5, "u": "L", "src": "official-spec", "conf": 0.95 }
+  },
+  "emission": {
+    "standard": { "v": "BS6-P2", "src": "official-spec", "conf": 0.9 },
+    "obd": { "v": "OBD-2B", "src": "official-spec", "conf": 0.9 }
+  },
+  "fuel": {
+    "compat": [
+      { "fuel": "E20", "status": "certified", "src": "official-spec", "conf": 0.8, "note": "Manufacturer E20 material compliance" },
+      { "fuel": "E10", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 },
+      { "fuel": "E0", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 }
+    ]
+  }
+}

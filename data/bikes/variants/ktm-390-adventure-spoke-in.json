@@ -1,0 +1,72 @@
+{
+  "$schema": "../../../lib/bikedb/bundle.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "ktm-390-adventure-spoke-in",
+  "kind": "variant",
+  "classKey": "ice_manual.adventure",
+  "segment": "adventure",
+  "powertrain": "ice_manual",
+  "identity": {
+    "make": "KTM",
+    "model": "390 Adventure",
+    "variant": "Spoke Wheels, WP APEX Fully Adjustable, Cornering ABS",
+    "market": "IN",
+    "yearFrom": 2023,
+    "yearTo": null,
+    "aliases": ["390 Adventure", "KTM 390 Adventure", "390 ADV", "KTM 390 ADV"]
+  },
+  "image": { "url": "https://images.mapunite.com/bikes/ktm-390-adventure-spoke-in.webp", "src": "official-spec" },
+  "sources": [
+    {
+      "id": "official-spec",
+      "kind": "manufacturer",
+      "title": "KTM India 390 Adventure official specifications",
+      "url": "https://www.ktmindia.com/ktm-bikes/travel/ktm-390-adventure",
+      "publisher": "KTM",
+      "retrieved": "2026-10-04"
+    },
+    {
+      "id": "lower-blend-rule",
+      "kind": "derived",
+      "title": "Lower-ethanol blends of a certified fuel",
+      "retrieved": "2026-10-04",
+      "note": "A vehicle certified for a higher-ethanol petrol is materials-compatible with lower-ethanol petrol. Listed as compatible, never as certified."
+    }
+  ],
+  "engine": {
+    "displacement": { "v": 373.27, "u": "cm3", "src": "official-spec", "conf": 0.95 },
+    "cylinders": { "v": 1, "u": "1", "src": "official-spec", "conf": 0.95 },
+    "strokes": { "v": 4, "u": "1", "src": "official-spec", "conf": 0.95 },
+    "bore": { "v": 89, "u": "mm", "src": "official-spec", "conf": 0.95 },
+    "stroke": { "v": 60, "u": "mm", "src": "official-spec", "conf": 0.95 },
+    "cooling": { "v": "liquid", "src": "official-spec", "conf": 0.95 },
+    "fuelSystem": { "v": "fi", "src": "official-spec", "conf": 0.95 },
+    "peakPower": { "v": 32, "u": "kW", "src": "official-spec", "conf": 0.95 },
+    "peakPowerRpm": { "v": 9000, "u": "rpm", "src": "official-spec", "conf": 0.95 },
+    "peakTorque": { "v": 37, "u": "N*m", "src": "official-spec", "conf": 0.95 },
+    "peakTorqueRpm": { "v": 7000, "u": "rpm", "src": "official-spec", "conf": 0.95 },
+    "compressionRatio": { "v": 12.6, "u": "1", "src": "official-spec", "conf": 0.9 },
+    "idleRpm": { "v": 1500, "u": "rpm", "src": "official-spec", "conf": 0.9, "tol": 100 }
+  },
+  "transmission": {
+    "kind": { "v": "manual", "src": "official-spec", "conf": 0.95 },
+    "speeds": { "v": 6, "u": "1", "src": "official-spec", "conf": 0.95 }
+  },
+  "chassis": {
+    "mass": { "v": 177, "u": "kg", "src": "official-spec", "conf": 0.95, "basis": "kerb" },
+    "frontTyre": { "v": "100/90-19 57H", "src": "official-spec", "conf": 0.95 },
+    "rearTyre": { "v": "130/80-17 65H", "src": "official-spec", "conf": 0.95 },
+    "fuelTank": { "v": 14.5, "u": "L", "src": "official-spec", "conf": 0.95 }
+  },
+  "emission": {
+    "standard": { "v": "BS6-P2", "src": "official-spec", "conf": 0.9 },
+    "obd": { "v": "OBD-2B", "src": "official-spec", "conf": 0.9 }
+  },
+  "fuel": {
+    "compat": [
+      { "fuel": "E20", "status": "certified", "src": "official-spec", "conf": 0.8, "note": "Manufacturer E20 material compliance" },
+      { "fuel": "E10", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 },
+      { "fuel": "E0", "status": "compatible", "src": "lower-blend-rule", "conf": 0.8 }
+    ]
+  }
+}
