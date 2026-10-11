@@ -39,7 +39,9 @@ class PerceptionEngine(
     /** (eventName, data) to JS. "state" events carry { state, … }. */
     private val emitState: (JSONObject) -> Unit,
     /** One PerceptionFrame v1 as JSON text. */
-    private val emitFrame: (String) -> Unit
+    private val emitFrame: (String) -> Unit,
+    /** One DynamicsFrame v1 as JSON text (1 per second while dynamics runs). */
+    private val emitDynamics: (String) -> Unit = {}
 ) {
     data class Options(val targetFps: Int = 30, val emitHz: Int = 10, val scenario: String = "none")
 
@@ -56,6 +58,10 @@ class PerceptionEngine(
     private var handler: Handler? = null
 
     private val owners = LinkedHashSet<String>()
+    private val dynamicsOwners = LinkedHashSet<String>()
+    @Volatile private var dynamicsCore: DynamicsCore? = null
+    private var dynSeq = 0L
+    private var sensorsOn = false
     @Volatile var running = false; private set
     @Volatile private var cameraReady = false
     @Volatile private var paused = false
@@ -98,12 +104,9 @@ class PerceptionEngine(
         inputRate.reset(); inferRate.reset(); latency.reset()
         framesIn = 0; framesInferred = 0; errors = 0; stalledSaid = false
 
-        val th = HandlerThread("mu-perception").also { it.start() }
-        loop = th
-        handler = Handler(th.looper)
+        ensureLoop()
         cameraExec = Executors.newSingleThreadExecutor { r -> Thread(r, "mu-camera") }
-
-        sensorReport = sensors.start()
+        ensureSensors()
         thermal.start({ r -> handler?.post(r) }) { level ->
             scheduler.thermalCapFps = FrameScheduler.thermalCap(level)
             emitState(JSONObject().put("state", "thermal").put("thermal", level).put("capFps", scheduler.thermalCapFps))
@@ -141,11 +144,10 @@ class PerceptionEngine(
         cameraReady = false
         owners.clear()
         camera.stop()
-        sensors.stop()
         thermal.stop()
         cameraExec?.shutdown(); cameraExec = null
-        loop?.quitSafely(); loop = null; handler = null
         while (true) { val w = previewWaiters.poll() ?: break; w(null, "stopped") }
+        releaseIfIdle()
     }
 
     fun setTargetFps(fps: Int) {
@@ -154,7 +156,86 @@ class PerceptionEngine(
 
     fun onPause() { if (running) { paused = true; emitState(JSONObject().put("state", "paused").put("message", "camera pauses while the app is in the background")) } }
     fun onResume() { if (running && paused) { paused = false; lastImageAtMs = System.currentTimeMillis(); emitState(JSONObject().put("state", "running").put("backend", "native").put("model", model.id)) } }
-    fun destroy() { if (running) stopAll() }
+    fun destroy() {
+        if (running) stopAll()
+        dynamicsOwners.clear()
+        sensors.dynamics = null
+        dynamicsCore = null
+        releaseIfIdle()
+    }
+
+    // ======================================================================= shared sensors + loop
+
+    private fun ensureLoop() {
+        if (loop != null) return
+        val th = HandlerThread("mu-perception").also { it.start() }
+        loop = th
+        handler = Handler(th.looper)
+    }
+
+    private fun ensureSensors() {
+        if (sensorsOn) return
+        sensorReport = sensors.start()
+        sensorsOn = true
+    }
+
+    /** Sensors and the loop stop only when neither the camera nor dynamics needs them. */
+    private fun releaseIfIdle() {
+        if (running || dynamicsOwners.isNotEmpty()) return
+        if (sensorsOn) { sensors.stop(); sensorsOn = false }
+        loop?.quitSafely(); loop = null; handler = null
+    }
+
+    // ======================================================================= bike dynamics (IMU 100 Hz + GNSS)
+
+    /** Main thread. Starts the dynamics monitor for [owner] (camera not needed). */
+    fun startDynamics(owner: String): JSONObject {
+        dynamicsOwners += owner
+        if (dynamicsCore == null) {
+            ensureLoop()
+            ensureSensors()
+            val core = DynamicsCore()
+            dynamicsCore = core
+            dynSeq = 0
+            sensors.dynamics = core
+            emitState(JSONObject().put("state", "dynamics-running"))
+            scheduleDynamics(core)
+        }
+        return dynamicsStatus()
+    }
+
+    /** Main thread. @return true when dynamics fully stopped (no owner left) */
+    fun stopDynamics(owner: String): Boolean {
+        dynamicsOwners -= owner
+        if (dynamicsOwners.isNotEmpty()) return false
+        if (dynamicsCore == null) return true
+        sensors.dynamics = null
+        dynamicsCore = null
+        emitState(JSONObject().put("state", "dynamics-stopped"))
+        releaseIfIdle()
+        return true
+    }
+
+    private fun scheduleDynamics(core: DynamicsCore) {
+        val h = handler ?: return
+        h.postDelayed(object : Runnable {
+            override fun run() {
+                if (dynamicsCore !== core) return            // stopped or restarted
+                val now = SystemClock.elapsedRealtimeNanos()
+                val ego = sensors.ego(now)
+                val s = core.summary(now)
+                // every event is also a label in an active recording (auto marks for the dataset)
+                if (recorder.active) for (e in s.events) recorder.mark("auto_${e.type}", e.tNs, epochOf(e.tNs), ego)
+                try { emitDynamics(DynamicsJson.encode(epochOf(now), ++dynSeq, ego, s, ::epochOf)) } catch (e: Exception) { errors++ }
+                handler?.postDelayed(this, 1000)
+            }
+        }, 1000)
+    }
+
+    fun dynamicsStatus(): JSONObject = JSONObject()
+        .put("running", dynamicsCore != null).put("owners", JSONArray(dynamicsOwners.toList()))
+        .put("thresholds", JSONObject().put("hardBrakeMs2", DynamicsCore.Config().brakeOnMs2).put("veryHardBrakeMs2", DynamicsCore.Config().veryHardMs2)
+            .put("hardAccelMs2", DynamicsCore.Config().accelOnMs2).put("joltMs2", DynamicsCore.Config().joltMs2))
 
     // ======================================================================= camera thread
 
@@ -378,6 +459,7 @@ class PerceptionEngine(
                 .put("meanLuma", r1(lastQuality.meanLuma)).put("sharpness", r1(lastQuality.sharpness)))
             .put("calibration", sensors.calibration?.let { calJson(it) } ?: JSONObject.NULL)
             .put("recording", summaryJson(recorder.summary()))
+            .put("dynamics", dynamicsStatus())
     }
 
     // ======================================================================= helpers

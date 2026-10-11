@@ -41,10 +41,13 @@ class FrameScheduler(
     }
 
     companion object {
-        /** Native frame-rate ceiling per Android thermal status. */
+        /**
+         * Native frame-rate ceiling per Android thermal status. Performance profile: full 30 fps up to
+         * "moderate" (airflow on the handlebar keeps most rides there); only "severe" and "critical",
+         * where Android itself throttles the CPU and may shut the camera, slow it down.
+         */
         fun thermalCap(thermal: String): Int = when (thermal) {
-            "moderate" -> 20
-            "severe" -> 10
+            "severe" -> 15
             "critical" -> 5
             else -> 30
         }

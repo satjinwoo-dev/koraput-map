@@ -337,7 +337,7 @@ test("persona: templates, filters, rotation and fallbacks", () => {
 });
 
 test("phrase packs: every line renders with sample data, critical lines are short", () => {
-    const sample = { distanceM: 1200, ridingSec: 5400, condition: "baarish", place: "Sharma chai tapri", speedKmh: 60, rttMs: 2000, navigating: true, goneSec: 90, detail: "aankh 1.2 second tak band rahi", score: 62, level: "high", hazard: "gaddha", vehicle: "truck", ttcS: 3.1 };
+    const sample = { distanceM: 1200, ridingSec: 5400, condition: "baarish", place: "Sharma chai tapri", speedKmh: 60, rttMs: 2000, navigating: true, goneSec: 90, detail: "aankh 1.2 second tak band rahi", score: 62, level: "high", hazard: "gaddha", vehicle: "truck", ttcS: 3.1, count: 3, minutes: 8 };
     for (const [style, pack] of Object.entries({ desi: PH.desi, plain: PH.plain })) {
         const p = P.createPersona({ style, name: "Asha" });
         for (const [kind, bySev] of Object.entries(pack)) for (const [sev, lines] of Object.entries(bySev)) for (const line of lines) {

@@ -74,16 +74,16 @@ test("contract: a good frame passes; items without uncertainty are dropped, not 
 
 test("governor: heat, view, speed and battery decide the frame rate, with hysteresis", () => {
     assert.deepEqual(GV.decide({ thermal: "none", speedMs: 12 }), { fps: 30, reason: "full", paused: false });
-    assert.equal(GV.decide({ thermal: "light", speedMs: 12 }).fps, 20);
-    assert.equal(GV.decide({ thermal: "moderate", speedMs: 12 }).fps, 12);
-    assert.equal(GV.decide({ thermal: "severe", speedMs: 12 }).fps, 5);
+    assert.equal(GV.decide({ thermal: "light", speedMs: 12 }).fps, 30);              // performance profile: no throttling
+    assert.equal(GV.decide({ thermal: "moderate", speedMs: 12 }).fps, 30);           // up to "moderate"
+    assert.equal(GV.decide({ thermal: "severe", speedMs: 12 }).fps, 15);
     const paused = GV.decide({ thermal: "critical", speedMs: 12 });
     assert.equal(paused.fps, 0);
     assert.equal(GV.decide({ thermal: "severe", speedMs: 12 }, paused).fps, 0);        // stays paused until it cools
-    assert.equal(GV.decide({ thermal: "moderate", speedMs: 12 }, paused).fps, 12);
-    assert.equal(GV.decide({ thermal: "none", speedMs: 0.2 }).fps, 3);
-    assert.equal(GV.decide({ thermal: "none", speedMs: 12, usable: 0.2 }).fps, 5);
-    assert.equal(GV.decide({ thermal: "none", speedMs: 12, batteryPct: 9, charging: false }).fps, 10);
+    assert.equal(GV.decide({ thermal: "moderate", speedMs: 12 }, paused).fps, 30);
+    assert.equal(GV.decide({ thermal: "none", speedMs: 0.2 }).fps, 10);
+    assert.equal(GV.decide({ thermal: "none", speedMs: 12, usable: 0.2 }).fps, 10);
+    assert.equal(GV.decide({ thermal: "none", speedMs: 12, batteryPct: 9, charging: false }).fps, 15);
 });
 
 // ---------------------------------------------------------------- confirmation
@@ -231,7 +231,7 @@ test("road agent: closing truck warns once; overheating lowers the frame rate an
     assert.equal(closing.length, 1);
     assert.ok(e.said.some((s) => /truck bahut paas/.test(s.text)));
     assert.ok(e.islands.some((i) => i.title === "Truck close ahead"));
-    assert.ok(e.fpsCalls.includes(5));                                           // governor: severe heat → 5 fps
+    assert.ok(e.fpsCalls.includes(15));                                          // governor: severe heat → 15 fps
     assert.equal(e.reports.filter((r) => r.kind === "perception.degraded").length, 1);
     assert.equal(e.kernel.get("road").state, "degraded");
 });

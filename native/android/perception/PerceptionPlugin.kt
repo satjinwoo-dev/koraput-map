@@ -27,8 +27,11 @@ import org.json.JSONObject
  *   startRecording({ intervalMs = 500, note? })            → { dir }
  *   stopRecording()                                        → summary
  *   mark({ label })                                        → { ok }        ("pothole here", saved with the recording)
+ *   startDynamics({ owner = "app" })                       → dynamics status   (IMU 100 Hz + GNSS; camera not needed)
+ *   stopDynamics({ owner = "app" })                        → { stopped }
  * Events
  *   "frame"  { frame: "<PerceptionFrame v1 JSON>" }        ~10 per second
+ *   "dynamics" { dynamics: "<DynamicsFrame v1 JSON>" }     1 per second (hard_brake / hard_accel / jolt events, roughness)
  *   "state"  { state: starting | running | paused | stalled | thermal | recording | recording-stopped | frame-error | error | stopped, … }
  *
  * Register it in MainActivity:  registerPlugin(com.mapunite.app.perception.PerceptionPlugin.class);
@@ -51,7 +54,8 @@ class PerceptionPlugin : Plugin() {
         engine = PerceptionEngine(
             context,
             emitState = { s -> notifyListeners("state", toJs(s)) },
-            emitFrame = { json -> notifyListeners("frame", JSObject().put("frame", json)) }
+            emitFrame = { json -> notifyListeners("frame", JSObject().put("frame", json)) },
+            emitDynamics = { json -> notifyListeners("dynamics", JSObject().put("dynamics", json)) }
         )
     }
 
@@ -156,6 +160,35 @@ class PerceptionPlugin : Plugin() {
     fun mark(call: PluginCall) {
         val e = engine ?: return call.reject("plugin not loaded")
         call.resolve(JSObject().put("ok", e.mark(call.getString("label", "mark") ?: "mark")))
+    }
+
+    // ------------------------------------------------------------------ bike dynamics (no camera needed)
+
+    @PluginMethod
+    fun startDynamics(call: PluginCall) {
+        if (getPermissionState("location") == PermissionState.PROMPT) {
+            requestPermissionForAlias("location", call, "afterLocationForDynamics")
+            return
+        }
+        doStartDynamics(call)
+    }
+
+    @PermissionCallback
+    private fun afterLocationForDynamics(call: PluginCall) {
+        doStartDynamics(call)   // without location: IMU-only events (lower confidence), no map positions
+    }
+
+    private fun doStartDynamics(call: PluginCall) {
+        val e = engine ?: return call.reject("plugin not loaded")
+        val owner = ownerOf(call)
+        activity.runOnUiThread { call.resolve(toJs(e.startDynamics(owner))) }
+    }
+
+    @PluginMethod
+    fun stopDynamics(call: PluginCall) {
+        val e = engine ?: return call.reject("plugin not loaded")
+        val owner = ownerOf(call)
+        activity.runOnUiThread { call.resolve(JSObject().put("stopped", e.stopDynamics(owner))) }
     }
 
     // ------------------------------------------------------------------ lifecycle
