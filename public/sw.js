@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-04.4";           // roadmap Steps 8–10 with their screens: advice badge, gradient sheet, ride dashboard + consent, HUD, share card
+const VERSION = "mu-2026-10-11.2";           // Road perception P1: settings link to the Android road data recorder (recorder.html)
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
@@ -109,6 +109,8 @@ const BIKE_SCRIPTS = [
     "/js/rides/rides-app.js",
     // their screens (loaded on first open, so they must be here): the road-conditions badge, the ride
     // dashboard and consent, the gradient sheet, the SmartDrive HUD and the post-ride share card
+    "/js/advice/gate.js",
+    "/js/advice/ask.js",
     "/js/advice/conditions.js",
     "/js/advice/overlay.js",
     "/js/advice/advice-ui.js",
@@ -139,7 +141,28 @@ const BIKE_SCRIPTS = [
     "/js/pitstop/stations.js",
     "/js/pitstop/convoy-panel.js",
     "/js/pitstop/convoy-panel.css",
-    "/js/pitstop/pitstop-app.js"
+    "/js/pitstop/pitstop-app.js",
+    // Master AI: the core, its sub-agents, the fatigue check's screens and the road-perception chain
+    "/js/master/contracts.js",
+    "/js/master/bus.js",
+    "/js/master/capabilities.js",
+    "/js/master/kernel.js",
+    "/js/master/persona.js",
+    "/js/master/phrases-desi.js",
+    "/js/master/output.js",
+    "/js/master/brain.js",
+    "/js/master/agents/ride-agent.js",
+    "/js/master/agents/network-agent.js",
+    "/js/master/vision/fatigue.js",
+    "/js/master/vision/face-scan.js",
+    "/js/master/vision/vision.css",
+    "/js/master/agents/vision-agent.js",
+    "/js/master/perception/contract.js",
+    "/js/master/perception/governor.js",
+    "/js/master/perception/confirm.js",
+    "/js/master/perception/provider.js",
+    "/js/master/agents/road-agent.js",
+    "/js/master/master-app.js"
 ];
 // The Socket.IO client library: a static script the server ships. index.html can't
 // boot offline without it (core.js calls io() at once; offline it just keeps

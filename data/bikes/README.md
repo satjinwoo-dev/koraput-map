@@ -83,7 +83,7 @@ Suggested `package.json` scripts:
 
 Building the in-memory index for 20,000 variants takes about 90 ms, once, on the first search. On the synthetic data, which gives half the bikes a full image URL, `catalog.json` stays under the 300 KB gzip budget up to about 9,500 variants (today's real catalogue: 2.4 KB). Past that, split the catalogue by make before raising the budget.
 
-**SQLite driver.** The build uses `better-sqlite3` (already a server dependency) or, if that isn't installed, Node 22.5+'s built-in `node:sqlite`. Force one with `--driver` or `BIKEDB_SQLITE_DRIVER`. `--skip-sqlite` builds only the public files. `scripts/build-native.mjs` rebuilds `public/bikedb/` by itself before it packages the Android app.
+**SQLite driver.** The build uses `better-sqlite3` (an optional dependency: npm skips it where its native addon can't be built) or, if its addon isn't there, Node 22.13+'s built-in `node:sqlite`. Force one with `--driver` or `BIKEDB_SQLITE_DRIVER`. `--skip-sqlite` builds only the public files. `scripts/build-native.mjs` rebuilds `public/bikedb/` by itself before it packages the Android app.
 
 ## The contract in one page
 

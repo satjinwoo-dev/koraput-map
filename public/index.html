@@ -21,7 +21,8 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="js/trip/trip.css?v=20261004-ui"><!-- Step 7: trip energy + My bike -->
 <link rel="stylesheet" href="js/hud/hud.css?v=20261004-ui"><!-- SmartDrive HUD (needed the moment a ride starts, so not lazy) -->
-<link rel="stylesheet" href="js/advice/advice.css?v=20261004-ui"><!-- Roadmap Step 8: the road-conditions badge (shows during a ride) -->
+<link rel="stylesheet" href="js/advice/advice.css?v=20261011-ask"><!-- Roadmap Step 8: the road-conditions badge (shows during a ride) -->
+<link rel="stylesheet" href="js/master/vision/vision.css?v=20261011-master"><!-- Master AI: break-time fatigue check (camera only while stopped) -->
 <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js"></script>
 
 <style>
@@ -1067,10 +1068,15 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
         <label for="quiet-ride-toggle">Quiet ride</label>
         <input type="checkbox" id="quiet-ride-toggle" class="switch">
       </div>
-      <p class="field-hint">Quiet ride: no riding tips. Directions, speed alerts and safety warnings are spoken as usual. Also on the riding dashboard, or say “quiet ride”. Tips are only ever given on a steady road: never in a corner, right after hard braking, on a wet road, near a turn or on a weak GPS signal, and never above the speed limit.</p>
+      <p class="field-hint">Quiet ride: no riding tips, fuel-stop or convoy chatter. Directions, speed alerts and safety warnings are spoken as usual. Also on the riding dashboard, or say “quiet ride”. Tips are only ever given on a steady road: never in a corner, right after hard braking, in heavy weather, near a turn or on a weak GPS signal, at most one every 45 seconds, and never above the speed limit.</p>
       <ul class="advice-always" aria-label="Always spoken">
         <li>Speed alerts</li><li>Directions</li><li>Emergency SOS</li>
       </ul>
+      <div class="modal-row">
+        <label for="ask-first-toggle">Ask before tips</label>
+        <input type="checkbox" id="ask-first-toggle" class="switch" checked>
+      </div>
+      <p class="field-hint">A tip starts with a one-second spoken question (“Bhai, ek baat bolun?”), then the mic listens for about 4 seconds: say “yes” (or “haan”) to hear it; say “no” (or “nahi”), or stay quiet, and it's dropped. “No” also skips that kind of tip for 20 minutes. Safety warnings and directions never ask. Your answer goes to the phone's speech service, like voice commands. Without the microphone, tips are spoken as before.</p>
       <div class="modal-row">
         <label for="weather-alerts-toggle">Wet-road &amp; weather alerts</label>
         <input type="checkbox" id="weather-alerts-toggle" class="switch" checked>
@@ -1102,6 +1108,13 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
         <input type="checkbox" id="avoid-tolls-toggle" class="switch">
       </div>
       <p class="field-hint">Used for every route this phone draws — search, navigation and its reroutes, “navigate to” by voice, group trip and meetup routes — and for carpools you drive. Choosing a meetup point still compares everyone on normal roads. On the free map router, “highways” means motorways/expressways; most national highways aren’t marked as motorways there, so they can still be used. Search routes use Google’s broader definition. If no route can avoid them, you’re told and get the normal route. You can also say “avoid tolls”.</p>
+    </div>
+
+    <!-- Road perception P1: dataset recorder page (recorder.html, MapUnitePerception plugin; Android app only) -->
+    <div class="form-section">
+      <h3><svg class="i sm" style="width:13px;height:13px;vertical-align:-2px;"><use href="#i-locate"/></svg> Road data recorder · Android app</h3>
+      <a class="btn-secondary-nav btn-block" href="recorder.html" id="recorder-link">Open the road data recorder</a>
+      <p class="field-hint">Records your rides from a handlebar-mounted phone (rear camera, 2 frames a second, plus motion sensors and GPS) to train MapUnite's road model on Indian roads. Recordings stay on your phone. Faces are blurred before saving; number plates aren't yet.</p>
     </div>
 
     <!-- Phase 3: convoy intelligence (js/convoy.js ConvoyIntelligence) -->
@@ -1601,7 +1614,7 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="/shell.js"></script>
 <!-- App scripts, split by concern (Batch 2). Order matters: core first, boot last. -->
 <script src="js/core.js?v=20261004-step10"></script>
-<script src="js/voice.js?v=20261004-step10"></script>
+<script src="js/voice.js?v=20261011-ask"></script>
 <script src="js/gps.js?v=20261003-step7"></script>
 <script src="js/navigation.js?v=20261004-step10"></script>
 <script src="js/garage/fuel-baseline.js?v=20261003-step8"></script>
@@ -1631,7 +1644,7 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="js/physics/cruise.js?v=20261003-step7"></script>
 <script src="js/physics/index.js?v=20261003-step7"></script>
 <script src="js/garage/units.js?v=20261003-step7"></script>
-<script src="js/garage/store.js?v=20261003-step7"></script>
+<script src="js/garage/store.js?v=20261004-local2"></script>
 <script src="js/garage/silhouettes.js?v=20261003-step7"></script>
 <script src="js/trip/profile.js?v=20261004-step10"></script>
 <script src="js/trip/elevation.js?v=20261003-step7"></script>
@@ -1643,9 +1656,11 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
      (SmartDrive calls them; js/advice/, js/rides/) -->
 <script src="js/advice/advice.js?v=20261004-step10"></script>
 <script src="js/advice/advice-app.js?v=20261004-ui"></script>
+<script src="js/advice/gate.js?v=20261011-ask"></script>
+<script src="js/advice/ask.js?v=20261011-ask"></script>
 <script src="js/advice/conditions.js?v=20261004-ui"></script>
 <script src="js/advice/overlay.js?v=20261004-ui"></script>
-<script src="js/advice/advice-ui.js?v=20261004-ui"></script>
+<script src="js/advice/advice-ui.js?v=20261011-ask"></script>
 <script src="js/rides/ride-log.js?v=20261004-ui"></script>
 <script src="js/rides/ride-model.js?v=20261004-ui"></script>
 <script src="js/rides/rides-app.js?v=20261004-ui"></script>
@@ -1660,5 +1675,27 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <!-- Step 8: fuel learner dashboard + convoy pitstop planner (their UI loads on first open) -->
 <script src="js/insights/insights-app.js?v=20261004-step8"></script>
 <script src="js/pitstop/pitstop-app.js?v=20261004-ui"></script>
+<!-- Master AI: hierarchical core (event bus, agent kernel, brain, desi persona) + sub-agents. It speaks only through
+     voiceAnnounce() and so through the advice gate's cue rules; master-app.js last. The fatigue check's camera
+     capability is provided only once js/master/vision/landmarker.js (the MediaPipe loader) is added. -->
+<script src="js/master/contracts.js?v=20261011-master"></script>
+<script src="js/master/bus.js?v=20261011-master"></script>
+<script src="js/master/capabilities.js?v=20261011-master"></script>
+<script src="js/master/kernel.js?v=20261011-master"></script>
+<script src="js/master/persona.js?v=20261011-master"></script>
+<script src="js/master/phrases-desi.js?v=20261011-master"></script>
+<script src="js/master/output.js?v=20261011-master"></script>
+<script src="js/master/brain.js?v=20261011-master"></script>
+<script src="js/master/agents/ride-agent.js?v=20261011-master"></script>
+<script src="js/master/agents/network-agent.js?v=20261011-master"></script>
+<script src="js/master/vision/fatigue.js?v=20261011-master"></script>
+<script src="js/master/vision/face-scan.js?v=20261011-master"></script>
+<script src="js/master/agents/vision-agent.js?v=20261011-master"></script>
+<script src="js/master/perception/contract.js?v=20261011-master"></script>
+<script src="js/master/perception/governor.js?v=20261011-master"></script>
+<script src="js/master/perception/confirm.js?v=20261011-master"></script>
+<script src="js/master/perception/provider.js?v=20261011-master"></script>
+<script src="js/master/agents/road-agent.js?v=20261011-master"></script>
+<script src="js/master/master-app.js?v=20261011-master"></script>
 </body>
 </html>

@@ -91,6 +91,11 @@ test("catalogue: network first and cached; offline next time from the cache; a c
     assert.equal(b.index.version, a.index.version);
     const nothing = mkStore({ caches: fakeCaches(), net });
     await assert.rejects(nothing.catalog(), /isn't on this phone yet/);
+    // online, but the server has no catalog.json (never built there): say so, not "connect to the internet"
+    const warn = console.warn; console.warn = () => {};
+    try {
+        await assert.rejects(mkStore({ caches: fakeCaches(), net: fakeNet(new Map()) }).catalog(), (e) => /isn't available from the server right now \(HTTP 404\)/.test(e.message) && !/Connect to the internet/.test(e.message));
+    } finally { console.warn = warn; }
     // the failure isn't remembered: a later attempt can succeed
     net.setOnline(true);
     assert.equal((await nothing.catalog()).source, "network");

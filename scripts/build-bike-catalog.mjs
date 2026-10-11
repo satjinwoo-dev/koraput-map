@@ -15,6 +15,8 @@
  *   node scripts/build-bike-catalog.mjs                 # build everything
  *   node scripts/build-bike-catalog.mjs --check         # exit 1 if any output is missing or out of date
  *   node scripts/build-bike-catalog.mjs --skip-sqlite   # catalog.json + bundles only (no SQLite driver needed)
+ * With no SQLite driver on this machine (and none named with --driver), catalog.json and the
+ * bundles are still built, bikes.sqlite is skipped and a warning says why.
  *   node scripts/build-bike-catalog.mjs --json          # machine-readable summary
  * Options: --out-public <dir>, --out-db <file>, --data <dir>, --no-prune (keep old bundle files),
  *          --driver better-sqlite3|node:sqlite (default: whichever is available, in that order).
@@ -78,7 +80,7 @@ async function main() {
         process.exit(diffs.length ? 1 : 0);
     }
 
-    const { art, pub, db } = await build(opts);
+    const { art, pub, db, sqliteSkipped } = await build(opts);
     const summary = {
         ok: true,
         catalogVersion: art.catalog.version,
@@ -88,15 +90,17 @@ async function main() {
         catalog: { file: path.join(opts.publicDir, "catalog.json"), bytes: pub.catalogBytes, gzipBytes: pub.catalogGzip, budgetGzipBytes: CATALOG_BUDGET_GZIP },
         bundles: { dir: path.join(opts.publicDir, "bundles"), count: art.bundles.length, bytes: pub.bundleBytes, written: pub.written, unchanged: pub.unchanged, pruned: pub.pruned },
         sqlite: db ? { file: db.file, bytes: db.bytes, driver: db.driver, sqliteVersion: db.sqliteVersion } : null,
+        sqliteSkipped,
         inputHash: art.inputHash
     };
+    if (sqliteSkipped) console.error(`build-bike-catalog: WARNING: bikes.sqlite was not built — ${sqliteSkipped.split("\n").join("\n  ")}\n  The app's bike list (catalog.json) and the bundles were built and work without it; the server's\n  /api/bikes search answers 503 until bikes.sqlite exists (Node 22.13+ has node:sqlite built in).`);
     if (asJson) { console.log(JSON.stringify(summary, null, 2)); return; }
     if (args.flags.has("--quiet")) return;
     console.log(`bike catalogue ${art.catalog.version}: ${art.counts.variants} variants, ${art.counts.classDefaults} class defaults${art.counts.warnings ? `, ${art.counts.warnings} warning${art.counts.warnings === 1 ? "" : "s"} (see validate.mjs)` : ""}`);
     console.log(`  catalog.json   ${rel(summary.catalog.file)}   ${kb(pub.catalogBytes)}, ${kb(pub.catalogGzip)} gzipped (budget ${kb(CATALOG_BUDGET_GZIP)})`);
     console.log(`  bundles        ${rel(summary.bundles.dir)}/   ${art.bundles.length} files, ${kb(pub.bundleBytes)} (${pub.written} written, ${pub.unchanged} unchanged, ${pub.pruned} removed)`);
     if (db) console.log(`  bikes.sqlite   ${rel(db.file)}   ${kb(db.bytes)} (${db.driver}, SQLite ${db.sqliteVersion})`);
-    else console.log("  bikes.sqlite   skipped (--skip-sqlite)");
+    else console.log(`  bikes.sqlite   skipped (${sqliteSkipped ? "no SQLite driver, see the warning above" : "--skip-sqlite"})`);
 
     // Force a clean exit NOW, before Node's event-loop drain and V8 isolate
     // teardown.  On Node 20+ an unclosed better-sqlite3 handle whose C++

@@ -584,12 +584,18 @@ export function diffSqlite(art, file, driver) {
 export async function build(opts = {}) {
     const input = loadCatalog(opts.dataDir || DATA);
     const art = buildArtifacts(input);
-    // Load the SQLite driver before writing anything, so a missing driver fails cleanly.
-    let driver = null;
-    if (!opts.skipSqlite) driver = (await import("./sqlite-driver.mjs")).loadDriver({ driver: opts.driver });
+    // Load the SQLite driver before writing anything. A driver asked for by name must be there;
+    // with none available at all, the public files are still written (the app's bike list and
+    // bundles need no SQLite) and bikes.sqlite is skipped, with the reason.
+    let driver = null, sqliteSkipped = null;
+    if (!opts.skipSqlite) {
+        const { loadDriver } = await import("./sqlite-driver.mjs");
+        try { driver = loadDriver({ driver: opts.driver }); }
+        catch (e) { if (opts.driver || opts.requireSqlite) throw e; sqliteSkipped = String(/** @type {Error} */ (e).message); }
+    }
     const pub = writePublic(art, opts.publicDir || DEFAULT_PUBLIC_DIR, { prune: opts.prune !== false });
     const db = driver ? writeSqlite(art, input.ref, opts.dbFile || DEFAULT_DB_FILE, driver) : null;
-    return { art, pub, db };
+    return { art, pub, db, sqliteSkipped };
 }
 
 /** catalog.json + bundles only (no SQLite) — used by scripts/build-native.mjs. */

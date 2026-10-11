@@ -4,7 +4,9 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "node --disable-warning=ExperimentalWarning --test \"test/bikedb/*.test.mjs\" \"test/physics/*.test.mjs\" \"test/server/*.test.mjs\" \"test/garage/*.test.mjs\" \"test/smartdrive/*.test.mjs\" \"test/sw/*.test.mjs\" \"test/trip/*.test.mjs\" \"test/fleet/*.test.mjs\" \"test/insights/*.test.mjs\" \"test/pitstop/*.test.mjs\" \"test/advice/*.test.mjs\" \"test/rides/*.test.mjs\" \"test/gradient/*.test.mjs\" \"test/hud/*.test.mjs\" \"test/share/*.test.mjs\" \"test/curator/*.test.mjs\"",
+    "start": "node server.js",
+    "prestart": "npm run -s bikes:build",
+    "test": "node --disable-warning=ExperimentalWarning --test \"test/bikedb/*.test.mjs\" \"test/physics/*.test.mjs\" \"test/server/*.test.mjs\" \"test/garage/*.test.mjs\" \"test/smartdrive/*.test.mjs\" \"test/sw/*.test.mjs\" \"test/trip/*.test.mjs\" \"test/fleet/*.test.mjs\" \"test/insights/*.test.mjs\" \"test/pitstop/*.test.mjs\" \"test/advice/*.test.mjs\" \"test/rides/*.test.mjs\" \"test/gradient/*.test.mjs\" \"test/hud/*.test.mjs\" \"test/share/*.test.mjs\" \"test/curator/*.test.mjs\" \"test/master/*.test.mjs\"",
     "bikes:validate": "node scripts/bikedb/validate.mjs",
     "bikes:format": "node scripts/bikedb/format.mjs",
     "bikes:schema": "node scripts/bikedb/gen-schema.mjs",
@@ -19,6 +21,7 @@
     "step8:typecheck": "tsc -p tsconfig.step8.json",
     "ride:typecheck": "tsc -p tsconfig.ride.json",
     "ui:typecheck": "tsc -p tsconfig.ui.json",
+    "master:typecheck": "tsc -p tsconfig.master.json",
     "physics:mutation": "node scripts/physics/mutation-check.mjs",
     "physics:table": "node scripts/physics/cruise-table.mjs"
   },
@@ -30,11 +33,16 @@
     "express": "^4.21.0",
     "express-rate-limit": "^7.1.5",
     "helmet": "^7.1.0",
-    "socket.io": "^4.8.0",
+    "socket.io": "^4.8.0"
+  },
+  "optionalDependencies": {
     "better-sqlite3": "^11.3.0"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
     "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=22.13"
   }
 }

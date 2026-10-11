@@ -2,6 +2,24 @@
 
 Batch 2 covers privacy, architecture and the backend: trip-only sharing, friend circles, "you were here before", the OSM credit, chat history, photos on disk, the split frontend, and multi-process scaling over Redis.
 
+## 0. Running it locally (quick start)
+
+You need **Node 22.13 or newer** and nothing else: no Python, no C++ build tools.
+
+```bash
+npm install     # better-sqlite3 is optional: if it can't be downloaded or compiled here, npm skips it
+npm start       # builds the bike catalogue from data/bikes/, then starts server.js on http://localhost:3000
+```
+
+- **`npm start`** runs `npm run bikes:build` first. That build writes `public/bikedb/catalog.json`, the bundles and `build/bikedb/bikes.sqlite`, which are gitignored and so missing from a fresh clone. It then runs `node server.js`.
+- **Plain `node server.js` works too.** If the built catalogue is missing at start-up, the server builds it from `data/bikes/` before serving and logs `[bikes] … missing: building the bike catalogue`. `BIKES_AUTOBUILD=0` turns this off.
+- **Without any SQLite driver** (Node older than 22.13 and no `better-sqlite3`), the build still writes `catalog.json` and the bundles, so the app's bike list works. It skips `bikes.sqlite` with a warning, and the server's search API answers 503 until it exists. The server's own database does need a driver, though: use Node 22.13 or newer.
+- **The startup log names the SQLite driver**: `DB: … (node:sqlite)` and `[bikes] catalogue … (node:sqlite)`.
+  - `better-sqlite3` is used when its native addon is installed. Otherwise both the catalogue and the server's own database use Node's built-in `node:sqlite`. They're the same file format, so you can switch either way without losing data.
+  - `BIKEDB_SQLITE_DRIVER=node:sqlite` (or `better-sqlite3`) forces one.
+- **If you installed with `npm install --ignore-scripts`:** that's fine too. `better-sqlite3` is then present but has no addon, and the server falls back to `node:sqlite` the same way.
+- **Seeing "The bike list isn't on this phone yet"** means the browser couldn't fetch `/bikedb/catalog.json` and has no copy saved. Usually the server wasn't running, and the page came from the service worker's cache. If the server is up but has no catalogue, the app now says so ("isn't available from the server right now (HTTP 404)"). In either case the browser console logs a `[garage]` line with the cause, e.g. the HTTP status or "no answer within 6 s". Start the server, then press **Try again** or reload.
+
 ## 1. What's in this delivery
 
 ```
@@ -88,7 +106,7 @@ The bike catalogue is built from `data/bikes/` and isn't committed, so run the b
 node scripts/build-bike-catalog.mjs        # writes public/bikedb/ and build/bikedb/bikes.sqlite
 ```
 
-It uses `better-sqlite3`, which the server already depends on, or Node 22.5+'s built-in `node:sqlite`. It refuses to write anything if a bike file doesn't validate. `node scripts/build-native.mjs` rebuilds `public/bikedb/` by itself before packaging the Android app. See `data/bikes/README.md` for details.
+It uses `better-sqlite3` when its native addon is installed (an optional dependency), else Node 22.13+'s built-in `node:sqlite`. The server's own database (`DB_PATH`) makes the same choice (`lib/server-db.js`). It refuses to write anything if a bike file doesn't validate. `node scripts/build-native.mjs` rebuilds `public/bikedb/` by itself before packaging the Android app. See `data/bikes/README.md` for details.
 
 The running server picks up a rebuilt `bikes.sqlite` by itself within 5 seconds: no restart needed on Linux or macOS. On Windows, stop the server first, because a running process holding `bikes.sqlite` open blocks the replacement. If the file is missing or from an incompatible build, the server still starts. `/api/bikes/search` and `/api/bikes/bundles/…` then answer 503 until a valid build appears, and `/healthz` shows `"bikes": { "available": false }`. Set `BIKES_DB_PATH` if the file lives somewhere other than `build/bikedb/bikes.sqlite`.
 
@@ -171,6 +189,21 @@ There's one backend for each feature. The screens read it and drive it; none has
 - **Live HUD** (`js/hud/`) while navigating or on a SmartDrive trip: live km/L (or Wh/km), the cost so far, the eco band on a speed scale with the posted limit and the advised speed, and the next fuel or charge stop. The grade under you comes from the gradient sheet's fixed profile. At the end of a ride its physics totals are merged into the ride's summary (`mu:ride-summary`).
 - **Share card** (`js/share/`): after a ride of 1 km or more, or from **Share** in the trip summary, an image card with the route shape (the first and last 400 m cut off by default), eco score, distance, mileage, cost and moving time. It's drawn on a canvas on the phone with no map tiles; nothing is uploaded.
 - **Service worker.** The version is now `mu-2026-10-04.4`. All of the above is precached; the bike curator isn't (it's an admin page).
+
+### Master AI and "Ask before tips"
+
+These run on the phone; nothing new on the server.
+
+- **Master AI** (`public/js/master/`, see its README). Sub-agents report facts; a brain picks what reaches the rider; a desi Hinglish persona words it. Screens are always English. It speaks only through `voiceAnnounce()`, and so through the advice gate.
+  - **Running now:** the ride agent (break reminders after 1 h 30 and 2 h) and the network agent (signal lost or back, and no-signal zones it learns on the phone).
+  - **Waiting for missing pieces:**
+    - The fatigue check (`vision/`) needs `js/master/vision/landmarker.js`, `scripts/fetch-mediapipe.mjs` and a CSP change. They weren't in the delivery, so no check is offered yet.
+    - Road perception (`perception/`) needs the native `MapUnitePerception` plugin, or a recorded replay (`window.MU_PERCEPTION_REPLAY`).
+- **The cue rules** (`js/advice/gate.js`, one instance in `advice-ui.js`). Every spoken cue is now classified as critical, directions, warning or advice.
+  - **Advice-level cues** (tips, fuel stops, convoy chatter, Master suggestions) are held in quiet ride, after a turn or hard brake, in heavy weather, and are spaced 45 s apart.
+  - **Warnings, directions and critical cues** are always spoken, quiet ride included.
+- **Ask before tips** (Settings → Ride advice & safety, on by default). A tip starts with "Bhai, ek baat bolun?" and the mic listens for about 3.5 s. The answer goes to the phone's speech service, like voice commands. Without a mic, tips are spoken as before.
+- **Service worker:** `mu-2026-10-11.1` precaches all of the above.
 
 ### Bike curator (admin)
 
