@@ -19,9 +19,10 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<link rel="stylesheet" href="js/trip/trip.css?v=20261004-ui"><!-- Step 7: trip energy + My bike -->
-<link rel="stylesheet" href="js/hud/hud.css?v=20261004-ui"><!-- SmartDrive HUD (needed the moment a ride starts, so not lazy) -->
-<link rel="stylesheet" href="js/advice/advice.css?v=20261004-ui"><!-- Roadmap Step 8: the road-conditions badge (shows during a ride) -->
+<link rel="stylesheet" href="js/trip/trip.css?v=20261003-step7"><!-- Step 7: trip energy + My bike -->
+<link rel="stylesheet" href="js/hud/hud.css?v=20261004-step9"><!-- Step 9: SmartDrive HUD (needed the moment a ride starts, so not lazy) -->
+<link rel="stylesheet" href="js/advice/advice.css?v=20261004-r8"><!-- Roadmap step 8: advice layer + safety gate (the badge shows during a ride) -->
+<link rel="stylesheet" href="js/master/vision/vision.css?v=20261010-en"><!-- Master AI: break-time fatigue check (camera only while stopped) -->
 <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js"></script>
 
 <style>
@@ -917,9 +918,9 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
     </div>
     <!-- Posted limit for the road you're on (js/gps.js SpeedLimits, OpenStreetMap) -->
     <div class="speed-limit-sign" id="speed-limit-sign" role="img" aria-label="" hidden><span id="speed-limit-n"></span></div>
-    <!-- Roadmap Step 8: speed advice for the road conditions, stacked on the limit sign (js/advice/advice-ui.js) -->
+    <!-- Roadmap step 8: speed advice for the road conditions, stacked on the limit sign (js/advice/) -->
     <div id="advice-overlay" hidden></div>
-    <!-- SmartDrive HUD (js/hud/): live km/L, eco band, trip cost, pitstop alerts; sits beside the speed dial -->
+    <!-- Step 9: SmartDrive HUD (js/hud/): live km/L, eco band, trip cost, pitstop alerts; sits beside the speed dial -->
     <section id="smartdrive-hud" hidden></section>
     <div class="speed-dial" id="speed-dial">
       <div class="n" id="speed-n">0</div>
@@ -959,9 +960,9 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
     <p id="res-model-note" class="estimate-note"></p>
     <p class="estimate-note">Estimate from GPS speed samples — not a substitute for your odometer.</p>
   </div>
-  <!-- Post-ride share card (js/share/) -->
+  <!-- Step 11: post-ride share card (js/share/) -->
   <button id="share-ride-btn" class="btn-secondary-nav" type="button" hidden>Share ride</button>
-  <!-- Roadmap Step 10: all ride summaries on this phone -->
+  <!-- Roadmap step 10: all ride summaries on this phone -->
   <button id="rides-all-btn" class="btn-secondary-nav" type="button" hidden>All rides</button>
   <button id="close-results-btn" class="btn-secondary-nav" type="button">Dismiss</button>
 </div>
@@ -977,10 +978,9 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
       <input type="checkbox" id="speed-record-toggle" class="switch">
     </div>
     <div class="modal-row">
-      <label for="fuel-input-val">Mileage (km/L)</label>
+      <span>Mileage (km/L)</span>
       <input type="number" id="fuel-input-val" class="num-input" value="18" min="1" max="100">
     </div>
-    <p class="field-hint" id="fuel-source-hint" hidden></p>
     <div class="modal-row">
       <label for="speed-limits-toggle">Road speed limits</label>
       <input type="checkbox" id="speed-limits-toggle" class="switch" checked>
@@ -1060,22 +1060,31 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
       <button id="voice-test-btn" type="button" class="btn-secondary-nav btn-block">🔊 Test voice</button>
     </div>
 
-    <!-- Roadmap Step 8: ride advice & its safety gate (js/advice/advice-app.js; this section: js/advice/advice-ui.js) -->
+    <!-- Roadmap step 8: advice layer & safety gate (js/advice/advice-app.js) -->
     <div class="form-section" id="advice-section">
       <h3><svg class="i sm" style="width:13px;height:13px;vertical-align:-2px;"><use href="#i-shield"/></svg> Ride advice &amp; safety</h3>
       <div class="modal-row">
         <label for="quiet-ride-toggle">Quiet ride</label>
         <input type="checkbox" id="quiet-ride-toggle" class="switch">
       </div>
-      <p class="field-hint">Quiet ride: no riding tips. Directions, speed alerts and safety warnings are spoken as usual. Also on the riding dashboard, or say “quiet ride”. Tips are only ever given on a steady road: never in a corner, right after hard braking, on a wet road, near a turn or on a weak GPS signal, and never above the speed limit.</p>
+      <div class="modal-row advice-sub">
+        <label for="quiet-keep-nav-toggle">Keep turn-by-turn directions</label>
+        <input type="checkbox" id="quiet-keep-nav-toggle" class="switch" checked>
+      </div>
+      <div class="modal-row">
+        <label for="ask-first-toggle">Ask before tips</label>
+        <input type="checkbox" id="ask-first-toggle" class="switch" checked>
+      </div>
+      <p class="field-hint">A tip starts with a one-second spoken question, then the mic listens for about 4 seconds: say “yes” (or “haan”) to hear it; say “no” (or “nahi”), or stay quiet, and it's dropped. “No” also skips that kind of tip for 20 minutes. In quiet ride, warnings ask too instead of only showing. Safety alerts and directions never ask. Your answer goes to the phone's speech service, like voice commands. Without the microphone, tips are spoken as before.</p>
+      <p class="field-hint">Quiet ride: no tips, no fuel or convoy chatter, and warnings show on screen instead of being spoken. Also on the riding dashboard. These always come through:</p>
       <ul class="advice-always" aria-label="Always spoken">
-        <li>Speed alerts</li><li>Directions</li><li>Emergency SOS</li>
+        <li>Far over the limit</li><li>Emergency SOS</li><li>Fuel on reserve, on screen</li>
       </ul>
       <div class="modal-row">
         <label for="weather-alerts-toggle">Wet-road &amp; weather alerts</label>
         <input type="checkbox" id="weather-alerts-toggle" class="switch" checked>
       </div>
-      <p class="field-hint">While you ride, checks the weather where you are (Open-Meteo, only your rounded position is sent) at the start and every 10 minutes or 8 km. Rain, fog, storms, gusts or ice risk: you hear it once, the speed advice drops below the limit, and tips pause. Roads count as wet for 30 minutes after the rain stops.</p>
+      <p class="field-hint">While you ride, checks the weather where you are (Open-Meteo, only your rounded position is sent) at the start and every 10 minutes or 8 km. Rain, fog, storms, gusts or ice risk: you hear it once, the speed advice drops below the limit, and tips pause in heavy weather. Roads count as wet for 30 minutes after the rain stops.</p>
       <div class="modal-row">
         <label for="speed-advice-toggle">Speed advice on the map</label>
         <input type="checkbox" id="speed-advice-toggle" class="switch" checked>
@@ -1102,6 +1111,13 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
         <input type="checkbox" id="avoid-tolls-toggle" class="switch">
       </div>
       <p class="field-hint">Used for every route this phone draws — search, navigation and its reroutes, “navigate to” by voice, group trip and meetup routes — and for carpools you drive. Choosing a meetup point still compares everyone on normal roads. On the free map router, “highways” means motorways/expressways; most national highways aren’t marked as motorways there, so they can still be used. Search routes use Google’s broader definition. If no route can avoid them, you’re told and get the normal route. You can also say “avoid tolls”.</p>
+    </div>
+
+    <!-- Road perception P1: dataset recorder page (recorder.html, MapUnitePerception plugin; Android app only) -->
+    <div class="form-section">
+      <h3><svg class="i sm" style="width:13px;height:13px;vertical-align:-2px;"><use href="#i-locate"/></svg> Road data recorder · Android app</h3>
+      <a class="btn-secondary-nav btn-block" href="recorder.html" id="recorder-link">Open the road data recorder</a>
+      <p class="field-hint">Records your rides from a handlebar-mounted phone (rear camera, 2 frames a second, plus motion sensors and GPS) to train MapUnite's road model on Indian roads. Recordings stay on your phone. Faces are blurred before saving; number plates aren't yet.</p>
     </div>
 
     <!-- Phase 3: convoy intelligence (js/convoy.js ConvoyIntelligence) -->
@@ -1186,11 +1202,11 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
       </select>
       <p class="field-hint">A circle trip is only offered to that circle. Several groups can run their own trips at the same time.</p>
     </div>
-    <!-- Roadmap Step 10: ride summaries, anonymous fuel data (FLEET.md), delete my history (js/rides/rides-app.js) -->
+    <!-- Roadmap step 10: ride summaries, anonymous fuel data (FLEET.md), delete my history (js/rides/rides-app.js) -->
     <div class="form-section" id="rides-privacy-section">
       <h3><svg class="i sm" style="width:13px;height:13px;vertical-align:-2px;"><use href="#i-shield"/></svg> Ride summaries &amp; privacy</h3>
       <button id="open-rides-btn" type="button" class="btn-secondary-nav btn-block rides-open-btn">Ride summaries <small></small></button>
-      <p class="field-hint">Every ride, summarised on this phone: distance, time, fuel, cost and eco score, with a drawing of the route. Nothing about your rides is uploaded.</p>
+      <p class="field-hint">Every drive, summarised on this phone: distance, time, fuel, cost and eco score, with a drawing of the route. Nothing is uploaded.</p>
       <div class="modal-row">
         <span>Anonymous fuel data</span>
         <button id="fleet-consent-btn" type="button" class="btn-secondary-nav fleet-consent-btn">Learn more</button>
@@ -1225,7 +1241,7 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
   </div>
 </div>
 
-<!-- Roadmap Step 10: RIDE SUMMARIES, PRIVACY CONSENT, DELETE MY HISTORY (js/rides/ mounts these on first open) -->
+<!-- Roadmap step 10: RIDE SUMMARIES, PRIVACY CONSENT, DELETE MY HISTORY (js/rides/ mounts these on first open) -->
 <div class="modal" id="rides-modal" data-dismissable role="dialog" aria-modal="true" aria-labelledby="rds-title" aria-hidden="true">
   <div class="modal-card rides-card"><div id="rides-mount"></div></div>
 </div>
@@ -1236,14 +1252,14 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
   <div class="modal-card consent-card"><div id="wipe-mount"></div></div>
 </div>
 
-<!-- Roadmap Step 9: ELEVATION & GRADIENT (js/gradient/ mounts here on first open; works offline) -->
+<!-- Roadmap step 9: ELEVATION & GRADIENT (js/gradient/ mounts here on first open; works offline) -->
 <div class="modal" id="gradient-modal" data-dismissable role="dialog" aria-modal="true" aria-labelledby="grd-title" aria-hidden="true">
   <div class="modal-card gradient-card">
     <div id="gradient-mount"></div>
   </div>
 </div>
 
-<!-- SHARE YOUR RIDE (js/share/ mounts here when a ride ends) -->
+<!-- Step 11: SHARE YOUR RIDE (js/share/ mounts here when a ride ends) -->
 <div class="modal" id="share-modal" data-dismissable role="dialog" aria-modal="true" aria-label="Share your ride" aria-hidden="true">
   <div class="modal-card share-card"><div id="share-mount"></div></div>
 </div>
@@ -1600,27 +1616,26 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyASbmXgn0T-B4AQdCe1sp7dfJbDXKgDw5c&libraries=places&loading=async"></script>
 <script src="/shell.js"></script>
 <!-- App scripts, split by concern (Batch 2). Order matters: core first, boot last. -->
-<script src="js/core.js?v=20261004-step10"></script>
-<script src="js/voice.js?v=20261004-step10"></script>
-<script src="js/gps.js?v=20261003-step7"></script>
-<script src="js/navigation.js?v=20261004-step10"></script>
-<script src="js/garage/fuel-baseline.js?v=20261003-step8"></script>
-<script src="js/smartdrive.js?v=20261004-ui"></script>
-<script src="js/groupnav.js?v=20261004-step8"></script>
-<script src="js/privacy.js?v=20261004-step10"></script>
-<script src="js/analytics.js?v=20261003-step7"></script>
-<script src="js/deadreckoning.js?v=20261003-step7"></script>
-<script src="js/presence.js?v=20261003-step7"></script>
-<script src="js/controls.js?v=20261003-step7"></script>
-<script src="js/chat.js?v=20261003-step7"></script>
-<script src="js/memories.js?v=20261003-step7"></script>
-<script src="js/calls.js?v=20261003-step7"></script>
-<script src="js/sos.js?v=20261003-step7"></script>
-<script src="js/pwa.js?v=20261003-step7"></script>
-<script src="js/skunkworks.js?v=20261003-step7"></script>
-<script src="js/radio.js?v=20261003-step7"></script>
-<script src="js/convoy.js?v=20261003-step7"></script>
-<script src="js/boot.js?v=20261003-step7"></script>
+<script src="js/core.js?v=20261001-android"></script>
+<script src="js/voice.js?v=20261010-en"></script>
+<script src="js/gps.js?v=20261001-android"></script>
+<script src="js/navigation.js?v=20261001-android"></script>
+<script src="js/smartdrive.js?v=20261001-android"></script>
+<script src="js/groupnav.js?v=20261001-android"></script>
+<script src="js/privacy.js?v=20261001-android"></script>
+<script src="js/analytics.js?v=20261001-android"></script>
+<script src="js/deadreckoning.js?v=20261001-android"></script>
+<script src="js/presence.js?v=20261001-android"></script>
+<script src="js/controls.js?v=20261001-android"></script>
+<script src="js/chat.js?v=20261001-android"></script>
+<script src="js/memories.js?v=20261001-android"></script>
+<script src="js/calls.js?v=20261001-android"></script>
+<script src="js/sos.js?v=20261001-android"></script>
+<script src="js/pwa.js?v=20261001-android"></script>
+<script src="js/skunkworks.js?v=20261001-android"></script>
+<script src="js/radio.js?v=20261001-android"></script>
+<script src="js/convoy.js?v=20261001-android"></script>
+<script src="js/boot.js?v=20261001-android"></script>
 <!-- Step 7: bike data, physics core and trip energy (the garage UI itself loads on first open) -->
 <script src="js/bikedb/catalog-search.js?v=20261003-step7"></script>
 <script src="js/physics/atmosphere.js?v=20261003-step7"></script>
@@ -1633,32 +1648,55 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="js/garage/units.js?v=20261003-step7"></script>
 <script src="js/garage/store.js?v=20261003-step7"></script>
 <script src="js/garage/silhouettes.js?v=20261003-step7"></script>
-<script src="js/trip/profile.js?v=20261004-step10"></script>
+<script src="js/trip/profile.js?v=20261003-step7"></script>
 <script src="js/trip/elevation.js?v=20261003-step7"></script>
-<script src="js/trip/structures.js?v=20261004-step10"></script>
 <script src="js/trip/energy.js?v=20261003-step7"></script>
-<script src="js/trip/trip-card.js?v=20261004-step10"></script>
-<script src="js/trip/trip-app.js?v=20261004-ui"></script>
-<!-- Roadmap Steps 8–10: the advice safety gate and its badge, ride summaries, the opt-in fleet share and their screens
-     (SmartDrive calls them; js/advice/, js/rides/) -->
-<script src="js/advice/advice.js?v=20261004-step10"></script>
-<script src="js/advice/advice-app.js?v=20261004-ui"></script>
-<script src="js/advice/conditions.js?v=20261004-ui"></script>
-<script src="js/advice/overlay.js?v=20261004-ui"></script>
-<script src="js/advice/advice-ui.js?v=20261004-ui"></script>
-<script src="js/rides/ride-log.js?v=20261004-ui"></script>
-<script src="js/rides/ride-model.js?v=20261004-ui"></script>
-<script src="js/rides/rides-app.js?v=20261004-ui"></script>
-<!-- Roadmap Step 9: the gradient sheet (bridges & tunnels from js/trip/structures.js); its chart loads on first open -->
-<script src="js/gradient/gradient.js?v=20261004-ui"></script>
-<script src="js/gradient/gradient-app.js?v=20261004-ui"></script>
-<!-- SmartDrive HUD and the post-ride share card (the card's drawing code loads when a ride ends) -->
-<script src="js/hud/live.js?v=20261004-ui"></script>
-<script src="js/hud/hud.js?v=20261004-ui"></script>
-<script src="js/hud/hud-app.js?v=20261004-ui"></script>
-<script src="js/share/share-app.js?v=20261004-ui"></script>
+<script src="js/trip/trip-card.js?v=20261003-step7"></script>
+<script src="js/trip/trip-app.js?v=20261003-step7"></script>
 <!-- Step 8: fuel learner dashboard + convoy pitstop planner (their UI loads on first open) -->
 <script src="js/insights/insights-app.js?v=20261004-step8"></script>
-<script src="js/pitstop/pitstop-app.js?v=20261004-ui"></script>
+<script src="js/pitstop/pitstop-app.js?v=20261004-step8"></script>
+<!-- Step 9 + 11: SmartDrive HUD and the post-ride share card (the card's drawing code loads when a ride ends) -->
+<script src="js/hud/live.js?v=20261004-step9"></script>
+<script src="js/hud/hud.js?v=20261004-step9"></script>
+<script src="js/hud/hud-app.js?v=20261004-step9"></script>
+<script src="js/share/share-app.js?v=20261004-step11"></script>
+<!-- Roadmap step 8: advice layer & safety gate (voice.js asks MUAdvice.live before every cue) -->
+<script src="js/advice/gate.js?v=20261010-en"></script>
+<script src="js/advice/ask.js?v=20261010-ask"></script>
+<script src="js/advice/conditions.js?v=20261004-r8"></script>
+<script src="js/advice/overlay.js?v=20261004-r8"></script>
+<script src="js/advice/advice-app.js?v=20261010-ask"></script>
+<!-- Roadmap step 9: gradient from elevation, bridges & tunnels fixed (the profile sheet's script loads on first open) -->
+<script src="js/gradient/gradient.js?v=20261004-r9"></script>
+<script src="js/gradient/structures.js?v=20261004-r9"></script>
+<script src="js/gradient/gradient-app.js?v=20261004-r9"></script>
+<!-- Roadmap step 10: ride summaries + anonymous fuel data (FLEET.md); the dashboard and dialogs load on first open -->
+<script src="js/rides/ride-store.js?v=20261004-r10"></script>
+<script src="js/rides/ride-model.js?v=20261004-r10"></script>
+<script src="js/rides/fleet.js?v=20261004-r10"></script>
+<script src="js/rides/rides-app.js?v=20261004-r10"></script>
+
+<!-- Master AI: hierarchical core (event bus, agent kernel, brain, desi persona, voice through the advice gate) + sub-agents; master-app.js last -->
+<script src="js/master/contracts.js?v=20261010-m1"></script>
+<script src="js/master/bus.js?v=20261010-m1"></script>
+<script src="js/master/capabilities.js?v=20261010-m1"></script>
+<script src="js/master/kernel.js?v=20261010-m1"></script>
+<script src="js/master/persona.js?v=20261010-p1"></script>
+<script src="js/master/phrases-desi.js?v=20261010-p1"></script>
+<script src="js/master/output.js?v=20261010-m1"></script>
+<script src="js/master/brain.js?v=20261010-m1"></script>
+<script src="js/master/agents/ride-agent.js?v=20261010-m1"></script>
+<script src="js/master/agents/network-agent.js?v=20261010-m1"></script>
+<script src="js/master/vision/fatigue.js?v=20261010-en"></script>
+<script src="js/master/vision/landmarker.js?v=20261010-v1"></script>
+<script src="js/master/vision/face-scan.js?v=20261010-en"></script>
+<script src="js/master/agents/vision-agent.js?v=20261010-en"></script>
+<script src="js/master/perception/contract.js?v=20261010-p1"></script>
+<script src="js/master/perception/governor.js?v=20261010-p1"></script>
+<script src="js/master/perception/confirm.js?v=20261010-p1"></script>
+<script src="js/master/perception/provider.js?v=20261010-p1"></script>
+<script src="js/master/agents/road-agent.js?v=20261010-p1"></script>
+<script src="js/master/master-app.js?v=20261010-p1"></script>
 </body>
 </html>

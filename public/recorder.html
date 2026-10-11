@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#070d16">
+<title>MapUnite: Road data recorder</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #070d16; --sheet: #0d1621; --raise: #131e2b; --line: rgba(255, 255, 255, .08);
+    --text: #f2f6f8; --soft: #c6d2db; --muted: #8b9bab;
+    --mint: #34e0b4; --amber: #ffb020; --red: #ff5d5d;
+    --r: 16px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); font: 400 15px/1.45 "Inter", system-ui, sans-serif; }
+  body { padding: calc(env(safe-area-inset-top, 0px) + 16px) 16px calc(env(safe-area-inset-bottom, 0px) + 32px); }
+  main { max-width: 640px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  code { font: 500 12.5px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--soft); overflow-wrap: anywhere; word-break: break-all; }
+  .page-back { display: inline-block; color: var(--muted); font-weight: 600; font-size: 14px; text-decoration: none; }
+  .page-back:hover { color: var(--text); }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
+  header h1 { min-width: 0; }
+  h1 { margin: 6px 0 0; font: 700 22px/1.2 "Sora", "Inter", sans-serif; letter-spacing: -.01em; }
+  h2 { margin: 0 0 10px; font: 600 15px/1.3 "Sora", "Inter", sans-serif; }
+  .chip { display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px; border-radius: 999px; background: var(--raise); color: var(--soft); font-weight: 600; font-size: 13px; white-space: nowrap; }
+  .chip::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .chip[data-tone="ok"]::before { background: var(--mint); }
+  .chip[data-tone="warn"]::before { background: var(--amber); }
+  .chip[data-tone="rec"] { color: var(--text); }
+  .chip[data-tone="rec"]::before { background: var(--red); animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  @media (prefers-reduced-motion: reduce) { .chip[data-tone="rec"]::before { animation: none; } }
+  .card { background: var(--sheet); border: 1px solid var(--line); border-radius: var(--r); padding: 16px; }
+  .notice { border-color: rgba(255, 176, 32, .35); }
+  .notice p { margin: 0; color: var(--soft); }
+  .tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .tile { background: var(--raise); border-radius: 12px; padding: 10px 12px; min-width: 0; }
+  .tile .k { color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  .tile .v { margin-top: 2px; font: 600 18px/1.25 "Sora", "Inter", sans-serif; overflow-wrap: anywhere; }
+  .tile .s { color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  button { font: 600 15px/1 "Inter", system-ui, sans-serif; border: 0; border-radius: 12px; padding: 14px 16px; min-height: 48px; cursor: pointer; color: var(--text); background: var(--raise); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; }
+  .primary { background: var(--mint); color: #04130e; }
+  .danger { background: var(--red); color: #1a0505; }
+  .grow { flex: 1 1 160px; }
+  .big { width: 100%; min-height: 64px; font-size: 17px; }
+  label { color: var(--soft); font-size: 13.5px; font-weight: 600; }
+  input, select { font: 500 15px/1.2 "Inter", system-ui, sans-serif; color: var(--text); background: var(--raise); border: 1px solid var(--line); border-radius: 10px; padding: 11px 12px; min-height: 44px; width: 100%; }
+  .field { display: grid; gap: 6px; flex: 1 1 160px; }
+  .hint { color: var(--muted); font-size: 13px; margin: 10px 0 0; }
+  .preview { margin-top: 12px; border-radius: 12px; overflow: hidden; background: #03070c; aspect-ratio: 16 / 9; display: grid; place-items: center; position: relative; }
+  .preview img { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .preview .guide { position: absolute; left: 0; right: 0; top: 45%; border-top: 1px dashed rgba(52, 224, 180, .7); pointer-events: none; }
+  .preview .guide span { position: absolute; right: 8px; top: -20px; font-size: 11.5px; color: var(--mint); }
+  .preview p { color: var(--muted); margin: 0; padding: 16px; text-align: center; }
+  .marks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .marks button { min-height: 64px; font-size: 16px; }
+  .path { font: 500 12.5px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--soft); background: var(--raise); border-radius: 10px; padding: 10px 12px; overflow-wrap: anywhere; margin: 10px 0 0; }
+  .toast { position: fixed; left: 16px; right: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); max-width: 608px; margin: 0 auto; padding: 12px 14px; border-radius: 12px; background: var(--raise); border: 1px solid var(--line); color: var(--text); font-weight: 500; box-shadow: 0 10px 30px rgba(0, 0, 0, .4); transform: translateY(140%); transition: transform .2s ease; }
+  .toast.show { transform: none; }
+  .toast[data-tone="error"] { border-color: rgba(255, 93, 93, .5); }
+  details summary { cursor: pointer; color: var(--soft); font-weight: 600; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main id="rec-root">
+  <div>
+    <a class="page-back" href="./" id="rec-back">‹ Back to the map</a>
+    <header>
+      <h1>Road data recorder</h1>
+      <span class="chip" id="rec-chip" data-tone="">Camera off</span>
+    </header>
+  </div>
+
+  <section class="card notice" id="rec-unavailable" hidden>
+    <p>The road camera works in the MapUnite Android app only. Open this page from <strong>Smart Drive Settings → Road data recorder</strong> in the app.</p>
+  </section>
+
+  <section class="card" aria-labelledby="rec-live-h">
+    <h2 id="rec-live-h">Live</h2>
+    <div class="tiles">
+      <div class="tile"><div class="k">Camera</div><div class="v" id="rec-fps">–</div><div class="s" id="rec-cam">Not started</div></div>
+      <div class="tile"><div class="k">Phone heat</div><div class="v" id="rec-thermal">–</div><div class="s" id="rec-battery">–</div></div>
+      <div class="tile"><div class="k">GPS</div><div class="v" id="rec-speed">–</div><div class="s" id="rec-gps">–</div></div>
+      <div class="tile"><div class="k">View</div><div class="v" id="rec-quality">–</div><div class="s" id="rec-quality-why">–</div></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button class="primary grow" id="rec-start" type="button">Start camera</button>
+      <button class="grow" id="rec-stop" type="button" disabled>Stop camera</button>
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="rec-mount-h">
+    <h2 id="rec-mount-h">Mount</h2>
+    <div class="row">
+      <button class="grow" id="rec-preview-btn" type="button" disabled>Check the view</button>
+    </div>
+    <div class="preview" id="rec-preview" hidden>
+      <img id="rec-preview-img" alt="Live view from the road camera">
+      <div class="guide"><span>Horizon about here</span></div>
+    </div>
+    <div class="row" style="margin-top:12px; align-items:flex-end">
+      <div class="field">
+        <label for="rec-height">Camera height above the road (m)</label>
+        <input id="rec-height" type="number" inputmode="decimal" min="0.3" max="2.5" step="0.01" placeholder="e.g. 1.05">
+      </div>
+      <button class="grow" id="rec-calibrate" type="button" disabled>Calibrate</button>
+    </div>
+    <p class="hint" id="rec-cal">Not calibrated. Put the bike on its stand on level ground, then tap Calibrate and keep still for 2 seconds.</p>
+  </section>
+
+  <section class="card" aria-labelledby="rec-rec-h">
+    <h2 id="rec-rec-h">Recording</h2>
+    <div class="field" style="margin-bottom:12px">
+      <label for="rec-note">Ride note (optional)</label>
+      <input id="rec-note" type="text" maxlength="200" placeholder="e.g. Pune–Mumbai highway, dusk, light rain">
+    </div>
+    <button class="primary big" id="rec-toggle" type="button" disabled>Start recording</button>
+    <div class="tiles" style="margin-top:12px">
+      <div class="tile"><div class="k">Frames saved</div><div class="v" id="rec-frames">0</div><div class="s" id="rec-duration">–</div></div>
+      <div class="tile"><div class="k">Size</div><div class="v" id="rec-size">0 MB</div><div class="s" id="rec-free">–</div></div>
+      <div class="tile"><div class="k">Sensor rows</div><div class="v" id="rec-imu">0</div><div class="s" id="rec-gnss">–</div></div>
+      <div class="tile"><div class="k">Privacy</div><div class="v" id="rec-faces">0 faces</div><div class="s">blurred before saving</div></div>
+    </div>
+    <p class="path" id="rec-dir" hidden></p>
+    <p class="hint">2 frames a second, about 1 GB per hour. Copy rides to your computer with:<br><code>adb pull /sdcard/Android/data/com.mapunite.app/files/perception-datasets</code></p>
+  </section>
+
+  <section class="card" aria-labelledby="rec-mark-h">
+    <h2 id="rec-mark-h">Mark what you see</h2>
+    <div class="marks" id="rec-marks">
+      <button type="button" data-mark="pothole" disabled>Pothole</button>
+      <button type="button" data-mark="waterlogging" disabled>Water</button>
+      <button type="button" data-mark="speed_breaker" disabled>Speed breaker</button>
+      <button type="button" data-mark="road_work" disabled>Road work</button>
+      <button type="button" data-mark="animal" disabled>Animal</button>
+      <button type="button" data-mark="other" disabled>Other</button>
+    </div>
+    <p class="hint">Only while recording, and only when it's safe to take a hand off. Marks are saved with time, position and speed, to find those frames later.</p>
+  </section>
+
+  <section class="card" aria-labelledby="rec-privacy-h">
+    <h2 id="rec-privacy-h">Privacy</h2>
+    <p class="hint" style="margin-top:0">Frames are saved on this phone only. Faces are blurred with a basic detector that misses side-on, small and helmeted faces. Number plates are <strong>not</strong> blurred yet. Keep recordings on your phone or your own computer, and blur faces and plates fully before anyone else sees them.</p>
+  </section>
+
+  <details class="card">
+    <summary>Developer</summary>
+    <div class="field" style="margin-top:12px">
+      <label for="rec-scenario">Model</label>
+      <select id="rec-scenario">
+        <option value="none" selected>Dummy model, detects nothing (for rides)</option>
+        <option value="pothole">Simulated pothole (desk test)</option>
+        <option value="truck">Simulated closing truck (desk test)</option>
+        <option value="mixed">Pothole + truck + lens smudge (desk test)</option>
+      </select>
+    </div>
+    <p class="hint">Simulations send made-up hazards at a made-up 10 m/s, without position. Desk tests only: never ride with one on. Takes effect the next time the camera starts.</p>
+  </details>
+</main>
+<div class="toast" id="rec-toast" role="status" aria-live="polite"></div>
+
+<!-- In the Android app, www/vendor/capacitor.js is the Capacitor runtime (scripts/build-native.mjs). On the website it doesn't exist, and the page says so. -->
+<script src="vendor/capacitor.js"></script>
+<script src="js/master/perception/native.js"></script>
+<script src="js/master/perception/recorder-page.js"></script>
+</body>
+</html>
