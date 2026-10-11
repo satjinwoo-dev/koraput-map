@@ -23,6 +23,17 @@
 <link rel="stylesheet" href="js/hud/hud.css?v=20261004-ui"><!-- SmartDrive HUD (needed the moment a ride starts, so not lazy) -->
 <link rel="stylesheet" href="js/advice/advice.css?v=20261011-ask"><!-- Roadmap Step 8: the road-conditions badge (shows during a ride) -->
 <link rel="stylesheet" href="js/master/vision/vision.css?v=20261011-master"><!-- Master AI: break-time fatigue check (camera only while stopped) -->
+<link rel="stylesheet" href="js/ai/avatar.css?v=20261011-avatar"><!-- Master AI avatar: the particle face (corner view + full screen) -->
+<!-- Three.js for the Master AI avatar (js/ai/). Must come before any module script. The CSP allows this inline
+     block by its SHA-256, which server.js computes from this file at start-up (lib/csp-inline.js; test/ai checks it). -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+  }
+}
+</script>
 <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js"></script>
 
 <style>
@@ -816,6 +827,8 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
     <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 2.5 20 6v6c0 5-3.4 8.7-8 9.5-4.6-.8-8-4.5-8-9.5V6z"/></symbol>
     <symbol id="i-follow" viewBox="0 0 24 24"><path d="M12 2.8 19.2 20.4 12 16.6 4.8 20.4z"/></symbol>
     <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3.5 20.5h17"/><path d="M6.5 20.5v-6"/><path d="M11 20.5V9"/><path d="M15.5 20.5v-8"/><path d="M20 20.5V5"/></symbol>
+    <symbol id="i-master" viewBox="0 0 24 24"><path d="M12 3.2c-3 0-5.2 2.3-5.2 5.4 0 2 .9 3.4 2.2 4.3v1.6h6v-1.6c1.3-.9 2.2-2.3 2.2-4.3 0-3.1-2.2-5.4-5.2-5.4z"/><path d="M5 20.8c.8-2.6 3.6-4.3 7-4.3s6.2 1.7 7 4.3"/><circle cx="12" cy="8.4" r="1.6"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
   </defs>
 </svg>
 
@@ -838,6 +851,26 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <div id="toast-container" aria-live="polite"></div>
 <div id="map" role="application" aria-label="Live squad map"></div>
 <div id="speed-danger-overlay" aria-hidden="true"></div>
+
+<!-- MASTER AI AVATAR (js/ai/): the particle face in a corner of the map (tap or drag it); full screen hides the map.
+     Its state follows the voice (speaking / listening) and the Master's brain (thinking / alert).
+     Hidden until the face is really running (no WebGL, or Three.js not loaded yet offline: nothing in the way). -->
+<div id="mu-avatar" class="mu-avatar is-pip" data-mode="idle" data-side="left" hidden>
+  <canvas id="ai-master-core" aria-hidden="true"></canvas>
+  <button id="mu-avatar-pip-btn" type="button" aria-label="Master AI: open full screen (drag to move)"></button>
+  <div class="mu-avatar-full-ui">
+    <div class="mu-avatar-top">
+      <button id="mu-avatar-close" class="mu-avatar-pill" type="button" aria-label="Back to the map"><svg class="i sm"><use href="#i-back"/></svg>Map</button>
+      <div class="mu-avatar-title"><h2>MAPUNITE · MASTER AI</h2><span id="mu-avatar-state" role="status" aria-live="polite">Online</span></div>
+      <button id="mu-avatar-pip-toggle" class="mu-avatar-pill" type="button" aria-pressed="true" title="Show the Master AI in a corner of the map">On map</button>
+    </div>
+    <div class="mu-avatar-bottom">
+      <p id="mu-avatar-caption" aria-live="polite" hidden></p>
+      <div id="mu-avatar-nav" role="group" aria-label="Your drive" hidden><span id="mu-avatar-nav-speed" aria-label="Speed in km/h"></span><span id="mu-avatar-nav-turn"></span></div>
+      <button id="mu-avatar-talk" type="button" aria-label="Talk to the Master AI"><svg class="i"><use href="#i-mic"/></svg></button>
+    </div>
+  </div>
+</div>
 
 <!-- TOP HUD -->
 <div class="top-hud" id="top-header">
@@ -887,6 +920,8 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
   <!-- Step 7: My bike. A real link (works without JS); js/trip/trip-app.js opens it in a sheet instead so the map stays put. -->
   <a id="garage-btn" class="tool-btn" href="garage.html" title="My bike" aria-label="My bike: choose your bike and see its fuel curve"><svg class="i"><use href="#i-bike"/></svg></a>
   <button id="voice-cmd-map-btn" class="tool-btn" type="button" title="Voice command" aria-label="Voice command" aria-pressed="false"><svg class="i"><use href="#i-mic"/></svg></button>
+  <!-- Master AI avatar: full screen (js/ai/avatar-app.js) -->
+  <button id="avatar-open-btn" class="tool-btn" type="button" title="Master AI" aria-label="Open the Master AI full screen" hidden><svg class="i"><use href="#i-master"/></svg></button>
 </div>
 <div id="map-style-menu" role="menu" aria-label="Map style">
   <button data-style="satellite" class="active" type="button" role="menuitemradio" aria-checked="true">Satellite</button>
@@ -1720,5 +1755,8 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="js/master/agents/destination-agent.js?v=20261011-cog1"></script>
 <script src="js/master/agents/context-agent.js?v=20261011-cog1"></script>
 <script src="js/master/master-app.js?v=20261011-cog1"></script>
+<!-- Master AI avatar: the state rules, then the module that draws the face (Three.js via the import map in <head>) -->
+<script src="js/ai/avatar-state.js?v=20261011-avatar"></script>
+<script type="module" src="js/ai/avatar-app.js?v=20261011-avatar"></script>
 </body>
 </html>

@@ -237,9 +237,14 @@ function publicConfig() {
 // its origins are listed; so are the tile servers the four base maps use and
 // whichever OSRM server the browser is told to use.
 const osrmOrigin = (() => { try { return new URL(OSRM_PUBLIC_URL).origin; } catch { return "https://router.project-osrm.org"; } })();
+// The import map in index.html (Three.js for the Master AI avatar) is inline: allowed by its exact hash.
+const IMPORT_MAP_HASHES = (() => {
+    try { return require("./lib/csp-inline").importMapHashes(fs.readFileSync(path.join(PUBLIC_DIR, "index.html"), "utf8")); }
+    catch { return []; }
+})();
 const cspDirectives = {
     defaultSrc: ["'self'"],
-    scriptSrc: ["'self'", "https://unpkg.com", "https://cdn.jsdelivr.net", "https://maps.googleapis.com", "https://maps.gstatic.com"],
+    scriptSrc: ["'self'", ...IMPORT_MAP_HASHES, "https://unpkg.com", "https://cdn.jsdelivr.net", "https://maps.googleapis.com", "https://maps.gstatic.com"],
     styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://unpkg.com"],
     fontSrc: ["'self'", "https://fonts.gstatic.com"],
     imgSrc: ["'self'", "data:", "blob:", "https://*.google.com", "https://*.gstatic.com", "https://maps.googleapis.com",

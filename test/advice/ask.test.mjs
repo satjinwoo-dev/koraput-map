@@ -179,7 +179,11 @@ test("voice: tip → question → 'haan bol' → the tip is spoken; onResult rep
     assert.deepEqual(plain(result), { spoken: true, reason: "asked:yes" });
     assert.equal(v.VA.asking, null);
     assert.equal(v.gate.state.asks.yes, 1);
-    assert.equal(v.events.at(-1).detail.answer, "yes");
+    assert.equal(v.events.filter((e) => e.type === "mu:voice-ask").at(-1).detail.answer, "yes");
+    // what the Master AI's face follows (js/ai/): the question, the mic for the answer, then the tip
+    const flow = v.events.filter((e) => e.type === "mu:voice-state" || e.type === "mu:mic-state")
+        .map((e) => (e.type === "mu:mic-state" ? `mic:${e.detail.on ? e.detail.mode : "off"}` : `${e.detail.phase}${e.detail.priority ? `:${e.detail.priority}` : ""}`));
+    assert.deepEqual(flow.filter((x, i) => x !== flow[i - 1]), ["start:45", "end", "mic:ask", "mic:off", "start:45", "end"]);
 });
 
 test("voice: 'nahi' or silence drops the tip; critical cues never ask", async () => {

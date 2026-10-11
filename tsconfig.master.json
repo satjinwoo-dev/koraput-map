@@ -57,6 +57,7 @@
     "public/js/master/agents/mood-agent.js",
     "public/js/master/agents/destination-agent.js",
     "public/js/master/agents/context-agent.js",
-    "public/js/master/master-app.js"
+    "public/js/master/master-app.js",
+    "public/js/ai/avatar-state.js"
   ]
 }

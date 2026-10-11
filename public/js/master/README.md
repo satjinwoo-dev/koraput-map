@@ -76,6 +76,10 @@ The server half lives in `lib/master/` (see `MASTER-ENGINES.md` at the repo root
 
 Nothing else changes. If the agent crashes, it's restarted with back-off (1 s, 2 s, 4 s … up to 60 s), and after 5 restarts in 10 minutes it stays off until `MUMaster.live.kernel.restart(id)`. The rest of the system keeps running either way.
 
+## The face (`js/ai/`)
+
+The Master AI avatar follows this pipeline without being part of it. It listens to `master.delegated` / `master.task-done` (thinking), `master.decision` (a delivered critical or warning → alert and a pulse), and the voice's `mu:voice-state` / `mu:mic-state` (speaking / listening). It never speaks or decides anything. See `js/ai/README.md`.
+
 ## Other extension points
 
 - **A new sensor:** `MUMaster.live.caps.provide("camera", provider)`. Agents that `require` it start on their own, and stop again if it's revoked (for example, permission withdrawn). Put Capacitor plugin calls in the provider, never in agents.
