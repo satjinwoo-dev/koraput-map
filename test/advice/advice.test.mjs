@@ -1,282 +1,207 @@
-// Roadmap Step 8: the advice layer and its safety gate (js/advice/advice.js), wired into
-// the ride (js/advice/advice-app.js) and VoiceAssistant's priorities (js/voice.js).
+// Roadmap step 8: advice layer & safety gate (public/js/advice/)
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import path from "node:path";
-import vm from "node:vm";
 import { createRequire } from "node:module";
-import { buildArtifacts } from "../../scripts/bikedb/catalog-build.mjs";
-import { loadCatalog } from "../../scripts/bikedb/load-catalog.mjs";
-import { ROOT } from "../smartdrive/harness.mjs";
 
 const require = createRequire(import.meta.url);
-const A = require("../../public/js/advice/advice.js");
-const Physics = require("../../public/js/physics/index.js");
-const FB = require("../../public/js/garage/fuel-baseline.js");
-const art = buildArtifacts(loadCatalog());
-const HUNTER = "royal-enfield-hunter-350-metro-in";
-const hb = art.bundles.find((b) => b.id === HUNTER);
-const cd = art.bundles.find((b) => b.kind === "class_default" && b.classKey === hb.classKey);
-const snap = FB.buildFuelBaseline(Physics, Physics.createBikeModel(hb.runtime, { classDefault: cd.runtime }), { bikeId: HUNTER, classKey: hb.classKey, bundle: hb.hash, title: "Hunter 350" });
-const kmPerLAt = (kmh) => FB.kmPerLAt(snap, kmh);
-const kmh = (x) => x / 3.6;
+const G = require("../../public/js/advice/gate.js");
+const C = require("../../public/js/advice/conditions.js");
+const HUD = require("../../public/js/hud/hud.js");
 
-/** Feed the gate `secs` seconds of steady riding at v (m/s) from t0; returns the last result. */
-function ride(st, t0, secs, v, extra = {}) {
-    let r;
-    for (let t = t0; t <= t0 + secs; t++) r = A.evaluateGate(st, { t, v, gpsOk: true, accuracy: 5, riding: true, ...(typeof extra === "function" ? extra(t) : extra) });
-    return r;
-}
+const KMH = 1 / 3.6, MM = 1e-3, MMH = MM / 3600;
 
-// ---------------------------------------------------------------------------- the gate
-test("gate: off when not riding, quiet when the rider asked, ready after 10 s of steady riding", () => {
-    const st = A.createGateState();
-    assert.equal(A.evaluateGate(st, { t: 0, v: kmh(60), riding: false }).state, "off");
-    assert.deepEqual(A.evaluateGate(st, { t: 1, v: kmh(60), riding: true, quiet: true }), { state: "quiet", reasons: ["quiet-ride"], until: null, canAdvise: false, accel: 0, steadySd: 0 });
-    const early = A.evaluateGate(A.createGateState(), { t: 0, v: kmh(60), riding: true, gpsOk: true });
-    assert.deepEqual([early.state, early.reasons], ["hold", ["unsteady"]], "not 10 s of samples yet");
-    const r = ride(A.createGateState(), 0, 12, kmh(60));
-    assert.deepEqual([r.state, r.canAdvise, r.reasons], ["ready", true, []]);
+test("cue levels come from what callers already say (priority, category, force)", () => {
+    assert.equal(G.classify({ priority: 90, category: "speed" }), "critical");      // far over the limit
+    assert.equal(G.classify({ priority: 40, category: "sos" }), "critical");
+    assert.equal(G.classify({ priority: 10, force: true }), "critical");            // a reply to the rider
+    assert.equal(G.classify({ priority: 65, category: "nav" }), "nav");
+    assert.equal(G.classify({ priority: 62, category: "speed" }), "warning");       // over the limit
+    assert.equal(G.classify({ priority: 58, category: "speed" }), "advice");        // "speed limit 40"
+    assert.equal(G.classify({ priority: 40, category: "convoy" }), "advice");
+    assert.equal(G.classify({}), "advice");
 });
 
-test("gate: slow, untrusted GPS, a turn coming up and an unsteady speed each hold advice", () => {
-    assert.ok(ride(A.createGateState(), 0, 15, kmh(12)).reasons.includes("slow"));
-    assert.ok(ride(A.createGateState(), 0, 15, kmh(60), { gpsOk: false }).reasons.includes("gps"));
-    assert.ok(ride(A.createGateState(), 0, 15, kmh(60), { accuracy: 40 }).reasons.includes("gps"));
-    assert.ok(ride(A.createGateState(), 0, 15, kmh(60), { maneuverDistance: 300 }).reasons.includes("maneuver"));
-    assert.ok(!ride(A.createGateState(), 0, 15, kmh(60), { maneuverDistance: 900 }).reasons.includes("maneuver"));
-    // ±8 km/h stop-and-go weaving around 50 km/h
-    const st = A.createGateState();
-    let r;
-    for (let t = 0; t <= 25; t++) r = A.evaluateGate(st, { t, v: kmh(50 + (t % 4 < 2 ? 8 : -8)), gpsOk: true, riding: true });
-    assert.ok(r.reasons.includes("unsteady"), JSON.stringify(r));
-    assert.ok(r.steadySd > A.GATE.steadySd);
-});
-
-test("gate: hard braking holds advice for 30 s; one noisy fix doesn't count as braking", () => {
-    const st = A.createGateState();
-    ride(st, 0, 15, kmh(60));
-    // one bad fix: −4 m/s² then straight back (two-sample average halves it)
-    let r = A.evaluateGate(st, { t: 16, v: kmh(60) - 4, gpsOk: true, riding: true });
-    r = A.evaluateGate(st, { t: 17, v: kmh(60), gpsOk: true, riding: true });
-    assert.ok(!(st.holds.braking > 17), "a single noisy fix isn't a brake");
-    // a real stop from 60: −4.5 m/s² for 3 s
-    const s2 = A.createGateState();
-    ride(s2, 0, 15, kmh(60));
-    for (let i = 1; i <= 3; i++) r = A.evaluateGate(s2, { t: 15 + i, v: Math.max(0, kmh(60) - 4.5 * i), gpsOk: true, riding: true });
-    assert.ok(r.accel <= -3, `accel ${r.accel}`);
-    r = ride(s2, 19, 20, kmh(40));
-    assert.ok(r.reasons.includes("braking") && r.until >= 46 && r.until <= 50, JSON.stringify(r));
-    r = ride(s2, 40, 15, kmh(40));
-    assert.equal(r.state, "ready", "30 s after the brake, steady again: advice may resume");
-});
-
-test("gate: cornering — from the gyroscope, from the GPS heading, from the route — holds advice 6 s past the corner", () => {
-    // gyroscope: 0.35 rad/s sweep for 4 s
-    let st = A.createGateState();
-    ride(st, 0, 15, kmh(50));
-    let r = ride(st, 16, 4, kmh(50), { yawRate: 0.35 });
-    assert.ok(r.reasons.includes("cornering"));
-    r = ride(st, 21, 4, kmh(50), { yawRate: 0.02 });
-    assert.ok(r.reasons.includes("cornering"), "still within 6 s");
-    r = ride(st, 26, 4, kmh(50), { yawRate: 0.02 });
-    assert.equal(r.state, "ready");
-    // GPS course: turning 90° in 9 s, a heading every ~1.5 s
-    st = A.createGateState();
-    ride(st, 0, 15, kmh(40), { heading: 0 });
-    r = ride(st, 16, 9, kmh(40), (t) => ({ heading: ((t - 16) / 9) * Math.PI / 2 }));
-    assert.ok(r.reasons.includes("cornering"));
-    // a straight road, headings within GPS scatter (±2°): no hold
-    st = A.createGateState();
-    r = ride(st, 0, 30, kmh(60), (t) => ({ heading: (t % 2 ? 1 : -1) * 2 * Math.PI / 180 / 3 }));
-    assert.equal(r.state, "ready", JSON.stringify(r));
-    // the route bends right here (radius 60 m at 50 km/h: 3.2 m/s² lateral), and a hairpin ahead
-    assert.ok(ride(A.createGateState(), 0, 15, kmh(50), { curvatureHere: 1 / 60 }).reasons.includes("cornering"));
-    assert.ok(ride(A.createGateState(), 0, 15, kmh(50), { radiusAhead: 80 }).reasons.includes("curve-ahead"));
-    assert.equal(ride(A.createGateState(), 0, 15, kmh(50), { radiusAhead: 900, curvatureHere: 1 / 2000 }).state, "ready");
-});
-
-test("gate: a wet road holds advice while it's wet and for 30 minutes after the last wet report", () => {
-    const st = A.createGateState();
-    let r = ride(st, 0, 15, kmh(60), { wet: true });
-    assert.ok(r.reasons.includes("wet"));
-    r = ride(st, 16, 600, kmh(60), { wet: false });
-    assert.ok(r.reasons.includes("wet"), "drying roads stay slippery");
-    r = ride(st, 617, 1200, kmh(60), { wet: null });
-    assert.equal(r.state, "ready");
-    assert.deepEqual([A.isWetWeather(0), A.isWetWeather(3), A.isWetWeather(61), A.isWetWeather(95), A.isWetWeather(73), A.isWetWeather(null), A.isWetWeather("x")], [false, false, true, true, true, null, null]);
-});
-
-test("gate: after advice, a 3 min cooldown; the same advice not again for 10 min", () => {
-    const st = A.createGateState();
-    ride(st, 0, 15, kmh(70));
-    A.noteAdvice(st, 15, "eco-60");
-    let r = ride(st, 16, 100, kmh(70));
-    assert.deepEqual([r.state, r.until], ["cooldown", 195]);
-    r = ride(st, 117, 80, kmh(70));
-    assert.equal(r.state, "ready");
-    assert.equal(A.repeatedTooSoon(st, 300, "eco-60"), true);
-    assert.equal(A.repeatedTooSoon(st, 300, "eco-55"), false);
-    assert.equal(A.repeatedTooSoon(st, 616, "eco-60"), false);
-});
-
-// ---------------------------------------------------------------------------- the advice
-test("ecoAdvice: on the Hunter at 75 km/h, ease off at most 15 km/h, in steps of 5, worth ≥ 8 %", () => {
-    assert.ok(snap.eco && snap.eco.toKmh < 60, JSON.stringify(snap.eco));
-    const a = A.ecoAdvice({ v: kmh(75), limit: null, kmPerLAt, eco: snap.eco });
-    assert.ok(a, "advice at 75 km/h");
-    assert.equal(Math.round(a.target * 3.6), 60);
-    assert.ok(a.saving >= 0.08 && a.saving < 0.6, `${a.saving}`);
-    assert.equal(a.text, `Easing to 60 would use about ${Math.round(a.saving * 100)} percent less fuel.`);
-    assert.equal(a.key, "eco-60");
-    // inside or just above the eco band: nothing worth saying
-    assert.equal(A.ecoAdvice({ v: kmh(snap.eco.toKmh + 3), limit: null, kmPerLAt, eco: snap.eco }), null);
-    assert.equal(A.ecoAdvice({ v: kmh(30), limit: null, kmPerLAt, eco: snap.eco }), null);
-    assert.equal(A.ecoAdvice({ v: kmh(75), limit: null, kmPerLAt, eco: null }), null, "no bike, no advice");
-});
-
-test("ecoAdvice: never above the posted limit, and silent over it (the speed alerts own that moment)", () => {
-    for (const L of [30, 40, 50, 60, 70, 80, 100]) {
-        for (let v = 20; v <= 120; v += 1) {
-            const a = A.ecoAdvice({ v: kmh(v), limit: kmh(L), kmPerLAt, eco: snap.eco });
-            if (!a) continue;
-            assert.ok(a.target <= kmh(L) + 1e-9, `limit ${L}, at ${v}: ${a.target * 3.6}`);
-            assert.ok(v <= L + 1.8, `at ${v} over the ${L} limit there's no advice`);
-            assert.ok(kmh(v) - a.target >= kmh(8) - 1e-9 && kmh(v) - a.target <= kmh(15) + kmh(5) + 1e-9);
-        }
+test("gate: safety-critical cues are spoken in every state", () => {
+    const g = G.createGate();
+    g.setQuiet(true); g.setConfidence(0.1); g.setCondition({ kind: "storm", severity: 3, label: "Thunderstorm" }); g.noteHarsh(1000);
+    for (const msg of [{ priority: 90, category: "speed" }, { priority: 30, category: "sos" }, { force: true }]) {
+        const d = g.decide(msg, 1500);
+        assert.equal(d.speak, true); assert.equal(d.reason, "safety");
     }
-    assert.equal(A.ecoAdvice({ v: kmh(75), limit: kmh(70), kmPerLAt, eco: snap.eco }), null);
-    const capped = A.ecoAdvice({ v: kmh(68), limit: kmh(55), kmPerLAt, eco: snap.eco });
-    assert.equal(capped, null, "68 in a 55 is over the limit");
-    const under = A.ecoAdvice({ v: kmh(64), limit: kmh(65), kmPerLAt, eco: snap.eco });
-    assert.ok(!under || under.target <= kmh(65));
 });
 
-test("routeCurvature: straight roads, a 100 m bend, the rider off the route", () => {
-    const north = Array.from({ length: 50 }, (_, i) => [20 + (i * 20) / 110540, 85]);
-    let r = A.routeCurvature(north, 20 + 100 / 110540, 85, 300);
-    assert.ok(r.curvatureHere < 1e-4 && r.radiusAhead > 1e4, JSON.stringify(r));
-    // a quarter circle of radius 100 m, starting 200 m ahead
-    const kx = 111320 * Math.cos(20 * Math.PI / 180), path = [];
-    for (let i = 0; i <= 10; i++) path.push([20 + (i * 20) / 110540, 85]);
-    for (let k = 1; k <= 30; k++) { const th = (k / 30) * Math.PI / 2; path.push([20 + (200 + 100 * Math.sin(th)) / 110540, 85 + (100 - 100 * Math.cos(th)) / kx]); }
-    r = A.routeCurvature(path, 20 + 60 / 110540, 85, 300);
-    assert.ok(Math.abs(r.radiusAhead - 100) < 15, `${r.radiusAhead}`);
-    assert.ok(r.curvatureHere < 1e-3, "the rider's still on the straight");
-    r = A.routeCurvature(path, 20 + 60 / 110540, 85, 100);
-    assert.ok(r.radiusAhead > 1000, "the bend is beyond a 100 m lookahead");
-    r = A.routeCurvature(path, 20, 85 + 200 / kx, 300);
-    assert.deepEqual([r.curvatureHere, r.radiusAhead], [null, null]);
-    assert.ok(r.offRoute > 150);
+test("gate: quiet ride keeps directions (by default), shows warnings, holds tips", () => {
+    const g = G.createGate();
+    g.setQuiet(true);
+    assert.deepEqual(g.decide({ priority: 65, category: "nav" }, 0), { speak: true, show: true, level: "nav", reason: "ok" });
+    assert.deepEqual(g.decide({ priority: 62, category: "speed" }, 10), { speak: false, show: true, level: "warning", reason: "quiet" });
+    assert.deepEqual(g.decide({ priority: 45, category: "fuel" }, 20), { speak: false, show: false, level: "advice", reason: "quiet" });
+    g.setKeepNav(false);
+    assert.equal(g.decide({ priority: 65, category: "nav" }, 30).speak, false);
+    assert.equal(g.state.held.quiet, 3);
+    assert.match(G.heldSummary(g.state.held), /^This ride: 3 cues held back: 3 \(quiet ride\)\.$/);
 });
 
-// ---------------------------------------------------------------------------- VoiceAssistant + the app
-function loadVoice() {
-    const spoken = [];
-    const ctx = vm.createContext({
-        console, Math, JSON, Date, Number, Array, Object, String, Map, Set, Promise, setTimeout, clearTimeout, RegExp, Error,
-        localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
-        document: { addEventListener() {}, dispatchEvent() {}, getElementById: () => null },
-        SpeechSynthesisUtterance: class { constructor(t) { this.text = t; } },
-        islandShow() {}
+test("gate: weak GPS holds speed cues but not directions; busy window after a turn or hard brake; spacing", () => {
+    const g = G.createGate();
+    g.setConfidence(0.4);
+    assert.equal(g.decide({ priority: 62, category: "speed" }, 0).reason, "gps");
+    assert.equal(g.decide({ priority: 58, category: "weather" }, 0).reason, "gps");
+    assert.equal(g.decide({ priority: 45, category: "fuel" }, 0).reason, "ok");          // not a speed cue
+    g.setConfidence(0.9);
+    // a spoken turn prompt opens a 6 s window for tips
+    assert.equal(g.decide({ priority: 65, category: "nav" }, 100000).speak, true);
+    assert.equal(g.decide({ priority: 40, category: "convoy" }, 103000).reason, "busy");
+    assert.equal(g.decide({ priority: 62, category: "speed" }, 103000).speak, true);   // warnings aren't held for "busy"
+    assert.equal(g.decide({ priority: 40, category: "convoy" }, 106500).speak, true);
+    // spacing: the next tip within 45 s is shown but not spoken
+    const d = g.decide({ priority: 40, category: "fuel" }, 120000);
+    assert.deepEqual([d.speak, d.show, d.reason], [false, true, "spacing"]);
+    assert.equal(g.decide({ priority: 40, category: "fuel" }, 151600).speak, true);
+    g.noteHarsh(200000);
+    assert.equal(g.decide({ priority: 40, category: "fuel" }, 203000).reason, "busy");
+    assert.equal(g.mode(203000).key, "busy");
+});
+
+test("gate: heavy weather holds tips; mode() names the state; resetRide clears the counters", () => {
+    const g = G.createGate();
+    g.setCondition({ kind: "heavy", severity: 2, label: "Heavy rain" });
+    assert.equal(g.decide({ priority: 40 }, 0).reason, "weather");
+    assert.equal(g.decide({ priority: 62, category: "speed" }, 0).speak, true);
+    assert.deepEqual([g.mode(0).key, g.mode(0).label], ["storm", "Heavy rain"]);
+    g.setCondition({ kind: "wet", severity: 1, label: "Wet road" });
+    assert.equal(g.decide({ priority: 40 }, 1).speak, true);                       // wet roads alone don't silence tips
+    g.setQuiet(true); assert.equal(g.mode(2).key, "quiet");
+    g.setQuiet(false); g.setConfidence(0.3); assert.equal(g.mode(3).key, "degraded");
+    assert.ok(g.state.log.length > 0);
+    g.resetRide();
+    assert.deepEqual(g.state.held, {}); assert.equal(g.state.log.length, 0);
+    assert.equal(g.decide({ priority: 40 }, 4, { dryRun: true }).reason, "ok");
+    assert.equal(g.state.log.length, 0);                                           // dry runs leave no trace
+});
+
+test("conditions: classification from SI readings, most severe wins", () => {
+    const k = (w) => C.classify(w).kind;
+    assert.equal(k(null), "unknown");
+    assert.equal(k({}), "unknown");
+    assert.equal(k({ rate: 0, recent: 0, code: 1, temperature: 300 }), "dry");
+    assert.equal(k({ rate: 0.6 * MMH, recent: 0.2 * MM, code: 61, temperature: 298 }), "wet");
+    assert.equal(k({ rate: 0, recent: 1.2 * MM, code: 3, temperature: 298 }), "wet");      // it rained an hour ago
+    assert.equal(k({ rate: 0, recent: 0.1 * MM, code: 3, temperature: 298 }), "dry");
+    assert.equal(k({ rate: 6 * MMH, code: 63, temperature: 298 }), "heavy");
+    assert.equal(k({ rate: 0, code: 82, temperature: 298 }), "heavy");
+    assert.equal(k({ rate: 0, code: 45, temperature: 290 }), "fog");
+    assert.equal(k({ rate: 2 * MMH, code: 95, temperature: 300 }), "storm");
+    assert.equal(k({ rate: 0.5 * MMH, code: 61, temperature: C.ZERO_C + 1 }), "ice");
+    assert.equal(k({ rate: 0, code: 2, temperature: C.ZERO_C + 1 }), "dry");               // cold but dry is not ice
+    assert.equal(k({ rate: 0, code: 2, temperature: 300, gust: 60 * KMH }), "wind");
+    assert.equal(k({ rate: 0.5 * MMH, code: 61, temperature: 300, gust: 60 * KMH }), "wet"); // equal severity: the slower factor wins
+    const wet = C.classify({ rate: 0.6 * MMH, code: 61, temperature: 298 });
+    assert.equal(wet.factor, 0.85); assert.equal(wet.severity, 1);
+    assert.match(wet.detail, /0\.6 mm an hour/);
+});
+
+test("conditions: Open-Meteo JSON → SI (mm → m, °C → K, interval-aware rate, last 2 hours)", () => {
+    const t = 1_760_000_000;
+    const w = C.parseOpenMeteo({
+        current: { time: t, interval: 900, precipitation: 0.3, weather_code: 61, temperature_2m: 24, wind_gusts_10m: 7.5 },
+        hourly: { time: [t - 3 * 3600, t - 2 * 3600, t - 3600, t, t + 3600], precipitation: [5, 1, 0.4, 0.2, 9] }
     });
-    ctx.window = ctx;
-    ctx.speechSynthesis = { speak: (u) => spoken.push(u.text), cancel() {}, getVoices: () => [] };
-    vm.runInContext(fs.readFileSync(path.join(ROOT, "public/js/voice.js"), "utf8") + "\nthis.VoiceAssistant = VoiceAssistant; this.navState = navState;", ctx, { filename: "voice.js" });
-    ctx.navState.active = true;                                  // driving
-    return { ctx, VA: ctx.VoiceAssistant, spoken };
-}
-
-test("VoiceAssistant: advice (priority 30, dropIfBusy) never queues behind or talks over another cue", () => {
-    const { VA, spoken } = loadVoice();
-    const advice = (k) => VA.announce("Easing to 60 would use about 12 percent less fuel.", { priority: 30, category: "advice", drivingOnly: true, dropIfBusy: true, maxAgeMs: 3000, key: k, cooldownMs: 600000 });
-    assert.equal(advice("a1"), true, "idle: spoken at once");
-    assert.equal(spoken.length, 1);
-    VA.done(VA.current);
-    assert.equal(VA.announce("Turn left in 200 metres.", { priority: 65 }), true);
-    assert.equal(advice("a2"), false, "something is speaking: dropped, not queued");
-    assert.equal(VA.queue.length, 0);
-    VA.done(VA.current);
-    assert.equal(advice("a2"), true, "the key wasn't burned by the drop");
-    // a safety cue still pre-empts advice
-    assert.equal(VA.announce("Slow down. The limit here is 50.", { priority: 90 }), true);
-    assert.equal(VA.current.priority, 90);
-    VA.done(VA.current);
-    VA.mutedUntil = Date.now() + 60000;
-    assert.equal(advice("a3"), false, "muted: no advice");
+    assert.ok(Math.abs(w.rate - (0.3e-3 / 900)) < 1e-15);
+    assert.ok(Math.abs(w.recent - 0.6e-3) < 1e-12);                 // the two hourly sums ending in the last 2 h
+    assert.equal(w.code, 61); assert.ok(Math.abs(w.temperature - 297.15) < 1e-9); assert.equal(w.gust, 7.5);
+    assert.equal(C.parseOpenMeteo({}), null);
+    const partial = C.parseOpenMeteo({ current: { time: t, temperature_2m: null } });
+    assert.equal(partial.rate, null); assert.equal(partial.temperature, null); assert.equal(partial.recent, null);
 });
 
-function loadAdviceApp({ limit = null, wetCode = null, quietStored = false } = {}) {
-    const said = [], listeners = {}, doc = {};
-    const store = new Map(quietStored ? [["mu_quiet_ride", "1"]] : []);
-    const ctx = vm.createContext({
-        console, Math, JSON, Date, Number, Array, Object, String, Map, Set, Promise, setTimeout, clearTimeout, Error, CustomEvent: class { constructor(t, o) { this.type = t; this.detail = o && o.detail; } },
-        localStorage: { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k) },
-        document: { addEventListener: (e, h) => { (doc[e] ||= []).push(h); }, dispatchEvent() {} },
-        addEventListener: (e, h) => { (listeners[e] ||= []).push(h); }, removeEventListener: (e, h) => { listeners[e] = (listeners[e] || []).filter((x) => x !== h); },
-        DeviceMotionEvent: class {}
-    });
-    ctx.window = ctx; ctx.globalThis = ctx;
-    vm.runInContext(`
-        const SmartDrive = { trip: { active: true } };
-        const BikeFuel = { snap: __snap, active: () => true, kmPerL: (k) => __kmPerLAt(k) };
-        const FuelCurve = { kmPerL: () => null };
-        const SpeedLimits = { known: () => __limit !== null, current: { limit: __limit } };
-        const navState = { active: false, routePath: null, nextManeuverM: null };
-        let myCoords = null; const myWeatherCode = __wet; const myWeatherCodeAt = __wet === null ? 0 : Date.now();
-        const currentTravelMode = "bike";
-        function voiceAnnounce(text, opts) { __said.push({ text, opts }); return true; }
-        this.__setCoords = (c) => { myCoords = c; };
-    `, Object.assign(ctx, { __snap: snap, __kmPerLAt: kmPerLAt, __limit: limit, __wet: wetCode, __said: said }));
-    for (const f of ["public/js/advice/advice.js", "public/js/advice/advice-app.js"]) vm.runInContext(fs.readFileSync(path.join(ROOT, f), "utf8"), ctx, { filename: f });
-    return { ctx, said, listeners, app: ctx.MUAdvice.app };
-}
-/** Ride north at v km/h for secs seconds (one accepted fix a second), with the clock moved forward. */
-function rideApp(env, v, secs, t0, opts = {}) {
-    const realNow = Date.now;
-    let r;
-    try {
-        for (let i = 0; i < secs; i++) {
-            const t = t0 + i;
-            env.ctx.Date.now = () => t * 1000;
-            env.ctx.__setCoords({ lat: 20 + (t * v / 3.6) / 110540, lng: 85 });
-            if (opts.gyro) for (const h of env.listeners.devicemotion || []) h({ rotationRate: { alpha: opts.gyro, beta: 0, gamma: 0 } });
-            r = env.app.onTick({ smoothedKmh: v, accepted: true, accuracyM: 5 });
-        }
-    } finally { env.ctx.Date.now = realNow; }
-    return r;
-}
-
-test("advice app: steady riding over the eco band → one advice through the voice, priority 30, dropIfBusy", () => {
-    const env = loadAdviceApp();
-    const r = rideApp(env, 75, 40, 1_000_000);
-    assert.equal(env.said.length, 1, JSON.stringify(env.said));
-    const { text, opts } = env.said[0];
-    assert.match(text, /^Easing to 60 would use about \d+ percent less fuel\.$/);
-    assert.deepEqual({ ...opts, key: undefined, cooldownMs: undefined }, { priority: 30, category: "advice", drivingOnly: true, dropIfBusy: true, maxAgeMs: 3000, key: undefined, cooldownMs: undefined });
-    assert.equal(r.state, "cooldown");
-    assert.equal(typeof env.listeners.devicemotion?.[0], "function", "the gyroscope is listened to while riding");
+test("conditions: roads stay 'may still be wet' for 30 min; offline keeps the last reading for 20 min", () => {
+    const tr = C.createTracker();
+    const wet = C.classify({ rate: 1 * MMH, code: 61, temperature: 298 }), dry = C.classify({ rate: 0, recent: 0, code: 1, temperature: 298 });
+    let u = tr.update(wet, 0);
+    assert.deepEqual([u.condition.kind, u.changed, u.worsened], ["wet", true, true]);
+    u = tr.update(dry, 10 * 60000);
+    assert.equal(u.condition.kind, "drying"); assert.match(u.condition.detail, /10 min ago/); assert.equal(u.worsened, false);
+    u = tr.update(C.classify(null), 15 * 60000);                     // offline: keep the last reading, still drying
+    assert.equal(u.condition.kind, "drying"); assert.match(u.condition.detail, /15 min ago/);
+    u = tr.update(C.classify(null), 29 * 60000);                     // reading 19 min old, rain 29 min ago: still drying
+    assert.equal(u.condition.kind, "drying");
+    u = tr.update(C.classify(null), 31 * 60000);                     // reading 21 min old: stale
+    assert.equal(u.condition.kind, "unknown");
+    u = tr.update(dry, 41 * 60000);
+    assert.equal(u.condition.kind, "dry");
+    u = tr.update(C.classify(null), 70 * 60000);
+    assert.equal(u.condition.kind, "unknown");                       // too old to trust
 });
 
-test("advice app: capped by the posted limit; silent in rain, while cornering (gyro) and on a quiet ride", () => {
-    let env = loadAdviceApp({ limit: 65 });
-    rideApp(env, 75, 40, 1_000_000);
-    assert.equal(env.said.length, 0, "75 in a 65: the speed alerts speak, not advice");
-    env = loadAdviceApp({ limit: 70 });
-    rideApp(env, 68, 40, 1_000_000);
-    assert.equal(env.said.length, 1, "68 in a 70: advice, to a speed within the limit");
-    assert.ok(Number(/Easing to (\d+)/.exec(env.said[0].text)[1]) <= 70);
-    env = loadAdviceApp({ wetCode: 63 });
-    assert.ok(rideApp(env, 75, 40, 1_000_000).reasons.includes("wet"));
-    assert.equal(env.said.length, 0);
-    env = loadAdviceApp();
-    assert.ok(rideApp(env, 75, 40, 1_000_000, { gyro: 25 }).reasons.includes("cornering"));
-    assert.equal(env.said.length, 0);
-    env = loadAdviceApp({ quietStored: true });
-    assert.equal(rideApp(env, 75, 40, 1_000_000).state, "quiet");
-    assert.equal(env.said.length, 0);
-    env.app.setQuiet(false);
-    rideApp(env, 75, 40, 1_000_100);
-    assert.equal(env.said.length, 1, "quiet ride off: advice again");
+test("advice: 5 km/h steps below the limit, GPS grace, nothing claimed on untrusted GPS", () => {
+    const wet = C.classify({ rate: 1 * MMH, code: 61, temperature: 298 });
+    const heavy = C.classify({ rate: 6 * MMH, code: 65, temperature: 298 });
+    const r = (o) => C.advise(o);
+    assert.equal(Math.round(r({ limit: 60 * KMH, condition: wet, speed: 40 * KMH }).advised / KMH), 50);   // 51 → 50
+    assert.equal(Math.round(r({ limit: 60 * KMH, condition: heavy, speed: 40 * KMH }).advised / KMH), 40); // 42 → 40
+    assert.equal(Math.round(r({ limit: 30 * KMH, condition: heavy }).advised / KMH), 20);
+    assert.equal(Math.round(r({ limit: 10 * KMH, condition: heavy }).advised / KMH), 10);                 // floor of 10 km/h
+    assert.equal(r({ limit: 60 * KMH, condition: C.classify({ rate: 0, code: 1, temperature: 298 }) }).advised, null);
+    assert.equal(r({ limit: null, condition: wet }).advised, null);
+    // over the limit: 5 % / 3 km/h grace
+    assert.equal(r({ limit: 60 * KMH, speed: 62 * KMH }).overLimit, 0);
+    assert.ok(Math.abs(r({ limit: 60 * KMH, speed: 70 * KMH }).overLimit / KMH - 10) < 1e-9);
+    assert.equal(r({ limit: 60 * KMH, speed: 90 * KMH, confidence: 0.3 }).overLimit, 0);
+    // over the advice: more than 5 km/h above it
+    assert.equal(r({ limit: 60 * KMH, condition: wet, speed: 54 * KMH }).overAdvised, 0);
+    assert.ok(r({ limit: 60 * KMH, condition: wet, speed: 58 * KMH }).overAdvised > 0);
+});
+
+test("overlay model: one message at a time, words + numbers, nothing when there's nothing to add", () => {
+    const wet = C.classify({ rate: 1 * MMH, code: 61, temperature: 298 }), fog = C.classify({ code: 45, temperature: 290 });
+    assert.equal(C.overlayModel({ limit: 60 * KMH, speed: 50 * KMH }), null);
+    assert.equal(C.overlayModel({ limit: null, speed: 50 * KMH, condition: C.classify(null) }), null);
+    let m = C.overlayModel({ limit: 60 * KMH, speed: 50 * KMH, condition: wet });
+    assert.deepEqual([m.kicker, Math.round(m.value / KMH), m.word, m.tone], ["Advised", 50, "Wet", "info"]);
+    assert.match(m.detail, /not a legal limit/);
+    m = C.overlayModel({ limit: 60 * KMH, speed: 60 * KMH, condition: wet });
+    assert.equal(m.tone, "warn");                                    // 10 over the advice
+    m = C.overlayModel({ limit: null, speed: 50 * KMH, condition: fog });
+    assert.deepEqual([m.kicker, m.value, m.word, m.tone], ["Fog", null, "Ease off", "warn"]);
+    m = C.overlayModel({ limit: 40 * KMH, speed: 52 * KMH });
+    assert.deepEqual([m.kicker, Math.round(m.value / KMH), m.tone], ["Over by", 12, "warn"]);
+    assert.equal(C.overlayModel({ limit: 40 * KMH, speed: 52 * KMH, enabled: false }), null);
+    assert.equal(C.overlayModel({ limit: 40 * KMH, speed: 52 * KMH, quiet: true }).quiet, true);
+});
+
+test("weather fetch: one request per ~5 km cell per 10 min, SI out, offline → unknown", async () => {
+    const calls = [];
+    const fakeFetch = async (url) => { calls.push(url); return { ok: true, json: async () => ({ current: { time: 1, interval: 900, precipitation: 0.5, weather_code: 61, temperature_2m: 25 }, hourly: { time: [1], precipitation: [0.5] } }) }; };
+    const wx = C.createWeather({ fetch: /** @type {any} */ (fakeFetch), online: () => true });
+    const a = await wx.get(18.8121, 82.7106, 0);
+    assert.equal(a.ok, true); assert.equal(a.condition.kind, "wet"); assert.equal(a.cached, false);
+    assert.match(calls[0], /latitude=18\.80&longitude=82\.70/);        // rounded: the exact position never leaves
+    assert.match(calls[0], /wind_speed_unit=ms/); assert.match(calls[0], /past_hours=2/);
+    const b = await wx.get(18.8139, 82.7121, 60000);
+    assert.equal(b.cached, true); assert.equal(calls.length, 1);
+    await wx.get(18.8139, 82.7121, 11 * 60000);
+    assert.equal(calls.length, 2);
+    const off = C.createWeather({ fetch: /** @type {any} */ (fakeFetch), online: () => false });
+    const o = await off.get(10, 10, 0);
+    assert.deepEqual([o.ok, o.condition.kind], [false, "unknown"]);
+    const broken = C.createWeather({ fetch: /** @type {any} */ (async () => { throw new Error("net"); }), online: () => true });
+    assert.equal((await broken.get(10, 10, 0)).condition.kind, "unknown");
+});
+
+test("HUD scale shows the advised speed only when it's below the limit", () => {
+    const s = { v: 50 * KMH, eco: { low: 30 * KMH, high: 45 * KMH }, limit: 60 * KMH };
+    const g1 = HUD.scaleGeometry(s, 50 * KMH);
+    assert.ok(g1.advised !== null && g1.advised < g1.limit);
+    assert.equal(HUD.scaleGeometry(s, 60 * KMH).advised, null);
+    assert.equal(HUD.scaleGeometry(s).advised, null);
+    assert.ok(HUD.scaleGeometry({ v: 10 * KMH, eco: null, limit: null }, 50 * KMH).advised > 0);
+});
+
+test("HUD scale: the red line is the POSTED limit even when the eco band is clamped to the advised speed", () => {
+    const s = { v: 63 * KMH, eco: { low: 31 * KMH, high: 43 * KMH }, limit: 50 * KMH };   // estimator limit = advised (clamp)
+    const g = HUD.scaleGeometry(s, 50 * KMH, 60 * KMH);
+    assert.ok(Math.abs(g.limit / 100 * g.max - 60) < 1e-9);
+    assert.ok(Math.abs(g.advised / 100 * g.max - 50) < 1e-9);
+    assert.equal(HUD.scaleGeometry(s, 50 * KMH, null).limit, null);                 // no posted limit: no red line
 });

@@ -103,10 +103,6 @@
 .mu-class-btn:hover { border-color: var(--g-line-strong); background: rgba(255,255,255,.03); }
 .mu-class-name { font-size: 14px; line-height: 1.25; }
 .mu-request { margin-top: 20px; }
-.mu-request .mu-label-sub { margin: 12px 0 6px; font-weight: 500; }
-.mu-request .mu-text-input { max-width: 420px; }
-.mu-listed { margin: 0 0 16px; padding: 12px 14px; border-radius: 12px; background: rgba(52,224,180,.08); border: 1px solid rgba(52,224,180,.28); }
-.mu-listed p { margin: 0 0 8px; }
 
 /* ---------- layout once a bike is chosen ---------- */
 .mu-garage-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 26px; }

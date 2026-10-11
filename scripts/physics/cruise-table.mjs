@@ -63,11 +63,10 @@ for (let i = 1; i < t.speed.length; i++) {
         console.log(`${kmh}  ${kw}  ${wh(t.perMetre[i]).padStart(8)}  (${wh(t.perMetreLo[i])}–${wh(t.perMetreHi[i])})  ${km(t.range[i]).padStart(8)} (${km(t.rangeLo[i])}–${km(t.rangeHi[i])})${flag}`);
     }
 }
-if (t.contributions.length) console.log(`±1σ driven by: ${t.contributions.slice(0, 4).map((c) => `${c.param} ${(c.relative * 100).toFixed(1)} %`).join(", ")}`);
 if (t.eco) console.log(`eco band ${(t.eco.speedLow * 3.6).toFixed(0)}–${(t.eco.speedHigh * 3.6).toFixed(0)} km/h (best ${(t.eco.speedBest * 3.6).toFixed(0)} km/h)`);
-const sp = Physics.shiftPoints(model, env, { diagnostic: true });   // review tool: computed even when riders get no advice
+const sp = Physics.shiftPoints(model, env);
 if (sp) {
-    console.log(`shift points${sp.advisory ? "" : ` (diagnostic only — riders get no gear advice: ${model.gearAdviceReason})`}:`);
+    console.log(`shift points${sp.advisory ? "" : " (class-default gearing: not shown to riders)"}:`);
     for (let i = 0; i < sp.ecoUp.length; i++) {
         const e = sp.ecoUp[i], p = sp.perfUp[i];
         console.log(`  ${e.from}→${e.to}: economy at ${(e.speed * 3.6).toFixed(0)} km/h (${(e.omegaFrom * 30 / Math.PI).toFixed(0)} rpm)${e.atRedline ? " [redline]" : ""}; full throttle at ${(p.speed * 3.6).toFixed(0)} km/h (${(p.omegaFrom * 30 / Math.PI).toFixed(0)} rpm)${p.atRedline ? " [redline]" : ""}`);

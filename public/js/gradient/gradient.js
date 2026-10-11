@@ -6,20 +6,23 @@
    Why: a terrain model (Copernicus 90 m DEM) gives the height of the GROUND. On a
    bridge the road is above the valley the DEM sees; in a tunnel it's below the
    hill. Raw, a river bridge becomes a 40 % plunge and climb, a tunnel a mountain.
-   So, before smoothing, bridges and tunnels are clamped to a straight grade by the
-   ONE pipeline the trip card, the convoy planner and this sheet share (roadmap Step 9,
-   js/trip/structures.js inside MUTrip.profile.buildProfile): the spans OpenStreetMap
-   knows along the route (a flyover crossing above it isn't "on" it), then the DEM's
-   own tell-tale dips and humps. This module adds what the sheet shows:
+   So, before smoothing:
 
-     analyze()       that profile, with each clamped stretch as an interval ("Bridge",
-                     "Tunnel", or "Likely bridge" / "Likely tunnel or cutting" when only
-                     the terrain gave it away), how far the DEM was off inside it and the
-                     grade it has now; stretches the ±25 % cap still had to cut
-     sections()      steep climbs and descents (≥ 6 %, very steep ≥ 10 %): runs less
-                     than 200 m apart merge (a short easing doesn't end a climb), then
-                     runs shorter than 150 m are dropped
-     summarize(), gradeAt()
+     1. structureIntervals()  OpenStreetMap bridge/tunnel ways that run ALONG the
+                              route → [s0, s1] intervals (a flyover crossing above
+                              the route is not "on" it and is ignored)
+     2. detectSpikes()        unmapped ones: the DEM dips (or humps) ≥ 6 m and comes
+                              back within 450 m, ≥ 10 % on both sides → "likely bridge"
+                              / "likely tunnel or cutting"
+     3. applyStructures()     across each interval (± 30 m) the height is a straight
+                              line between the road at either end: the road is level
+                              or evenly sloped there, which is how bridges and
+                              tunnels are built
+     4. MUTrip.profile.buildProfile()  the Step 7 cleaning (median, 250 m smoothing,
+                              ±25 % cap) on the fixed heights
+     5. sections()            steep climbs and descents (≥ 6 %, very steep ≥ 10 %):
+                              runs less than 200 m apart merge (a short easing doesn't
+                              end a climb), then runs shorter than 150 m are dropped
 
    Everything that was changed is reported ("clamped sections"), with how much
    the DEM was off, so the chart can show it instead of hiding it.
@@ -33,7 +36,8 @@
     const R = 6371008.8, RAD = Math.PI / 180;
     const DEFAULTS = Object.freeze({
         steep: 0.06, verySteep: 0.10, minSection: 150, mergeSteepGap: 200,   // sections
-        margin: 45,          // m beyond a structure's ends where the straight line starts (js/trip/structures.js)
+        matchM: 25, alongShare: 0.6, minStructure: 25, mergeGap: 40, padM: 30,   // OSM structures
+        spikeMaxLen: 450, spikeMinDev: 6, spikeMinGrade: 0.10,   // DEM spikes
         maxGrade: 0.25
     });
 
@@ -81,8 +85,51 @@
     }
 
     /**
-     * @typedef {{ s0: number, s1: number, kind: string, name: string, source: "osm"|"dem"|"cap", deviation?: number, grade?: number }} Interval
+     * @typedef {{ id: string, kind: "bridge"|"tunnel", name: string, coords: number[][] }} Way
+     * @typedef {{ s0: number, s1: number, kind: string, name: string, source: "osm"|"dem"|"cap", ids?: string[], deviation?: number, grade?: number }} Interval
      */
+
+    /**
+     * OSM bridge / tunnel ways that run along the route → intervals along it (m).
+     * A way counts when ≥ 2 of its points are within matchM of the route and the
+     * stretch they cover is ≥ minStructure and ≥ alongShare of the way's length
+     * (so a flyover CROSSING the route, or a parallel service road's bridge that
+     * only touches it, doesn't count).
+     * @param {ReturnType<typeof routeGeometry>} G @param {Way[]} ways @param {Partial<typeof DEFAULTS>} [o]
+     * @returns {Interval[]}
+     */
+    function structureIntervals(G, ways, o = {}) {
+        const c = { ...DEFAULTS, ...o };
+        /** @type {Interval[]} */ const out = [];
+        if (!G || G.n < 2) return out;
+        for (const w of ways || []) {
+            if (!w || !Array.isArray(w.coords) || w.coords.length < 2) continue;
+            const ss = [];
+            let wayLen = 0;
+            for (let i = 0; i < w.coords.length; i++) {
+                const px = w.coords[i][1] * G.kx, py = w.coords[i][0] * G.ky;
+                if (i) wayLen += Math.hypot(px - w.coords[i - 1][1] * G.kx, py - w.coords[i - 1][0] * G.ky);
+                const m = nearestOnRoute(G, px, py, c.matchM);
+                if (m.d <= c.matchM) ss.push(m.s);
+            }
+            if (ss.length < 2) continue;
+            const s0 = Math.min(...ss), s1 = Math.max(...ss), span = s1 - s0;
+            if (span < c.minStructure || span < c.alongShare * wayLen) continue;
+            out.push({ s0, s1, kind: w.kind, name: w.name || "", source: "osm", ids: [w.id] });
+        }
+        // merge overlapping / nearly touching intervals of the same kind
+        out.sort((a, b) => a.s0 - b.s0);
+        /** @type {Interval[]} */ const merged = [];
+        for (const iv of out) {
+            const last = merged[merged.length - 1];
+            if (last && last.kind === iv.kind && iv.s0 - last.s1 <= c.mergeGap) {
+                last.s1 = Math.max(last.s1, iv.s1);
+                last.ids = [...(last.ids || []), ...(iv.ids || [])];
+                if (!last.name && iv.name) last.name = iv.name;
+            } else merged.push({ ...iv });
+        }
+        return merged;
+    }
 
     /** Linear gap filling (ends: nearest known). null when < 2 known values. */
     function fillGaps(s, zIn) {
@@ -111,6 +158,80 @@
         while (hi - lo > 1) { const m = (lo + hi) >> 1; if (s[m] <= x) lo = m; else hi = m; }
         const t = (x - s[lo]) / (s[hi] - s[lo] || 1);
         return z[lo] + (z[hi] - z[lo]) * t;
+    }
+
+    /**
+     * Unmapped structures from the DEM: a dip or hump that comes back within spikeMaxLen.
+     * @param {ArrayLike<number>} s @param {ArrayLike<number>} z  gap-filled raw heights
+     * @param {Interval[]} [skip]  intervals already handled (OSM)
+     * @param {Partial<typeof DEFAULTS>} [o]
+     * @returns {Interval[]}
+     */
+    function detectSpikes(s, z, skip = [], o = {}) {
+        const c = { ...DEFAULTS, ...o };
+        const n = s.length, cands = [];
+        for (let i = 0; i < n - 2; i++) {
+            for (let j = i + 2; j < n && s[j] - s[i] <= c.spikeMaxLen; j++) {
+                const L = s[j] - s[i];
+                if (L <= 0) continue;
+                const line = (z[j] - z[i]) / L;
+                if (Math.abs(line) >= c.spikeMinGrade) continue;            // a real, steady slope
+                let k = -1, dev = 0;
+                for (let m = i + 1; m < j; m++) {
+                    const d = z[m] - (z[i] + line * (s[m] - s[i]));
+                    if (Math.abs(d) > Math.abs(dev)) { dev = d; k = m; }
+                }
+                if (k < 0 || Math.abs(dev) < c.spikeMinDev) continue;
+                // the steepest single step into the dip (or up the hump) and out of it: a dip
+                // that spans two samples still has one steep step on each side
+                let gIn = 0, gOut = 0;
+                for (let m = i; m < k; m++) { const g = (z[m + 1] - z[m]) / (s[m + 1] - s[m] || 1); if (dev < 0 ? g < gIn : g > gIn) gIn = g; }
+                for (let m = k; m < j; m++) { const g = (z[m + 1] - z[m]) / (s[m + 1] - s[m] || 1); if (dev < 0 ? g > gOut : g < gOut) gOut = g; }
+                if (Math.abs(gIn) < c.spikeMinGrade || Math.abs(gOut) < c.spikeMinGrade) continue;
+                cands.push({ s0: s[i], s1: s[j], dev, len: L });
+            }
+        }
+        // strongest first, no overlaps, nothing on top of an OSM structure
+        cands.sort((a, b) => Math.abs(b.dev) - Math.abs(a.dev) || a.len - b.len);
+        /** @type {Interval[]} */ const out = [];
+        const overlaps = (a, b) => a.s0 < b.s1 && b.s0 < a.s1;
+        for (const cd of cands) {
+            if (skip.some((x) => overlaps(cd, x)) || out.some((x) => overlaps(cd, x))) continue;
+            out.push({ s0: cd.s0, s1: cd.s1, kind: cd.dev < 0 ? "likely-bridge" : "likely-tunnel", name: "", source: "dem", deviation: Math.abs(cd.dev) });
+        }
+        return out.sort((a, b) => a.s0 - b.s0);
+    }
+
+    /**
+     * Replace the heights across each interval by a straight line between the road at
+     * either end. The ends are the nearest SAMPLES at least padM outside the interval
+     * (never a value interpolated towards the dip), so the line starts on good ground.
+     * Returns the new heights and each interval with how far the DEM was off inside it
+     * and the grade it now has.
+     * @param {ArrayLike<number>} s @param {Float64Array} z @param {Interval[]} intervals @param {Partial<typeof DEFAULTS>} [o]
+     * @returns {{ z: Float64Array, intervals: Interval[] }}
+     */
+    function applyStructures(s, z, intervals, o = {}) {
+        const c = { ...DEFAULTS, ...o };
+        const n = s.length, out = Float64Array.from(z), L = n ? s[n - 1] : 0;
+        /** @type {Interval[]} */ const done = [];
+        for (const iv of [...intervals].sort((a, b) => a.s0 - b.s0)) {
+            if (!n) break;
+            let ia = -1, ib = -1;
+            for (let i = 0; i < n; i++) { if (s[i] <= iv.s0 - c.padM) ia = i; if (ib < 0 && s[i] >= iv.s1 + c.padM) ib = i; }
+            if (ia < 0) ia = 0;                                       // the structure starts the route
+            if (ib < 0) ib = n - 1;                                   // … or ends it
+            if (ib - ia < 1 || L <= 0) continue;
+            const a = s[ia], b = s[ib], za = out[ia], zb = out[ib];
+            let dev = 0;
+            for (let i = ia + 1; i < ib; i++) {
+                const v = za + ((zb - za) * (s[i] - a)) / (b - a || 1);
+                dev = Math.max(dev, Math.abs(out[i] - v));
+                out[i] = v;
+            }
+            done.push({ ...iv, deviation: Math.max(dev, iv.deviation || 0), grade: (zb - za) / (b - a || 1) });
+        }
+        return { z: out, intervals: done };
     }
 
     /**
@@ -169,60 +290,42 @@
         return out;
     }
 
-    /** js/trip/structures.js, wherever this runs. */
-    function structuresModule() {
-        const g = /** @type {any} */ (globalThis);
-        if (g.MUTrip && g.MUTrip.structures) return g.MUTrip.structures;
-        // @ts-ignore — Node (tests): the module next door
-        if (typeof module === "object" && module.exports && typeof require === "function") { try { return require("../trip/structures.js"); } catch { return null; } }
-        return null;
-    }
-
     /**
      * The whole pipeline. `profileLib` is MUTrip.profile (Step 7).
      * @param {{
+     *   path: ArrayLike<ArrayLike<number>>,                 // the route, [[lat, lng], …]
      *   sample: { s: ArrayLike<number> },                   // MUTrip.profile.resample() samples
      *   z: ArrayLike<number|null>|null,                     // DEM heights at the samples (NaN = missing)
      *   distance?: number,                                  // the router's length (m)
-     *   spans?: Array<{ s0: number, s1: number, kind: string, source: string, name?: string }>|null,
-     *   profileLib: any, structuresLib?: any
-     * }} a  spans: OSM bridges / tunnels (MUTrip.structures.along()), null = not checked
+     *   ways?: Way[]|null,                                  // OSM bridges / tunnels, null = not checked
+     *   profileLib: any
+     * }} a
      * @param {Partial<typeof DEFAULTS>} [o]
      */
     function analyze(a, o = {}) {
         const c = { ...DEFAULTS, ...o };
-        const P = a.profileLib, S = a.structuresLib || structuresModule();
+        const P = a.profileLib;
         const sIn = a.sample.s, n = sIn.length;
         const L0 = n ? sIn[n - 1] : 0;
         const distance = a.distance && a.distance > 0 ? a.distance : L0;
         const k = L0 > 0 ? distance / L0 : 1;
         const raw = fillGaps(sIn, a.z);
-        const checked = Array.isArray(a.spans) ? "osm" : "none";
         if (!raw) {
             const flat = P.buildProfile(sIn, null, { distance, maxGrade: c.maxGrade });
-            return { profile: flat, raw: null, sections: [], structures: [], summary: summarize(flat, [], []), structureSource: checked };
+            return { profile: flat, raw: null, sections: [], structures: [], summary: summarize(flat, [], []), structureSource: a.ways ? "osm" : "none" };
         }
-        // the shared pipeline: known spans + the DEM's own dips and humps, clamped, then cleaned
-        const profile = P.buildProfile(sIn, raw, { distance, maxGrade: c.maxGrade, structures: a.spans || null });
-        // what each clamped stretch changed: the DEM against the straight line (in the samples' metres)
-        /** @type {Interval[]} */ const intervals = [];
-        for (const sp of profile.structures || []) {
-            const s0 = sp.s0 / k, s1 = sp.s1 / k;
-            let dev = 0, grade;
-            if (S) {
-                const line = Float64Array.from(raw);
-                S.apply(sIn, line, [{ ...sp, s0, s1 }], { margin: c.margin });
-                for (let i = 0; i < n; i++) if (sIn[i] >= s0 - c.margin && sIn[i] <= s1 + c.margin) dev = Math.max(dev, Math.abs(raw[i] - line[i]));
-                const z0 = interp(sIn, line, s0), z1 = interp(sIn, line, s1);
-                grade = s1 > s0 ? (z1 - z0) / (s1 - s0) : 0;
-            }
-            const kind = sp.source === "dem" ? `likely-${sp.kind}` : sp.kind;
-            intervals.push({ s0: sp.s0, s1: sp.s1, kind, name: sp.name || "", source: sp.source === "dem" ? "dem" : "osm", deviation: dev, ...(grade !== undefined ? { grade } : {}) });
-        }
-        const structures = [...intervals, ...cappedRuns(profile, c)].sort((x, y) => x.s0 - y.s0);
+        // OSM structures on the route geometry, mapped onto the sample distances
+        const G = routeGeometry(a.path);
+        const kr = G.length > 0 ? L0 / G.length : 1;                            // route cumulative → sample positions
+        const osm = a.ways ? structureIntervals(G, a.ways, c).map((iv) => ({ ...iv, s0: iv.s0 * kr, s1: iv.s1 * kr })) : [];
+        const spikes = detectSpikes(sIn, raw, osm.map((iv) => ({ ...iv, s0: iv.s0 - c.padM, s1: iv.s1 + c.padM })), c);
+        const fixed = applyStructures(sIn, raw, [...osm, ...spikes], c);
+        const profile = P.buildProfile(sIn, fixed.z, { distance, maxGrade: c.maxGrade });
+        const scale = (iv) => ({ ...iv, s0: iv.s0 * k, s1: iv.s1 * k });
+        const structures = [...fixed.intervals.map(scale), ...cappedRuns(profile, c)].sort((x, y) => x.s0 - y.s0);
         const rawScaled = { s: Float64Array.from(sIn, (v) => v * k), z: raw };
         const secs = sections(profile, c);
-        return { profile, raw: rawScaled, sections: secs, structures, summary: summarize(profile, secs, structures), structureSource: checked };
+        return { profile, raw: rawScaled, sections: secs, structures, summary: summarize(profile, secs, structures), structureSource: a.ways ? "osm" : "none" };
     }
 
     /** Totals for the header and the table. */
@@ -252,5 +355,5 @@
         return p.grade[Math.min(lo, p.grade.length - 1)] || 0;
     }
 
-    return { DEFAULTS, KIND_WORDS, routeGeometry, nearestOnRoute, fillGaps, interp, sections, cappedRuns, analyze, summarize, gradeAt };
+    return { DEFAULTS, KIND_WORDS, routeGeometry, nearestOnRoute, structureIntervals, fillGaps, interp, detectSpikes, applyStructures, sections, cappedRuns, analyze, summarize, gradeAt };
 });

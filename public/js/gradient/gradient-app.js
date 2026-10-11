@@ -7,9 +7,8 @@
      spikes fixed. MUGradient.app.current is that profile: the HUD reads the grade
      under you from it.
    - When navigation starts, or the rider opens the sheet: OpenStreetMap bridges
-     and tunnels along the route are fetched (MUTrip.structures, cached 30 days in
-     mu-trip-v1 — the same lookup the trip card uses), and the profile is redone
-     with them.
+     and tunnels along the route are fetched (cached 30 days), and the profile is
+     redone with them.
    - "Gradient & bridges" (#gradient-open-btn, added under the trip card's
      elevation chart) opens the sheet (#gradient-modal); "Show on map" draws the
      section on the map.
@@ -21,10 +20,10 @@
     const W = /** @type {any} */ (root);
     if (!W.document) return;
     const GR = W.MUGradient, T = W.MUTrip;
-    if (!GR || !GR.core || !T || !T.profile || !T.structures) { console.warn("[gradient] load js/trip/profile.js, js/trip/structures.js and js/gradient/gradient.js before gradient-app.js"); return; }
+    if (!GR || !GR.core || !GR.structures || !T || !T.profile) { console.warn("[gradient] load js/trip/profile.js, js/gradient/gradient.js and structures.js before gradient-app.js"); return; }
     const $ = (id) => document.getElementById(id);
     const VIEW = { js: ["js/gradient/profile-chart.js"], css: "js/gradient/gradient.css" };
-    const structures = T.structures.createStructures();
+    const structures = GR.structures.createStructures();
     let route = null, token = 0, last = null, current = null, view = null, loading = null, navigating = false, highlight = null, wantOsm = false;
     /** @type {any} */ let ownElevation = null;
 
@@ -71,19 +70,19 @@
         let elev = { z: new Float64Array(rs.lat.length).fill(NaN), source: "none", fetched: 0, missing: rs.lat.length };
         try { if (el) elev = await el.lookup(rs.lat, rs.lng); } catch { /* flat */ }
         if (my !== token) return null;
-        let spans = null, structureSource = "none";
+        let ways = null, structureSource = "none";
         if (o.osm || wantOsm) {
-            try { const st = await structures.along(rs); spans = st.spans; structureSource = st.source === "osm" ? "network" : st.source; } catch { spans = null; }
+            try { const st = await structures.along(r.path); ways = st.ways; structureSource = st.source; } catch { ways = null; }
             if (my !== token) return null;
-            if (structureSource === "none") spans = null;
+            if (structureSource === "none") ways = null;
         }
-        const res = GR.core.analyze({ sample: rs, z: elev.z, distance: r.distanceM || rs.length, spans, profileLib: P, structuresLib: T.structures });
+        const res = GR.core.analyze({ path: r.path, sample: rs, z: elev.z, distance: r.distanceM || rs.length, ways, profileLib: P });
         const meta = {
             elevation: { source: elev.source, fetched: elev.fetched || 0, missing: elev.missing || 0, total: rs.lat.length },
             structureSource, offline: typeof navigator !== "undefined" && navigator.onLine === false,
             routeName: (nav() && nav().destName) || ""
         };
-        last = { key: routeKey(r), result: res, meta, osm: Boolean(spans) };
+        last = { key: routeKey(r), result: res, meta, osm: Boolean(ways) };
         current = res.profile.source === "dem" ? res.profile : null;
         placeButton();
         if (view && isOpen()) view.render(res, { ...meta, progress: progress() });

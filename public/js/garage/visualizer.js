@@ -22,14 +22,6 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function (/** @type {typeof import("./units.js")} */ U) {
     "use strict";
 
-    /** Why the physics refused gear advice (model.gearAdviceReason), in the rider's words. */
-    const NO_GEAR_ADVICE = Object.freeze({
-        "typical-bike": "Gear advice is off: these are a typical bike's gears, not yours.",
-        "borrowed-gearing": "Gear advice is off for this bike: its gear ratios aren't published, so the chart uses ratios from similar bikes.",
-        "gear-count-mismatch": "Gear advice is off for this bike: its published gear ratios don't match its number of gears.",
-        "uncertain-gearing": "Gear advice is off for this bike: its published gear ratios aren't reliable enough yet."
-    });
-
     const SVG_NS = "http://www.w3.org/2000/svg";
     /** Gear ribbon colours: one hue, dark → light (validated ordinal ramp on the app's dark surface). */
     const GEAR_RAMP = ["#1c5cab", "#2a78d6", "#5598e7", "#86b6ef", "#b7d3f6", "#e9f2fd"];
@@ -54,12 +46,10 @@
     /**
      * @param {any} table  MUPhysics.cruiseTable() result
      * @param {any} model  MUPhysics bike model
-     * The gear ribbon follows the physics' own decision (model.gearAdvice): the core refuses
-     * gear advice for typical bikes and borrowed or untrustworthy gearing, so nothing here
-     * has to remember to hide it.
+     * @param {{ gearAdvice?: boolean }} [opts]  gearAdvice: false hides the gear ribbon
      * @returns {ChartModel}
      */
-    function prepareChart(table, model) {
+    function prepareChart(table, model, opts = {}) {
         const ev = model.powertrain === "ev";
         /** @type {ChartRow[]} */
         const rows = [];
@@ -97,7 +87,7 @@
             return out;
         };
         const gears = [];
-        if (model.drive && model.drive.kind === "manual" && model.gearAdvice === true) {
+        if (model.drive && model.drive.kind === "manual" && opts.gearAdvice !== false && model.gearAdvice) {
             let cur = null;
             for (const r of rows) {
                 if (!r.feasible || r.gear < 1) { cur = null; continue; }
@@ -262,7 +252,7 @@
             const env = { ...(o.env || {}), grade: road.grade };
             table = P.cruiseTable(model, env);
             shift = P.shiftPoints(model, env);
-            chart = prepareChart(table, model);
+            chart = prepareChart(table, model, { gearAdvice: !o.estimated });
             renderHead();
             renderPlot();
             renderShifts();
@@ -504,8 +494,12 @@
                 return;
             }
             shifts.append(h("h3", { text: "When to change gear" }));
+            if (o.estimated) {
+                shifts.append(h("p", { class: "mu-viz-muted", text: "Gear advice is off: these are a typical bike's gears, not yours." }));
+                return;
+            }
             if (!shift || !shift.advisory) {
-                shifts.append(h("p", { class: "mu-viz-muted", text: NO_GEAR_ADVICE[(shift && shift.reason) || model.gearAdviceReason] || NO_GEAR_ADVICE["borrowed-gearing"] }));
+                shifts.append(h("p", { class: "mu-viz-muted", text: "Gear advice is off for this bike: its gear ratios aren't published, so the chart uses ratios from similar bikes." }));
                 return;
             }
             const tbl = h("table", { class: "mu-shift-table" });

@@ -620,13 +620,11 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
             if (stepDist) stepDist.textContent = "";
             if (svg) svg.style.transform = "rotate(0deg)";
             navState.nextManeuver = "";
-            navState.nextManeuverM = null;
             return;
         }
         const phrase = maneuverPhrase(next);
         const d = distanceToNext(fromPos);
         if (turnDist) turnDist.textContent = Number.isFinite(d) ? `In ${formatDistanceShort(d)}` : "Next";
-        navState.nextManeuverM = Number.isFinite(d) ? d : null;             // roadmap Step 8: advice holds near a turn
         if (turnName) turnName.textContent = phrase;
         if (svg) svg.style.transform = `rotate(${maneuverRotation(next)}deg)`;
         const after = steps[stepIdx + 2];
@@ -903,7 +901,6 @@ function stopDrive(cancelled = false) {
     navState.remainingM = null;
     navState.etaSec = null;
     navState.nextManeuver = "";
-    navState.nextManeuverM = null;
     navState.routePath = null;
     document.dispatchEvent(new CustomEvent("mu:route-clear"));   // Step 7: hide the trip-energy card
     // Clear the saved nav state so a refresh doesn't resurrect a finished drive.

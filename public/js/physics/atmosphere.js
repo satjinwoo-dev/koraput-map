@@ -47,7 +47,6 @@
         if (typeof x !== "number" || !Number.isFinite(x)) throw new TypeError(`${name} must be a finite number (got ${String(x)})`);
         return x;
     }
-    /** @param {number} x @param {number} lo @param {number} hi */
     const clamp = (x, lo, hi) => (x < lo ? lo : x > hi ? hi : x);
 
     /**

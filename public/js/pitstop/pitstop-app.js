@@ -6,27 +6,23 @@
    #pitstop-panel over the map and draws the stops on the map. The planner's
    scripts and stylesheet load on first use (precached by sw.js).
 
-   Where each number comes from:
+   Where each number comes from (nothing new is sent anywhere):
      - the group and destination: currentTrip (group trip) or GroupNavigation
        (meetup), riders' positions from friendData, colours = routeColors (the
        same as each rider's route line);
      - the route: your own road to the destination (the group-trip route layer,
        else your navigation route, else one OSRM request);
      - your bike: MUTrip.app.loadBike(); other riders' bikes: TripFuel.profiles[id]
-       .bike, relayed by the server ({ bundle, bikeId, classKey, title, settings });
-       until then (or if that bundle can't be loaded) a typical bike scaled to
-       the km/L they already share;
+       .bike when the server relays it ({ bundle, classKey, title, settings });
+       until then a typical bike scaled to the km/L they already share;
      - levels: what a rider set here (kept on this phone for 6 h), a level they
        shared (TripFuel.profiles[id].level = { share, at }), your own estimated
        from your last full fill-up (the fuel learner), else "assumed half";
      - energy along the route: MUTrip.energy (each rider's own bike, the route's
        hills and traffic), stations: MUPitstop.stations (OpenStreetMap).
 
-   Sharing (Step 8): myShare() is your bike and the level you set for yourself;
-   shareFuel() sends it as "setFuelShare" — after every (re)connect, when My bike
-   changes and when you set your own level. The server relays it ONLY to the
-   members of your trip (in "tripFuelProfiles"), the way it relays your km/L.
-   The level travels as its age (ageMs), so phones with different clocks agree.
+   myShare() returns the payload the server can relay to the group (your bike
+   and level) the same way it relays setMileage today.
    ============================================================================ */
 (function (root) {
     "use strict";
@@ -37,7 +33,7 @@
     const LEVELS_KEY = "mu.pitstop.v1";
     const LEVEL_TTL = 6 * 3600000;
     const FALLBACK_COLORS = ["#18d6a3", "#3b82f6", "#f59e0b", "#ec4899", "#8b5cf6"];
-    let loading = null, panel = null, layer = null, refreshTimer = null, lastModel = null, stationsApi = null, elevation = null, structuresApi = null, overrideCtx = null;
+    let loading = null, panel = null, layer = null, refreshTimer = null, lastModel = null, stationsApi = null, elevation = null, overrideCtx = null;
 
     // ------------------------------------------------------------------ app globals, read by name (classic-script lexicals aren't on window)
     function g() {
@@ -72,9 +68,7 @@
         try { o.RoutePrefs = typeof RoutePrefs !== "undefined" ? RoutePrefs : null; } catch { o.RoutePrefs = null; }
         // @ts-ignore
         try { o.startSearchNavigation = typeof startSearchNavigation === "function" ? startSearchNavigation : null; } catch { o.startSearchNavigation = null; }
-        // core.js declares `const socket` (a classic-script lexical, not on window): read it by name too
-        // @ts-ignore
-        try { o.socketId = typeof socket !== "undefined" && socket && socket.id ? socket.id : "me"; } catch { o.socketId = "me"; }
+        o.socketId = W.socket && W.socket.id ? W.socket.id : "me";
         return o;
     }
 
@@ -202,11 +196,9 @@
         const rs = T.profile.resample(ctx.route.path, spacing);
         const distance = ctx.route.distanceM || rs.length;
         if (!elevation) elevation = T.elevation.createElevation();
-        if (!structuresApi && T.structures) structuresApi = T.structures.createStructures();
-        const within = (/** @type {Promise<any>} */ p) => Promise.race([p.catch(() => null), new Promise((r) => setTimeout(() => r(null), 7000))]);
-        // heights, and the bridges and tunnels to clamp (Step 9: OSM; the heights alone find the rest)
-        const [z, st] = /** @type {any[]} */ (await Promise.all([within(elevation.lookup(rs.lat, rs.lng)), structuresApi ? within(structuresApi.along(rs)) : null]));
-        const profile = T.profile.buildProfile(rs.s, z ? z.z : null, { distance, structures: st ? st.spans : null });
+        let z = null;
+        try { z = (await Promise.race([elevation.lookup(rs.lat, rs.lng), new Promise((r) => setTimeout(() => r(null), 7000))])); } catch { z = null; }
+        const profile = T.profile.buildProfile(rs.s, z ? /** @type {any} */ (z).z : null, { distance });
         const speeds = T.profile.segmentSpeeds(profile.edges, ctx.route.steps, { distance, duration: ctx.route.durationSec });
         let vMax = 0; for (const v of speeds.speed) vMax = Math.max(vMax, v);
         const routeS = { s: profile.s, lat: rs.lat, lng: rs.lng };
@@ -222,11 +214,9 @@
                     else b = await typicalBike(store, index, G.SmartDrive && G.SmartDrive.baseMileage ? G.SmartDrive.baseMileage : null);
                 } else if (mb.profile && mb.profile.bike && mb.profile.bike.bundle) {
                     const pb = mb.profile.bike;
-                    // offline and never seen that bundle: their km/L on a typical bike, rather than leaving them out
-                    const bundle = await store.bundle(pb.bundle).catch(() => null);
-                    const dc = bundle ? index.classes.find((c) => c.key === bundle.classKey) : null;
-                    if (bundle) b = { bundle, classDefault: bundle.kind === "variant" && dc ? await store.bundle(dc.bundle).catch(() => undefined) : undefined, settings: pb.settings || {}, name: pb.title || "Their bike", classKey: bundle.classKey, estimated: false };
-                    else b = await typicalBike(store, index, Number.isFinite(mb.profile.kmPerL) ? mb.profile.kmPerL : null);
+                    const bundle = await store.bundle(pb.bundle);
+                    const dc = index.classes.find((c) => c.key === bundle.classKey);
+                    b = { bundle, classDefault: bundle.kind === "variant" && dc ? await store.bundle(dc.bundle).catch(() => undefined) : undefined, settings: pb.settings || {}, name: pb.title || "Their bike", classKey: bundle.classKey, estimated: false };
                 } else b = await typicalBike(store, index, mb.profile && Number.isFinite(mb.profile.kmPerL) ? mb.profile.kmPerL : null);
             } catch (e) { console.warn("[pitstop] bike for", mb.name, e); continue; }
             const model = P.createBikeModel(b.bundle, { classDefault: b.classDefault, settings: b.settings });
@@ -317,12 +307,7 @@
                 units: W.MUGarage.units, plan: Pit.plan, silhouettes: W.MUGarage.silhouettes,
                 onClose: close,
                 onPlan: (plan, model) => drawStops(plan, model),
-                onLevelChange: (id, share) => {
-                    const r = lastModel && lastModel.riders.find((x) => x.id === id);
-                    if (r) writeLevel(r.key, share);
-                    panel.setLevel(id, share);
-                    if (r && r.me) shareFuel();                        // your own level: your trip-mates plan with it too
-                },
+                onLevelChange: (id, share) => { const r = lastModel && lastModel.riders.find((x) => x.id === id); if (r) writeLevel(r.key, share); panel.setLevel(id, share); },
                 onFocusRider: (id) => {
                     const G = g();
                     if (!G.map) return;
@@ -384,37 +369,17 @@
         const g0 = W.MUTrip && W.MUTrip.app ? W.MUTrip.app.store.garage() : null;
         const lv = readLevels().me;
         return {
-            bike: b && g0 ? { bundle: g0.bundle, bikeId: g0.bikeId || null, classKey: g0.classKey, title: b.name, settings: g0.settings } : null,
+            bike: b && g0 ? { bundle: g0.bundle, classKey: g0.classKey, title: b.name, settings: g0.settings } : null,
             level: lv && Date.now() - lv.at < LEVEL_TTL ? { share: lv.share, at: lv.at } : null
         };
-    }
-
-    /** myShare() as the server takes it (setFuelShare): the level as its age, not a clock time. */
-    function wireShare(/** @type {any} */ s) {
-        return { bike: s.bike, level: s.level ? { share: s.level.share, ageMs: Math.max(0, Date.now() - s.level.at) } : null };
-    }
-    /** Send your bike and level to the server for your trip-mates. Never throws. */
-    async function shareFuel() {
-        try {
-            // @ts-ignore
-            const sock = typeof socket !== "undefined" ? socket : null;
-            if (!sock || !sock.connected) return false;
-            sock.emit("setFuelShare", wireShare(await myShare()));
-            return true;
-        } catch (e) { console.warn("[pitstop] couldn't share bike and level:", e); return false; }
     }
 
     function init() {
         const b = $("pitstop-plan-btn");
         if (b) b.addEventListener("click", () => open());
         document.addEventListener("keydown", (e) => { const host = $("pitstop-panel"); if (e.key === "Escape" && host && !host.hidden) close(); });
-        // share after every (re)connect (a new socket id starts empty on the server) and when My bike changes
-        // @ts-ignore
-        const sock = typeof socket !== "undefined" ? socket : null;
-        if (sock && typeof sock.on === "function") sock.on("profileAccepted", () => setTimeout(shareFuel, 500));
-        document.addEventListener("mu:garage-change", () => shareFuel());
     }
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init); else init();
     W.MUPitstop = W.MUPitstop || {};
-    W.MUPitstop.app = { open, close, myShare, shareFuel, wireShare, levelFor, buildModel, get panel() { return panel; } };
+    W.MUPitstop.app = { open, close, myShare, levelFor, buildModel, get panel() { return panel; } };
 })(typeof globalThis !== "undefined" ? globalThis : this);

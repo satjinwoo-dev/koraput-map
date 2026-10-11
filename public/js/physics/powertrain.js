@@ -27,9 +27,6 @@
         fuel volume flow = P_fuel / LHV_vol  (J/m3 → m3/s)
       Overrun (negative brake power): a fuel-injected engine cuts fuel above the
       cut-off speed; a carburettor keeps feeding its idle circuit.
-   1b. A PUBLISHED curve (bundle.curves.torque: a manufacturer chart, a digitized
-      dyno run …) replaces the synthesized one: linear between samples, held at
-      its first value down to idle and its last up to ω_max, zero outside.
    3. Electric motor: wheel force ≤ min(T_wheel / r, P̂ / v) (constant torque,
       then constant power), and battery power with drivetrain, motor and
       regeneration efficiencies plus a constant auxiliary load.
@@ -40,8 +37,7 @@
  * @typedef {{
  *   peakPower: number, omegaPower: number, peakTorque: number, omegaTorque: number,
  *   omegaIdle: number, omegaMax: number, idleTorque: number, torqueAtPowerPeak: number,
- *   drop: number, kappa: number, shape: "power-law"|"flat"|"clamped"|"published", overPeakDrop: number, capAll: boolean, flags: readonly string[],
- *   samples: null | { omegaStart: number, omegaStep: number, values: Float64Array }
+ *   drop: number, kappa: number, shape: "power-law"|"flat"|"clamped", overPeakDrop: number, capAll: boolean, flags: readonly string[]
  * }} TorqueCurve
  */
 (function (root, factory) {
@@ -65,8 +61,7 @@
      * Full-throttle torque curve from published peak figures (SI).
      * Inconsistent inputs are repaired the least-surprising way and flagged,
      * never turned into NaN.
-     * @param {{ peakPower: number, omegaPower: number, peakTorque: number, omegaTorque: number, omegaIdle: number, omegaMax: number, idleTorqueRatio?: number, overPeakDrop?: number,
-     *           samples?: { omegaStart: number, omegaStep: number, values: number[] } }} o  samples: a published curve (SI), used as is
+     * @param {{ peakPower: number, omegaPower: number, peakTorque: number, omegaTorque: number, omegaIdle: number, omegaMax: number, idleTorqueRatio?: number, overPeakDrop?: number }} o
      * @returns {TorqueCurve}
      */
     function buildTorqueCurve(o) {
@@ -92,7 +87,7 @@
         if (capAll) flags.push("peak torque × its speed exceeds peak power: torque capped at peak power");
         const D = Tp - TP;
         const span = wP - wT;
-        let kappa = Infinity, shape = /** @type {TorqueCurve["shape"]} */ ("flat");
+        let kappa = Infinity, shape = /** @type {"power-law"|"flat"|"clamped"} */ ("flat");
         if (D > 0 && span > 0) {
             kappa = (TP * span) / (wP * D);
             shape = kappa >= 1 ? "power-law" : "clamped";
@@ -102,21 +97,9 @@
         } else if (D <= 0 && span > 0) {
             flags.push("torque flat to the power peak: power still rising there");
         }
-        let samples = null;
-        if (o.samples) {
-            const start = o.samples.omegaStart, step = pos(o.samples.omegaStep, "samples.omegaStep");
-            if (typeof start !== "number" || !Number.isFinite(start) || start < 0) throw new TypeError("samples.omegaStart must be a finite number ≥ 0");
-            const values = Float64Array.from(o.samples.values, (x, i) => {
-                if (typeof x !== "number" || !Number.isFinite(x) || x < 0) throw new RangeError(`samples.values[${i}] must be a finite torque ≥ 0`);
-                return x;
-            });
-            if (values.length < 2) throw new RangeError("a published torque curve needs at least 2 samples");
-            samples = { omegaStart: start, omegaStep: step, values };
-            shape = "published";
-        }
         return Object.freeze({
             peakPower: Pp, omegaPower: wP, peakTorque: Tp, omegaTorque: wT, omegaIdle: wI, omegaMax: wMax,
-            idleTorque: r * Tp, torqueAtPowerPeak: TP, drop: D, kappa, shape, overPeakDrop: c, capAll, flags: Object.freeze(flags), samples
+            idleTorque: r * Tp, torqueAtPowerPeak: TP, drop: D, kappa, shape, overPeakDrop: c, capAll, flags: Object.freeze(flags)
         });
     }
 
@@ -127,13 +110,6 @@
      */
     function torqueAt(k, w) {
         if (!(w >= k.omegaIdle) || w > k.omegaMax) return 0;
-        if (k.samples) {
-            const s = k.samples, x = (w - s.omegaStart) / s.omegaStep, last = s.values.length - 1;
-            if (x <= 0) return s.values[0];
-            if (x >= last) return s.values[last];
-            const i = Math.floor(x), f = x - i;
-            return s.values[i] + (s.values[i + 1] - s.values[i]) * f;
-        }
         if (k.capAll) return Math.min(shapeTorque(k, w), k.peakPower / w);
         return shapeTorque(k, w);
     }

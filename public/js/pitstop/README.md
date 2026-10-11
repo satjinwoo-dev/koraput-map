@@ -51,20 +51,9 @@ For a group trip or meetup, this planner works out who will need fuel or charge 
 | Levels | In this order: set here (kept on this phone for 6 h, in `mu.pitstop.v1`); shared (`TripFuel.profiles[id].level = { share, at }`); yours estimated from your last full fill-up (the learner's trips since); otherwise "assumed half — set it below". The rider's detail row always says which one. |
 | Prices | The rider's ₹/L and ₹/kWh from the trip card, labelled "example" until set. EV cost includes about 12 % charging loss. |
 
-## Sharing your bike and level with the group (server relay)
+## Server work it's ready for (optional)
 
-`shareFuel()` sends `MUPitstop.app.myShare()` to the server as the socket event `setFuelShare`:
-
-- **When:** after every `profileAccepted` (a reconnected socket starts empty), when My bike changes (`mu:garage-change`), and when you set your own level in the panel.
-- **What:** `{ bike: { bundle, bikeId, classKey, title, settings } | null, level: { share, ageMs } | null }`. The level is sent as its age, so phones with different clocks agree; `TripFuel.onProfiles` turns it back into `{ share, at }` on the receiving phone.
-- **Server (`server.js`):**
-  - Validates every field. Settings go through the garage's own `cleanSettings`, titles are capped at 80 characters, and levels older than 6 h are dropped.
-  - Swaps a bundle an older catalogue build shipped for the bike's current one.
-  - Keeps the share on the live user (through the cluster op log, like `setMileage`).
-  - Relays it **only to the members of your trip**, inside `tripFuelProfiles`, next to your km/L.
-- **If a shared bundle can't be loaded** (offline, never seen), the planner uses a typical bike at that rider's km/L instead of leaving them out.
-
-Tests: `test/pitstop/convoy-share.test.mjs` (real `server.js`, three riders over Socket.IO) and `test/pitstop/share-client.test.mjs`.
+Relay `MUPitstop.app.myShare()` (`{ bike, level }`) into each member's `TripFuel.profiles` entry, the same way `setMileage` is relayed today. Nothing else changes.
 
 ## Needed in `server.js`
 

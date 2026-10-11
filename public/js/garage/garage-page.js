@@ -5,20 +5,20 @@
    Was an inline <script>; moved to a file so the page passes the app's CSP
    (script-src has no 'unsafe-inline'). Same behaviour as before.
 
-   The Step 5 API server (/api/bikes/search, /bundles, /requests) comes from
-   MUGarage.store.resolveApiBase: on the website this page's origin; in the
-   Android app window.MU_GARAGE_API, which scripts/build-native.mjs sets to
-   MU_SERVER_ORIGIN; never the app's own origin (https://localhost, capacitor:).
+   Step 5 endpoints: set window.MU_GARAGE_API = "https://your.server" (or "" for
+   same origin) before this file loads. Until then the garage reads the static
+   catalogue and bundles built into public/bikedb/.
    ============================================================================ */
 (function () {
     "use strict";
     const W = /** @type {any} */ (window);
+    const api = typeof W.MU_GARAGE_API === "string" ? W.MU_GARAGE_API : null;
     const store = W.MUGarage.store.createStore({
         search: W.BikeCatalogSearch,
         physics: W.MUPhysics,
         catalogUrl: "bikedb/catalog.json",
         staticBase: "bikedb/",
-        apiBase: W.MUGarage.store.resolveApiBase(W, location)
+        apiBase: api === "" ? location.origin : api
     });
     W.MU_GARAGE = W.MUGarage.mount(/** @type {HTMLElement} */ (document.getElementById("garage-root")), { store, physics: W.MUPhysics });
 

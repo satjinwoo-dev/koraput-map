@@ -19,9 +19,6 @@
 
    3. The "My bike" summary in SmartDrive settings (#my-bike-section).
 
-   Every change of bike or settings dispatches "mu:garage-change": SmartDrive's
-   fuel baseline (js/smartdrive.js BikeFuel) re-reads the bike from it.
-
    Everything stays on the phone: the bike and settings (mu.garage.v1), the
    trip preferences and prices (mu.trip.v1).
    ============================================================================ */
@@ -39,15 +36,13 @@
     const GARAGE_CSS = "js/garage/garage.css";
 
     // ---------------------------------------------------------------- store (same config as garage.html)
-    // One store for the whole page: the card, the sheet and SmartDrive's fuel baseline (BikeFuel).
-    // API server: this page's origin on the website, MU_SERVER_ORIGIN in the Android app.
+    const api = typeof W.MU_GARAGE_API === "string" ? W.MU_GARAGE_API : null;
     const store = G.store.createStore({
         search: W.BikeCatalogSearch, physics: P,
         catalogUrl: "bikedb/catalog.json", staticBase: "bikedb/",
-        apiBase: G.store.resolveApiBase(W, location)
+        apiBase: api === "" ? location.origin : api
     });
     const elevation = T.elevation ? T.elevation.createElevation() : null;
-    const structures = T.structures ? T.structures.createStructures() : null;        // Step 9: bridges and tunnels (OSM)
 
     /** The saved bike, ready for the physics (null when none is chosen). */
     async function loadBike() {
@@ -84,7 +79,7 @@
             sheet.insertBefore(el, controls || null);
         }
         card = T.card.createTripCard(el, {
-            physics: P, profile: T.profile, energy: T.energy, units: G.units, silhouettes: G.silhouettes, elevation, structures,
+            physics: P, profile: T.profile, energy: T.energy, units: G.units, silhouettes: G.silhouettes, elevation,
             loadBike, onOpenGarage: () => openGarage()
         });
         return card;
@@ -100,7 +95,7 @@
     document.addEventListener("mu:drive-state", (e) => { const d = /** @type {CustomEvent} */ (e).detail || {}; if (card) card.setCompact(!!d.navigating); });
 
     // ---------------------------------------------------------------- 2. the in-app garage
-    let garageUi = null, garageMounted = null, returnTo = null;
+    let garageUi = null, garageMounted = null;
     /** Load a classic script once. @param {string} src */
     function loadScript(src) {
         return new Promise((resolve, reject) => {
@@ -132,8 +127,7 @@
         mountEl.replaceChildren(Object.assign(document.createElement("p"), { className: "garage-loading", textContent: "Loading…" }));
         try {
             await loadGarageUi();
-            // onChange: every save (bike or settings) updates the card, the summary and SmartDrive at once
-            garageMounted = W.MUGarage.mount(mountEl, { store, physics: P, onChange: () => { lastSaved = (store.garage() || {}).savedAt || 0; garageChanged(); } });
+            garageMounted = W.MUGarage.mount(mountEl, { store, physics: P });
         } catch (e) {
             mountEl.replaceChildren(Object.assign(document.createElement("p"), { className: "garage-loading", textContent: /** @type {Error} */ (e).message }));
         }
@@ -143,7 +137,6 @@
     function garageChanged() {
         if (card) card.refreshBike();
         renderMyBike();
-        document.dispatchEvent(new CustomEvent("mu:garage-change"));    // SmartDrive's fuel baseline (js/smartdrive.js BikeFuel) re-reads the bike
     }
     // the sheet's close button / backdrop / Escape just hide it: watch for that
     const gm = $("garage-modal");
@@ -152,8 +145,6 @@
         new MutationObserver(() => {
             if (gm.style.display !== "none") return;
             gm.setAttribute("aria-hidden", "true");
-            // opened from Settings: closing goes back there
-            if (returnTo) { const r = $(returnTo); returnTo = null; if (r) r.style.display = "flex"; }
             const now = (store.garage() || {}).savedAt || 0;
             if (now !== lastSaved) { lastSaved = now; garageChanged(); }
         }).observe(gm, { attributes: true, attributeFilter: ["style"] });
@@ -171,17 +162,10 @@
             if (e && (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1)) return;   // new tab: let the link work
             if (e) e.preventDefault();
             const settings = $("profile-settings-modal");
-            if (settings && settings.style.display && settings.style.display !== "none") { settings.style.display = "none"; returnTo = "profile-settings-modal"; }
+            if (settings && settings.style.display && settings.style.display !== "none") settings.style.display = "none";
             openGarage();
         };
         for (const id of ["garage-btn", "open-garage-btn"]) { const b = $(id); if (b) b.addEventListener("click", go); }
-        // Escape belongs to the garage while you're in it (it clears the search, leaves the chart):
-        // the page-wide handler (shell.js) must not close the sheet from inside a field or the chart.
-        const mountEl = $("garage-mount");
-        if (mountEl) mountEl.addEventListener("keydown", (e) => {
-            const t = /** @type {Element|null} */ (e.target);
-            if (e.key === "Escape" && t && t !== mountEl && t.closest("input, select, textarea, [tabindex], [role=combobox], [role=listbox]")) e.stopPropagation();
-        });
     }
 
     // ---------------------------------------------------------------- 3. settings summary
@@ -224,6 +208,6 @@
     }
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init); else init();
 
-    // the gradient sheet (js/gradient/) reuses this terrain lookup, so its cache is shared
+    // roadmap step 9: the gradient (js/gradient/) reuses this terrain lookup, so its cache is shared
     W.MUTrip.app = { store, openGarage, loadBike, get card() { return card; }, get elevation() { return elevation; } };
 })(typeof globalThis !== "undefined" ? globalThis : this);

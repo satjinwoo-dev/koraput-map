@@ -7,7 +7,6 @@ data/bikes/
   variants/          one file per real bike variant           (25 seed variants — shipped)
   class-defaults/    one file per powertrain × segment class  (10 — the fallback for any unknown bike)
   pending/           researched bikes blocked by a rule       (2 — validated, never shipped)
-  calibration/       reviewed fleet calibrations, one per class (roadmap Step 11 — none yet; see FLEET.md)
   reference/
     fuel-grades.json         E0 / E10 / E20 / E85 / E100: energy per litre, density, RON
     emission-standards.json  BS4, BS6-P1, BS6-P2 and the OBD stages (OBD-1, OBD-2A, OBD-2B)
@@ -19,15 +18,6 @@ scripts/bikedb/validate.mjs          validate everything
 scripts/bikedb/gen-schema.mjs        regenerate the JSON Schema
 scripts/build-bike-catalog.mjs       build catalog.json, the bundles and bikes.sqlite
 scripts/bikedb/bench-search.mjs      search benchmark on a synthetic 20,000-variant catalogue
-scripts/bikedb/requests.mjs          the queue of rider requests for missing bikes (npm run bikes:requests)
-lib/bikedb/catalog-db.js             the server's read-only view of bikes.sqlite: search, bundles, hot reload
-lib/bikedb/request-queue.js          requests for missing bikes, stored in the server's database
-lib/bikedb/http-api.js               /api/bikes routes (search, bundles, requests, fill-ups, calibration, status), CORS for the app
-lib/bikedb/fleet.js                  anonymous fill-ups from riders who opted in (roadmap Step 11), stored in the server's database
-lib/bikedb/calibration.js            the class-level fleet fit (Bayesian MAP, robust, cross-validated by rider)
-scripts/bikedb/calibrate.mjs         fit the fleet, write proposals to calibration/ (npm run bikes:calibrate)
-scripts/bikedb/calibration-file.mjs  the proposal format; applies reviewed proposals in the build
-public/js/bikedb/bike-api.js         client for the website and the app: server first, offline fallback
 test/bikedb/                         node --test test/bikedb/*.test.mjs
 
 Build outputs (generated, git-ignored — never edit):
@@ -42,7 +32,6 @@ build/bikedb/bikes.sqlite            database + FTS5 search for the server
 node scripts/bikedb/validate.mjs                 # must end with "0 errors"
 node scripts/bikedb/format.mjs                   # canonical one-value-per-line formatting (CI runs --check)
 node --test test/bikedb/*.test.mjs               # contract, catalogue, format, schema, build and search tests
-node --test test/server/*.test.mjs               # server API: FTS5 parity with the app, bundles, requests, CORS, server.js end to end
 node scripts/bikedb/gen-schema.mjs               # after changing FIELDS in bundle-contract.js
 tsc -p tsconfig.bikedb.json                      # type-check the contract and the search module (JSDoc + @ts-check)
 node scripts/build-bike-catalog.mjs              # build the outputs (after any data change, and on deploy)
@@ -68,7 +57,7 @@ Suggested `package.json` scripts:
 |---|---|---|
 | `public/bikedb/bundles/<hash>.json` | Everything one bike needs, in one file, in **strict SI** (`"units": "SI"`): its values with sources and the published figures beside them, `image_url`, the full prior set (inherited priors are marked `"inherited": true`, and their sources are listed under `classDefault.sources`), `fuelAdvice.advisable` (decided once, by `isFuelAdvisable()`), and the fuel-grade and emission reference rows. The name is the first 16 hex characters of the SHA-256 of the bytes. | The app, after a bike is picked. Cache forever: changed data means a new file name. |
 | `public/bikedb/catalog.json` | One column per field (id, make, model, variant, years, class, size in SI (m3, or J for EVs; `formatSize()` turns it into "349 cc" / "2.9 kWh" for display), aliases, `image_url`, bundle hash), the class list with each class default's bundle, and a `version` that is the hash of the rest. Build fails above **300 KB gzipped**. | The bike picker: `new BikeCatalogSearch.CatalogIndex(catalog)` searches it in memory, offline. |
-| `build/bikedb/bikes.sqlite` | The normalised database from `lib/bikedb/schema.sql`, strict SI with `published_*` columns for review: values, priors (inheritance resolved by the `v_resolved_prior` view), fuel approvals with the `advisable` flag, reference tables, the served bundle bytes, and the FTS5 `bundle_search` table. | The server, read-only (`lib/bikedb/catalog-db.js`): `/api/bikes/search`, `/api/bikes/bundles/<hash or id>`, `/api/bikes/status` (see DEPLOY.md). A rebuilt file is picked up without a restart. |
+| `build/bikedb/bikes.sqlite` | The normalised database from `lib/bikedb/schema.sql`, strict SI with `published_*` columns for review: values, priors (inheritance resolved by the `v_resolved_prior` view), fuel approvals with the `advisable` flag, reference tables, the served bundle bytes, and the FTS5 `bundle_search` table. | The server (Step 5): search, bundles by hash, catalogue version. |
 
 **Same input, same output.** The bundles and `catalog.json` are canonical JSON (sorted keys, no whitespace, no timestamps), so they are byte-identical on every build and every machine, whatever the key order in the source files. `bikes.sqlite` is byte-identical for the same SQLite version. Its `meta` table records the input fingerprint, which is what `--check` compares. Changing one bike changes only that bike's bundle file and the catalogue version.
 
@@ -141,20 +130,13 @@ In a bundle, a converted value looks like `{ "v": 14870, "u": "W", "src": …, "
 
 ### Picture (`image_url`)
 
-Every runtime bundle, every catalogue row and every class entry has an `image_url`: an https URL for the bike picker, or `null`, in which case the picker shows a class silhouette. The picture comes from the data file's top-level `image`. It needs a source like any other value, and a credit if the publisher asks for one:
+Every runtime bundle, every catalogue row and every class entry has an `image_url`: an https URL for the bike picker, or `null` until a picture is sourced, in which case the picker shows a class silhouette. To add one, give the data file an optional top-level `image`. It needs a source like any other value, and a credit if the publisher asks for one:
 
 ```json
 "image": { "url": "https://…/hunter-350.webp", "src": "re-hunter-spec-2026", "credit": "Royal Enfield" }
 ```
 
 The validator rejects an http URL (an http image is blocked inside the app, whose pages are https), a `src` that isn't in `sources[]`, and unknown keys. Manufacturer photos are usually copyrighted: use pictures you're licensed to use, ideally hosted on your own CDN.
-
-**The picture rule: every variant needs a picture.** `validateCatalog` fails the build (`picture_required`) for a variant without `image.url`. A bike in the catalogue never falls back to the class silhouette.
-- **Exempt:** only the variants on `PICTURE_GRANDFATHERED` in `public/js/bikedb/bundle-contract.js`, a frozen list of the 25 bikes that were here before the rule. Their pictures haven't been sourced yet, and no URL is invented to fill the gap.
-- **The list only shrinks.** When one of them gets its `image`, the validator warns (`picture_grandfathered`) until it's taken off.
-- **Class defaults** are the silhouettes and need no picture.
-- **`pending/` files** are never shipped, so the rule doesn't apply to them.
-- **The bike curator's admin API** (`lib/bikedb/admin-api.js`) enforces the same rule on every approve, with no exemptions: a bike without a picture goes to `pending/`, never `variants/`.
 
 ### What the validator rejects
 
@@ -241,17 +223,6 @@ Every powertrain × segment class has one default, so a search never comes back 
 - Defaults use `class_prior` sources (confidence ≤ 0.5) and carry the **full prior set**: drag area, rolling resistance, drivetrain and engine efficiency, friction terms, redline factor, and EV motor and regeneration efficiency.
 - Variants inherit any prior they don't set (`resolvePriors()`).
 - Defaults are never used for fuel advice.
-
-## Fleet calibrations (`calibration/`, roadmap Step 11)
-
-`npm run bikes:calibrate -- --write` writes `calibration/<class-key>.json` for a petrol class when riders' shared fill-ups predict their tanks better than today's priors. Review it like any other data change:
-
-- **`basedOn`**: the class default's priors the fit started from. If you edit those priors, the proposal goes stale: the build skips it with a warning until the fleet is re-fitted.
-- **`priors`**: the proposed drag area, rolling resistance, indicated efficiency and friction MEP A, in the files' units, with their new ±σ and confidence.
-- **`overhead`**: everyday riding versus steady flat-road physics. It ships in the bundles (`calibration.overhead`) and SmartDrive's baseline uses it.
-- **`evidence`**: tanks, riders, km, litres, the noise, and the held-out riders' error before and after.
-
-The build writes the proposal into the class default with `src: "fleet-calibration"` and a note giving the old value, and adds a `derived` source with the evidence. It never edits the class-default file itself. To undo a calibration, delete its file and rebuild. The source id `fleet-calibration` is reserved for this. Calibrations change priors only; the fuel advice rule below is unaffected.
 
 ## Adding a bike
 

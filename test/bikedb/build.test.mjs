@@ -157,17 +157,9 @@ test("a bundle is strict SI: every quantity converted, the published figure kept
 });
 
 test("image_url is on every bundle and catalogue row: null until a picture is sourced, the file's https URL when it is", () => {
-    for (const b of art.bundles) {
-        assert.ok("image_url" in b.runtime, b.id);
-        assert.equal(b.runtime.image_url, b.runtime.image?.url ?? null, b.id);
-    }
+    for (const b of art.bundles) assert.ok("image_url" in b.runtime && b.runtime.image_url === null, b.id);
     const c = JSON.parse(art.catalog.bytes);
-    const catRows = Search.readCatalog(c).rows;
-    for (let i = 0; i < catRows.length; i++) {
-        const r = catRows[i];
-        const b = art.bundles.find((x) => x.id === r.id);
-        assert.equal(c.columns.image_url[i], b.runtime.image_url);
-    }
+    assert.ok(c.columns.image_url.every((x) => x === null));
     assert.ok(c.classes.every((x) => x.image_url === null));
     // With a sourced picture:
     const entries = catalog.entries.map((e) => {
@@ -262,7 +254,7 @@ test("catalog.json: within budget, readable by the app, every row pointing at it
             [b.identity.make, b.identity.model, b.identity.variant ?? null, b.identity.market, b.identity.yearFrom, b.identity.yearTo, b.classKey, b.identity.aliases]);
         if (b.powertrain === "ev") { assert.equal(r.sizeUnit, "J"); assert.equal(r.size, Contract.toSI(b.battery.grossCapacity.v, "kWh")); }
         else { assert.equal(r.sizeUnit, "m3"); assert.equal(r.size, Contract.toSI(b.engine.displacement.v, "cm3")); }
-        assert.equal(r.image_url, b.image?.url ?? null);
+        assert.equal(r.image_url, null);
     }
     // The catalogue version is the hash of everything else in it.
     const { version, ...body } = JSON.parse(art.catalog.bytes);

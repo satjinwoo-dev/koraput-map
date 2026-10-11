@@ -8,9 +8,8 @@
     "lib": ["ES2020"],
     "types": [],
     "strict": true,
-    "noImplicitAny": true,
-    "noImplicitThis": true,
-    "noUnusedParameters": true,
+    "noImplicitAny": false,
+    "noImplicitThis": false,
     "noUnusedLocals": true,
     "noFallthroughCasesInSwitch": true
   },

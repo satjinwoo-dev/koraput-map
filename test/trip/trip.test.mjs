@@ -398,11 +398,7 @@ test("sw.js precaches every script and stylesheet garage.html, index.html and th
     const pre = new Set(vm.runInContext("[...REQUIRED_PRECACHE, ...OPTIONAL_PRECACHE]", ctx));
     const pages = vm.runInContext("OFFLINE_PAGES", ctx);
     assert.equal(pages["/garage.html"], "/garage.html");
-    // /bikedb/ is routed into the garage's own cache: catalog.json network-first (fresh whenever
-    // online, which the store relies on), bundles cache-first and hash-checked (test/sw/sw.test.mjs)
-    assert.ok(!vm.runInContext("NEVER_INTERCEPT_PATHS", ctx).includes("/bikedb/"));
-    assert.equal(vm.runInContext("BIKEDB_CACHE", ctx), "mu-bikedb-v1");
-    assert.equal(vm.runInContext("BIKEDB_CATALOG", ctx), "/bikedb/catalog.json");
+    assert.ok(vm.runInContext("NEVER_INTERCEPT_PATHS", ctx).includes("/bikedb/"));
     assert.match(vm.runInContext("VERSION", ctx), /^mu-2026-\d\d-\d\d\.\d+$/);   // bumped on every release
     const local = (src) => "/" + src.replace(/^\.?\//, "").split("?")[0];
     const refs = (html) => [...html.matchAll(/<(?:script[^>]*\ssrc|link[^>]*rel="stylesheet"[^>]*\shref)="([^"]+)"/g)].map((m) => m[1]).filter((u) => !/^(https?:)?\/\//.test(u) && !u.startsWith("/socket.io/"));

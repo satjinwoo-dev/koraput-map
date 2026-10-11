@@ -155,7 +155,7 @@ const PrivacyControls = {
     async clearHistory() {
         const { ok, checked } = await confirmDialog({
             title: "Clear your history?",
-            body: "This permanently deletes your trips, breadcrumbs, memories, geofences and chat messages from this server, any fill-ups you shared anonymously, and on this phone your ride summaries, fill-up log and the fuel curve learned from it, and saved route data. It cannot be undone.",
+            body: "This permanently deletes your trips, breadcrumbs, memories, geofences and chat messages from this server. It cannot be undone.",
             okLabel: "Delete everything", cancelLabel: "Cancel", danger: true,
             checkboxLabel: "Also remove my device identity and leave my circles (you'll appear as a new rider next time)"
         });
@@ -171,10 +171,6 @@ const PrivacyControls = {
             DeadReckoning.clearLocal();        // Phase 4: the GPS-outage log is location history too
             PlaceRecall.clearLocal();          // Batch 2: cached "been here before" answers
             try { if (window.caches) caches.delete("mapunite-media-v1"); } catch (e) { /* no Cache API */ }   // offline copies of photos
-            // Step 10: ride summaries, the fuel learner's log, route caches, and the tanks shared anonymously
-            if (window.MURides && window.MURides.app) window.MURides.app.clearAll().then((r) => {
-                if (r && r.sharedPending) showToast("Your shared fill-ups will be erased from the server once you're back online.", 6000);
-            }, (e) => console.warn("[rides] clear:", e));
             if (checked) DeviceIdentity.resetAfterRejection();
             const parts = [`${res.tripsDeleted} trip(s)`, `${res.memoriesDeleted} memor${res.memoriesDeleted === 1 ? "y" : "ies"}`, `${res.geofencesDeleted} geofence(s)`];
             if (Number.isFinite(res.chatDeleted)) parts.push(`${res.chatDeleted} message(s)`);

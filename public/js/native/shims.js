@@ -14,6 +14,8 @@
          -> @capacitor-community/speech-recognition (voice commands)
      navigator.bluetooth (requestDevice, getDevices, GATT read/write/notify)
          -> @capacitor-community/bluetooth-le     (Meshtastic radio link)
+     navigator.wakeLock, navigator.share
+         -> MapUniteNative (native/android/MapUniteNativePlugin.java)
 
    The plugins' own browser bundles (dist/plugin.js) are copied to www/vendor/
    and expose capacitorTextToSpeech, capacitorSpeechRecognition and
@@ -197,6 +199,15 @@
                     device: dev, connected: false,
                     async connect() {
                         await init();
+                        // Meshtastic radios with a PIN need an Android bond before
+                        // their encrypted characteristics can be read (Chrome does
+                        // this for Web Bluetooth; bluetooth-le leaves it to us).
+                        // Android shows its pairing dialog — the PIN is on the
+                        // radio's screen (default 123456). Already bonded: no-op.
+                        if (typeof BLE.isBonded === "function" && typeof BLE.createBond === "function") {
+                            try { if (!(await BLE.isBonded(dev.id))) await BLE.createBond(dev.id, { timeout: 60000 }); }
+                            catch (e) { console.warn("[native] radio pairing:", e && e.message); }   // "No PIN" radios connect anyway
+                        }
                         await BLE.connect(dev.id, () => {
                             dev.gatt.connected = false;
                             dev.dispatchEvent({ type: "gattserverdisconnected", target: dev });
@@ -248,5 +259,45 @@
             }
         };
         Object.defineProperty(navigator, "bluetooth", { value: bluetooth, configurable: true });
+    }
+
+    // ------------------------------------------------------------------
+    // 4. Screen Wake Lock + Web Share -> MapUniteNative (our own plugin)
+    // ------------------------------------------------------------------
+    // The WebView has neither a working navigator.wakeLock (the ride screen
+    // would dim and lock) nor navigator.share (invites fall back to copying).
+    const Native = typeof core.registerPlugin === "function" ? core.registerPlugin("MapUniteNative") : null;
+    if (Native) {
+        const holders = new Set();
+        const apply = () => Native.keepAwake({ on: holders.size > 0 }).catch(() => { /* older native build */ });
+        class NativeWakeLockSentinel {
+            constructor() { this.type = "screen"; this.released = false; this.onrelease = null; this._l = []; }
+            async release() {
+                if (this.released) return;
+                this.released = true;
+                holders.delete(this);
+                await apply();
+                const ev = { type: "release", target: this };
+                if (typeof this.onrelease === "function") { try { this.onrelease(ev); } catch (e) { /* ignore */ } }
+                this._l.forEach((fn) => { try { fn(ev); } catch (e) { /* ignore */ } });
+            }
+            addEventListener(type, fn) { if (type === "release") this._l.push(fn); }
+            removeEventListener(type, fn) { this._l = this._l.filter((f) => f !== fn); }
+        }
+        const wakeLock = {
+            async request(type) {
+                if (type && type !== "screen") { const e = new Error("Only 'screen' is supported"); e.name = "NotSupportedError"; throw e; }
+                const s = new NativeWakeLockSentinel();
+                holders.add(s);
+                await apply();
+                return s;
+            }
+        };
+        Object.defineProperty(navigator, "wakeLock", { value: wakeLock, configurable: true });
+        Object.defineProperty(navigator, "share", {
+            configurable: true, writable: true,
+            value: (data) => Native.share({ title: (data && data.title) || "", text: (data && data.text) || "", url: (data && data.url) || "" })
+                .catch((e) => { const err = new Error((e && e.message) || "Share failed"); err.name = "AbortError"; throw err; })
+        });
     }
 })();

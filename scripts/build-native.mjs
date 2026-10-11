@@ -73,7 +73,9 @@ const VENDOR = [
     { from: "@capgo/background-geolocation/dist/plugin.js", to: "background-geolocation.js", required: true },
     { from: "@capacitor-community/bluetooth-le/dist/plugin.js", to: "bluetooth-le.js", required: true },
     { from: "@capacitor-community/text-to-speech/dist/plugin.js", to: "text-to-speech.js", required: true },
-    { from: "@capacitor-community/speech-recognition/dist/plugin.js", to: "speech-recognition.js", required: false }
+    { from: "@capacitor-community/speech-recognition/dist/plugin.js", to: "speech-recognition.js", required: false, why: "voice commands and ask-before-tips stay off in the app" },
+    // Master AI fatigue check: photo fallback when the WebView has no live camera (the live check needs no plugin)
+    { from: "@capacitor/camera/dist/plugin.js", to: "camera.js", required: false, why: "the fatigue check uses the live camera only, no photo fallback" }
 ];
 // The Socket.IO client that matches the server (same package, same version).
 const SOCKET_CLIENT = ["socket.io/client-dist/socket.io.min.js", "socket.io-client/dist/socket.io.min.js"];
@@ -200,7 +202,7 @@ for (const v of VENDOR) {
     const src = findModuleFile(v.from);
     if (!src) {
         if (v.required) fail(`missing node_modules/${v.from} — run the npm install step from ANDROID.md`);
-        console.warn(`build-native: optional ${v.from} not installed — skipping (voice commands stay off in the app)`);
+        console.warn(`build-native: optional ${v.from} not installed — skipping (${v.why || "that feature stays off in the app"})`);
         continue;
     }
     fs.copyFileSync(src, path.join(vendorDir, v.to));
@@ -232,15 +234,6 @@ replaceOnce(`<script src="js/boot.js?v=${version}"></script>`,
     `<script src="js/boot.js?v=${version}"></script>\n<script src="js/native/bridge.js?v=${version}"></script>`,
     "boot.js tag");
 fs.writeFileSync(htmlPath, html);
-
-// ---- 3b. garage.html (My bike): point its Step 5 API calls at the server --------
-const garagePath = path.join(WWW, "garage.html");
-if (fs.existsSync(garagePath)) {
-    const g = fs.readFileSync(garagePath, "utf8");
-    const anchor = '<script src="js/bikedb/catalog-search.js"></script>';
-    if (g.split(anchor).length !== 2) fail(`garage.html: expected exactly one ${anchor}`);
-    fs.writeFileSync(garagePath, g.replace(anchor, `<script>window.MU_GARAGE_API = ${jsonForScript(origin)};</script>\n${anchor}`));
-}
 
 fs.writeFileSync(path.join(WWW, "native-build.json"), JSON.stringify({ origin, appOrigin, version, builtAt: new Date().toISOString(), vendor: vendorTags.length, check }, null, 2));
 const settings = check.config === "server" ? "settings from server" : "default settings";

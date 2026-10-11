@@ -4,7 +4,7 @@
    "Delete my history" (roadmap step 10, view)
    ==============================================================================
    createConsentDialog(root, deps) → { open(), close() }
-     Opt-in to FLEET.md (anonymous full-tank records, POST /api/bikes/fillups). Plain words first (what's shared / never shared, with
+     Opt-in to FLEET.md v1. Plain words first (what's shared / never shared, with
      one real example from the rider's own tanks), the exact JSON payload one tap
      away, two equal buttons, nothing pre-ticked. Once on: what's been shared and
      "Stop sharing and delete".
@@ -27,17 +27,17 @@
 
     /**
      * One tank in words (the consent screen's example). Pure.
-     * @param {any} t a tank as POST /api/bikes/fillups takes it (FLEET.md): km, litres, idleH,
-     *   hist (km per 5 km/h bin), massKg, fuelCode @param {any} U units
+     * @param {any} t FLEET tank @param {any} U units
      */
     function tankInWords(t, U) {
-        const hist = Array.isArray(t.hist) ? t.hist : [];
-        const sum = hist.reduce((a, x) => a + (Number(x) || 0), 0) || 1;
-        const band = (a, b) => Math.round((hist.slice(a, b).reduce((x, y) => x + (Number(y) || 0), 0) / sum) * 100);   // bins are 5 km/h wide
+        const [y, m] = String(t.month).split("-").map(Number);
+        const month = new Date(y, (m || 1) - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+        const share = (t.bandShare || []).map((x) => Math.round(x * 100));
         return {
-            line: `${U.num(t.km, 0)} km on ${U.num(t.litres, 2)} L`,
-            bands: `${band(0, 8)} % under 40 km/h · ${band(8, 12)} % at 40–60 · ${band(12, 16)} % at 60–80 · ${band(16, 40)} % over 80`,
-            idle: `${Math.round((Number(t.idleH) || 0) * 60)} min idling · ${t.massKg} kg on the bike · ${t.fuelCode}`
+            month,
+            line: `${U.num(t.distance / 1000, 0)} km on ${U.num(t.fuel * 1000, 2)} L`,
+            bands: `${share[0]} % under 40 km/h · ${share[1]} % at 40–60 · ${share[2]} % at 60–80 · ${share[3]} % over 80`,
+            idle: `${Math.round(t.idleTime / 60)} min idling · ${t.trips} ride${t.trips === 1 ? "" : "s"}`
         };
     }
 
@@ -97,20 +97,21 @@
                     h("section", { class: "cst-col is-yes", "aria-labelledby": "cst-yes-h" }, [h("h3", { id: "cst-yes-h", text: "What's shared" }), h("ul", {}, [
                         item(ICON.check, "", "Your bike model", bike || undefined),
                         item(ICON.check, "", "Each full tank: distance and litres"),
-                        item(ICON.check, "", "How far you rode in each 5 km/h speed range"),
-                        item(ICON.check, "", "Idling time, the fuel grade, and the weight on the bike (rounded to 5 kg)")
+                        item(ICON.check, "", "How much was below 40, 40–60, 60–80, over 80 km/h"),
+                        item(ICON.check, "", "Idling time and number of rides"),
+                        item(ICON.check, "", "The month, nothing finer")
                     ])]),
                     h("section", { class: "cst-col is-no", "aria-labelledby": "cst-no-h" }, [h("h3", { id: "cst-no-h", text: "Never shared" }), h("ul", {}, [
                         item(ICON.no, "", "Where you ride, routes or GPS"),
-                        item(ICON.no, "", "Dates or times of day: not even the month"),
+                        item(ICON.no, "", "Dates or times of day"),
                         item(ICON.no, "", "Your name, number, account or friends"),
                         item(ICON.no, "", "Prices you pay"),
                         item(ICON.no, "", "Anything about your rides beyond the tanks")
                     ])])
                 ]),
-                ex ? h("figure", { class: "cst-example" }, [h("figcaption", { text: "Your latest tank, as it would be sent" }), h("strong", { text: ex.line }), h("span", { text: ex.bands }), h("span", { text: ex.idle })]) : h("p", { class: "cst-example is-empty", text: "Nothing to share yet: tanks count once you've logged two full fill-ups (with the odometer) and rides in between." }),
-                h("details", { class: "cst-json" }, [h("summary", { text: "See exactly what's sent" }), h("pre", { tabindex: "0", text: preview ? `${preview.request}${preview.authorization ? `\nAuthorization: ${preview.authorization}` : ""}\n\n${JSON.stringify(preview.body, null, 2)}` : "(nothing yet)" })]),
-                h("p", { class: "cst-fine", text: "Sent to the MapUnite server with a random ID made on this phone, which the server keeps only as a keyed hash, not linked to your account. A bike's numbers change only after at least 5 riders' tanks agree, and only after a person reviews the change. Turn it off any time in Ride summaries: that deletes everything you've shared. Kept for up to 24 months. (FLEET.md)" }),
+                ex ? h("figure", { class: "cst-example" }, [h("figcaption", { text: `Your latest tank, as it would be sent (${ex.month})` }), h("strong", { text: ex.line }), h("span", { text: ex.bands }), h("span", { text: ex.idle })]) : h("p", { class: "cst-example is-empty", text: "Nothing to share yet: tanks count once you've logged two full fill-ups with rides in between." }),
+                h("details", { class: "cst-json" }, [h("summary", { text: "See exactly what's sent" }), h("pre", { tabindex: "0", text: preview ? `${preview.request}\nAuthorization: ${preview.authorization}\n\n${JSON.stringify(preview.body, null, 2)}` : "(nothing yet)" })]),
+                h("p", { class: "cst-fine", text: "Sent to the MapUnite server under a random ID made on this phone, not linked to your account. Nothing is published for a bike until at least 5 riders have shared. Turn it off any time in Ride summaries: that deletes everything you've shared. Kept for up to 24 months. (FLEET.md v1)" }),
                 h("div", { class: "cst-actions" }, [no, yes]),
                 status
             );

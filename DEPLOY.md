@@ -75,8 +75,6 @@ On Render, or anywhere with an ephemeral disk: the persistent disk must hold **b
 | `NODE_ID` | host-pid-random | This process's name in the cluster |
 | `STICKY_SESSIONS` | — | Set to `1` if your load balancer pins clients to one process |
 | `NATIVE_APP_ORIGINS` | `https://localhost,capacitor://localhost` | Android app origins allowed in addition to `CORS_ORIGIN` (see `ANDROID.md`); empty turns app access off |
-| `ADMIN_TOKEN` | — | Bearer token for the bike curator's admin API (`/api/admin`, `public/admin/curator.html`). At least 16 characters; unset = the admin API doesn't exist (404). Use a long random value (`openssl rand -hex 32`) and keep it out of the repo |
-| `BIKES_DATA_DIR` | `./data/bikes` | The curated bike files the curator's **Approve** writes into (and rebuilds from) |
 
 `OSRM_BASE_URL`, `OVERPASS_URL`, `TRIP_RETENTION_DAYS` and the rest are unchanged.
 
@@ -88,98 +86,7 @@ The bike catalogue is built from `data/bikes/` and isn't committed, so run the b
 node scripts/build-bike-catalog.mjs        # writes public/bikedb/ and build/bikedb/bikes.sqlite
 ```
 
-It uses `better-sqlite3`, which the server already depends on, or Node 22.5+'s built-in `node:sqlite`. It refuses to write anything if a bike file doesn't validate. `node scripts/build-native.mjs` rebuilds `public/bikedb/` by itself before packaging the Android app. See `data/bikes/README.md` for details.
-
-The running server picks up a rebuilt `bikes.sqlite` by itself within 5 seconds: no restart needed on Linux or macOS. On Windows, stop the server first, because a running process holding `bikes.sqlite` open blocks the replacement. If the file is missing or from an incompatible build, the server still starts. `/api/bikes/search` and `/api/bikes/bundles/…` then answer 503 until a valid build appears, and `/healthz` shows `"bikes": { "available": false }`. Set `BIKES_DB_PATH` if the file lives somewhere other than `build/bikedb/bikes.sqlite`.
-
-### My bike in the app (Step 7)
-
-- **Where riders find it:** Settings → **My bike** opens the garage in a sheet over the map. It never navigates away, so the convoy connection stays up.
-- **What it changes:** once a rider picks their bike, SmartDrive's fuel numbers come from that bike's physics instead of the fixed 18 km/L. That covers trip fuel, the efficient-drive comparison and the km/L shared for meetup costing. Fill-ups then refine it.
-- **No bike:** riders who don't pick a bike see no change.
-- **Service worker:** the release bumps the version to `mu-2026-10-03.15`.
-  - It precaches My bike, the bike list and the typical-bike data, and the Socket.IO client library, so the app also opens offline.
-  - Bike data lives in its own cache (`mu-bikedb-v1`), which survives releases.
-- **Testing in a browser:** `node scripts/e2e/garage-offline.mjs` runs the flows in headless Chromium against a local `server.js`. It needs Playwright.
-
-### Bike catalogue API
-
-The server reads `bikes.sqlite` read-only and serves it under `/api/bikes` (`lib/bikedb/http-api.js`):
-
-| Route | What it does |
-|---|---|
-| `GET /api/bikes/search?q=royal+enf&limit=20` | FTS5 search. It uses the same tokeniser and ranking as the app's offline search over `catalog.json`, so both return the same bikes in the same order. Results carry `bundle` (the content hash), `image_url` and the SI `size`; the answer carries `catalogVersion`. |
-| `GET /api/bikes/bundles/<hash>` | A runtime bundle, byte-identical to `public/bikedb/bundles/<hash>.json`. Cached for a year (`immutable`), and `If-None-Match` gets a 304. |
-| `GET /api/bikes/bundles/<bike-id>` | The same bytes by bike id, cached for 5 minutes. `Content-Location` names the hash URL. |
-| `POST /api/bikes/requests` | `{"make", "model", "variant"?, "market"?, "year"?, "powertrain"?, "note"?}` (JSON, at most 4 KB). A bike that's already listed comes back as `{"status": "listed", "matches": […]}`. Otherwise the request is queued (202), or a vote is added to the same request. Send `"force": true` when the rider says the listed bike isn't theirs. |
-| `GET /api/bikes/status` | Catalogue version, number of variants and bundles. |
-| `POST /api/bikes/fillups`, `POST /api/bikes/fillups/mine`, `DELETE /api/bikes/fillups` | Anonymous full-to-full tanks from riders who opted in (roadmap Step 11), what a contributor token sent, and deleting it. See `FLEET.md`. |
-| `GET /api/bikes/calibration`, `GET /api/bikes/calibration/<class-key>` | Per-class fleet data and the latest fit, for the Fuel Learner dashboard. |
-
-- **Android app.** The page origin `https://localhost` calls the API cross-origin. The routes answer allowed origins with CORS, using the same list as Socket.IO: `CORS_ORIGIN` plus `NATIVE_APP_ORIGINS`. That includes the preflight for the JSON POST. A POST from any other site is refused with 403. `public/js/bikedb/bike-api.js` is the client for the website and the app. It searches the server first and falls back to `catalog.json` offline. It loads bundles from the copy shipped with the page or APK first, then from the server.
-- **Rate limits.** The bike routes have their own limits: search 240/min, bundles 600/min and requests 20/hour per IP. They don't count against `HTTP_RATE_LIMIT_MAX`, because type-ahead sends one search per keystroke.
-- **Requests for missing bikes** are stored in the server's own database (`DB_PATH`), not in `bikes.sqlite`. The queue keeps one row per bike and counts one vote per requester. Requesters are an HMAC pseudonym from `SERVER_SECRET`; IP addresses are never stored. A request is only a name: a curator researches the bike into `data/bikes/` like any other bike. List the queue with `npm run bikes:requests` (`DB_PATH=… npm run bikes:requests -- --set <id> researching|added|rejected` changes a status).
-
-### Fleet calibration (roadmap Step 11)
-
-`FLEET.md` has the full contract. For the server:
-
-- **Storage.** Tanks live in the server's own database (`DB_PATH`), in the `fleet_tank` and `fleet_fit` tables, created on first use, never in `bikes.sqlite`.
-- **Privacy.** Contributors are an HMAC of the app's random token under `SERVER_SECRET`. No location, times or IP addresses are stored, only the day a tank arrived. Tanks older than 730 days are purged on every calibration run (`FLEET_RETENTION_DAYS`).
-- **Rate limits.** The new routes have their own limits: fill-ups 30/hour, calibration reads 120/minute per IP.
-- **Fitting.** Run `DB_PATH=… npm run bikes:calibrate` (for example nightly from cron) from a checkout of the deployed commit. It fits every class with tanks and stores the results the dashboard reads. It changes nothing riders see.
-- **Service worker.** The release bumps the version to `mu-2026-10-04.2`. It precaches the Fuel learner dashboard and the convoy pitstop planner, plus the roadmap Steps 8–10 scripts (`js/advice/`, `js/rides/`, `js/trip/structures.js`), and picks up the changed core, voice, navigation, SmartDrive, privacy and trip scripts.
-- **Fuel learner dashboard and convoy pitstop planner.** These are the Web Architect's screens; see `public/js/insights/README.md` and `public/js/pitstop/README.md`.
-  - **CSP.** The planner looks up fuel pumps and chargers along a group route from OpenStreetMap, so `connect-src` now includes `https://overpass-api.de`. Only route coordinates are sent.
-  - **Convoy relay.** Riders share their bike from My bike and the fuel or charge level they set (`setFuelShare`). The server validates it and relays it only to their trip-mates, inside `tripFuelProfiles`.
-- **Shipping a calibration.** Run `npm run bikes:calibrate -- --write`. It writes `data/bikes/calibration/<class-key>.json` for each class that passed every check. Review and commit it, then rebuild the catalogue and deploy as usual. The rebuilt bundles carry the new priors and the real-riding overhead; the server picks up the new `bikes.sqlite` within 5 seconds, and phones get the new bundles through the catalogue.
-
-### Riding advice, route gradients and ride summaries (roadmap Steps 8–10)
-
-These run on the phone; the server only stores the anonymous tanks of riders who opt in (above).
-
-- **Step 8: the advice layer and its safety gate** (`public/js/advice/`).
-  - **What it says.** Economy advice from the rider's bike in My bike, for example "Easing to 60 would use about 12 percent less fuel". It only ever suggests easing off, by 15 km/h at most, never to a speed above the posted limit (`SpeedLimits`), and says nothing at all over the limit, where the speed alerts take over. Without a bike it stays silent.
-  - **When it holds.** The gate holds advice:
-    - while cornering, from the gyroscope, the GPS heading or the route's curvature, and with a tight bend ahead;
-    - for 30 s after hard braking;
-    - on a wet road, and for 30 minutes after the last wet weather report;
-    - when the speed isn't steady, near a navigation turn, on a weak GPS fix, and below 15 km/h;
-    - for 3 minutes after any advice, and 10 minutes before the same advice again.
-  - **Quiet ride.** The rider can switch advice off by saying "quiet ride" or "coaching off" (`MUAdvice.app.setQuiet`). Safety alerts never pass through the gate.
-  - **Voice.** Advice goes through `VoiceAssistant` at priority 30, below every navigation, convoy and safety cue, with the new `dropIfBusy` option: if anything else is speaking or queued, the advice is dropped instead of waiting.
-- **Step 9: gradients from elevation** (`public/js/trip/structures.js`).
-  - **Already there:** the planned route's heights come from Open-Meteo's elevation API, cached offline (`js/trip/elevation.js`).
-  - **New:** bridges and tunnels are now held at a straight grade from one end to the other. Their positions come from OpenStreetMap (one Overpass query per route, cached 30 days), or, where OSM has nothing, from the DEM's own tell-tale dips and humps. A 30 m gully under a bridge no longer costs a phantom descent and climb.
-- **Step 10: ride summaries and privacy** (`public/js/rides/`).
-  - **What's stored.** Every ride leaves a summary on the phone: distance and time per speed band and per 5 km/h, moving and idle time, coasting (an estimate from GPS speed), hard braking, the fill-ups logged during the ride, the fuel estimate, the nearest town, and the route simplified to ≤ 160 points for the ride's own drawing and share card. None of it is uploaded. At most 400 rides or 365 days are kept (`MURides.app.summaries()`).
-  - **Opt-in upload.** Sharing the anonymous tanks is off until the app's consent screen calls `MURides.app.optIn()`. Opting out (`optOut()`) erases them on the server.
-  - **Clear my history** now also deletes:
-    - the ride summaries;
-    - the fuel learner's fill-up log and rides, and the curve learned from them;
-    - the convoy levels typed in;
-    - the cached route heights, bridges and fuel stations;
-    - and, on the server, every tank this phone shared. If the phone is offline, the server erasure is retried until the server confirms it.
-
-### The screens for Steps 8–11 (the Web Architect's UI, wired to the backend above)
-
-There's one backend for each feature. The screens read it and drive it; none has a second copy of its rules.
-
-- **Advice badge and settings** (`js/advice/advice-ui.js`, `conditions.js`, `overlay.js`). Live road conditions (Open-Meteo, the position rounded to ~5 km, only while riding) give an **advised** speed under the limit sign, always below the posted limit and never presented as a legal one. A wet road is handed to the gate, so tips are held there too. Quiet ride is the gate's one setting, whether it's switched from settings, the badge or the HUD. The CSP already allows `api.open-meteo.com`.
-- **Gradient sheet** (`js/gradient/`). "Gradient & bridges" under the trip card's elevation chart: the profile with steep climbs, every clamped bridge or tunnel, and a sections table. It reads the same `buildProfile` and the same OSM cache (`mu-trip-v1`) as the trip card, so the two never disagree.
-- **Ride dashboard, consent and Delete my history** (`js/rides/ride-model.js`, `rides-ui.js`, `consent-ui.js`). Settings → Ride summaries, or **All rides** in the trip summary. The consent screen shows the rider's own latest tank and the exact request `POST /api/bikes/fillups` would carry, with the token redacted. "Delete my history" lets the rider pick what to erase.
-- **Live HUD** (`js/hud/`) while navigating or on a SmartDrive trip: live km/L (or Wh/km), the cost so far, the eco band on a speed scale with the posted limit and the advised speed, and the next fuel or charge stop. The grade under you comes from the gradient sheet's fixed profile. At the end of a ride its physics totals are merged into the ride's summary (`mu:ride-summary`).
-- **Share card** (`js/share/`): after a ride of 1 km or more, or from **Share** in the trip summary, an image card with the route shape (the first and last 400 m cut off by default), eco score, distance, mileage, cost and moving time. It's drawn on a canvas on the phone with no map tiles; nothing is uploaded.
-- **Service worker.** The version is now `mu-2026-10-04.4`. All of the above is precached; the bike curator isn't (it's an admin page).
-
-### Bike curator (admin)
-
-`/admin/curator.html` (not linked from the app, `noindex`) turns riders' "my bike isn't listed" requests into reviewed bike files. See `public/js/curator/README.md`.
-
-- **Turning it on.** Set `ADMIN_TOKEN` and restart. Without it, `/api/admin/*` answers 404. The page asks for the token and keeps it in `sessionStorage` for the tab only.
-- **Approve writes to disk.** An approved bike becomes `data/bikes/variants/<id>.json` (`BIKES_DATA_DIR`), and the server rebuilds the catalogue in a child process (`public/bikedb/`, `BIKES_DB_PATH`). The running server picks it up within 5 s. The server's user therefore needs write access to `data/bikes/`, `public/bikedb/` and the folder of `bikes.sqlite`. Commit `data/bikes/` from the server afterwards (or copy the file into your checkout): an approval that isn't committed is lost at the next deploy, which rebuilds from the repository.
-- **The picture rule.** An approved bike must have a picture: `image.url` (https) and the source that published it. The server checks this on every approve, whatever the browser sent. A bike without one is kept in `data/bikes/pending/` with the reasons and is never shipped. The catalogue build also refuses any variant without a picture, except the 25 older bikes on the frozen `PICTURE_GRANDFATHERED` list in `public/js/bikedb/bundle-contract.js`. Their pictures haven't been sourced yet; the list can only shrink.
-- **Several processes.** Approve rebuilds on the process that received it; the other processes pick up the new `bikes.sqlite` within 5 s if they share the folder. With several machines, curate on one and deploy the commit.
+It uses `better-sqlite3`, which the server already depends on, or Node 22.5+'s built-in `node:sqlite`. It refuses to write anything if a bike file doesn't validate. Stop the server first on Windows, because a running process holding `bikes.sqlite` open blocks the replacement. `node scripts/build-native.mjs` rebuilds `public/bikedb/` by itself before packaging the Android app. See `data/bikes/README.md` for details.
 
 ## 3. The features (what riders see)
 

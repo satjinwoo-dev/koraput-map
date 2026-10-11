@@ -1,0 +1,1038 @@
+{
+ "generatedAt": "2026-10-11T01:57:58.347Z",
+ "latestBatch": "batch-catchup",
+ "files": {
+  "ANDROID.md": {
+   "sha256": "12fd9dcc755e27f2cf9bac2fd5e254a1ef6b72a86617aab9275fceff9359081a",
+   "batch": "perception-p1-native"
+  },
+  "DEPLOY.md": {
+   "sha256": "6719a77aff5ae6b295fb171436beda4dda06b60edb00d0a59d0a7dfe2058b2af",
+   "batch": "bikedb-step3"
+  },
+  "FLEET.md": {
+   "sha256": "ec1e68b3728e7e635e37a00c135bf04abf03c35e9498e33c466e059d4710413c",
+   "batch": "advice-gradient-rides-roadmap8-10"
+  },
+  "capacitor.config.json": {
+   "sha256": "663ac31ceb91ee1139718f9c20ed995dab239c6e637d118f9c532f70d22757b4",
+   "batch": "android"
+  },
+  "data/bikes/README.md": {
+   "sha256": "b67e5bddf0e0e441de852923d8118f7c8259e7a93a05f4e9350ee1f197e6dc23",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/class-defaults/default-ev-commuter.json": {
+   "sha256": "fc2ef4b5e45a15746d51cc713b60e93f42a8eca89f113de6383beda79dd21c83",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/class-defaults/default-ev-scooter.json": {
+   "sha256": "89bdcead2a1fcc6cb155ec3a3f5b7b4f5ef1094dd662448b6afbd237584eb9a4",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/class-defaults/default-ev-sport.json": {
+   "sha256": "dd1c9952f32accf8a82f3c585bf608e4fdb58c22e170366de9b5f50549c01b7a",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/class-defaults/default-ice-cvt-maxi-scooter.json": {
+   "sha256": "94bbcb25450a9b437fadb10c59c244e7b5f180fe5c90a9b531dc48c766055f5f",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/class-defaults/default-ice-cvt-scooter.json": {
+   "sha256": "9e991e432000cec60c76c1d2ccb7d30224ce85f34dfb49cab794ce51c2c7a9a3",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/class-defaults/default-ice-manual-adventure.json": {
+   "sha256": "3079a1bb55935c6e00843757d991f40c14901bcaa273a21c13fa058be3d50b6e",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/class-defaults/default-ice-manual-commuter.json": {
+   "sha256": "d73f6adbf24e9124cc68fdfcf1b46bef0a7ba6d8db63b07c1ee56e6175b9e36c",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/class-defaults/default-ice-manual-cruiser.json": {
+   "sha256": "eb22293911ccf412a845731d0b26773ee33a9971c05f20ab6143108fe4e942b3",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/class-defaults/default-ice-manual-naked.json": {
+   "sha256": "49bb9141cc08760a00263a80c8d5e47ed29ca16a3890dc142694fb3365d3f327",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/class-defaults/default-ice-manual-sport.json": {
+   "sha256": "59486579fe27297505e305c5ebbc19c0c2c30fdae46157d281c86cebfe10187b",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/pending/ktm-390-duke-r-399cc-in.json": {
+   "sha256": "20ca5e1fd736be658841e62e11a1819e53f1e85c63bfe437d45dc256b067bfef",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/pending/suzuki-access-125-std-2025-in.json": {
+   "sha256": "7d13de5536a336fe10f28600628a4d7256e96b06871214743c31849a09f8f2cf",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/reference/emission-standards.json": {
+   "sha256": "76bf6e852e355000dec1c2ef64b717909aa9c15cde2985d2c20495a8ec420d7f",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/reference/fuel-grades.json": {
+   "sha256": "9e19936ff24207d8d666884030a20c9531a355277125fa96f2a30eef14eabed5",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/variants/ather-450x-2-9kwh-2025-in.json": {
+   "sha256": "9364d0cc2fe2edfb7d4158f56512e3c8379a5dc410983dade4e7e684b914a09c",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/variants/ather-450x-3-7kwh-2025-in.json": {
+   "sha256": "b1db9470dddd437a5a6be10451ee11361e9b19ff0f6880d585a001f26acd3507",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/variants/bajaj-chetak-c3501-in.json": {
+   "sha256": "1920065e69f3df0b2111276bfa4066ab3e4d0a00d3c7d61e9a95172b40b00de5",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/variants/bajaj-pulsar-150-single-disc-in.json": {
+   "sha256": "82e4c512eee5883c91d9972e1c9578b93327f8788d6f697f44f5599be25277ab",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/variants/bajaj-pulsar-n160-2v-twin-disc-in.json": {
+   "sha256": "cd1d6b70f9b6d9a05daa680b28152ca5118db5c4a9bae541d465eb86a79ecdb3",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/variants/bajaj-pulsar-ns200-dual-abs-in.json": {
+   "sha256": "9dbc37030f6d64aa381f73a8f2b29940928391ec83389696ba8bfd2a3ccadaa6",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/variants/hero-splendor-plus-obd2b-in.json": {
+   "sha256": "07d91ecb86aa5f63e0096199cf9fdfdd8c97d5528affd718dce142a4c953995f",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/variants/hero-xpulse-200-4v-std-in.json": {
+   "sha256": "fe48034e313b1cf226c6de8010a5e4073e9546139dbc0f8bef22f5060df7ebfa",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/variants/honda-activa-110-dlx-obd2b-in.json": {
+   "sha256": "986a5d7d5e5ab1fda776ba712a59b958766d72947a45cc5d015172f5c0239646",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/variants/honda-hness-cb350-dlx-in.json": {
+   "sha256": "cdf3b863198543314bb2cfadac19eb95401387e333bf3702234485613aac2ffc",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/variants/honda-shine-125-obd2b-in.json": {
+   "sha256": "1790ff927a9fe8e6a922515fe60f3ec183a5446887a731e7fb3d5e8c0be398f2",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/variants/ola-s1-pro-gen3-4kwh-in.json": {
+   "sha256": "cc30161e239b94831ebbc8334366ee61b86645704dbc3c49a5d364ac9e4014e1",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/variants/revolt-rv400-std-in.json": {
+   "sha256": "7be75b0770748aac78208a9fc14d24da9d4b76ff6c24fa461d79fe7b14134ae8",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/variants/royal-enfield-bullet-350-dual-abs-in.json": {
+   "sha256": "ea611efb290d71b9e430cafff6c8512e8db114d1d24c789912cd194460f439ae",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/variants/royal-enfield-classic-350-in.json": {
+   "sha256": "e9974e67bc5e2a78ccdb8d9a3eff3002f3cf54328785c809abfa8a9569e475f3",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/variants/royal-enfield-himalayan-450-in.json": {
+   "sha256": "b1550608a5758bfbe4450e4a3d2618873487df9985ff2e046b42884b3c4e0d49",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/variants/royal-enfield-hunter-350-metro-in.json": {
+   "sha256": "3b784ff450510c148514fb9c8209e85a27d2e492af473604c2534ba3f99708fa",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/variants/royal-enfield-meteor-350-in.json": {
+   "sha256": "082b42d79c34071719efdb0c9791a7953669d4e71f1debdd05ac11f9197615e9",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/variants/tvs-apache-rtr-160-4v-dual-abs-usd-in.json": {
+   "sha256": "c297bed3497e193817f613a79d0a5389a06e03ef40d507496306060a6e2d414d",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/variants/tvs-iqube-3-5kwh-in.json": {
+   "sha256": "a17149d9914d2beb8f97efa4f4c58f28fd5750b70967c4d5ea5e639f75f94522",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/variants/tvs-jupiter-110-disc-sxc-in.json": {
+   "sha256": "2691f16fc2632a3fe2f72ab2cad085aa2553aa791fd189eedc20c383a1cc06b6",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/variants/tvs-raider-125-split-seat-in.json": {
+   "sha256": "dbddb44dcf48b81ee386406bb066f83f86559ecdccce9057ddeccccfe04e5aec",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/variants/ultraviolette-f77-mach2-recon-in.json": {
+   "sha256": "55067e599b28baba0f54cab0da5c9e844201b8e8e0e1639544659c88ba351404",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/variants/yamaha-mt-15-v2-in.json": {
+   "sha256": "83a73c2087b1acff6857ed87a60e949dca14c8d7b01280716aab1da9c62da7e8",
+   "batch": "bikedb-step3"
+  },
+  "data/bikes/variants/yamaha-yzf-r15-v4-in.json": {
+   "sha256": "ba368848d4c484d3718c9a002831f5d26a6ef8fbcc0aa782ab179fcd29c52103",
+   "batch": "bikedb-step3"
+  },
+  "lib/bikedb/bundle.schema.json": {
+   "sha256": "8fdc879fdbe4ea24095e1b816fa7c486801443e3711528335bba0f7584166343",
+   "batch": "bikedb-step3"
+  },
+  "lib/bikedb/schema.sql": {
+   "sha256": "111258b1e22e512988f711d0f4b7e50fbd4deec3745aac88f99ef88d05984f8b",
+   "batch": "bikedb-step3"
+  },
+  "lib/cluster.js": {
+   "sha256": "4b973ba8edf46ba94fb4d9dbb4448f34c516055417095f08d1e6234f583b29a7",
+   "batch": "android"
+  },
+  "lib/fleet.js": {
+   "sha256": "ab7a09fa2fa45d975f5f4e8c37f85417c479105969200cb5ece34cc57b405ca1",
+   "batch": "advice-gradient-rides-roadmap8-10"
+  },
+  "lib/media.js": {
+   "sha256": "c2ddc93a169fdc325db11bc4e8db1a8873ac713b84d0adbaf1c8fffc846766a5",
+   "batch": "android"
+  },
+  "native/android/AndroidManifest.additions.xml": {
+   "sha256": "2fc953d27dfbf1173db8923962ea71e383ce6404fc87b23bc531d145dcee2639",
+   "batch": "master-vision-fatigue"
+  },
+  "native/android/MainActivity.java": {
+   "sha256": "21e4b8aa80c215002fe1968619b1d4fb484538748acaf2b6a5a77681d15d4c0c",
+   "batch": "perception-p1-native"
+  },
+  "native/android/MapUniteNativePlugin.java": {
+   "sha256": "76841df8303e9835dc96af7e7afec7091141dccf3a457efd53cb5c246c0d9fe5",
+   "batch": "android"
+  },
+  "native/android/perception-jvmtest/GenFrames.kt": {
+   "sha256": "d95556ed0497e6afcc83dd6e128993112334f064b5bd0eba30bef356efb35a50",
+   "batch": "perception-p1-native"
+  },
+  "native/android/perception/CameraPipeline.kt": {
+   "sha256": "078e80dccb0f20778c12a5e1d405a74e4a353e6c921b12c178599d1cec97033c",
+   "batch": "perception-p1-native"
+  },
+  "native/android/perception/DatasetRecorder.kt": {
+   "sha256": "6fda24473a8e6d4d8d12ee802aa48715f1ee9af35935468e61e3c693703e08b6",
+   "batch": "perception-p1-native"
+  },
+  "native/android/perception/FrameJson.kt": {
+   "sha256": "fc9e2d8034e3f8e25bdcaa5629d76bd1ba34c1bf48c616c6df7efc8350bc29b4",
+   "batch": "perception-p1-native"
+  },
+  "native/android/perception/FrameScheduler.kt": {
+   "sha256": "d1bf3bc066f887d04198560990e7877d028d07898303848868dc0db643020c50",
+   "batch": "perception-p1-native"
+  },
+  "native/android/perception/PerceptionEngine.kt": {
+   "sha256": "f52e7a8ca4300ab2ea9eb32898326467f4298b094b9e1879c5f462ea8024dd75",
+   "batch": "perception-p1-native"
+  },
+  "native/android/perception/PerceptionModel.kt": {
+   "sha256": "02df146058c933a44870d652a56502a2d85ed1b0a13e4cd46f3e1ffc76edced7",
+   "batch": "perception-p1-native"
+  },
+  "native/android/perception/PerceptionPlugin.kt": {
+   "sha256": "b642bf83b0d5b1db2a0722cc15d9e10452dd6aa42765a011dbef46e7292023d4",
+   "batch": "perception-p1-native"
+  },
+  "native/android/perception/PerceptionTypes.kt": {
+   "sha256": "0c0cf37f2eaa66c48948e9b253428b8bf05ce8124204fca572affa9cd3eeb467",
+   "batch": "perception-p1-native"
+  },
+  "native/android/perception/PrivacyRedactor.kt": {
+   "sha256": "e1fdb7bd2562bf693d830ca190ba11d40f15ecee363e883758f5887b280e64b5",
+   "batch": "perception-p1-native"
+  },
+  "native/android/perception/QualityEstimator.kt": {
+   "sha256": "b61b29326d70d40624963f8f1897a5cb55350ac71fdf413e587ac4d4f5e9d14d",
+   "batch": "perception-p1-native"
+  },
+  "native/android/perception/README.md": {
+   "sha256": "af812f39e2089ad39d47c7d645ba226ae8bbb90fd0b8139a2663b8e1c59ccf7a",
+   "batch": "perception-p1-native"
+  },
+  "native/android/perception/SensorHub.kt": {
+   "sha256": "551d0de214f085c83b19f7dbcdb318f1a55a726d0e66c5807c53f2a0f93a97f9",
+   "batch": "perception-p1-native"
+  },
+  "native/android/perception/ThermalMonitor.kt": {
+   "sha256": "fd706f580c9d604741ce3de6f0e6e3c11de52f9be92189f9d1dc64ce024010a8",
+   "batch": "perception-p1-native"
+  },
+  "native/android/res/drawable/ic_stat_mapunite.xml": {
+   "sha256": "78e20c571e830d196e7a80c7ab89e7cbfc4872081a338b58759d3c9eaed914dc",
+   "batch": "android"
+  },
+  "native/android/strings.additions.xml": {
+   "sha256": "9445dba346c41b71707ca58d379f12a803cf7356f5b6cfe5a9e82ad1f40972ff",
+   "batch": "android"
+  },
+  "public/admin/curator.html": {
+   "sha256": "fcda9e51668c6341a704d17bb16bf4cd30bb9d200100a3700eec4cc902e38a55",
+   "batch": "hud-curator-share-step9-11"
+  },
+  "public/garage.html": {
+   "sha256": "d29839903cd84a962b85a2c4aaa411e3f1bc59312aff5ff2b57ca13bf804cfbe",
+   "batch": "trip-step7"
+  },
+  "public/icon-192.png": {
+   "sha256": "6532ace527b15ea21e5c1ea79cf19f6c805d9311b066472c4822c4182ca32017",
+   "batch": "android"
+  },
+  "public/icon-512.png": {
+   "sha256": "6e1b33661e246722b1b9d077f069cd12e96f6901d4adca8498900710d16fa67b",
+   "batch": "android"
+  },
+  "public/icon-maskable-512.png": {
+   "sha256": "277238f4ee53447b7a03f74755948a2cd5b53e4bb00766d50fd3cb12def95940",
+   "batch": "android"
+  },
+  "public/index.html": {
+   "sha256": "71d37ba6748436f19e72572146b9c0e895450c5044b92c767cd7e06575528b80",
+   "batch": "perception-p1-native"
+  },
+  "public/js/advice/README.md": {
+   "sha256": "efb4c0b808f9b3d8f4472765c826892e4642820a0c2eaeda3b9a74fd50ecc41f",
+   "batch": "ask-before-tips"
+  },
+  "public/js/advice/advice-app.js": {
+   "sha256": "63566311baca64dc2eb279548d2e3cd529b1d7c6e7d549a6863374b818a15e9f",
+   "batch": "ask-before-tips"
+  },
+  "public/js/advice/advice.css": {
+   "sha256": "9934f0fbf3bffeea8cde0155dde7d05006858e835e8fc786ff7423f44f854286",
+   "batch": "ask-before-tips"
+  },
+  "public/js/advice/ask.js": {
+   "sha256": "4cd464a1ab6c46eb76c9c41c6008ae4b9ad629656811f9d3a980375d27b4a07b",
+   "batch": "ask-before-tips"
+  },
+  "public/js/advice/conditions.js": {
+   "sha256": "9fbcff1663381b712f8f7f2ee680a4166be53b6759dc3659ac5218a618ab8705",
+   "batch": "advice-gradient-rides-roadmap8-10"
+  },
+  "public/js/advice/gate.js": {
+   "sha256": "a5c79b5d9add6751827bbb90e3b0e1125659846a3173042835c8558b691e7925",
+   "batch": "vision-english-ui"
+  },
+  "public/js/advice/overlay.js": {
+   "sha256": "f225aa4b64325de05a7e2b032e20e4f02db5bd6395dd3811dd0204237776b92b",
+   "batch": "advice-gradient-rides-roadmap8-10"
+  },
+  "public/js/analytics.js": {
+   "sha256": "1c264d20814b0bd116081e907bdeec6fdff9d1e32f840fff26aaffb89f02550f",
+   "batch": "android"
+  },
+  "public/js/bikedb/bundle-contract.js": {
+   "sha256": "2de15b58cea35e860d35959d95427de22e5c999d06807c3115c7b0c92ee26c48",
+   "batch": "bikedb-step3"
+  },
+  "public/js/bikedb/catalog-search.js": {
+   "sha256": "9f5a317b0d8e95f109085ec17ad4142b6f7b576f4e058e2a087ff1c4a5420157",
+   "batch": "bikedb-step3"
+  },
+  "public/js/boot.js": {
+   "sha256": "7c430011b5875dcc706a4815b9477c1307a5323c5cfe9addef5f2959b8cfe481",
+   "batch": "android"
+  },
+  "public/js/calls.js": {
+   "sha256": "b7ae808ec5b5e3d158edd3acaf7890ee3c8b01b02557f423fba902c37b7a9770",
+   "batch": "android"
+  },
+  "public/js/chat.js": {
+   "sha256": "55ba52cc22972a4d95f8ba7a38b4dea78c879c2f66c22d8b41a0ceef248760b3",
+   "batch": "android"
+  },
+  "public/js/controls.js": {
+   "sha256": "f7f6372f4f7308bed9c516e1710a12514bab71b4961b0fb0b3140d223d698059",
+   "batch": "android"
+  },
+  "public/js/convoy.js": {
+   "sha256": "a74b536a42c089139bb5f4967b83494fc037eb8d7ceedd6bc6de3b0537c90ff2",
+   "batch": "android"
+  },
+  "public/js/core.js": {
+   "sha256": "d617755246234bae5cbb709927be323151e30d4b570d4dd78fa12ea739ed94ca",
+   "batch": "android"
+  },
+  "public/js/curator/README.md": {
+   "sha256": "98c6fe677fab06b1293a8a13fd52fb1f274fc03e3d4e3fa8ca012c35362d3a58",
+   "batch": "hud-curator-share-step9-11"
+  },
+  "public/js/curator/api.js": {
+   "sha256": "def71ae5d763d6c4e877c20f68190963aa8b40d317f53167a9df54038324d481",
+   "batch": "hud-curator-share-step9-11"
+  },
+  "public/js/curator/curator-page.js": {
+   "sha256": "e52d22b65b57a89eb29f09eaea1307d3b1e048041ae7c5a8c49f621ea5715030",
+   "batch": "hud-curator-share-step9-11"
+  },
+  "public/js/curator/curator.css": {
+   "sha256": "c5c48c05d2d5cea8d9b5d5e2581467a1b7d6e81e45e392bedecc27bec6c84b41",
+   "batch": "hud-curator-share-step9-11"
+  },
+  "public/js/curator/curator.js": {
+   "sha256": "fbb511cb6ef8d924eec47607fb780ef4f616f298c73424dcc2724f27d9f47e2f",
+   "batch": "hud-curator-share-step9-11"
+  },
+  "public/js/curator/draft.js": {
+   "sha256": "b4bae17b0af983c6a135403825129d2227b375e0a88f0f95db640f158d06f843",
+   "batch": "hud-curator-share-step9-11"
+  },
+  "public/js/deadreckoning.js": {
+   "sha256": "eb3f8eeec03a909b4f836926262b11e661a5e1d45b5ee5886de812ecd0f7e455",
+   "batch": "android"
+  },
+  "public/js/garage/README.md": {
+   "sha256": "35e2e1ba09f4883253fc659daaac458ed52cd024afb58ee5dbed4a6bd5c623f2",
+   "batch": "trip-step7"
+  },
+  "public/js/garage/garage-page.js": {
+   "sha256": "c368ab75fb6b418537b0cd66043a7fa4713c4ae7d222f34de19b57d23c9842e0",
+   "batch": "trip-step7"
+  },
+  "public/js/garage/garage.css": {
+   "sha256": "670e50a720734896bbe7ea921048b1581b089c56c894b3c1e4e598e8fadb59ef",
+   "batch": "garage-step6"
+  },
+  "public/js/garage/garage.js": {
+   "sha256": "a00f5817bff5aed848329922b3632413e1a481b72e751095460f291758ca2b92",
+   "batch": "garage-step6"
+  },
+  "public/js/garage/picker.js": {
+   "sha256": "69862587beba8183e14b80f8bffd50fb10cad479443b8a54a66e2a92ed3f357f",
+   "batch": "garage-step6"
+  },
+  "public/js/garage/settings.js": {
+   "sha256": "98206db0b0dfce97ee9f0e8cb8cbd4b4c07a3217dc8678251dc671c56d6bfe2b",
+   "batch": "garage-step6"
+  },
+  "public/js/garage/silhouettes.js": {
+   "sha256": "555a25ff2bad884631f664a61b36650ec61584b6aaa8047017bd9defffc5c1d7",
+   "batch": "garage-step6"
+  },
+  "public/js/garage/store.js": {
+   "sha256": "b5f6f0333c6b7f563f2941283c31f952a0132453b9784da6348490c08ee259dd",
+   "batch": "garage-step6"
+  },
+  "public/js/garage/units.js": {
+   "sha256": "f557ebd796e76b4eaf72a5ad0fa57f48e4e7d6797bd67ddf2762232197ecb09d",
+   "batch": "garage-step6"
+  },
+  "public/js/garage/visualizer.js": {
+   "sha256": "5e793da795cd424d57ee04702a380144822479dbef83734b2b5828214bf59cac",
+   "batch": "garage-step6"
+  },
+  "public/js/gps.js": {
+   "sha256": "9482d735ed3309192ef474988bcc86007a537eaafdd57a3377b063e28490aaef",
+   "batch": "android"
+  },
+  "public/js/gradient/README.md": {
+   "sha256": "a5cb45356d63c4386dff70b97b0e129a71d2bd7abd31c609075a9a4e4cb87650",
+   "batch": "advice-gradient-rides-roadmap8-10"
+  },
+  "public/js/gradient/gradient-app.js": {
+   "sha256": "ce00aeafa155155ed76a92c351a17e58a82861beb3f5362a774a0c5540865eca",
+   "batch": "advice-gradient-rides-roadmap8-10"
+  },
+  "public/js/gradient/gradient.css": {
+   "sha256": "06d10a9bb462866b55e4f0285afb3042beef91b967d8c669dc192f5dc43606fe",
+   "batch": "advice-gradient-rides-roadmap8-10"
+  },
+  "public/js/gradient/gradient.js": {
+   "sha256": "8c6caa7fcf964eacc5d6b76c4cd65873a2aa9c8dc19dba61fd39207b4ab7c833",
+   "batch": "advice-gradient-rides-roadmap8-10"
+  },
+  "public/js/gradient/profile-chart.js": {
+   "sha256": "1af2a3ed0d6013e142afd5a49be4640b53d68fd8ecf6c98adecb7dc921ac5da3",
+   "batch": "advice-gradient-rides-roadmap8-10"
+  },
+  "public/js/gradient/structures.js": {
+   "sha256": "d89ed89939994b2a2075e50784620fe99425c917d6fe12ed41060a6b375b9d4c",
+   "batch": "advice-gradient-rides-roadmap8-10"
+  },
+  "public/js/groupnav.js": {
+   "sha256": "c3bcc7ae69b5ab4dfe2d8d60ab4f214c3db453b79ade9f40f45af5712e939b5d",
+   "batch": "android"
+  },
+  "public/js/hud/README.md": {
+   "sha256": "41aece257e04c6de332a774183dc7d7952cb8fd04f2bedf1536e94f3c9a40cc7",
+   "batch": "hud-curator-share-step9-11"
+  },
+  "public/js/hud/hud-app.js": {
+   "sha256": "ec8240f513c2694eb7f17b65743fa07e2817677998037a59de97237090d7c6f1",
+   "batch": "advice-gradient-rides-roadmap8-10"
+  },
+  "public/js/hud/hud.css": {
+   "sha256": "d3cb32763d2d9421db4314d59d0b986ffc95c0918d5cf5217afe5222621154f8",
+   "batch": "advice-gradient-rides-roadmap8-10"
+  },
+  "public/js/hud/hud.js": {
+   "sha256": "6d94d85cf608b6f874d7954e431fc07fc2a284de885b9c104d5c5d3aa447a089",
+   "batch": "advice-gradient-rides-roadmap8-10"
+  },
+  "public/js/hud/live.js": {
+   "sha256": "5b149592106f0710679859cd3fe4d5a3323874797d5713fae15f15be26aaa4cc",
+   "batch": "hud-curator-share-step9-11"
+  },
+  "public/js/insights/README.md": {
+   "sha256": "bdd377ba068a209017a880816c28ee5c0989ad130154a036f0df81427546e9fd",
+   "batch": "insights-convoy-step8"
+  },
+  "public/js/insights/fuel-dashboard.css": {
+   "sha256": "14182ce27e1a1a3ae5dd2e207f9a12eedf1f9b6b5f7baa21d5e73570ff66a775",
+   "batch": "insights-convoy-step8"
+  },
+  "public/js/insights/fuel-dashboard.js": {
+   "sha256": "89f2c69df8d0fb4ee5dadd021bc0d177ea4ed12709784ad854a68486bfc4056a",
+   "batch": "insights-convoy-step8"
+  },
+  "public/js/insights/fuel-insights.js": {
+   "sha256": "8bfdae0c4f5032487d74cbf6863cea3734246c304d8fb903b416372ff2735bb1",
+   "batch": "insights-convoy-step8"
+  },
+  "public/js/insights/insights-app.js": {
+   "sha256": "fd36e37be2e8e956723df2686736dba3f44616b1eed644e75a3fd9161b4f8d0a",
+   "batch": "insights-convoy-step8"
+  },
+  "public/js/master/README.md": {
+   "sha256": "7a344f951026b1ffea659bbd54ac59e27ee0960b83f4e2581ca98a6035159028",
+   "batch": "vision-english-ui"
+  },
+  "public/js/master/agents/_template.js": {
+   "sha256": "a8c6ae23fe3af8ab4711968187c0d0ec672dcd50af0930e46490bbf34f373875",
+   "batch": "master-ai-core-step1"
+  },
+  "public/js/master/agents/network-agent.js": {
+   "sha256": "c612c0ab3f9feca90bc51ea5edd8c32663930acb74ac7f98bd183ab27bcfb7c1",
+   "batch": "master-ai-core-step1"
+  },
+  "public/js/master/agents/ride-agent.js": {
+   "sha256": "02ff7685993c3648614377065f46bf3792d2ec402b7a8aebe87653a1e6beb179",
+   "batch": "master-ai-core-step1"
+  },
+  "public/js/master/agents/road-agent.js": {
+   "sha256": "10a8a430cc2d1e43c7b3910e18ebfe8ef2f4314e472f4990931e5aeb99a54e14",
+   "batch": "road-perception"
+  },
+  "public/js/master/agents/vision-agent.js": {
+   "sha256": "5b499f5f64c28d197e19920ca3a9cae0bd0f7a120c0fd1e93a9f822f73163fce",
+   "batch": "vision-english-ui"
+  },
+  "public/js/master/brain.js": {
+   "sha256": "7afabcbc4bc849dbc554c923acc68ee7c5b5d8f7b782eafae2197ecce8a2bc07",
+   "batch": "ask-before-tips"
+  },
+  "public/js/master/bus.js": {
+   "sha256": "dfd0c417bda54f282b7cee115f0d8abf121c4b144545cff57c71c7f16dbe28a0",
+   "batch": "master-ai-core-step1"
+  },
+  "public/js/master/capabilities.js": {
+   "sha256": "693739cfe73a8175b7cd635044a14d0d96723844ceb8c2bbfb9b0b51ef53f8b6",
+   "batch": "master-ai-core-step1"
+  },
+  "public/js/master/contracts.js": {
+   "sha256": "ade27c3d875af9d4f365b438ff6f99201e53fdf1950d95c12e631f22527384ef",
+   "batch": "master-ai-core-step1"
+  },
+  "public/js/master/kernel.js": {
+   "sha256": "e47dea848022c524effb6e8ce92e371633176e0256a8791b2e1bf0f2efd1145b",
+   "batch": "master-ai-core-step1"
+  },
+  "public/js/master/master-app.js": {
+   "sha256": "d3cadad321bd32ae7bb15692a5d39a856d49c67fc81e48d00523c69b8d18480b",
+   "batch": "road-perception"
+  },
+  "public/js/master/output.js": {
+   "sha256": "198078bdbe6e6e4de47c4ea7fa011cda0577b1d1b4deafa223d74e13aed52850",
+   "batch": "ask-before-tips"
+  },
+  "public/js/master/perception/README.md": {
+   "sha256": "df72f529aea285e3a448445d049fcaa63da8c665a84f6d2dc68a25b9b5489e98",
+   "batch": "perception-p1-native"
+  },
+  "public/js/master/perception/confirm.js": {
+   "sha256": "5a69b108cf33a0aa503d3e295d39e8a31e57f8a658e02640ba4132083e609932",
+   "batch": "road-perception"
+  },
+  "public/js/master/perception/contract.js": {
+   "sha256": "1f1defa060104558295f8b0bfbf1a3da3e37c092edb76eb8e1034be10b72f9f5",
+   "batch": "road-perception"
+  },
+  "public/js/master/perception/governor.js": {
+   "sha256": "d2fba933f0fa0f69ebe8d006be09d2be17bbddc2e4916ce4dddafe0237f02ce9",
+   "batch": "road-perception"
+  },
+  "public/js/master/perception/native.js": {
+   "sha256": "1e94b7a9c80cb74b12a4877d89ea8fbfc52af6d4e89211849d112cba25e9e76f",
+   "batch": "perception-p1-native"
+  },
+  "public/js/master/perception/provider.js": {
+   "sha256": "8226c48fd97ce15bd8f60d25cf0f16d8f4134c1e065e779214d3119370916b0f",
+   "batch": "road-perception"
+  },
+  "public/js/master/perception/recorder-page.js": {
+   "sha256": "34c0d39676452f006977897b10030ece88c662905fc07468160e73d15fe36efc",
+   "batch": "perception-p1-native"
+  },
+  "public/js/master/persona.js": {
+   "sha256": "88732a59b00c8c150c1c2340e4380408e5d06508f80184e86a152f4e7be44f26",
+   "batch": "road-perception"
+  },
+  "public/js/master/phrases-desi.js": {
+   "sha256": "585a3a85510584a808aa042727d86fbf4fd18ad87eccaa971879dc7bed1f4f74",
+   "batch": "road-perception"
+  },
+  "public/js/master/vision/README.md": {
+   "sha256": "729c1973071e87dd23e81a0bc211589673b92d46075a8bb1dfe19799cbcbdf19",
+   "batch": "vision-english-ui"
+  },
+  "public/js/master/vision/face-scan.js": {
+   "sha256": "506727cbd1e4c0c56955ff43dee5cbd522eeb1b14295519f0b2d3b994db634e5",
+   "batch": "vision-english-ui"
+  },
+  "public/js/master/vision/fatigue.js": {
+   "sha256": "bc993a267f6cc28225fe742c5a27ade3b441970bf200c7c23990a95ad33e49df",
+   "batch": "vision-english-ui"
+  },
+  "public/js/master/vision/landmarker.js": {
+   "sha256": "8f171875bee154e9b44fe0aa7a330a04117ec1ac198a4e3c4a9a65a0c6f50cec",
+   "batch": "master-vision-fatigue"
+  },
+  "public/js/master/vision/vision.css": {
+   "sha256": "d62035a8b58e0b4f7464ae6291d770b69dcf8a340dec7b77ec7f99053fe2f874",
+   "batch": "vision-english-ui"
+  },
+  "public/js/memories.js": {
+   "sha256": "21e3436367c6ce15f0b79d334730feed265ff2314ecafac70b039a019cae5d35",
+   "batch": "android"
+  },
+  "public/js/native/bridge.js": {
+   "sha256": "334c8eb4baebfb5bd4a8f729a5e9f08bf5f993fe6370e53bbf909ad44dbabbf1",
+   "batch": "android"
+  },
+  "public/js/native/shims.js": {
+   "sha256": "34f7fbadaabea3936f989278faca52b19466184f41319e97f9ac11105922dd5e",
+   "batch": "android"
+  },
+  "public/js/navigation.js": {
+   "sha256": "0bd1250433bb024d597860bf5ae72f168313a0d6ea8ff0f4c2ffa73947c13a3c",
+   "batch": "trip-step7"
+  },
+  "public/js/physics/README.md": {
+   "sha256": "2b4bbcf9735095b85137f472e60925a6ee0b0ad7c23b21efcb62a698e7cce27e",
+   "batch": "physics-step4"
+  },
+  "public/js/physics/atmosphere.js": {
+   "sha256": "8cbf41f625b3df10ca7d359c9c516869bcc64fab5bbf15b3b38eb5759b026bf3",
+   "batch": "physics-step4"
+  },
+  "public/js/physics/cruise.js": {
+   "sha256": "78409a1155ee3d6ca013e659b84b1b8db22a012a3d47214ae09a4e24c247193f",
+   "batch": "physics-step4"
+  },
+  "public/js/physics/index.js": {
+   "sha256": "72f9be0865c20b842a47c2b3cf3d77210a87b71a22a506ad3705e033b8deb05a",
+   "batch": "physics-step4"
+  },
+  "public/js/physics/model.js": {
+   "sha256": "bcaea0e355ec0c4c88dde5b63fd1cb02c9cc64caf498b7ed9fb4ee2c992fa732",
+   "batch": "physics-step4"
+  },
+  "public/js/physics/powertrain.js": {
+   "sha256": "ae4d81c89ce17481ddf5ae4eeb1d8b7e3bb9d43fc8af6828708df9b959990531",
+   "batch": "physics-step4"
+  },
+  "public/js/physics/roadload.js": {
+   "sha256": "c74b25bb56139eb00576f9e9ef702abb31447395835ac137307e0366c785d0a8",
+   "batch": "physics-step4"
+  },
+  "public/js/physics/tyre.js": {
+   "sha256": "1aaf800f912cb5120e609486fca3cfeaa4a090a37cda09edac135a3289a0f3ed",
+   "batch": "physics-step4"
+  },
+  "public/js/pitstop/README.md": {
+   "sha256": "799cd55357af180057de8db943656ec14bb2fdedc2d9c93d27c7ea1721d29897",
+   "batch": "insights-convoy-step8"
+  },
+  "public/js/pitstop/convoy-panel.css": {
+   "sha256": "b6d3d48ff0f862f79487ddcae791063713ab6852d0ec513e559531292933ff6b",
+   "batch": "insights-convoy-step8"
+  },
+  "public/js/pitstop/convoy-panel.js": {
+   "sha256": "59441c9aed650dcf872a98602184e05beba2ebec23a1f4028e5971aaf6b51ea8",
+   "batch": "insights-convoy-step8"
+  },
+  "public/js/pitstop/pitstop-app.js": {
+   "sha256": "43f6932d4f62d63601a08b5e50de8bf9b0fa0314514d9dcd60b9c620ce45d635",
+   "batch": "hud-curator-share-step9-11"
+  },
+  "public/js/pitstop/plan.js": {
+   "sha256": "c3d1ed0f5456888316d16e6751bf9637f5a03d58abf315315e53d12746817f48",
+   "batch": "insights-convoy-step8"
+  },
+  "public/js/pitstop/stations.js": {
+   "sha256": "24285854a048a7194bde6d548ab314cd24b55177fa46bd9bfeabe7b745c0e2cb",
+   "batch": "insights-convoy-step8"
+  },
+  "public/js/presence.js": {
+   "sha256": "b19a2d03de2c4603452b46a4792fe7d57ddcd233fd9abb98897afb89bb2390b8",
+   "batch": "android"
+  },
+  "public/js/privacy.js": {
+   "sha256": "546fc97c4697dc4e302a52abe880a266216481a0a6a2c2b6962bf311278ab4e0",
+   "batch": "android"
+  },
+  "public/js/pwa.js": {
+   "sha256": "7b1b9c75b8d28e3a1dbeb5053efb6cf340aca45fab96ffd7c5a4989eabac61b9",
+   "batch": "android"
+  },
+  "public/js/radio.js": {
+   "sha256": "d7ca7169cb79b9ec012ccf8f7f11ab0f3ab3152b0c4b0286f5a80d18eb7640bf",
+   "batch": "android"
+  },
+  "public/js/rides/README.md": {
+   "sha256": "07b3855b356274491d4c36f2f288c972d4d26fcb7f60d8e522ff63f56045ec98",
+   "batch": "advice-gradient-rides-roadmap8-10"
+  },
+  "public/js/rides/consent-ui.js": {
+   "sha256": "67eb189b514bec2d8baac8ba860d079b02c1dd52c1d717b4a66ec6051a459759",
+   "batch": "advice-gradient-rides-roadmap8-10"
+  },
+  "public/js/rides/fleet.js": {
+   "sha256": "5e76c2e76536e82fcc0d1ab4ab36442707e8e2aeb8fea51cd1f22621b098364b",
+   "batch": "advice-gradient-rides-roadmap8-10"
+  },
+  "public/js/rides/ride-model.js": {
+   "sha256": "3638beecd47440568788bc31adb68af0d88dc7d38b97b4506e1f963e167b80f4",
+   "batch": "advice-gradient-rides-roadmap8-10"
+  },
+  "public/js/rides/ride-store.js": {
+   "sha256": "dc5ddf16a2d3aaa00905f3804bd57a1b04b236995e7bc4d8d54a4cfedea6b15c",
+   "batch": "advice-gradient-rides-roadmap8-10"
+  },
+  "public/js/rides/rides-app.js": {
+   "sha256": "0d697c1770d144533653641846b6dab3042cd5f58f692d4be3b961ed67a84da6",
+   "batch": "advice-gradient-rides-roadmap8-10"
+  },
+  "public/js/rides/rides-ui.js": {
+   "sha256": "d5eaa3decd5817e0d2431cd30887076fd285c9ff5d7adeb2df6d0d33c8e3393a",
+   "batch": "advice-gradient-rides-roadmap8-10"
+  },
+  "public/js/rides/rides.css": {
+   "sha256": "17fa27a350d324bda34c7d9fc090ac8e26dbce2e981b8200519c22d86bf544d8",
+   "batch": "advice-gradient-rides-roadmap8-10"
+  },
+  "public/js/share/README.md": {
+   "sha256": "7c5be4cbeb78eb7c0dd0a95c66833975c5a9459340ae95d057ab92996349c3d6",
+   "batch": "hud-curator-share-step9-11"
+  },
+  "public/js/share/card-model.js": {
+   "sha256": "2404d8bf44957ec1afa0118b8e3da5fc90b2980c4881f83aee344ba85199b3f9",
+   "batch": "hud-curator-share-step9-11"
+  },
+  "public/js/share/card-render.js": {
+   "sha256": "702e4e22866e843c3aa52b5fcba436fbdf3cb61db99c3507435879dcbe3f1b1c",
+   "batch": "hud-curator-share-step9-11"
+  },
+  "public/js/share/share-app.js": {
+   "sha256": "1930598f910e33f9e2c2fb56e0c0bb46da6b8a7f2901f205ca71a5d46b019f80",
+   "batch": "hud-curator-share-step9-11"
+  },
+  "public/js/share/share-ui.js": {
+   "sha256": "0e02713484e64eb07ee7e0ffa9f9c58c7811cf9488936522cd4f4c77f47f7d16",
+   "batch": "hud-curator-share-step9-11"
+  },
+  "public/js/share/share.css": {
+   "sha256": "baa37bf57dd5320cb86ec9df715c9bf1094ec20d59ee25b71bee76d6e3f21911",
+   "batch": "hud-curator-share-step9-11"
+  },
+  "public/js/skunkworks.js": {
+   "sha256": "d45781e6fd9d80649bbb552c15a30ba6b3a38036f0ae90b03323acfbd6ac2c39",
+   "batch": "android"
+  },
+  "public/js/smartdrive.js": {
+   "sha256": "cc2cf38d1db2f01ad63806fe8166ff37ba3f46addcdfcfe4d229fc71be2bb084",
+   "batch": "hud-curator-share-step9-11"
+  },
+  "public/js/sos.js": {
+   "sha256": "a668fa28ccf9f331b6d5c716b4c696f3911fd76c1fd8da19a8beb47b8600de57",
+   "batch": "android"
+  },
+  "public/js/trip/README.md": {
+   "sha256": "9e7c2e80a1775851834cf8b2094fd10abdb9cc1d8a85448de436a1b6db7727a8",
+   "batch": "trip-step7"
+  },
+  "public/js/trip/elevation.js": {
+   "sha256": "669ab7d40fdb4335ff61f4d568383f8a251fcabc9eb302fc8cf7fc04e3acac6e",
+   "batch": "trip-step7"
+  },
+  "public/js/trip/energy.js": {
+   "sha256": "8ac3e996f9456d2af8618caa0bebbd71de9287bdb134cddfd8d64fa401a21711",
+   "batch": "trip-step7"
+  },
+  "public/js/trip/profile.js": {
+   "sha256": "e070dbe0907430f0107988b4f255d0a31734646f24980a55b1b5834a17465f1a",
+   "batch": "trip-step7"
+  },
+  "public/js/trip/trip-app.js": {
+   "sha256": "fc3febdec4a67d94eba1cb77f93a62ff02dddd3593d4bc7395433565d0966523",
+   "batch": "advice-gradient-rides-roadmap8-10"
+  },
+  "public/js/trip/trip-card.js": {
+   "sha256": "f8f36f2738fcf371a21e085b166c7e3ab54fcddf00f7b62b09fbd2d52c7b68f8",
+   "batch": "trip-step7"
+  },
+  "public/js/trip/trip.css": {
+   "sha256": "90af289772f29a75ad17f4688ecd3e81c892a8f88f691c7cf445eedcf8d3d96d",
+   "batch": "advice-gradient-rides-roadmap8-10"
+  },
+  "public/js/voice.js": {
+   "sha256": "8c4ee74d4082bb43091fa5304d8a99679b4e27a880e5e30d41e82a20346cda1a",
+   "batch": "vision-english-ui"
+  },
+  "public/manifest.json": {
+   "sha256": "ef0b2a4213965df27271d48a6e5b7bf8683dddf5041845648c2c39abfbc0266f",
+   "batch": "trip-step7"
+  },
+  "public/recorder.html": {
+   "sha256": "0d3addef41f1b6416e71cb9d176112517620412535fe170b326a11db0be604fa",
+   "batch": "perception-p1-native"
+  },
+  "public/shell.js": {
+   "sha256": "df9de33eda6a2e43925881a6f055556604a67155d096bdd20438ad1653dcbb6c",
+   "batch": "android"
+  },
+  "public/sw.js": {
+   "sha256": "043942d1241f72bcecb368521b6399c5b6105f6443d29ef16e50a340d26e77dd",
+   "batch": "perception-p1-native"
+  },
+  "scripts/bikedb/bench-search.mjs": {
+   "sha256": "2e5073c75575bff9447ff228a83204bcf925002abad852fe593e5d415571ca5a",
+   "batch": "bikedb-step3"
+  },
+  "scripts/bikedb/catalog-build.mjs": {
+   "sha256": "a7944dd1586c1d10a557102acfdc1ed9c83ba8dc6b1f968fd0855fc9bbd46522",
+   "batch": "bikedb-step3"
+  },
+  "scripts/bikedb/format.mjs": {
+   "sha256": "1ed5873e032919ede80ed836142da417c70ee6c9689adc60fcbd77195adef725",
+   "batch": "bikedb-step3"
+  },
+  "scripts/bikedb/gen-schema.mjs": {
+   "sha256": "f1649bf3fc921586664b2a2e9d21fc6b7a763d08fb7ae41ba1cd7f38430b0ef5",
+   "batch": "bikedb-step3"
+  },
+  "scripts/bikedb/load-catalog.mjs": {
+   "sha256": "9683318264c440b2f85f2d95d3830b06aaef9642d87095a35220785694016b0b",
+   "batch": "bikedb-step3"
+  },
+  "scripts/bikedb/sqlite-driver.mjs": {
+   "sha256": "6969528d3e8bd2d8952cbff7d9e47e977fc56eebfc30adb8b527cfa8b54211f2",
+   "batch": "bikedb-step3"
+  },
+  "scripts/bikedb/synthetic.mjs": {
+   "sha256": "ad475e93efd9d752ce3d25830b9e570ebc7f1ff80ca3c31f61587ee6f4e23ff7",
+   "batch": "bikedb-step3"
+  },
+  "scripts/bikedb/validate.mjs": {
+   "sha256": "3a1d11a7e18c37f6264302998b359ba5bf41a4e8a01cff10e8c4a4de39c77f12",
+   "batch": "bikedb-step3"
+  },
+  "scripts/build-bike-catalog.mjs": {
+   "sha256": "7669b266293b6d39995b28d24dd3970d0d51daef5588f2d3836339617e13d842",
+   "batch": "bikedb-step3"
+  },
+  "scripts/build-native.mjs": {
+   "sha256": "e79ac56ccd55a814112fb4c85a8b99ebf5785a07fb5a251fbc8dddb430f966f3",
+   "batch": "master-vision-fatigue"
+  },
+  "scripts/check-android.mjs": {
+   "sha256": "032d0a7cbe465703452ce79d7ebccf70b9700ef385cae87c2967d719c5626076",
+   "batch": "android"
+  },
+  "scripts/check-batches.mjs": {
+   "sha256": "f468f8d41ac5a3dc1504f1a437c0c74b18a67d269ddd7a45469c12597bd85dea",
+   "batch": "batch-catchup"
+  },
+  "scripts/fetch-mediapipe.mjs": {
+   "sha256": "dbab196618dd9443552e397a2b00328e1d279bc739c14079852452154e600dcf",
+   "batch": "master-vision-fatigue"
+  },
+  "scripts/physics/cruise-table.mjs": {
+   "sha256": "3b2f653a66b6c606f56e4f2bba5abf592dd0b334ce14762d6a5ecd1eb9f0826c",
+   "batch": "physics-step4"
+  },
+  "scripts/setup-perception-android.mjs": {
+   "sha256": "fee7c3bd1eadc5086c4c066cadd734643e180d754c7641420c8da7e6a4b94b92",
+   "batch": "perception-p1-native"
+  },
+  "server.js": {
+   "sha256": "80c9a839d61bf2585822cb4de9334854724f106c9ec03694317a4940ad80b806",
+   "batch": "master-vision-fatigue"
+  },
+  "test/advice/advice.test.mjs": {
+   "sha256": "e5d39f98edda24ecaf4b3a8ec9bc61065cb9b7d0bd72cf26f53b71e9a6c11a47",
+   "batch": "advice-gradient-rides-roadmap8-10"
+  },
+  "test/advice/ask.test.mjs": {
+   "sha256": "3afd12ab13eae73787f388e206530a734bd45a76cef6fe50e477498435b892a3",
+   "batch": "vision-english-ui"
+  },
+  "test/bikedb/build.test.mjs": {
+   "sha256": "ada84a060993c102ffc12c698577acf1c6390b56b86f6f1020590830bca940b7",
+   "batch": "bikedb-step3"
+  },
+  "test/bikedb/catalog.test.mjs": {
+   "sha256": "a554f12fe48472bb757229845982827f5a7376604e7b44e14c47a85c46d100ca",
+   "batch": "bikedb-step3"
+  },
+  "test/bikedb/contract.test.mjs": {
+   "sha256": "613cf7a1c7630add7b60eda8e12ad2cc6cef6c1a8dbbeb4e24ebc992ce2f042e",
+   "batch": "bikedb-step3"
+  },
+  "test/bikedb/helpers.mjs": {
+   "sha256": "8dd696e21fdc47b6b52b2400ff8eb64a2a3f0e5c1e5bd2226368d0010a35fa41",
+   "batch": "bikedb-step3"
+  },
+  "test/bikedb/schema.test.mjs": {
+   "sha256": "e4ca7fc8f5f9137b98e590dfd3b2f63c54e1e686508c156253bea2fe291c5573",
+   "batch": "bikedb-step3"
+  },
+  "test/bikedb/search.test.mjs": {
+   "sha256": "5c77bc224bc25f6f4fc69618105eaa8e7dccd6931c9095554eaf00af580999e5",
+   "batch": "bikedb-step3"
+  },
+  "test/curator/curator.test.mjs": {
+   "sha256": "99df4560d9e9f561b56101e4dad37886e84320b601c5a43468181480343596f9",
+   "batch": "hud-curator-share-step9-11"
+  },
+  "test/garage/garage.test.mjs": {
+   "sha256": "4bf916f93e17d33e7c5c0c5486fe7a93cd6f013fababd0de17e605b160ac70f9",
+   "batch": "garage-step6"
+  },
+  "test/gradient/gradient.test.mjs": {
+   "sha256": "1e62271fb81cec8e92007a4bc54da0e8ac4305a9c9ff26fd3d56e2221a626edb",
+   "batch": "advice-gradient-rides-roadmap8-10"
+  },
+  "test/hud/hud.test.mjs": {
+   "sha256": "f11872226f3806558b1dda4d0d173269ae45d8ba309aee2971f2a0f4da69f40b",
+   "batch": "hud-curator-share-step9-11"
+  },
+  "test/insights/insights.test.mjs": {
+   "sha256": "647e8eea6d522ea42ea694bff94f9a3a60f6716ea3ad6cb2a7290a59d55da272",
+   "batch": "insights-convoy-step8"
+  },
+  "test/insights/learner-sim.mjs": {
+   "sha256": "3b53c15445b57a114d585e06ed35994929462bf9fc9144242aae2538f56542e1",
+   "batch": "insights-convoy-step8"
+  },
+  "test/master/check-batches.test.mjs": {
+   "sha256": "1e927cf74ca1c1c80fb1821c0dedb36a4b472261e9e42814be65a7addffc801f",
+   "batch": "batch-catchup"
+  },
+  "test/master/fixtures/kotlin-dummy-mixed.jsonl": {
+   "sha256": "f65ddb86f5161f1fd843f336e1d9c2bbf1a84ffd729ba1ae5ed24ee61c691a55",
+   "batch": "perception-p1-native"
+  },
+  "test/master/master.test.mjs": {
+   "sha256": "0230274cea3550d7b7a40e31c3d4dda1285a65a37151a08d760652bd3c938411",
+   "batch": "road-perception"
+  },
+  "test/master/perception-native.test.mjs": {
+   "sha256": "3b28dadf965d1ec33406d025680b192038473870de861d2dfe921a2ccf21095a",
+   "batch": "perception-p1-native"
+  },
+  "test/master/perception.test.mjs": {
+   "sha256": "9805ad32c5f58b66afd3da14196385addb32b5be2aaeeff002d7edef744b82da",
+   "batch": "road-perception"
+  },
+  "test/master/vision.test.mjs": {
+   "sha256": "fc40912402b231fedd183ffcf12b558202b5e905146d982c88b253bd9760c3ce",
+   "batch": "vision-english-ui"
+  },
+  "test/physics/browser.test.mjs": {
+   "sha256": "c4a9e1fbb0bce84c4dabec69cb015a0002201b144c52419ed6b3ef75d0c1917f",
+   "batch": "physics-step4"
+  },
+  "test/physics/helpers.mjs": {
+   "sha256": "6c65a65e948602642fcdbf39f02b7308bac644a8fef56f57cf2b7ea6c82e65c6",
+   "batch": "physics-step4"
+  },
+  "test/physics/known-answers.test.mjs": {
+   "sha256": "432e856e18cd83e81f054a1f16110c08e226dd7a0c9e9290834a7db23dc74c86",
+   "batch": "physics-step4"
+  },
+  "test/physics/model.test.mjs": {
+   "sha256": "0cc45040f327068a8d50a3b33aaa532c5de20cfb803cc73a02374670afabe9d6",
+   "batch": "physics-step4"
+  },
+  "test/physics/perf.test.mjs": {
+   "sha256": "80dba0eea58f31840df9a69c3c847f48ad16fb34f03b72fed5113050aeb75b11",
+   "batch": "physics-step4"
+  },
+  "test/physics/properties.test.mjs": {
+   "sha256": "80b77d414f67975eae51de3e7fb9e7e1a60564af943ed5692f551d335ccf9219",
+   "batch": "physics-step4"
+  },
+  "test/physics/regressions.test.mjs": {
+   "sha256": "e594d5bf9e28e1d9743bf2648f8563551a85210050afd0505b1b35e15f5937a8",
+   "batch": "physics-step4"
+  },
+  "test/pitstop/pitstop.test.mjs": {
+   "sha256": "789d09ee5e5f602e6d8fb9d393b462f42e90d354249712eafda5ce4ed300ee1f",
+   "batch": "insights-convoy-step8"
+  },
+  "test/rides/rides.test.mjs": {
+   "sha256": "1568fa9838feb0e505163d0efc84e5c4c0d20f9c7fcd84af2e43c9d67e0e421c",
+   "batch": "advice-gradient-rides-roadmap8-10"
+  },
+  "test/share/share.test.mjs": {
+   "sha256": "689834ea2bd0c0ca82baa32b25ecff22300ddc55862393fc75e285595adc8193",
+   "batch": "hud-curator-share-step9-11"
+  },
+  "test/trip/trip.test.mjs": {
+   "sha256": "05602b5255ef21702147696d378975d22d4032944f27d8fcd982bba544954fcb",
+   "batch": "hud-curator-share-step9-11"
+  },
+  "tsconfig.bikedb.json": {
+   "sha256": "cd2405465850418af965052055b41867fd3003ca2fdef50f8e6a6e4bd87ca33a",
+   "batch": "bikedb-step3"
+  },
+  "tsconfig.garage.json": {
+   "sha256": "509ea389186426d534dbec8f61cde85061c61040409b750a46e42e8d92a1c6a1",
+   "batch": "garage-step6"
+  },
+  "tsconfig.master.json": {
+   "sha256": "0e29d9d40c621a62bab5f990ec485a2b0689c7bb7fbaa354b6b2f34bbee67724",
+   "batch": "perception-p1-native"
+  },
+  "tsconfig.physics.json": {
+   "sha256": "e7905e7c48548d7e8c8fc4cec1d8b84103f11740bbf564786d7e62af0523af8c",
+   "batch": "physics-step4"
+  },
+  "tsconfig.roadmap8-10.json": {
+   "sha256": "9a60f4d8e40eed2da39741848eca606258d944e674753632e33c2f4dc5434ffd",
+   "batch": "ask-before-tips"
+  },
+  "tsconfig.step8.json": {
+   "sha256": "b406abbca0b3c5f27c7e8aa04c65efffe3e064fe4001dc0c64a802b7c4a6cd08",
+   "batch": "insights-convoy-step8"
+  },
+  "tsconfig.step9.json": {
+   "sha256": "0a9ba9068e97a84c0eff845c896ec02c2577b582f0e485527cff349a095a3aa7",
+   "batch": "hud-curator-share-step9-11"
+  },
+  "tsconfig.trip.json": {
+   "sha256": "d6789dc003b6ecc7f736dc00e1fdd1940ddc3fb0e5d572c2b1824131218f9e19",
+   "batch": "trip-step7"
+  }
+ }
+}

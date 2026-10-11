@@ -43,9 +43,7 @@
         // @ts-ignore
         try { o.fuelShape = typeof fuelShape === "function" ? fuelShape : null; } catch { o.fuelShape = null; }
         o.mode = W.currentTravelMode || "bike";
-        // core.js declares `const socket` (a classic-script lexical, not on window): read it by name
-        // @ts-ignore
-        try { o.socketId = typeof socket !== "undefined" && socket && socket.id ? socket.id : "me"; } catch { o.socketId = "me"; }
+        o.socketId = W.socket && W.socket.id ? W.socket.id : "me";
         return o;
     }
 

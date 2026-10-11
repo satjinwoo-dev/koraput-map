@@ -41,8 +41,19 @@
     // ------------------------------------------------------------------
     // 1. Background location
     // ------------------------------------------------------------------
+    // How the plugin reports problems: start() is a callback method, so its
+    // promise resolves straight away and every failure arrives in the
+    // callback as (undefined, { code, message }) — never as a rejection.
+    //   NOT_AUTHORIZED  location permission denied (or only "approximate"
+    //                   granted — GPS needs precise), or Location turned off
+    //   ALREADY_STARTED the native service is still attached from before a
+    //                   page reload
+    //   FOREGROUND_SERVICE_START_NOT_ALLOWED  Android 12+ refuses to start a
+    //                   location service while the app is in the background
     const NativeLocation = {
-        running: false, starting: false, headersKey: "", lastFixAt: 0, stats: { fixes: 0, fed: 0 },
+        running: false, starting: false, headersKey: "", lastFixAt: 0, stats: { fixes: 0, fed: 0, errors: 0 },
+        blocked: null,          // { code, until } — don't re-prompt in a loop after a "no"
+        announced: false, reconciled: false, restartedOnce: false,
 
         inTrip() { return Boolean(currentTrip && Array.isArray(currentTrip.members) && currentTrip.members.some((m) => m.id === socket.id)); },
         wanted() {
@@ -50,10 +61,17 @@
                 ((SmartDrive.trip && SmartDrive.trip.active) || this.inTrip()));
         },
         headers() { return { "X-MU-Device": DeviceIdentity.id, "Authorization": `Bearer ${DeviceIdentity.token}` }; },
+        isBlocked() { return Boolean(this.blocked && Date.now() < this.blocked.until); },
 
         async sync() {
             const want = this.wanted();
-            if (want && !this.running && !this.starting) return this.start();
+            if (want && !this.running && !this.starting) {
+                if (this.isBlocked()) return;
+                // Android 12+ only lets the app start a location service while
+                // it's on screen; wait until it is.
+                if (document.visibilityState === "hidden") return;
+                return this.start();
+            }
             if (!want && this.running) return this.stop();
             if (want && this.running) {
                 const key = JSON.stringify(this.headers());
@@ -66,25 +84,27 @@
 
         async start() {
             this.starting = true;
+            this.announced = false;
             try {
-                // Android 13+: the foreground-service notification needs this.
+                // Android 13+: without this the service still runs, but its
+                // notification is hidden (and the rider can't stop it from there).
                 if (Native) await Native.requestNotifications().catch(() => null);
                 this.headersKey = JSON.stringify(this.headers());
+                this.running = true;          // errors arrive in onFix and clear it
                 await BG.start({
                     backgroundTitle: "MapUnite is sharing your ride",
                     backgroundMessage: "Your squad sees you while this ride or trip is on. Stop the ride to stop sharing.",
                     requestPermissions: true,
                     stale: false,
                     distanceFilter: 0,              // keep parked heartbeats (squad's "no signal" flag trips at 3 min)
-                    minIntervalMs: 10000,           // one native POST every 10 s at most
+                    minIntervalMs: 10000,           // one native POST every 10 s at most (also the GPS interval)
+                    networkFallback: true,          // cell/Wi-Fi fix when GPS goes quiet (plugin ≥ 8.5; ignored before)
                     url: `${MU_SERVER_ORIGIN}/api/native/location`,
                     headers: this.headers()
                 }, (loc, err) => this.onFix(loc, err));
-                this.running = true;
-                islandShow({ id: "native-bg", kind: "safe", icon: "📡", title: "Sharing continues in the background", sub: "See the notification · stops when the ride ends", ttl: 4000, haptic: false });
             } catch (e) {
+                this.running = false;
                 console.warn("[native] background location didn't start:", e && e.message);
-                if (/permission|denied/i.test(String(e && e.message))) showToast("Allow location access for MapUnite to keep sharing while the screen is off.", 6000);
             } finally {
                 this.starting = false;
             }
@@ -92,17 +112,75 @@
 
         async stop() {
             this.running = false;
+            this.announced = false;
             try { await BG.stop(); } catch (e) { /* already stopped */ }
+            // After an app restart the plugin no longer holds the service, so
+            // BG.stop() alone can't reach a service that kept running (native
+            // delivery outlives the app on purpose). Stop it directly too.
+            if (Native && typeof Native.stopBackgroundTracking === "function") {
+                try { await Native.stopBackgroundTracking(); } catch (e) { /* older native build */ }
+            }
+        },
+
+        // Once the app has settled after launch: a service still running from
+        // a ride that's no longer active (app was killed mid-ride, then
+        // reopened) is stopped, so sharing never continues past the ride.
+        async reconcile() {
+            if (this.reconciled) return;
+            this.reconciled = true;
+            if (this.running || this.starting || this.wanted()) return;
+            if (!Native || typeof Native.backgroundTrackingStatus !== "function") return;
+            try {
+                const st = await Native.backgroundTrackingStatus();
+                if (st && st.configured) {
+                    await this.stop();
+                    islandShow({ id: "native-bg-orphan", kind: "info", icon: "📡", title: "Background sharing stopped", sub: "It was left on from your last ride", ttl: 5000, haptic: false });
+                }
+            } catch (e) { /* ignore */ }
+        },
+
+        onError(err) {
+            this.stats.errors++;
+            this.running = false;
+            const code = String((err && err.code) || "");
+            const msg = String((err && err.message) || "");
+            console.warn("[native] background location:", code || "error", msg);
+            if (code === "ALREADY_STARTED" && !this.restartedOnce) {
+                // Still attached from before a page reload: restart it so fixes reach this page again.
+                this.restartedOnce = true;
+                BG.stop().catch(() => null).then(() => this.sync());
+                return;
+            }
+            if (code === "FOREGROUND_SERVICE_START_NOT_ALLOWED") return;      // retried when the app is on screen again
+            if (code === "NOT_AUTHORIZED" && /disabled/i.test(msg)) {
+                this.blocked = { code: "LOCATION_OFF", until: Date.now() + 60_000 };
+                showToast("Turn on Location for MapUnite to share your ride.", 6000);
+                return;
+            }
+            if (code === "NOT_AUTHORIZED") {
+                // Don't ask again in a loop; the rider can fix it in Settings.
+                this.blocked = { code, until: Date.now() + 30 * 60_000 };
+                islandShow({
+                    id: "native-bg-perm", kind: "sensor", icon: "📍", priority: 47, ttl: 10000, haptic: false,
+                    title: "Background sharing is off", sub: "Allow precise location for MapUnite",
+                    action: { label: "Settings", onClick: () => { this.blocked = null; try { BG.openSettings(); } catch (e) { /* ignore */ } } }
+                });
+                return;
+            }
+            this.blocked = { code: code || "ERROR", until: Date.now() + 2 * 60_000 };
         },
 
         onFix(loc, err) {
-            if (err) {
-                if (err.code === "NOT_AUTHORIZED") showToast("Location permission is off for MapUnite — background sharing stopped.", 6000);
-                return;
-            }
+            if (err) return this.onError(err);
             if (!loc || !Number.isFinite(loc.latitude) || !Number.isFinite(loc.longitude)) return;
             this.stats.fixes++;
             this.lastFixAt = Date.now();
+            this.blocked = null;
+            if (!this.announced) {
+                // Only now is it certain the service is running.
+                this.announced = true;
+                islandShow({ id: "native-bg", kind: "safe", icon: "📡", title: "Sharing continues in the background", sub: "See the notification · stops when the ride ends", ttl: 4000, haptic: false });
+            }
             // In the foreground the WebView's own GPS drives everything; hidden,
             // these fixes keep the ride recording and alerts going.
             if (document.visibilityState === "hidden" && typeof window.__muProcessLocation === "function") {
@@ -126,6 +204,7 @@
         SERVICE: "6d61702d-756e-6974-652d-626561636f6e",   // "map-unite-beacon" in ASCII
         token: null, advertising: false, scanning: false, seen: new Map(), announced: new Map(),
         bleReady: null, ownCreds: null, askedAt: 0, askTimer: null, rosterAskAt: 0,
+        permBlockedUntil: 0, advertiseUnsupported: false, btOffShown: false, syncing: false,
 
         valid(c) { return Boolean(c && /^[0-9a-f]{8}$/i.test(c.tag || "") && /^[0-9a-f]{8}$/i.test(c.rid || "")); },
         // The radio relay's ids when a Meshtastic radio is paired; otherwise
@@ -165,20 +244,53 @@
             const c = this.creds();
             const token = (c.tag + c.rid).toLowerCase();
             if (token === this.token && (this.advertising || this.scanning)) return;
-            await this.stop();
-            this.token = token;
-            if (Native) {
-                try { await Native.startBeacon({ serviceUuid: this.SERVICE, data: token, txPower: "medium", mode: "balanced" }); this.advertising = true; }
-                catch (e) { console.warn("[native] beacon not advertising:", e && e.message); }
-            }
-            if (BLE) {
-                try {
-                    this.bleReady = this.bleReady || BLE.initialize({ androidNeverForLocation: false });
-                    await this.bleReady;
-                    const mode = BLEX.ScanMode ? BLEX.ScanMode.SCAN_MODE_BALANCED : 1;
-                    await BLE.requestLEScan({ services: [this.SERVICE], allowDuplicates: true, scanMode: mode }, (r) => this.onScan(r));
-                    this.scanning = true;
-                } catch (e) { this.bleReady = null; console.warn("[native] beacon scan failed:", e && e.message); }
+            // A "no" to Nearby devices: don't put the dialog up again every 15 s.
+            if (this.permBlockedUntil > Date.now()) return;
+            if (this.syncing) return;
+            this.syncing = true;
+            try {
+                await this.stop();
+                this.token = token;
+                let denied = false, btOff = false;
+                if (Native && !this.advertiseUnsupported) {
+                    try { await Native.startBeacon({ serviceUuid: this.SERVICE, data: token, txPower: "medium", mode: "balanced" }); this.advertising = true; }
+                    catch (e) {
+                        const code = String((e && e.code) || ""), msg = String((e && e.message) || "");
+                        if (code === "PERMISSION_DENIED" || /permission/i.test(msg)) denied = true;
+                        else if (code === "BLUETOOTH_OFF") btOff = true;
+                        else if (code === "UNSUPPORTED") this.advertiseUnsupported = true;     // this phone can still see others
+                        console.warn("[native] beacon not advertising:", code || msg);
+                    }
+                }
+                if (BLE && !denied) {
+                    try {
+                        this.bleReady = this.bleReady || BLE.initialize({ androidNeverForLocation: false });   // beacons are filtered out with neverForLocation
+                        await this.bleReady;
+                        const mode = BLEX.ScanMode ? BLEX.ScanMode.SCAN_MODE_BALANCED : 1;
+                        await BLE.requestLEScan({ services: [this.SERVICE], allowDuplicates: true, scanMode: mode }, (r) => this.onScan(r));
+                        this.scanning = true;
+                    } catch (e) {
+                        this.bleReady = null;
+                        const msg = String((e && e.message) || "");
+                        if (/permission/i.test(msg)) denied = true;
+                        else if (/disabled|not enabled|off/i.test(msg)) btOff = true;
+                        console.warn("[native] beacon scan failed:", msg);
+                    }
+                }
+                if (denied) {
+                    this.token = null;
+                    this.permBlockedUntil = Date.now() + 30 * 60_000;
+                    islandShow({
+                        id: "ble-perm", kind: "info", icon: "📡", ttl: 8000, haptic: false,
+                        title: "Nearby trip-mates over Bluetooth is off", sub: "Allow “Nearby devices” for MapUnite to use it",
+                        action: BG && typeof BG.openSettings === "function" ? { label: "Settings", onClick: () => { this.permBlockedUntil = 0; BG.openSettings().catch(() => null); } } : undefined
+                    });
+                } else if (btOff && !this.btOffShown) {
+                    this.btOffShown = true;          // once per app session; retried quietly on each sync
+                    islandShow({ id: "ble-off", kind: "info", icon: "📡", ttl: 5000, haptic: false, title: "Bluetooth is off", sub: "Turn it on to see trip-mates right next to you" });
+                }
+            } finally {
+                this.syncing = false;
             }
         },
 
@@ -240,10 +352,55 @@
         }
     };
 
+    // ------------------------------------------------------------------
+    // 3. Can the app reach the server? Say so plainly when it can't.
+    // ------------------------------------------------------------------
+    // In the app the pages come from the phone, so a wrong MU_SERVER_ORIGIN,
+    // a sleeping server or an old server.js otherwise just looks like an
+    // empty map. Shown after a couple of failed attempts, cleared on connect.
+    const ServerLink = {
+        host: (() => { try { return new URL(MU_SERVER_ORIGIN).host; } catch (e) { return MU_SERVER_ORIGIN; } })(),
+        startedAt: Date.now(), fails: 0, everConnected: false, shown: false, lastReason: "",
+        reason(err) {
+            const m = String((err && err.message) || err || "");
+            if (/timeout/i.test(m)) return "the server isn't answering (it may still be starting up)";
+            if (/xhr poll error|websocket error|transport/i.test(m)) return "no connection to it — check the server is running and the address is right";
+            return m ? `refused: ${m}`.slice(0, 80) : "unknown error";
+        },
+        onError(err) {
+            this.fails++;
+            this.lastReason = this.reason(err);
+            if (navigator.onLine === false) return;           // the shell already shows "You're offline"
+            if (this.fails >= 2 || Date.now() - this.startedAt > 8000) this.show();
+        },
+        show() {
+            this.shown = true;
+            islandShow({
+                id: "native-conn", kind: "sensor", icon: "🛰️", priority: 46, ttl: 0, sticky: true, haptic: false,
+                title: this.everConnected ? "Reconnecting to MapUnite…" : "Can't reach the MapUnite server",
+                sub: `${this.host} · ${this.lastReason}`,
+                action: { label: "Retry", onClick: () => { try { socket.disconnect(); socket.connect(); } catch (e) { /* ignore */ } } }
+            });
+        },
+        onConnect() {
+            this.everConnected = true;
+            this.fails = 0;
+            if (this.shown) { this.shown = false; islandHide("native-conn"); }
+        }
+    };
+    socket.on("connect", () => ServerLink.onConnect());
+    socket.on("connect_error", (err) => ServerLink.onError(err));
+
     window.NativeLocation = NativeLocation;
     window.NativeProximity = NativeProximity;
+    window.NativeServerLink = ServerLink;
 
     const syncAll = () => { NativeLocation.sync(); NativeProximity.sync(); };
+    // Back on screen: a start that Android refused in the background can go now.
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") setTimeout(syncAll, 300); });
+    // Leftover service from a ride the app no longer knows about: stop it once things settle.
+    socket.on("profileAccepted", () => setTimeout(() => NativeLocation.reconcile(), 10_000));
+    setTimeout(() => NativeLocation.reconcile(), 30_000);
     document.addEventListener("mu:drive-state", syncAll);
     socket.on("privacyChanged", () => setTimeout(syncAll, 0));
     socket.on("tripData", () => setTimeout(() => { NativeLocation.sync(); NativeProximity.onTripChange(); }, 300));

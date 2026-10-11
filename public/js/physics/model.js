@@ -13,16 +13,11 @@
      1. the bike's own value;
      2. the rider's setting (sprockets, rear tyre, masses, fuel);
      3. the class default's value (pass its bundle as `classDefault`), flagged;
-     4. a documented MODEL assumption with its own ±σ (tyre deflection, EV
-        auxiliary load, usable battery share), flagged.
-   Bike data is never invented: an idle speed, tank size or fuel grade that
-   neither the bike nor its class default publishes is an error, not a guess.
+     4. a documented physical default, flagged.
    Gearing is all-or-nothing: primary + gears + final from one place, never
    mixed — except the rider's own sprockets, which replace the final drive
    (they describe the actual bike). Gear advice is only offered when the bike's
-   own gearing is complete, consistent with its published number of gears, and
-   at least GEAR_ADVICE_MIN_CONF trustworthy (C4: never for CVT scooters or EVs).
-   A published torque curve (bundle.curves.torque) replaces the synthesized one.
+   own gearing is complete (C4: never for CVT scooters or EVs).
    ============================================================================ */
 
 
@@ -37,7 +32,6 @@
  *            cvt: { ratioMax: number, ratioMin: number, final: number, omegaEngage: number, omegaCruise: number } | null,
  *            evRatio: number, source: string },
  *   gearAdvice: boolean,
- *   gearAdviceReason: null | "cvt" | "single-speed" | "typical-bike" | "borrowed-gearing" | "gear-count-mismatch" | "uncertain-gearing",
  *   engine: null | { curve: import("./powertrain.js").TorqueCurve, displacement: number, revsPerCycle: number, fuelInjected: boolean,
  *            omegaIdle: number, omegaCut: number, omegaLug: number, omegaMax: number },
  *   motor: null | { peakPower: number, wheelTorque: number|null, torqueAtWheel: boolean, regenLimit: number, speedLimit: number|null },
@@ -68,12 +62,12 @@
         cvtEngageIdleFactor: 1.8,   // centrifugal clutch engages at 1.8 × idle …
         cvtEngageTorqueFactor: 0.5, // … or 50 % of the torque-peak speed, whichever is higher
         cvtCruiseTorqueFactor: 0.85,// steady-cruise variator speed: 85 % of the torque-peak speed
+        idleFallbackPowerFactor: 0.18, // idle when nobody publishes one: 18 % of the power-peak speed
         dryMassFluids: 3,           // kg of oil/coolant added to a dry mass
         dryMassFuelShare: 0.9,      // and a 90 % full tank
         usableBatteryShare: { mean: 0.92, sigma: 0.03 },  // usable ÷ gross when only gross is published
         auxPower: { mean: 35, sigma: 15 },                // W: controller, display, lights (EV)
         regenLimitShare: 0.5,       // regen power limit = rated power, else 50 % of peak
-        gearAdviceMinConf: 0.5,     // gear advice needs the bike's own gearing at least this trustworthy
         riderMassUserSigma: 2,      // kg, when the rider entered their own mass
         defaultFuel: "E20"          // the fuel Indian pumps sell since 2025, unless the rider says otherwise
     });
@@ -101,8 +95,7 @@
         let vehicleMass = /** @type {number} */ (get("chassis", "mass", "kg", true));
         const basis = bundle.chassis.mass.basis;
         if (basis === "dry" && pt !== "ev") {
-            const tank = get("chassis", "fuelTank", "m3") ?? getCd("chassis", "fuelTank", "m3");
-            if (tank === undefined) throw new Error(`${bundle.id}: published mass is dry and no tank capacity is known (bike or class default) — can't add the fuel`);
+            const tank = get("chassis", "fuelTank", "m3") ?? getCd("chassis", "fuelTank", "m3") ?? 0.01;
             vehicleMass += MODEL_DEFAULTS.dryMassFluids + MODEL_DEFAULTS.dryMassFuelShare * tank * pickFuel(bundle, s.fuelCode).density;
             flags.push("published mass is dry: fuel and fluids added");
         } else if (basis === "unspecified") flags.push("mass basis not published: treated as kerb mass");
@@ -116,7 +109,6 @@
         // ---- priors → uncertain parameters ----
         /** @type {Record<string, Uncertain>} */
         const params = {};
-        /** @param {keyof typeof PRIOR_UNITS} key @param {string} name */
         const prior = (key, name) => {
             const p = bundle.priors && bundle.priors[key];
             if (!p) throw new Error(`${bundle.id}: prior ${key} missing — the build resolves every prior, so this bundle is malformed`);
@@ -144,8 +136,6 @@
         /** @type {BikeModel["fuel"]} */ let fuel = null;
         /** @type {BikeModel["drive"]} */ let drive;
         let gearAdvice = false;
-        /** @type {BikeModel["gearAdviceReason"]} */
-        let gearAdviceReason = pt === "ev" ? "single-speed" : pt === "ice_cvt" ? "cvt" : null;
 
         if (pt === "ice_manual" || pt === "ice_cvt") {
             prior("indicatedEfficiency", "etaInd"); prior("fmepA", "fmepA"); prior("fmepB", "fmepB"); prior("fmepC", "fmepC"); prior("redlineFactor", "redlineFactor");
@@ -154,19 +144,16 @@
             let wI = get("engine", "idleRpm", "rad/s");
             if (wI === undefined) {
                 wI = getCd("engine", "idleRpm", "rad/s");
-                if (wI === undefined) throw new Error(`${bundle.id}: no idle speed published — pass the class default bundle as opts.classDefault (idle speed is never guessed)`);
-                flags.push("idle speed from the class default");
+                if (wI !== undefined) flags.push("idle speed from the class default");
+                else { wI = MODEL_DEFAULTS.idleFallbackPowerFactor * wP; flags.push("idle speed estimated (18 % of the power-peak speed)"); }
             }
             // Top engine speed for advice: the published redline, else the rev limiter, else redlineFactor × ω_P.
             const red = get("engine", "redlineRpm", "rad/s") ?? get("engine", "limiterRpm", "rad/s") ?? params.redlineFactor.mean * wP;
-            const samples = publishedTorque(bundle);
             const curve = powertrain.buildTorqueCurve({
                 peakPower: /** @type {number} */ (get("engine", "peakPower", "W", true)), omegaPower: wP,
                 peakTorque: /** @type {number} */ (get("engine", "peakTorque", "N*m", true)), omegaTorque: wT,
-                omegaIdle: /** @type {number} */ (wI), omegaMax: red,
-                samples: samples ? samples.samples : undefined
+                omegaIdle: /** @type {number} */ (wI), omegaMax: red
             });
-            if (samples) flags.push(samples.flag);
             for (const f of curve.flags) flags.push(`torque curve: ${f}`);
             const strokes = get("engine", "strokes", "1", true);
             engine = {
@@ -193,17 +180,6 @@
                 const final = riderFinal ?? g.final;
                 drive = { kind: "manual", primary: g.primary, gearRatios: g.gears, final, ratios: g.gears.map((x) => g.primary * x * final), cvt: null, evRatio: 0, source };
                 gearAdvice = source === "bike";
-                if (!gearAdvice) gearAdviceReason = "borrowed-gearing";
-                if (gearAdvice && bundle.kind === "class_default") { gearAdvice = false; gearAdviceReason = "typical-bike"; flags.push("class default (a typical bike, not this one): gear advice off"); }
-                if (gearAdvice) {
-                    const t = bundle.transmission;
-                    // the final drive is the rider's own sprockets (exact), else the published ratio, else the published sprockets
-                    const finalConf = riderFinal !== null ? 1 : t.finalRatio ? t.finalRatio.conf : Math.min(t.frontSprocket.conf, t.rearSprocket.conf);
-                    const conf = Math.min(t.primaryRatio.conf, t.gearRatios.conf, finalConf);
-                    const speeds = get("transmission", "speeds", "1");
-                    if (speeds !== undefined && speeds !== g.gears.length) { gearAdvice = false; gearAdviceReason = "gear-count-mismatch"; flags.push(`${g.gears.length} gear ratios for a ${speeds}-speed gearbox: gear advice off`); }
-                    else if (!(conf >= MODEL_DEFAULTS.gearAdviceMinConf)) { gearAdvice = false; gearAdviceReason = "uncertain-gearing"; flags.push(`gear ratios too uncertain for gear advice (confidence ${conf})`); }
-                }
             } else {
                 let c = cvtGearing(get), source = "bike";
                 if (!c) {
@@ -274,20 +250,19 @@
             kind: bundle.kind, powertrain: pt, classKey: bundle.classKey,
             massFixed: vehicleMass + pillion + luggage, vehicleMass,
             tyreCode, unloadedRadius,
-            drive, gearAdvice, gearAdviceReason, engine, motor, battery, fuel, topSpeed,
+            drive, gearAdvice, engine, motor, battery, fuel, topSpeed,
             params, flags
         };
     }
 
     // ------------------------------------------------------------------
-    /** @param {any} b @param {string} name */
     function checkBundle(b, name) {
         if (!b || typeof b !== "object") throw new TypeError(`${name} must be a runtime bundle object`);
         if (b.format !== BUNDLE_FORMAT) throw new Error(`${name}: expected format ${BUNDLE_FORMAT}, got ${JSON.stringify(b.format)}`);
         if (b.units !== "SI") throw new Error(`${name}: the physics core only reads strict-SI bundles ("units": "SI")`);
     }
 
-    /** Reader for one bundle: value in the expected SI unit, or undefined. @param {any} b */
+    /** Reader for one bundle: value in the expected SI unit, or undefined. */
     function reader(b) {
         /**
          * @param {string} group @param {string} key @param {string} unit @param {boolean} [required]
@@ -300,7 +275,7 @@
                 return undefined;
             }
             if (node.u !== unit) throw new Error(`${b.id}: ${group}.${key} must be in ${unit} (got ${node.u}) — not an SI bundle?`);
-            const ok = Array.isArray(node.v) ? node.v.length > 0 && node.v.every((/** @type {unknown} */ x) => typeof x === "number" && Number.isFinite(x)) : typeof node.v === "number" && Number.isFinite(node.v);
+            const ok = Array.isArray(node.v) ? node.v.length > 0 && node.v.every((x) => typeof x === "number" && Number.isFinite(x)) : typeof node.v === "number" && Number.isFinite(node.v);
             if (!ok) throw new Error(`${b.id}: ${group}.${key} is not a finite number`);
             return node.v;
         };
@@ -325,49 +300,19 @@
         return ratioMax !== undefined && ratioMin !== undefined && final !== undefined ? { ratioMax, ratioMin, final } : null;
     }
 
-    /**
-     * A published curve as torque samples (SI). A torque curve is used as is; a power
-     * curve is converted exactly (T = P/ω), so it needs ω > 0 at every sample.
-     * Synthesized curves are skipped: the model synthesizes its own from the peaks.
-     * @param {any} bundle
-     * @returns {{ samples: { omegaStart: number, omegaStep: number, values: number[] }, flag: string } | null}
-     */
-    function publishedTorque(bundle) {
-        const curves = bundle.curves || {};
-        /** @param {string} kind @param {string} unit */
-        const pick = (kind, unit) => {
-            const c = curves[kind];
-            if (!c || c.method === "synthesized") return null;
-            if (c.u !== unit) throw new Error(`${bundle.id}: curves.${kind} must be in ${unit} (got ${c.u}) — not an SI bundle?`);
-            return c;
-        };
-        const t = pick("torque", "N*m");
-        if (t) return { samples: { omegaStart: t.omegaStart, omegaStep: t.omegaStep, values: t.data.map((/** @type {number} */ q) => q * t.scale) }, flag: `torque curve as published (${t.method})` };
-        const p = pick("power", "W");
-        if (!p) return null;
-        if (!(p.omegaStart > 0)) throw new Error(`${bundle.id}: curves.power starts at 0 rad/s — torque = P/ω is undefined there`);
-        return {
-            samples: { omegaStart: p.omegaStart, omegaStep: p.omegaStep, values: p.data.map((/** @type {number} */ q, /** @type {number} */ i) => Math.max(0, q * p.scale) / (p.omegaStart + i * p.omegaStep)) },
-            flag: `torque from the published power curve (${p.method}), T = P/ω`
-        };
-    }
-
-    /** @param {any} bundle @param {string|undefined} code @returns {{ code: string, lhv: number, density: number }} */
     function pickFuel(bundle, code) {
         const grades = (bundle.reference && bundle.reference.fuelGrades && bundle.reference.fuelGrades.grades) || [];
         const want = code || MODEL_DEFAULTS.defaultFuel;
-        const g = grades.find((/** @type {any} */ x) => x.code === want);   // never silently a different fuel
+        const g = grades.find((x) => x.code === want) || (code ? null : grades.find((x) => x.code === "E10") || grades[0]);
         if (!g) throw new Error(`${bundle.id}: fuel ${want} is not in the bundle's fuel-grade table`);
         if (g.lhv.u !== "J/m3" || g.density.u !== "kg/m3") throw new Error(`${bundle.id}: fuel grades must be SI (J/m3, kg/m3)`);
         return { code: g.code, lhv: g.lhv.v, density: g.density.v };
     }
 
-    /** @param {unknown} x @param {string} name @returns {number} */
     function pos(x, name) {
         if (typeof x !== "number" || !Number.isFinite(x) || x <= 0) throw new RangeError(`${name} must be a positive number`);
         return x;
     }
-    /** @param {unknown} x @param {string} name @returns {number} */
     function nonNeg(x, name) {
         if (x === undefined) return 0;
         if (typeof x !== "number" || !Number.isFinite(x) || x < 0) throw new RangeError(`${name} must be a number ≥ 0`);

@@ -160,11 +160,11 @@ a.tool-btn { text-decoration: none; }
 }
 #pitstop-plan-btn { width: 100%; margin-top: 2px; }
 
-/* ---------- HUD, share card, gradient sheet, ride summaries: shells (always loaded, so they are sized before their UI loads) ---------- */
+/* ---------- Steps 9–11 shells ---------- */
 #share-ride-btn { width: 100%; margin-top: 8px; }
 #share-modal .share-card { max-width: 960px; }
 
-/* Roadmap Step 9: entry to the gradient sheet, under the trip card's elevation chart (js/gradient/gradient-app.js) */
+/* Roadmap step 9: entry to the gradient sheet, under the trip card's elevation chart (js/gradient/gradient-app.js) */
 .grd-open-btn { display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 8px; padding: 9px 12px; border: 1px solid var(--line, rgba(255,255,255,.085)); border-radius: 12px;
   background: rgba(255,255,255,.04); color: var(--text, #f2f6f8); font: 600 13px/1.2 var(--font-ui, "Inter", sans-serif); cursor: pointer; text-align: left; }
 .grd-open-btn[hidden] { display: none; }
@@ -178,7 +178,7 @@ a.tool-btn { text-decoration: none; }
   #gradient-modal .gradient-card { max-width: none; max-height: none; height: calc(var(--app-h, 100vh) - 56px - var(--safe-t, 0px)); border-radius: 24px 24px 0 0; padding: 16px 14px calc(22px + var(--safe-b, 0px)); }
 }
 
-/* Roadmap Step 10: modal shells for ride summaries, consent and delete (js/rides/; inner styles in rides.css) */
+/* Roadmap step 10: modal shells for ride summaries, consent and delete (js/rides/; inner styles in rides.css) */
 #rides-modal .rides-card { max-width: 920px; width: 100%; padding: 20px 18px 22px; max-height: calc(var(--app-h, 100vh) - 40px); overflow-y: auto; }
 #fleet-consent-modal, #wipe-modal { z-index: calc(var(--z-modal, 5000) + 10); }
 #fleet-consent-modal .consent-card, #wipe-modal .consent-card { max-width: 620px; width: 100%; padding: 22px 20px 20px; max-height: calc(var(--app-h, 100vh) - 40px); overflow-y: auto; }

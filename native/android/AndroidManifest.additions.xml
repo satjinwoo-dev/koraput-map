@@ -1,23 +1,48 @@
 <!--
-  MapUnite — add these to android/app/src/main/AndroidManifest.xml, inside
-  <manifest> and ABOVE <application>. The plugins merge their own entries
-  automatically (background location: ACCESS_FINE/COARSE_LOCATION,
-  FOREGROUND_SERVICE, FOREGROUND_SERVICE_LOCATION, POST_NOTIFICATIONS,
-  WAKE_LOCK and the location foreground service; bluetooth-le:
-  BLUETOOTH_SCAN, BLUETOOTH_CONNECT and the pre-Android-12 BLUETOOTH /
-  BLUETOOTH_ADMIN). These are the ones only MapUnite itself needs.
+  MapUnite — additions to android/app/src/main/AndroidManifest.xml
+  ====================================================================
+  Three places to edit. The finished file looks like this:
 
-  Deliberately NOT added: ACCESS_BACKGROUND_LOCATION. Background sharing
-  runs as a foreground service started while the app is open (during a
-  ride or trip), which Android allows with the normal "while using the app"
-  location permission — and it avoids Google Play's strict background-
-  location review.
+  <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+            xmlns:tools="http://schemas.android.com/tools">        (1) add xmlns:tools
+
+      <application ...>
+          <activity ...> ... </activity>                          (generated — leave)
+          <provider ...> ... </provider>                          (generated — leave)
+          (2) PART B goes here, inside <application>
+      </application>
+
+      (3) PART A goes here, above or below <application>, inside <manifest>
+      <uses-permission android:name="android.permission.INTERNET" />   (already there)
+  </manifest>
+
+  The plugins merge their own entries automatically — don't add them again:
+    @capgo/background-geolocation: ACCESS_FINE/COARSE_LOCATION, FOREGROUND_SERVICE,
+      FOREGROUND_SERVICE_LOCATION, POST_NOTIFICATIONS, WAKE_LOCK, RECEIVE_BOOT_COMPLETED,
+      the location foreground service, and <uses-feature location.gps>
+    @capacitor-community/bluetooth-le: BLUETOOTH_SCAN, BLUETOOTH_CONNECT (Android 12+),
+      BLUETOOTH / BLUETOOTH_ADMIN (Android 11 and older)
+    @capacitor-community/speech-recognition: RECORD_AUDIO + the RecognitionService query
+
+  Deliberately NOT added:
+    ACCESS_BACKGROUND_LOCATION — background sharing is a foreground service
+      started while the app is open (Start ride / join a trip), which Android
+      allows with "While using the app"; it also avoids Google Play's strict
+      background-location review.
+    neverForLocation on BLUETOOTH_SCAN — Android drops beacon results from
+      scans made with it, which would break "trip-mates nearby".
 -->
 
-<!-- Bluetooth "peripheral": advertise the per-trip proximity beacon (Android 12+ runtime "Nearby devices") -->
+
+<!-- ======================= PART A — inside <manifest> ======================= -->
+
+<!-- Bluetooth "peripheral": advertise the per-trip proximity beacon (Android 12+ "Nearby devices") -->
 <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
 
-<!-- Voice calls, voice squad and voice commands (WebRTC / speech recognition), dashcam -->
+<!-- Lets the WebView see connectivity changes (the "You're offline" banner / online events) -->
+<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+<!-- Voice calls, voice squad and voice commands (WebRTC / speech recognition), dashcam, the break-time fatigue check (front camera, only while stopped) -->
 <uses-permission android:name="android.permission.RECORD_AUDIO" />
 <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 <uses-permission android:name="android.permission.CAMERA" />
@@ -25,7 +50,7 @@
 <!-- Haptic feedback on alerts (navigator.vibrate) -->
 <uses-permission android:name="android.permission.VIBRATE" />
 
-<!-- Speech recognition: lets Android find the system recognizer on Android 11+ -->
+<!-- Android 11+ package visibility: find the system speech recognizer and text-to-speech engine -->
 <queries>
     <intent>
         <action android:name="android.speech.RecognitionService" />
@@ -38,4 +63,21 @@
 <!-- Features the app can live without (keeps the Play Store from hiding it on phones that lack them) -->
 <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
 <uses-feature android:name="android.hardware.camera" android:required="false" />
+<uses-feature android:name="android.hardware.camera.front" android:required="false" />
 <uses-feature android:name="android.hardware.microphone" android:required="false" />
+
+
+<!-- ===================== PART B — inside <application> ===================== -->
+
+<!--
+  The background-location plugin declares its service android:exported="true"
+  with no permission, so ANY app on the phone could start it. Started that way
+  it can crash MapUnite (Android kills an app whose foreground service doesn't
+  show its notification in time) or resume a stored tracking session. Only
+  MapUnite itself ever starts it, so close it to other apps.
+  Needs xmlns:tools on <manifest> (step 1 above).
+-->
+<service
+    android:name="com.capgo.capacitor_background_geolocation.BackgroundGeolocationService"
+    android:exported="false"
+    tools:replace="android:exported" />

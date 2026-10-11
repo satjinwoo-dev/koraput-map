@@ -69,3 +69,4 @@
 
 @media (forced-colors: active) { .adv-chip { border: 2px solid CanvasText !important; } }
 @media (prefers-reduced-motion: reduce) { .adv-switch, .adv-switch::after { transition: none; } }
+.advice-status[data-mode="ask-paused"]::before { background: #8b9bab; }

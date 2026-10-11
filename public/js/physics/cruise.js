@@ -87,7 +87,7 @@
         return p;
     }
 
-    /** Keep a perturbed parameter physical: efficiencies in (0.05, 0.995], others ≥ 0. @param {string} name @param {number} x */
+    /** Keep a perturbed parameter physical: efficiencies in (0.05, 0.995], others ≥ 0. */
     function physical(name, x) {
         if (name.startsWith("eta")) return Math.min(0.995, Math.max(0.05, x));
         if (name === "deflection") return Math.min(0.15, Math.max(0, x));
@@ -106,10 +106,7 @@
     /** @returns {State} */
     const newState = () => ({ feasible: false, reason: "", gear: -1, omega: 0, slipping: false, force: 0, wheelPower: 0, enginePower: 0, available: 0, reserve: 0, fuelRate: 0, fuelCut: false, overrun: false, batteryPower: 0, perMetre: 0 });
 
-    /**
-     * Engine speed of a CVT scooter at road speed v (rad/s).
-     * @param {NonNullable<import("./model.js").BikeModel["drive"]["cvt"]>} cvt  @param {number} v  m/s  @param {number} r  rolling radius, m  @param {number} idle  rad/s
-     */
+    /** Engine speed of a CVT scooter at road speed v (rad/s). */
     function cvtOmega(cvt, v, r, idle) {
         if (v <= V_EPS) return idle;                                 // standing: clutch open, engine idles
         const wLow = (v / r) * cvt.ratioMax * cvt.final;
@@ -263,10 +260,7 @@
         return iceState(m, P, E, v, -1, out);
     }
 
-    /**
-     * Same state, gear held fixed (for σ): manual uses `gear`, others ignore it.
-     * @param {import("./model.js").BikeModel} m  @param {Params} P  @param {ResolvedEnv} E  @param {number} v  @param {number} gear  @param {State} out
-     */
+    /** Same state, gear held fixed (for σ): manual uses `gear`, others ignore it. */
     function stateFixed(m, P, E, v, gear, out) {
         if (m.powertrain === "ev") return evState(m, P, E, v, out);
         return iceState(m, P, E, v, m.drive.kind === "manual" ? gear : -1, out);
@@ -321,26 +315,19 @@
     // ------------------------------------------------------------------
     /**
      * @typedef {{ from: number, to: number, speed: number, omegaFrom: number, omegaTo: number, atRedline: boolean }} Shift
-     * @typedef {{ advisory: boolean, reason: import("./model.js").BikeModel["gearAdviceReason"], ecoUp: Shift[], perfUp: Shift[], ecoDown: Shift[] }} ShiftPoints
+     * @typedef {{ advisory: boolean, ecoUp: Shift[], perfUp: Shift[], ecoDown: Shift[] }} ShiftPoints
      */
     /**
      * Economy upshift: the lowest speed where the next gear is above its lugging
      * limit and carries the load (on the given road) with reserve. Economy downshift:
      * the speed where the current gear falls below its lugging limit. Full-throttle
      * upshift: where the next gear's wheel force overtakes this gear's, else the redline.
-     *
-     * Gear advice is refused, not just flagged, when the bike's gearing isn't its own
-     * or isn't trustworthy (a typical bike, gearing borrowed from the class default,
-     * inconsistent or low-confidence ratios): the answer is then advisory: false, the
-     * reason (model.gearAdviceReason) and NO shift speeds, so no UI can show advice
-     * the data doesn't support. `diagnostic: true` computes them anyway, for review
-     * tools and tests only (still advisory: false).
-     * @param {import("./model.js").BikeModel} model @param {Env} [env] @param {{ reserve?: number, diagnostic?: boolean }} [opts]
+     * `advisory` is false when the gearing came from the class default (no gear advice then).
+     * @param {import("./model.js").BikeModel} model @param {Env} [env] @param {{ reserve?: number }} [opts]
      * @returns {ShiftPoints|null}  null for CVT scooters and EVs
      */
     function shiftPoints(model, env = {}, opts = {}) {
         if (model.drive.kind !== "manual") return null;
-        if (!model.gearAdvice && !opts.diagnostic) return { advisory: false, reason: model.gearAdviceReason, ecoUp: [], perfUp: [], ecoDown: [] };
         const eng = /** @type {NonNullable<import("./model.js").BikeModel["engine"]>} */ (model.engine);
         const E = resolveEnv(env), P = meanParams(model);
         const reserve = opts.reserve === undefined ? CRUISE_DEFAULTS.reserve : opts.reserve;
@@ -348,7 +335,6 @@
         const R = model.drive.ratios, n = R.length, k = eng.curve;
         const st = newState();
         /** @type {Shift[]} */ const ecoUp = [], perfUp = [], ecoDown = [];
-        /** @param {number} i @param {number} v @param {boolean} atRedline @returns {Shift} */
         const shift = (i, v, atRedline) => ({ from: i + 1, to: i + 2, speed: v, omegaFrom: (v / r) * R[i], omegaTo: (v / r) * R[i + 1], atRedline });
         for (let i = 0; i < n - 1; i++) {
             const vTop = (eng.omegaMax * r) / R[i];                 // redline in gear i
@@ -362,7 +348,6 @@
             }
             ecoUp.push(shift(i, Math.min(v, vTop), v >= vTop));        // atRedline: the next gear never carries the load before the redline
             // full-throttle upshift: F_i(v) − F_{i+1}(v) changes sign, else redline
-            /** @param {number} g @param {number} vv */
             const force = (g, vv) => (torqueAt(k, (vv / r) * R[g]) * R[g] * P.etaDt) / r;
             const vStart = Math.max((eng.omegaIdle * r) / R[i + 1], (k.omegaTorque * r) / R[i]);
             let vPerf = vTop, crossed = false;
@@ -385,7 +370,7 @@
             const v = (eng.omegaLug * r) / R[i];
             ecoDown.push({ from: i + 1, to: i, speed: v, omegaFrom: (v / r) * R[i], omegaTo: (v / r) * R[i - 1], atRedline: false });
         }
-        return { advisory: model.gearAdvice, reason: model.gearAdviceReason, ecoUp, perfUp, ecoDown };
+        return { advisory: model.gearAdvice, ecoUp, perfUp, ecoDown };
     }
 
     // ------------------------------------------------------------------
@@ -398,7 +383,6 @@
     function maxSpeed(model, env = {}) {
         const E = resolveEnv(env), P = meanParams(model);
         const st = newState(), tmp = newState();
-        /** @param {number} v */
         const ok = (v) => stateAt(model, P, E, v, 1, st, tmp).feasible;
         const cap = model.motor && model.motor.speedLimit !== null ? model.motor.speedLimit : 120;
         let last = 0;
@@ -421,14 +405,10 @@
      *   perMetre: Float64Array, perMetreLo: Float64Array, perMetreHi: Float64Array,
      *   fuelRate: Float64Array | null, range: Float64Array | null, rangeLo: Float64Array | null, rangeHi: Float64Array | null,
      *   eco: { speedBest: number, speedLow: number, speedHigh: number, perMetreBest: number } | null,
-     *   gearAdvice: boolean,
-     *   contributions: { param: string, relative: number }[]
+     *   gearAdvice: boolean
      * }} CruiseTable
      *  perMetre: fuel m3/m (petrol) or battery energy J/m (EV); +Infinity at standstill.
      *  gear: 1-based for manual gearboxes, 0 otherwise.
-     *  contributions: which prior drives the ±1σ band — for each parameter, the RMS over
-     *  the feasible rows of its own (half-difference ÷ perMetre), largest first. Tells the
-     *  cloud calibration which measurement would narrow the band most.
      */
     /**
      * @param {import("./model.js").BikeModel} model
@@ -460,8 +440,6 @@
         const plus = names.map((k) => ({ ...P, [k]: physical(k, P[k] + model.params[k].sigma) }));
         const minus = names.map((k) => ({ ...P, [k]: physical(k, P[k] - model.params[k].sigma) }));
         const st = newState(), tmp = newState(), sp = newState();
-        const contribSum = new Float64Array(names.length);
-        let contribRows = 0;
         const bat = model.battery;
         const usableMean = bat ? (bat.usable !== null ? bat.usable : bat.gross * P.usableShare) : 0;
         const usableSigma = bat && bat.usable === null && model.params.usableShare ? bat.gross * model.params.usableShare.sigma : 0;
@@ -480,22 +458,18 @@
             if (fuelRate) fuelRate[i] = st.fuelRate;
             let s2 = 0;
             if (doSigma && Number.isFinite(f)) {
-                const counted = st.feasible && f > 0;
                 for (let j = 0; j < names.length; j++) {
                     const a = stateFixed(model, plus[j], E, v, st.gear, sp).perMetre;
                     const b = stateFixed(model, minus[j], E, v, st.gear, sp).perMetre;
                     const d = 0.5 * (a - b);
                     s2 += d * d;
-                    if (counted) contribSum[j] += (d / f) * (d / f);
                 }
-                if (counted) contribRows++;
             }
             const s = Math.sqrt(s2);
             perMetreLo[i] = Number.isFinite(f) ? (ice ? Math.max(0, f - s) : f - s) : f;
             perMetreHi[i] = Number.isFinite(f) ? f + s : f;
             if (range && rangeLo && rangeHi) {
                 // range = usable energy ÷ energy per metre (driving only: a descent gives no "range")
-                /** @param {number} e @param {number} eps */
                 const rr = (e, eps) => (eps > 0 && Number.isFinite(eps) ? e / eps : Infinity);
                 range[i] = rr(usableMean, f);
                 const relE = usableMean > 0 ? usableSigma / usableMean : 0;
@@ -510,10 +484,7 @@
             powertrain: model.powertrain, units: "SI", env: E, step,
             speed, feasible, gear, omega, wheelPower, enginePower, perMetre, perMetreLo, perMetreHi, fuelRate, range, rangeLo, rangeHi,
             eco: ecoBand(speed, perMetre, feasible, opts.ecoTolerance === undefined ? CRUISE_DEFAULTS.ecoTolerance : opts.ecoTolerance, opts.ecoMinSpeed === undefined ? CRUISE_DEFAULTS.ecoMinSpeed : opts.ecoMinSpeed),
-            gearAdvice: model.gearAdvice,
-            contributions: contribRows === 0 ? [] : names
-                .map((param, j) => ({ param, relative: Math.sqrt(contribSum[j] / contribRows) }))
-                .sort((x, y) => y.relative - x.relative)
+            gearAdvice: model.gearAdvice
         };
     }
 
@@ -547,7 +518,6 @@
         }
         if (best < 0) return null;
         const limit = cost[best] * (1 + tol);
-        /** @param {number} i */
         const ok = (i) => feasible[i] && speed[i] >= minSpeed - 1e-9 && cost[i] > 0 && cost[i] <= limit;
         let lo = best, hi = best;
         while (lo > 0 && ok(lo - 1)) lo--;

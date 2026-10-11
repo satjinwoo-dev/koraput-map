@@ -19,23 +19,48 @@
 //   opts: { priority 0..100, key (dedupe), cooldownMs, category,
 //           drivingOnly (skip unless a drive is active), force (user-asked
 //           replies / SOS: bypass the settings toggle and mute), maxAgeMs,
-//           dropIfBusy (Step 8 advice: say it now or never — never queue it
-//           behind, or interrupt, anything else) }
+//           onResult({ spoken, reason }) (optional: the final outcome, also
+//           after an ask-first question) }
+// Returns true (spoken or queued), false (held back / voice off), or "ask"
+// (truthy: a "Bhai, ek baat bolun?" question is running; onResult reports
+// whether the cue was spoken in the end).
 function voiceAnnounce(text, opts = {}) {
-    if (window.VoiceAssistant && typeof window.VoiceAssistant.announce === "function") {
-        return window.VoiceAssistant.announce(text, opts);
+    const report = (spoken, reason) => { try { if (typeof opts.onResult === "function") opts.onResult({ spoken, reason }); } catch (e) { /* caller's problem */ } };
+    // Step 8: the advice gate (js/advice/) may hold a cue back: quiet ride, weak GPS,
+    // right after a turn or a hard brake, bad weather, or too soon after another tip.
+    // It never holds back a safety-critical cue (priority ≥ 85, "sos", force).
+    // With "Ask before tips" it may say ask: speak only after the rider says yes.
+    let d = null;
+    try {
+        const live = window.MUAdvice && window.MUAdvice.live;
+        if (live && typeof live.decide === "function") d = live.decide(text, opts);
+        else if (live && typeof live.allowVoice === "function") d = { speak: Boolean(live.allowVoice(text, opts)) };
+    } catch (e) { d = null; /* the gate is optional: speak as before */ }
+    const VA = window.VoiceAssistant;
+    if (d && d.ask) {
+        // One question at a time: a second tip arriving mid-question is dropped, not spoken unasked.
+        if (VA && VA.asking) { report(false, "asking"); return false; }
+        if (VA && typeof VA.askThenSay === "function" && VA.canAsk()) { VA.askThenSay(text, opts, d); return "ask"; }
+        // The phone can't listen right now (no mic, a call, muted …): behave as before the setting.
+        if (!d.fallbackSpeak) { report(false, d.reason || "quiet"); return false; }
+    } else if (d && !d.speak) { report(false, d.reason || "held"); return false; }
+    if (VA && typeof VA.announce === "function") {
+        const ok = VA.announce(text, opts);
+        report(Boolean(ok), ok ? "spoken" : "voice-off");
+        return ok;
     }
     try {
-        if (!("speechSynthesis" in window) || !text) return false;
-        if ((opts.priority ?? 50) < 60 && !opts.force) return false;
+        if (!("speechSynthesis" in window) || !text) { report(false, "voice-off"); return false; }
+        if ((opts.priority ?? 50) < 60 && !opts.force) { report(false, "voice-off"); return false; }
         window.speechSynthesis.speak(new SpeechSynthesisUtterance(String(text)));
+        report(true, "spoken");
         return true;
-    } catch (e) { return false; }
+    } catch (e) { report(false, "voice-off"); return false; }
 }
 
 // Live navigation state, read by voice commands ("how far?") and by
 // isDriving(). Updated only inside startSearchNavigation()/stopDrive().
-const navState = { ready: false, active: false, destName: "", remainingM: null, etaSec: null, nextManeuver: "", nextManeuverM: null, routePath: null };
+const navState = { ready: false, active: false, destName: "", remainingM: null, etaSec: null, nextManeuver: "", routePath: null };
 
 // Broadcast drive start/stop so features.js can arm hands-free listening and
 // the convoy loop without app.js knowing about either.
@@ -110,8 +135,6 @@ const VOICE_COMMANDS = [
     { name: "cancelPending", test: (t, ctx) => ctx.pendingSos && /\b(cancel|no|nahi|stop|don'?t)\b/.test(t) },
     { name: "sos", test: (t) => /\b(send|trigger|raise|call)\b.*\b(sos|s o s|emergency)\b|\bemergency\b|\bhelp me\b|\bsos\b|\bs o s\b/.test(t) },
     { name: "help", test: (t) => /\b(help|what can i say|commands|options)\b/.test(t) },
-    // Step 8: "quiet ride" switches off riding advice only (safety alerts stay); before "mute", which also matches "quiet"
-    { name: "quietRide", test: (t) => (/\b(quiet ride|no (coaching|advice|tips)|(coaching|advice|tips) off)\b/.test(t) ? "on" : /\b((coaching|advice|tips) (on|back)|normal ride)\b/.test(t) ? "off" : false) },
     { name: "unmute", test: (t) => /\b(unmute|un mute|voice on|alerts on|sound on|speak again)\b/.test(t) },
     { name: "mute", test: (t) => /\b(mute|quiet|silence|shut up|chup|alerts off|voice off)\b/.test(t) },
     { name: "stopNav", test: (t, ctx) => /\b(stop|end|cancel|exit|finish)\b.*\b(navigation|navigating|drive|ride|trip|route|directions)\b/.test(t) || (ctx.mode === "ptt" && /^(stop|ruko|band karo|end)$/.test(t)) },
@@ -173,6 +196,15 @@ const VoiceAssistant = {
     handsFreePausedUntil: 0,
     suspendedForTts: false,
     pendingConfirm: null,          // { type: "sos", until }
+
+    // Ask first ("Bhai, ek baat bolun?" → listen → speak only after a yes; js/advice/ask.js)
+    ASK_LISTEN_MS: 3500,           // the answer window, from the moment the mic is open
+    ASK_EXTEND_MS: 2500,           // more time once the rider has started talking
+    ASK_ECHO_MS: 200,              // let the question's last syllable die away before listening
+    asking: null,                  // { text, opts, phase: "prompt" | "listen", abort(reason) }
+    askOffUntil: 0,                // the recognizer kept failing: don't ask for a while
+    micBlocked: false,
+    lastPrompt: "",
 
     init() {
         try {
@@ -283,8 +315,10 @@ const VoiceAssistant = {
     isMuted() { return Date.now() < this.mutedUntil; },
 
     silence() {
+        for (const q of this.queue) this.settle(q, false);
         this.queue = [];
-        if (this.current) { this.current = null; this.lastTtsEndTs = Date.now(); clearTimeout(this.watchdog); }
+        if (this.asking && typeof this.asking.abort === "function") this.asking.abort("interrupted");
+        if (this.current) { const c = this.current; this.current = null; this.lastTtsEndTs = Date.now(); clearTimeout(this.watchdog); this.settle(c, false); }
         try { if (this.synth) this.synth.cancel(); } catch (e) { /* ignore */ }
         // The cancelled utterance's onend is ignored (done() checks identity),
         // so hand hands-free listening back here instead.
@@ -300,9 +334,6 @@ const VoiceAssistant = {
             if (this.isMuted() && priority < 100) return false;
             if (opts.drivingOnly && !this.driving() && priority < 90) return false;
         }
-        // Advice (Step 8) never waits in line or talks over anything: if something is
-        // speaking or queued, it's dropped (and its key isn't burned).
-        if (opts.dropIfBusy && (this.current || this.queue.length)) return false;
         const now = Date.now();
         if (opts.key) {
             const last = this.recentKeys.get(opts.key);
@@ -312,22 +343,40 @@ const VoiceAssistant = {
                 for (const [k, t] of this.recentKeys) if (now - t > 10 * 60 * 1000) this.recentKeys.delete(k);
             }
         }
-        const item = { text: String(text), priority, createdAt: now, maxAgeMs: Number.isFinite(opts.maxAgeMs) ? opts.maxAgeMs : 12000 };
+        const item = {
+            text: String(text), priority, createdAt: now, maxAgeMs: Number.isFinite(opts.maxAgeMs) ? opts.maxAgeMs : 12000,
+            onDone: typeof opts.onDone === "function" ? opts.onDone : null,     // (finished: boolean) once it's over
+            isAskPrompt: Boolean(opts.askPrompt)
+        };
 
-        if (!this.current) { this.speakNow(item); return true; }
-        if (priority > this.current.priority) {
+        // While a question waits for its answer, only something that matters
+        // (warnings, directions, safety: priority ≥ 60) may speak over it;
+        // the rest queues until the answer is in.
+        const holdForAsk = Boolean(this.asking && this.asking.phase === "listen" && priority < 60);
+        if (!this.current && !holdForAsk) { this.speakNow(item); return true; }
+        if (this.current && priority > this.current.priority) {
             // Pre-empt. Chrome can drop an utterance queued in the same tick
             // as cancel(), so the new one starts a moment later.
+            const old = this.current;
             this.current = item;
             clearTimeout(this.watchdog);
+            this.settle(old, false);
             try { this.synth.cancel(); } catch (e) { /* ignore */ }
             setTimeout(() => { if (this.current === item) this.utter(item); }, 60);
             return true;
         }
         this.queue.push(item);
         this.queue.sort((a, b) => b.priority - a.priority || a.createdAt - b.createdAt);
-        if (this.queue.length > this.MAX_QUEUE) this.queue.length = this.MAX_QUEUE;
+        if (this.queue.length > this.MAX_QUEUE) for (const dropped of this.queue.splice(this.MAX_QUEUE)) this.settle(dropped, false);
         return true;
+    },
+
+    /** Tell whoever waits on an utterance that it's over (once). */
+    settle(item, finished) {
+        if (!item || !item.onDone) return;
+        const fn = item.onDone;
+        item.onDone = null;
+        try { fn(Boolean(finished)); } catch (e) { /* ignore */ }
     },
 
     speakNow(item) {
@@ -336,33 +385,181 @@ const VoiceAssistant = {
     },
 
     utter(item) {
+        // Something that matters is about to be spoken while the mic waits for an answer:
+        // stop listening (the mic would hear the speaker) and drop that question.
+        if (this.asking && this.asking.phase === "listen" && typeof this.asking.abort === "function") this.asking.abort("interrupted");
         this.suspendRecognitionForTts();
         let u;
-        try { u = new SpeechSynthesisUtterance(item.text); } catch (e) { this.done(item); return; }
+        try { u = new SpeechSynthesisUtterance(item.text); } catch (e) { this.done(item, false); return; }
         if (this.voice) { u.voice = this.voice; u.lang = this.voice.lang; } else u.lang = "en-IN";
         u.rate = 1; u.pitch = 1; u.volume = 1;
-        u.onend = () => this.done(item);
-        u.onerror = () => this.done(item);
+        u.onend = () => this.done(item, true);
+        u.onerror = () => this.done(item, false);
         clearTimeout(this.watchdog);
         // Some engines never fire onend; don't let the queue wedge.
-        this.watchdog = setTimeout(() => this.done(item), Math.max(4000, item.text.length * 110));
-        try { this.synth.speak(u); } catch (e) { this.done(item); }
+        this.watchdog = setTimeout(() => this.done(item, true), Math.max(4000, item.text.length * 110));
+        try { this.synth.speak(u); } catch (e) { this.done(item, false); }
     },
 
-    done(item) {
+    done(item, finished = true) {
         if (this.current !== item) return;          // a pre-empted utterance's late onend/onerror
         clearTimeout(this.watchdog);
         this.current = null;
         this.lastTtsEndTs = Date.now();
+        this.settle(item, finished);
+        // After a question, the mic needs the floor: the queue waits for the answer
+        // (askThenSay calls kickQueue() when it's over).
+        if (item.isAskPrompt || (this.asking && this.asking.phase === "listen")) return;
+        this.kickQueue(120);
+    },
+
+    /** Start the next queued utterance, or hand the mic back to hands-free listening. */
+    kickQueue(delayMs = 0) {
+        if (this.current) return;
         const now = Date.now();
-        this.queue = this.queue.filter((q) => now - q.createdAt <= q.maxAgeMs);
+        this.queue = this.queue.filter((q) => { const fresh = now - q.createdAt <= q.maxAgeMs; if (!fresh) this.settle(q, false); return fresh; });
         const next = this.queue.shift();
-        if (next) setTimeout(() => { if (!this.current) this.speakNow(next); }, 120);
-        else this.resumeRecognitionAfterTts();
+        if (next) {
+            if (delayMs > 0) setTimeout(() => {
+                const askListening = this.asking && this.asking.phase === "listen" && next.priority < 60;
+                if (!this.current && !askListening) this.speakNow(next); else this.queue.unshift(next);
+            }, delayMs);
+            else this.speakNow(next);
+        } else this.resumeRecognitionAfterTts();
     },
 
     reply(text, extra = {}) {
         return this.announce(text, { priority: 80, force: true, ...extra });
+    },
+
+    // ------------------------------------------------------------ ask first
+    // "Bhai, ek baat bolun?" → listen ~3.5 s → speak the cue only after a yes.
+    // The gate decides WHEN to ask (js/advice/gate.js, "Ask before tips");
+    // js/advice/ask.js runs the conversation and reads the answer.
+
+    /** Can the phone ask and listen right now? If not, voiceAnnounce falls back to the old behaviour. */
+    canAsk() {
+        return Boolean(this.Recognition && this.synth && window.MUAdvice && window.MUAdvice.ask
+            && !this.micBlocked && !this.asking && Date.now() > this.askOffUntil
+            && this.alertsEnabled && !this.isMuted() && !this.callActive()
+            && this.listenMode !== "ptt" && document.visibilityState === "visible");
+    },
+
+    /**
+     * Ask, listen, then speak `text` only if the rider says yes.
+     * @param {string} text the cue, already approved by the gate
+     * @param {object} opts voiceAnnounce opts (priority, category, key, onResult …)
+     * @param {{ fallbackSpeak?: boolean }} [decision] the gate's decision
+     * @returns {Promise<boolean>} spoken?
+     */
+    async askThenSay(text, opts = {}, decision = {}) {
+        const A = window.MUAdvice || {};
+        const category = opts.category || "general";
+        const M = window.MUMaster && window.MUMaster.live;
+        const style = M && M.persona && M.persona.style === "plain" ? "plain" : "desi";
+        const prompt = A.ask.promptFor({ category, style, avoid: this.lastPrompt });
+        this.lastPrompt = prompt;
+        const session = { text, opts, phase: "prompt", abort: null };
+        this.asking = session;
+        // On screen it's always English (the spoken question may be Hinglish).
+        islandShow({ id: "voice-ask", kind: "info", icon: "🎙️", title: A.ask.promptFor({ category, style: "plain", rng: () => 0 }), sub: "Listening: say “yes” or “no”", ttl: 8000, haptic: false });
+        let res;
+        try {
+            res = await A.ask.runAsk({
+                prompt,
+                speak: (t) => this.speakAndWait(t, opts.priority),
+                listen: (ms) => { session.phase = "listen"; return this.listenOnce(ms, session); },
+                listenMs: this.ASK_LISTEN_MS
+            });
+        } catch (e) { res = { answer: "unavailable", heard: "" }; }
+        if (this.asking === session) this.asking = null;
+        islandHide("voice-ask");
+        try { if (A.live && typeof A.live.noteAnswer === "function") A.live.noteAnswer(category, res.answer); } catch (e) { /* optional */ }
+
+        let spoken = false;
+        if (res.answer === "yes" || (res.answer === "unavailable" && decision.fallbackSpeak)) {
+            // Already approved by the gate: speak it now without asking again.
+            const { onResult, key, ...rest } = opts;
+            spoken = Boolean(this.announce(text, { ...rest, maxAgeMs: 8000 }));
+        } else if (res.answer === "no") {
+            islandShow({ id: "voice-ask", kind: "safe", title: "OK, maybe later", sub: "", ttl: 1500, haptic: false });
+        }
+        if (res.answer === "unavailable" && res.error !== "not-allowed") this.askOffUntil = Date.now() + 10 * 60 * 1000;
+        this.kickQueue();                                   // anything that waited for the answer goes now
+        try { document.dispatchEvent(new CustomEvent("mu:voice-ask", { detail: { prompt, answer: res.answer, heard: res.heard, category, spoken } })); } catch (e) { /* optional */ }
+        try { if (typeof opts.onResult === "function") opts.onResult({ spoken, reason: `asked:${res.answer}` }); } catch (e) { /* caller's problem */ }
+        return spoken;
+    },
+
+    /** Speak a line and resolve when it has finished (true) or was cut off / dropped (false). */
+    speakAndWait(text, priority = 50) {
+        return new Promise((resolve) => {
+            const ok = this.announce(text, { priority, maxAgeMs: 4000, onDone: resolve, askPrompt: true });
+            if (!ok) resolve(false);
+        });
+    },
+
+    /**
+     * Open the mic for one short answer.
+     * Resolves null (silence), { text, alternatives } or { error }.
+     */
+    listenOnce(ms, session = {}) {
+        return new Promise((resolve) => {
+            if (!this.Recognition) { resolve({ error: "unavailable" }); return; }
+            if (this.listenMode === "ptt") { resolve({ error: "busy" }); return; }
+            // hands-free steps aside; it comes back when the ask is over (kickQueue → resumeRecognitionAfterTts)
+            this.stopRecognizerOnly();
+            clearTimeout(this.restartTimer);
+            clearTimeout(this.resumeTimer);
+            this.listenMode = "ask";
+            let r = null, timer = null, finished = false, talking = false;
+            const finish = (value) => {
+                if (finished) return;
+                finished = true;
+                clearTimeout(timer);
+                session.abort = null;
+                if (this.recognizer === r) this.recognizer = null;
+                if (this.listenMode === "ask") this.listenMode = null;
+                if (r) { try { r.abort(); } catch (e) { /* ignore */ } }
+                this.setMicUi(false);
+                resolve(value);
+            };
+            session.abort = (why) => finish({ error: why || "interrupted" });
+            const arm = (waitMs) => { clearTimeout(timer); timer = setTimeout(() => finish(null), waitMs); };
+            const start = () => {
+                if (finished) return;
+                try { r = new this.Recognition(); } catch (e) { finish({ error: "unavailable" }); return; }
+                r.lang = this.recognitionLang();
+                r.continuous = false;
+                r.interimResults = true;                       // the browser tells us as soon as the rider starts talking
+                r.maxAlternatives = 3;
+                r.onstart = () => { if (!talking) arm(ms); };  // count the window from when the mic is really open
+                r.onresult = (e) => {
+                    const alts = [];
+                    let final = false;
+                    for (let i = e.resultIndex; i < e.results.length; i++) {
+                        const res = e.results[i];
+                        if (!res.isFinal) continue;
+                        final = true;
+                        for (let k = 0; k < res.length; k++) if (res[k] && res[k].transcript) alts.push(res[k].transcript);
+                    }
+                    if (final && alts.length) finish({ text: alts[0], alternatives: alts });
+                    else if (!talking) { talking = true; arm(this.ASK_EXTEND_MS); }   // let them finish the sentence
+                };
+                r.onerror = (e) => {
+                    const err = e && e.error;
+                    if (err === "not-allowed" || err === "service-not-allowed") { this.micBlocked = true; finish({ error: "not-allowed" }); }
+                    else if (err === "no-speech" || err === "aborted") finish(null);
+                    else finish({ error: err || "error" });                       // network, audio-capture …
+                };
+                r.onend = () => finish(null);
+                this.recognizer = r;
+                try { r.start(); } catch (e) { finish({ error: "unavailable" }); return; }
+                this.setMicUi(true, "ask");
+                arm(ms + 1500);          // if onstart never fires (the native shim fires it after its permission check)
+            };
+            timer = setTimeout(start, this.ASK_ECHO_MS);
+        });
     },
 
     // --------------------------------------------------------------- listening
@@ -399,6 +596,7 @@ const VoiceAssistant = {
         }
         if (this.listenMode === "ptt") { this.stopListening(); return; }
         if (this.callActive()) { showToast("Voice commands are paused during a call.", 3500); return; }
+        if (this.asking && typeof this.asking.abort === "function") this.asking.abort("interrupted");   // the rider wants to give a command
         if (this.current) this.silence();           // the rider wants to talk, not listen
         this.startListening("ptt");
     },
@@ -449,7 +647,7 @@ const VoiceAssistant = {
             if (!b) return;
             b.classList.toggle("listening", Boolean(on));
             b.setAttribute("aria-pressed", on ? "true" : "false");
-            b.setAttribute("aria-label", on ? (mode === "handsfree" ? "Hands-free listening — tap to give a command now" : "Listening — tap to stop") : "Voice command");
+            b.setAttribute("aria-label", on ? (mode === "handsfree" ? "Hands-free listening — tap to give a command now" : mode === "ask" ? "Listening for your answer" : "Listening — tap to stop") : "Voice command");
         });
     },
 
@@ -495,6 +693,7 @@ const VoiceAssistant = {
         this.errorTimes = this.errorTimes.filter((t) => now - t < 60000);
         this.errorTimes.push(now);
         if (err === "not-allowed" || err === "service-not-allowed") {
+            this.micBlocked = true;                  // ask-first falls back to speaking tips as before
             this.handsFree = false;
             try { localStorage.setItem(this.KEY_HANDSFREE, "0"); } catch (x) { /* ignore */ }
             const t = document.getElementById("voice-handsfree-toggle");
@@ -556,13 +755,6 @@ const VoiceAssistant = {
                 this.reply("Alerts muted for 30 minutes. Emergency alerts still come through.");
                 islandShow({ id: "voice-muted", kind: "info", icon: "🔇", title: "Voice alerts muted", sub: "30 minutes · say “unmute” to undo", ttl: 4000, haptic: false });
                 break;
-            case "quietRide": {
-                const app = window.MUAdvice && window.MUAdvice.app;
-                if (!app) { this.reply("Riding advice isn't available."); break; }
-                app.setQuiet(cmd.arg === "on");
-                this.reply(cmd.arg === "on" ? "Quiet ride. No riding advice; safety alerts stay on." : "Riding advice is back on.");
-                break;
-            }
             case "unmute":
                 this.mutedUntil = 0;
                 this.reply("Voice alerts are back on.");

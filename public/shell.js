@@ -471,6 +471,38 @@
         prefersReducedMotion: reducedMotion
     });
 
+    // ======================================================================
+    // 4. STARTUP GUARD — runs before any app script
+    // ======================================================================
+    // a) The app handles every form in JS. If an app script failed to load,
+    //    a bare <form> submit would reload the page and wipe what the rider
+    //    typed (seen on Android when the server couldn't be reached), so the
+    //    browser's own submit navigation is always cancelled here.
+    document.addEventListener("submit", (e) => { if (e.target && e.target.tagName === "FORM") e.preventDefault(); }, true);
+    // b) An app script that throws while loading leaves a half-started app.
+    //    Say so on screen (with the first error) instead of failing silently.
+    (function startupGuard() {
+        const errors = [];
+        const onError = (e) => {
+            const file = String((e && e.filename) || "");
+            if (!file || !file.startsWith(location.origin) || errors.length >= 5) return;    // only our own scripts
+            errors.push({ msg: String((e && e.message) || "error").replace(/^Uncaught\s+/, ""), file: file.split("/").pop().split("?")[0], line: e.lineno || 0 });
+        };
+        window.addEventListener("error", onError);
+        window.addEventListener("load", () => setTimeout(() => {
+            window.removeEventListener("error", onError);
+            window.__muBootErrors = errors;
+            if (!errors.length) return;
+            const f = errors[0];
+            console.error("[MapUnite] start-up errors:", errors);
+            StatusIsland.show({
+                id: "boot-error", kind: "sensor", icon: "⚠️", priority: 95, ttl: 0, sticky: true, haptic: false,
+                title: "MapUnite didn't start properly", sub: `${f.msg} (${f.file}:${f.line})`.slice(0, 140),
+                action: { label: "Reload", onClick: () => location.reload() }
+            });
+        }, 1500));
+    })();
+
     swApi.boot();
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init); else init();
 })();

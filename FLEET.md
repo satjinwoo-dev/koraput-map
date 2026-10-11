@@ -1,152 +1,144 @@
-# Fleet calibration — "learning in the cloud" (roadmap Step 11)
+# FLEET.md: anonymous tank telemetry, contract v1
 
-Riders who opt in share their full-to-full tanks anonymously. The server fits, per vehicle class, how the physics priors should move so the physics predicts those tanks. A curator reviews the result as an ordinary data diff, and the next catalogue build ships it in the bundles. Nothing changes riders' numbers without that reviewed diff.
+**Schema:** `mapunite-fleet/1`. **Consent version:** `2026-10-04`.
 
-This page is the contract for the app (sending tanks) and for the Fuel Learner dashboard (showing fits). The parts:
+**Implementations:**
+- Client: `public/js/rides/fleet.js` (`MUFleet`).
+- Consent screen: `public/js/rides/consent-ui.js`.
+- Reference server: `lib/fleet.js`.
 
-| Part | File |
-|---|---|
-| Tank store (server DB), validation, privacy | `lib/bikedb/fleet.js` |
-| The fit (MAP, Student-t, rider cap, Laplace, rider cross-validation) | `lib/bikedb/calibration.js` |
-| HTTP routes | `lib/bikedb/http-api.js` (`/api/bikes/fillups`, `/api/bikes/calibration`) |
-| Fit + write proposals (operator) | `scripts/bikedb/calibrate.mjs` (`npm run bikes:calibrate`) |
-| Proposal file format, apply in the build | `scripts/bikedb/calibration-file.mjs`, `data/bikes/calibration/<class-key>.json` |
-| Phone: records to send | `FuelCurve.fleetTanks()` in `public/js/smartdrive.js` |
-| Phone: using a shipped calibration | `buildFuelBaseline(…, { calibration })` in `public/js/garage/fuel-baseline.js` |
-| Tests | `test/fleet/*.test.mjs` (synthetic fleets with known true parameters) |
+The validation rules below are in one place, `MUFleet.contract`, which both the phone and the server run.
 
-## 1. What a phone sends, and what it never sends
+This document is the agreement between the app, the server and the rider. If code and this file disagree, this file wins and the code is a bug.
 
-One record per full-to-full tank interval that SmartDrive's fill-up learner already uses:
+## 1. What it is for
 
-```jsonc
+The fuel learner (`FuelCurve` in `js/smartdrive.js`) turns a rider's full-to-full fill-ups into a real km/L for each speed band. One rider learns slowly, and only about their own bike. With **opt-in** consent, the phone sends those tank results, and nothing else, so the server can learn a real-world curve for each bike model and correct the physics prior for everyone who rides one. This matches the locked decision: *physics on the phone, learning in the cloud.*
+
+## 2. Principles
+
+1. **Off by default; asked once.** The consent screen appears after the first *usable* tank, never during a ride. "Not now" means not again for 60 days. The two buttons have equal weight, and nothing is pre-ticked.
+2. **Only tanks.** A tank is the result of one full-to-full fill-up interval that the learner marked usable. No GPS, no routes, no places, no timestamps finer than a month, no device identifiers, no prices, no name, phone number or friends.
+3. **Strict SI.** Metres, cubic metres and seconds, as everywhere in the physics core and the database.
+4. **Coarsened before it leaves the phone.** This makes it hard to fingerprint a rider from their numbers (see §4).
+5. **Revocable.** Turning sharing off deletes everything sent under that ID on the server immediately. Turning it on again later starts a new, unrelated ID.
+6. **No server identity.** The contributor ID is 128 random bits made on the phone. It is never shown or linked to the rider's MapUnite account or device token. The server stores only `SHA-256(contributor)`.
+7. **k-anonymity for output.** Nothing derived from fleet data is published for a bike model with fewer than **5 contributors**.
+
+## 3. Endpoints
+
+All requests and responses are JSON. Authorization is `Authorization: Fleet <contributor>`, where `<contributor>` is 22 base64url characters (128 bits).
+
+### `POST /api/fleet/v1/tanks`
+
+```json
 {
-  "bundle": "9f2c1a0b7d3e4f51",     // the bundle hash the phone used (16 hex)
-  "bike": "royal-enfield-hunter-350-metro-in", // the bike's id; a typical bike sends "classKey" instead
-  "fuelCode": "E20",
-  "massKg": 80,                      // rider + pillion + luggage, rounded to 5 kg
-  "litres": 9.84,                    // pumped, scaled by the share of the odometer distance the app recorded
-  "km": 312.4,                       // recorded distance
-  "idleH": 1.25,                     // engine-on hours at standstill
-  "hist": [0.8, 2.1, …]              // 40 numbers: km in each 5 km/h speed bin, 0–200 km/h (sum ≈ km)
+  "schema": "mapunite-fleet/1",
+  "consent": "2026-10-04",
+  "app": "mu-2026-10-04.3",
+  "bike": { "id": "royal-enfield-hunter-350-metro-in", "classKey": "ice_manual.cruiser", "powertrain": "ice" },
+  "tanks": [
+    {
+      "id": "3f9a0c1d2e4b5a69",
+      "month": "2026-09",
+      "distance": 412300,
+      "fuel": 0.011450,
+      "odoDistance": 418000,
+      "coverage": 0.99,
+      "bandShare": [0.18, 0.47, 0.29, 0.06],
+      "idleTime": 2580,
+      "trips": 14
+    }
+  ]
 }
 ```
 
-- **Never sent or stored:** location, routes, ride times or dates, odometer readings, device ids, names or IP addresses.
-- **Who sent it:** the only link between one rider's tanks is a random token the app makes for this purpose only (32–64 lowercase hex). It can be reset. The server stores an HMAC of it under `SERVER_SECRET`, never the token itself.
-- **What the token is for:** capping one rider's weight in a fit (10 tanks), and deleting everything on request.
-- **Retention:** the server keeps the day a record arrived, nothing finer. Records are purged after 730 days.
-
-`FuelCurve.fleetTanks()` builds the list. It only includes tanks the fleet model describes exactly:
-- the current petrol bike, with both fills logged with it;
-- stock gearing and tyre;
-- every drive in the tank has its speed bins;
-- odometer readings at both fills, with the recorded distance within ±15% of the odometer distance.
-
-**The consent screen is the caller's.** Send only after the rider opted in, and send the consent string with every request.
-
-On the phone, `MURides.app` (roadmap Step 10, `public/js/rides/`) does the sending:
-
-- **`optIn()`:** call it after the consent screen. It makes the random token, then sends the tanks.
-- **When tanks are sent:** after every ride, when the phone comes back online, and at start-up, at most every 10 minutes.
-- **`optOut()`:** erases the shared tanks on the server and forgets the token. If the phone is offline, the erasure is retried until the server confirms it.
-- **"Clear my history":** does the same as `optOut()`.
-- **`status()` and `mine()`:** for the consent and "your contribution" screens.
-
-## 2. HTTP routes
-
-All routes are under `/api/bikes`. The Android origin `https://localhost` gets CORS, preflight included. Other origins get 403 on the writing routes. The writing routes need JSON (else 415) and accept a body of at most 64 KB (else 413).
-
-| Route | Body | Answer |
+| Field | Unit | Rule |
 |---|---|---|
-| `POST /fillups` | `{"consent": "fleet-calibration-v1", "contributor": "<token>", "tanks": [1–20 records]}` | **202** `{"ok": true, "stored", "duplicates", "rejected": [{"index", "field", "message"}]}`. A resent tank counts as a duplicate, never twice. **400** `consent-required`, `invalid` (the field at fault), or every tank rejected. |
-| `POST /fillups/mine` | `{"contributor": "<token>"}` | `{"ok": true, "classes": [{"classKey", "tanks"}]}`, `no-store`. This is the rider's "your contribution". |
-| `DELETE /fillups` | `{"contributor": "<token>"}` | `{"ok": true, "deleted": n}`. Erases everything that token sent. |
-| `GET /calibration` | — | `{"ok": true, "classes": [{"classKey", "tanks", "riders", "km", "fit": {"fittedDay", "catalogVersion", "proposed", "reason", "overhead", "cv", "tanks"} \| null}]}`. Cached 5 min. |
-| `GET /calibration/<class-key>` | — | `{"ok": true, "classKey", "data": {"tanks", "riders", "km"}, "fit": <full fit, below> \| null, "shipped": <bundle.calibration> \| null}`. **400** bad key, **404** no data. |
+| `bike.id` | — | Catalogue bundle id, or `null` for a "typical bike" estimate. |
+| `bike.classKey` | — | `powertrain.segment`, e.g. `ice_manual.commuter`. |
+| `bike.powertrain` | — | `ice` only in v1. Batteries have no fill-ups. |
+| `tanks` | — | 1–20 per request. |
+| `id` | — | 16 hex digits, the first 64 bits of `SHA-256(contributor + ":" + fromTs + ":" + toTs)`. Opaque, stable, used for de-duplication. |
+| `month` | — | `YYYY-MM` of the fill-up that closed the tank (rider's local time). Not in the future, not before 2024-01. |
+| `distance` | m | Distance the app recorded in the tank, rounded to 100 m. 5 km–2 000 km. |
+| `fuel` | m³ | Litres pumped to refill (all fills in the interval), rounded to 1 mL (1e-6 m³). 0.1 L–60 L. |
+| `odoDistance` | m \| null | Odometer difference if the rider logged both readings, rounded to 100 m. |
+| `coverage` | — \| null | `distance / odoDistance`, rounded to 0.01, 0.6–1.25. Below 0.6 the learner already rejects the tank. |
+| `bandShare` | — | Share of `distance` driven below 40, 40–60, 60–80 and above 80 km/h. Each rounded to 0.01; the sum is 0.98–1.02. |
+| `idleTime` | s | Engine-on time while stopped, rounded to 60 s, ≤ 48 h. |
+| `trips` | — | Number of recorded drives in the tank, 1–500. |
 
-- **Rate limits per IP:** fill-ups 30 per hour, calibration reads 120 per minute.
-- **Without `SERVER_SECRET`:** the server always has one, from the env or generated into the DB. A server built without it answers **503** `fleet-unavailable`.
+The plausibility check runs on both sides: implied economy `distance / fuel` (after coverage) must be 2–90 km/L, i.e. 2e6–9e7 m/m³.
 
-A tank is rejected (`rejected[].field`) for any of these:
-- an unknown bike (`bundle`);
-- an electric bike (`bundle`; EVs calibrate from charging data, not fill-ups);
-- a class or id that contradicts the bundle (`classKey`, `bike`);
-- an unknown fuel (`fuelCode`);
-- a mass outside 40–400 kg;
-- km outside 5–3000, or litres outside 0.2–60;
-- an implausible km/L (outside 2–120);
-- idle hours outside 0–48;
-- speed bins that don't add up to the distance within ±10% (`hist`).
+**Responses:**
+- `200 { "ok": true, "accepted": n, "duplicates": m }`. A tank id already stored counts as a duplicate, not an error.
+- `400 { "ok": false, "error": "…", "rejected": [{ "id", "error" }] }`. The whole request is rejected if the envelope is wrong. Individual bad tanks are listed and the rest accepted.
+- `401`: missing or malformed authorization.
+- `413`: more than 20 tanks, or a body over 32 kB.
+- `429`: more than 200 tanks from one contributor in a UTC day, or the per-IP rate limit.
 
-A bundle hash that an older catalogue build shipped is still accepted when `bike` (or `classKey`, for a typical bike) names a current bike. A shipped calibration changes every bundle hash in its class.
+### `DELETE /api/fleet/v1/contributor`
 
-### The fit, as the dashboard receives it (`fit` above)
+Deletes every tank stored under this contributor, plus the contributor row. It is idempotent: an unknown ID returns `200 { "ok": true, "deleted": 0 }`.
 
-Every number is SI (m2, 1, Pa) except the tank evidence, which is in litres and km.
+### `GET /api/fleet/v1/bikes/:id/summary`
 
-```jsonc
-{
-  "fittedDay": "2026-10-03", "catalogVersion": "4846c4f6e6f418b7",   // the curated catalogue it started from
-  "classKey": "ice_manual.commuter", "classDefault": "default-ice-manual-commuter",
-  "proposed": true, "reason": null,          // or why not: "needs 30 tanks (has 12)", "doesn't predict held-out riders better (…)", "… would leave its plausible range"
-  "basedOn": { "bundle": "<hash>", "priors": { "cda": { "mean", "sigma", "u", "conf" }, … } },   // today's priors
-  "priors":  { "cda": { "mean", "sigma", "u", "conf", "informed" }, "crr": …, "indicatedEfficiency": …, "fmepA": … },
-  "overhead": { "mean": 1.17, "sigma": 0.16, "u": "1" },   // real riding vs steady flat-road physics
-  "correlation": { "names": ["cda", "crr", "indicatedEfficiency", "fmepA", "overhead"], "matrix": [[…]] },
-  "evidence": { "tanks", "riders", "km", "litres" },
-  "noise": 0.062,                            // robust scale of log(litres) residuals
-  "cv": { "folds": 5, "prior": 0.22, "posterior": 0.048 },     // held-out riders' mean |error|, rider-balanced
-  "inSample": { "prior", "posterior" },
-  "bands": [ { "band": "under 40", "share": 0.40, "biasPrior": -0.21, "biasPosterior": 0.0002 }, … ],  // by speed band, km-weighted
-  "iterations": 12
-}
+Returns this, or `404 { "ok": false, "error": "not enough contributors" }` below k = 5:
+
+```json
+{ "ok": true, "bike": "…", "contributors": 12, "tanks": 61, "metresPerCubicMetre": { "p25": 3.4e7, "median": 3.8e7, "p75": 4.1e7 } }
 ```
 
-What the dashboard can show:
-- **Prior → posterior with ±σ:** `basedOn.priors` → `priors`. `informed` (0–1) is the share of the prior's uncertainty the fleet removed.
-- **Real-riding overhead:** `overhead`.
-- **Model quality:** `cv.prior` → `cv.posterior` (the gate needs an improvement of at least 1 point).
-- **Bias by speed band:** `bands[].biasPrior` → `bands[].biasPosterior`.
-- **What riders currently get:** `shipped` (`{date, tanks, riders, overhead}` from the live bundle).
-- **Whether a proposal is waiting for review:** `proposed`, compared with `shipped`.
+## 4. Coarsening and fingerprinting
 
-## 3. The model, in short
+| Field | Rounded to | Why |
+|---|---|---|
+| `month` | month | No date, no time of day. |
+| `distance` / `odoDistance` | 100 m | Exact distances could match a known commute. |
+| `fuel` | 1 mL | Below what the pump shows. |
+| `bandShare` | 0.01 | |
+| `idleTime` | 60 s | |
+| Bike | model only | No year, no settings, no tyre or load figures. |
 
+Tank ids are salted with the contributor secret, so the same tank can't be recognised across contributors or after a re-opt-in.
+
+## 5. Client behaviour (`MUFleet.createFleetClient`)
+
+**Local state** (`localStorage` `mu.fleet.v1`):
 ```
-litres_t = λ · Σ_b km_tb · f(v_b; θ) + idleH_t · idle(θ)        f, idle: the physics core (lib/…/physics)
-θ = class priors with cda, crr, indicatedEfficiency, fmepA each × exp(φ_k)
-φ_k ~ N(0, (σ_k/μ_k)²) from the class default's prior;  log λ ~ N(0, 0.3²)
-log litres_obs − log litres_t ~ Student-t(ν = 4, s)
-```
-
-- **The overhead λ:** fitted on its own, so stops, hills, wind and warm-up don't show up as more drag or a worse engine. The trip card models stops itself.
-- **The fit:** MAP by Gauss–Newton, reweighted for the Student-t residuals. The noise scale s is the median absolute deviation (MAD), floored at 3%.
-- **One rider's weight:** all of a rider's tanks together weigh at most 10 tanks.
-- **Uncertainty:** each new ±σ and the correlations come from the Laplace approximation of the posterior.
-- **Gates before a proposal:** at least 30 tanks from at least 5 riders. Held-out riders (5 folds) must be predicted at least 1 point better. Every new mean must stay inside the contract's plausible range.
-- **Tested on synthetic fleets** with known truth (`test/fleet/calibration.test.mjs`):
-  - the truth lands inside the posterior;
-  - held-out error drops from 22% to 5%, and every speed band ends unbiased;
-  - 5% of tanks with litres ×3 barely move the fit;
-  - one rider with 300 biased tanks shifts the honest riders' estimate by less than 1%, against more than 10% without the cap;
-  - when today's priors are already right, nothing is proposed.
-
-## 4. From fit to riders (operator and curator)
-
-```bash
-DB_PATH=/srv/mapunite/data/mapunite.db npm run bikes:calibrate            # fit every class, store fits (dashboard), print a summary
-DB_PATH=… npm run bikes:calibrate -- --write                                # also write data/bikes/calibration/<class-key>.json where proposed
-git diff data/bikes/calibration/                                            # review: basedOn → priors, evidence, cv
-npm run bikes:build && git commit …                                         # the build applies it; deploy as usual
+{ consent: { version, choice: "yes"|"no", at }, contributor, sent: [id…], queue: [Tank…], pendingDelete, nextTryAt, lastSentAt, lastError, askedAt }
 ```
 
-- **Always from the curated priors:** every fit starts from `data/bikes` without `data/bikes/calibration/`. A re-fit replaces the class's proposal, so the same tanks are never counted twice.
-- **Run it from a checkout of the deployed commit.**
-- **What the build does with a proposal:**
-  - writes the new priors into the class default with `src: "fleet-calibration"` and a note "(was X ± Y)";
-  - adds a `derived` source with the evidence;
-  - puts `calibration: {date, tanks, riders, overhead}` into every petrol bundle of that class.
-- **Stale proposals:** if a curator changed the class default's priors since the fit, the proposal is skipped with a warning (stale). A malformed one stops the build.
-- **On the phone:** `BikeFuel` passes the bundle's `calibration` to `buildFuelBaseline`. The physics km/L is divided by λ, idle stays as it is, and λ's uncertainty is added to ±σ. Settings then reads "…in everyday riding (physics, calibrated on N riders' fill-ups)". Without a calibration, the baseline is exactly as in Step 7.
-- **Fuel safety:** tanks are measurements, never advice. A calibration changes priors only; the fuel advice rule (manufacturer-certified fuels only) is unaffected.
+**When it uploads:**
+- right after opt-in;
+- after each newly usable tank;
+- whenever the app starts online.
+
+Batches hold up to 20 tanks. On a network or 5xx error it backs off exponentially, from 2 minutes up to 6 hours. Each tank id is sent once, and `sent` keeps the last 500.
+
+**When the rider opts out:**
+- the client sends `DELETE` and then forgets `contributor`, `queue` and `sent`;
+- if the network fails, the ID moves to `pendingDelete` and the DELETE is retried at the next start, before anything else;
+- consent becomes `{ choice: "no" }`.
+
+**"Delete my history"** (Ride summaries) includes sharing: it runs the opt-out (server delete) when the rider was opted in.
+
+**Re-asking:** only when this file's consent version changes in a way that widens what's sent. A narrower change needs no new consent.
+
+## 6. Server behaviour (`lib/fleet.js`)
+
+**Tables:**
+- `fleet_contributors(hash PK, created_at, last_seen, day, day_count)`;
+- `fleet_tanks(id PK, contributor_hash, bike_id, class_key, month, distance, fuel, odo_distance, coverage, band0..3, idle_time, trips, consent, app, received_at)`.
+
+**Rules:**
+- Validation uses the same `MUFleet.contract.validateTank`.
+- Nothing about the request is stored except the tank fields, the consent version and the app version: no IP address, no user agent.
+- Retention is 24 months by `received_at`, purged daily (`purgeOld`).
+- Aggregates are recomputed from the rows that remain, so deleted data drops out.
+
+## 7. Versioning
+
+- `schema` changes only for incompatible payloads. The server accepts the current and the previous schema for 6 months.
+- `consent` is the date of the consent text. The server stores it with every tank, so data can be filtered by what the rider agreed to.

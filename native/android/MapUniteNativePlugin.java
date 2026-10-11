@@ -18,6 +18,17 @@ package com.mapunite.app;
  *   beaconStatus() -> { supported, bluetoothOn, advertising }
  *   requestNotifications() -> { granted }   Android 13+ POST_NOTIFICATIONS,
  *       needed for the background-location foreground-service notification.
+ *   backgroundTrackingStatus() -> { configured }
+ *   stopBackgroundTracking()
+ *       @capgo/background-geolocation in native-delivery mode (a `url` was
+ *       given) deliberately keeps its service running after the app is
+ *       killed, and a fresh app process can't reach it through the plugin
+ *       any more. These find and stop such a leftover service so sharing
+ *       never outlives the ride.
+ *   keepAwake({ on })   keeps the screen on during a ride (the WebView has no
+ *       working Screen Wake Lock API).
+ *   share({ title?, text?, url? })   Android share sheet (the WebView has no
+ *       Web Share API).
  *
  * Register it in MainActivity (see native/android/MainActivity.java).
  * If your appId isn't com.mapunite.app, change the package line above.
@@ -31,8 +42,11 @@ import android.bluetooth.le.AdvertiseData;
 import android.bluetooth.le.AdvertiseSettings;
 import android.bluetooth.le.BluetoothLeAdvertiser;
 import android.content.Context;
+import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.ParcelUuid;
+import android.view.WindowManager;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PermissionState;
@@ -190,6 +204,77 @@ public class MapUniteNativePlugin extends Plugin {
         JSObject ret = new JSObject();
         ret.put("granted", getPermissionState("notifications") == PermissionState.GRANTED);
         call.resolve(ret);
+    }
+
+    // ---- Background location: leftover service --------------------------
+
+    // Must match @capgo/background-geolocation (LocationStore.PREFS_NAME and
+    // the service class). If a future plugin version renames them, these
+    // calls simply find nothing.
+    private static final String BG_PREFS = "CapgoBackgroundGeolocationWatcher";
+    private static final String BG_SERVICE = "com.capgo.capacitor_background_geolocation.BackgroundGeolocationService";
+
+    @PluginMethod
+    public void backgroundTrackingStatus(PluginCall call) {
+        SharedPreferences prefs = getContext().getSharedPreferences(BG_PREFS, Context.MODE_PRIVATE);
+        JSObject ret = new JSObject();
+        ret.put("configured", prefs.getBoolean("enabled", false) && prefs.getString("url", null) != null);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void stopBackgroundTracking(PluginCall call) {
+        Context ctx = getContext();
+        // Clear the persisted config first so a sticky restart can't bring it back.
+        ctx.getSharedPreferences(BG_PREFS, Context.MODE_PRIVATE).edit().clear().commit();
+        boolean stopped = false;
+        try {
+            Intent i = new Intent();
+            i.setClassName(ctx.getPackageName(), BG_SERVICE);
+            stopped = ctx.stopService(i);
+        } catch (Exception ignored) { /* plugin not installed */ }
+        JSObject ret = new JSObject();
+        ret.put("stopped", stopped);
+        call.resolve(ret);
+    }
+
+    // ---- Screen on during a ride ------------------------------------------
+
+    @PluginMethod
+    public void keepAwake(final PluginCall call) {
+        final boolean on = Boolean.TRUE.equals(call.getBoolean("on", true));
+        if (getActivity() == null) { call.reject("No activity", "UNAVAILABLE"); return; }
+        getActivity().runOnUiThread(() -> {
+            if (on) getActivity().getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            else getActivity().getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            JSObject ret = new JSObject();
+            ret.put("on", on);
+            call.resolve(ret);
+        });
+    }
+
+    // ---- Share sheet --------------------------------------------------------
+
+    @PluginMethod
+    public void share(PluginCall call) {
+        String title = call.getString("title", "");
+        String text = call.getString("text", "");
+        String url = call.getString("url", "");
+        StringBuilder body = new StringBuilder(text == null ? "" : text);
+        if (url != null && !url.isEmpty() && body.indexOf(url) < 0) body.append(body.length() > 0 ? "\n" : "").append(url);
+        if (body.length() == 0) { call.reject("Nothing to share", "BAD_ARGUMENT"); return; }
+        Intent send = new Intent(Intent.ACTION_SEND);
+        send.setType("text/plain");
+        send.putExtra(Intent.EXTRA_TEXT, body.toString());
+        if (title != null && !title.isEmpty()) send.putExtra(Intent.EXTRA_SUBJECT, title);
+        Intent chooser = Intent.createChooser(send, title == null || title.isEmpty() ? null : title);
+        try {
+            if (getActivity() != null) getActivity().startActivity(chooser);
+            else { chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); getContext().startActivity(chooser); }
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("No app can share this", "UNAVAILABLE");
+        }
     }
 
     // ---- Lifecycle -------------------------------------------------------

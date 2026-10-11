@@ -13,18 +13,6 @@
      - "My bike isn't listed" requests wait in an outbox until there is a
        connection and a server to send them to.
 
-   With a server (apiBase, the Step 5 endpoints in lib/bikedb/http-api.js):
-     - search(): the offline index answers instantly; GET /api/bikes/search is
-       asked too. When the server has the same catalogue version the answers are
-       identical (the server ranks with the same code), so it isn't asked again
-       this session; when it has a newer catalogue, its results are used, so
-       bikes added since the phone's list was saved can be found and picked.
-     - bundles: the shipped/static copy first (packaged in the Android app,
-       works offline), then GET /api/bikes/bundles/<hash>; both are checked
-       against the hash.
-     - requests: POST /api/bikes/requests { make, model, year, powertrain }.
-       A bike the server already lists comes back in listed().
-
    Cache name: "mu-bikedb-v1". It must NOT start with "mapunite-": sw.js deletes
    every "mapunite-*" cache but its own when it updates.
    ============================================================================ */
@@ -43,8 +31,7 @@
     /**
      * @typedef {{ riderMass?: number, pillionMass?: number, luggageMass?: number, frontSprocket?: number, rearSprocket?: number, rearTyre?: string, fuelCode?: string }} Settings
      * @typedef {{ v: 1, bikeId: string|null, bundle: string, classKey: string, estimated: boolean, year: number|null, title: string, settings: Settings, savedAt: number }} Garage
-     * @typedef {{ id: string, make: string, model: string, year: number|null, classKey: string|null, at: number }} BikeRequest
-     * @typedef {{ results: any[], source: "local"|"server", catalogVersion: string }} SearchAnswer
+     * @typedef {{ id: string, description: string, classKey: string|null, at: number }} BikeRequest
      */
 
     /**
@@ -65,7 +52,6 @@
         const staticBase = o.staticBase || "bikedb/";
         const apiBase = o.apiBase ? String(o.apiBase).replace(/\/+$/, "") : null;
         const timeoutMs = o.timeoutMs || 6000;
-        const searchTimeoutMs = Math.min(timeoutMs, 2500);       // type-ahead: never wait long for the network
         const now = o.now || Date.now;
 
         // ---------------- byte cache: Cache Storage, else localStorage ----------------
@@ -88,10 +74,10 @@
             if (storage) { try { storage.setItem(LS_BUNDLE_PREFIX + key, text); } catch { /* storage full: still works online */ } }
         }
 
-        async function get(url, ms = timeoutMs) {
+        async function get(url) {
             if (!doFetch) throw new Error("no network access in this environment");
             const ctl = typeof AbortController !== "undefined" ? new AbortController() : null;
-            const t = ctl ? setTimeout(() => ctl.abort(), ms) : null;
+            const t = ctl ? setTimeout(() => ctl.abort(), timeoutMs) : null;
             try {
                 const res = await doFetch(url, { cache: "no-cache", signal: ctl ? ctl.signal : undefined, headers: { Accept: "application/json" } });
                 if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
@@ -143,9 +129,7 @@
                 const h = await shortSha(cached);
                 if (h === null || h === hash) return JSON.parse(cached);
             }
-            // the shipped/static copy first (in the Android app it's inside the APK: offline, instant),
-            // then the server, for a bike added after the app's bike list was packaged
-            const urls = [key, ...(apiBase ? [`${apiBase}/api/bikes/bundles/${hash}`] : [])];
+            const urls = [...(apiBase ? [`${apiBase}/api/bikes/bundle/${hash}`] : []), key];
             let lastError = null;
             for (const url of urls) {
                 try {
@@ -188,7 +172,7 @@
          */
         function garageFromPick(index, pick) {
             if (pick.bikeId) {
-                const row = index.get(pick.bikeId) || serverRows.get(pick.bikeId);
+                const row = index.get(pick.bikeId);
                 if (!row) throw new Error(`no bike ${pick.bikeId} in the catalogue`);
                 return { bikeId: row.id, bundle: row.bundle, classKey: row.classKey, estimated: false, year: pick.year ?? null, title: row.title, settings: pick.settings || {} };
             }
@@ -224,117 +208,38 @@
             return { bundle: b, model: physics.createBikeModel(b, { classDefault, settings: cleanSettings(g.settings || {}) }) };
         }
 
-        // ---------------- search ----------------
-        /** "unknown" until the server answers once; "same" = same catalogue as the phone; "newer" = the server has more. */
-        let serverCatalog = /** @type {"unknown"|"same"|"newer"} */ ("unknown");
-        /** Rows the server returned (bikes the phone's list may not have yet), by id. */
-        const serverRows = new Map();
-        /**
-         * Search the catalogue: the offline index, or GET /api/bikes/search when the server's catalogue is newer.
-         * Never fails: without a server, offline, or on any error it is the offline answer.
-         * @param {any} index CatalogIndex @param {string} q @param {{ limit?: number }} [opts]
-         * @returns {Promise<SearchAnswer>}
-         */
-        async function searchBikes(index, q, opts = {}) {
-            const limit = opts.limit || 30;
-            /** @type {SearchAnswer} */
-            const local = { results: index.search(q, { limit }), source: "local", catalogVersion: index.version };
-            if (!apiBase || !doFetch || serverCatalog === "same" || !String(q || "").trim()) return local;
-            try {
-                const body = JSON.parse(await get(`${apiBase}/api/bikes/search?${new URLSearchParams({ q: String(q), limit: String(limit) })}`, searchTimeoutMs));
-                if (!body || body.ok !== true || !Array.isArray(body.results) || typeof body.catalogVersion !== "string") return local;
-                if (body.catalogVersion === index.version) { serverCatalog = "same"; return local; }
-                serverCatalog = "newer";
-                for (const r of body.results) if (r && typeof r.id === "string" && HASH_RE.test(r.bundle)) serverRows.set(r.id, r);
-                return { results: body.results, source: "server", catalogVersion: body.catalogVersion };
-            } catch { return local; }
-        }
-        /** A catalogue row by id: the phone's list, else one the server returned this session. @param {any} index @param {string} id */
-        const row = (index, id) => index.get(id) || serverRows.get(id) || null;
-
         // ---------------- missing-bike requests ----------------
-        const REQUEST_NAME_MAX = 60;
         /** @returns {BikeRequest[]} */
         function outbox() {
             if (!storage) return memOutbox;
             try { const a = JSON.parse(storage.getItem(OUTBOX_KEY) || "[]"); return Array.isArray(a) ? a : []; } catch { return []; }
         }
-        /** Bikes the server said it already lists, from sent requests: [{ request, matches }]. */
-        let listedMatches = [];
         /** @type {BikeRequest[]} */ let memOutbox = [];
         const writeOutbox = (a) => { if (storage) storage.setItem(OUTBOX_KEY, JSON.stringify(a)); else memOutbox = a; };
-        /**
-         * Queue a request to add a bike (the server checks the same limits).
-         * @param {{ make: string, model: string, year?: number|null, classKey?: string|null }} r
-         */
-        function requestBike(r) {
-            const clean = (/** @type {unknown} */ x) => String(x === undefined || x === null ? "" : x).replace(/\s+/g, " ").trim();
-            const make = clean(r && r.make), model = clean(r && r.model);
-            if (!make || !model) throw new Error("Give the make and the model, e.g. Bajaj and Avenger 220 Street.");
-            if (make.length > REQUEST_NAME_MAX || model.length > REQUEST_NAME_MAX) throw new Error(`Keep the make and model under ${REQUEST_NAME_MAX} characters each.`);
-            if (!/[\p{L}\p{N}]/u.test(make) || !/[\p{L}\p{N}]/u.test(model)) throw new Error("The make and the model need at least one letter or number.");
-            const thisYear = new Date(now()).getUTCFullYear();
-            const year = r.year === undefined || r.year === null || r.year === /** @type {any} */ ("") ? null : Number(r.year);
-            if (year !== null && !(Number.isInteger(year) && year >= 1950 && year <= thisYear + 2)) throw new Error(`The year should be between 1950 and ${thisYear + 2}.`);
-            /** @type {BikeRequest} */
-            const req = { id: `${now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, make, model, year, classKey: r.classKey || null, at: now() };
+        /** @param {string} description @param {string|null} classKey */
+        function requestBike(description, classKey) {
+            const d = String(description || "").trim().slice(0, 200);
+            if (d.length < 2) throw new Error("Describe the bike, e.g. “Bajaj Avenger 220 Street, 2023”.");
+            const req = { id: `${now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, description: d, classKey: classKey || null, at: now() };
             writeOutbox([...outbox(), req].slice(-20));
             return req;
         }
-        /**
-         * Send queued requests to POST /api/bikes/requests. Returns how many are still waiting.
-         * Kept for later: no server, offline, rate-limited (429), server errors (5xx), and any
-         * answer that means "not here yet" (404, 403). Dropped: requests the server says are
-         * invalid (400, 413, 415), and ones from an older app version without make/model.
-         */
+        /** Send queued requests. Returns how many are still waiting. */
         async function flushRequests() {
             const queued = outbox();
             if (!queued.length || !apiBase || !doFetch) return queued.length;
             const left = [];
             for (const r of queued) {
-                if (!r || typeof r.make !== "string" || typeof r.model !== "string") continue;
-                const powertrain = r.classKey ? r.classKey.split(".")[0] : null;
-                const body = {
-                    make: r.make, model: r.model,
-                    ...(r.year ? { year: r.year } : {}),
-                    ...(powertrain === "ice_manual" || powertrain === "ice_cvt" || powertrain === "ev" ? { powertrain } : {}),
-                    ...(r.classKey ? { note: `Closest type picked in the app: ${r.classKey}` } : {})
-                };
                 try {
-                    const res = await doFetch(`${apiBase}/api/bikes/requests`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-                    if (res.status === 400 || res.status === 413 || res.status === 415) continue;
-                    if (!res.ok) { left.push(r); continue; }
-                    const answer = await res.json().catch(() => null);
-                    if (answer && answer.status === "listed" && Array.isArray(answer.matches) && answer.matches.length) {
-                        for (const m of answer.matches) if (m && typeof m.id === "string" && HASH_RE.test(m.bundle)) serverRows.set(m.id, m);
-                        listedMatches = [...listedMatches.filter((x) => x.request.id !== r.id), { request: r, matches: answer.matches }];
-                    }
+                    const res = await doFetch(`${apiBase}/api/bikes/request`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ description: r.description, classKey: r.classKey }) });
+                    if (!res.ok && res.status >= 500) left.push(r);     // a 4xx means the server won't take it: drop it
                 } catch { left.push(r); }
             }
             writeOutbox(left);
             return left.length;
         }
-        /** Requests the server answered with "already listed", and its matches (offer them to the rider). */
-        const listed = () => listedMatches.slice();
-        const dismissListed = (/** @type {string} */ requestId) => { listedMatches = listedMatches.filter((x) => x.request.id !== requestId); };
 
-        return { CACHE_NAME, apiBase, catalog, search: searchBikes, row, bundle, garage, saveGarage, clearGarage, garageFromPick, refreshGarage, model, outbox, requestBike, flushRequests, listed, dismissListed };
-    }
-
-    /**
-     * Which server the garage talks to (the Step 5 API), for a page at `location`:
-     *   window.MU_GARAGE_API ("" = this page's origin, null = none), else
-     *   window.MU_SERVER_ORIGIN (the Android build sets it), else this page's origin —
-     *   except the app's own origins (https://localhost, capacitor:, file:), which have no API.
-     * @param {any} win @param {{ origin: string, protocol: string, hostname: string, port: string }} location
-     * @returns {string|null}
-     */
-    function resolveApiBase(win, location) {
-        const api = typeof win.MU_GARAGE_API === "string" || win.MU_GARAGE_API === null ? win.MU_GARAGE_API
-            : typeof win.MU_SERVER_ORIGIN === "string" && win.MU_SERVER_ORIGIN ? win.MU_SERVER_ORIGIN
-            : (location.protocol === "https:" && location.hostname === "localhost" && !location.port) || location.protocol === "capacitor:" || location.protocol === "file:" ? null
-            : "";
-        return api === "" ? location.origin : api;
+        return { CACHE_NAME, catalog, bundle, garage, saveGarage, clearGarage, garageFromPick, refreshGarage, model, outbox, requestBike, flushRequests };
     }
 
     /** Only the settings the physics understands, with sane types. @param {any} s */
@@ -352,5 +257,5 @@
         try { const s = globalThis.localStorage; s.setItem("mu.t", "1"); s.removeItem("mu.t"); return s; } catch { return null; }
     }
 
-    return { CACHE_NAME, GARAGE_KEY, OUTBOX_KEY, createStore, cleanSettings, resolveApiBase };
+    return { CACHE_NAME, GARAGE_KEY, OUTBOX_KEY, createStore, cleanSettings };
 });

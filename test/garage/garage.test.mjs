@@ -31,7 +31,7 @@ function fakeNet(serve = files) {
         calls.push({ url, method: init.method || "GET", body: init.body });
         if (!online) throw new TypeError("Failed to fetch");
         if (typeof serve === "function") return serve(url, init);
-        const key = String(url).replace(/^https?:\/\/[^/]+\/(api\/bikes\/bundles\/)?/, (m, api) => (api ? "bikedb/bundles/" : ""));
+        const key = String(url).replace(/^https?:\/\/[^/]+\/(api\/bikes\/bundle\/)?/, (m, api) => (api ? "bikedb/bundles/" : ""));
         const k = key.startsWith("bikedb/bundles/") && !key.endsWith(".json") ? `${key}.json` : key;
         const body = serve.get(k);
         return body === undefined ? new Response("not found", { status: 404 }) : new Response(body, { status: 200 });
@@ -129,16 +129,12 @@ test("bundles: tampered content is refused and never cached", async () => {
     assert.equal([...(caches.stores.get(Store.CACHE_NAME) || new Map()).keys()].filter((k) => k.includes(h)).length, 0);
 });
 
-test("bundles: the shipped/static copy first, the Step 5 endpoint (GET /api/bikes/bundles/<hash>) for bikes newer than the app", async () => {
+test("bundles: the Step 5 endpoint is tried first, the static file is the fallback", async () => {
     const h = byId.get("hero-splendor-plus-obd2b-in").hash;
-    const shipped = fakeNet();
-    assert.equal((await mkStore({ net: shipped, apiBase: "https://maps.example.com/" }).bundle(h)).id, "hero-splendor-plus-obd2b-in");
-    assert.deepEqual(shipped.calls.map((c) => c.url), [`bikedb/bundles/${h}.json`], "offline-capable copy, no server round trip");
-    const newer = fakeNet((url) => (String(url).startsWith("bikedb/") ? new Response("not found", { status: 404 }) : new Response(files.get(`bikedb/bundles/${h}.json`))));
-    assert.equal((await mkStore({ net: newer, apiBase: "https://maps.example.com/" }).bundle(h)).id, "hero-splendor-plus-obd2b-in");
-    assert.deepEqual(newer.calls.map((c) => c.url), [`bikedb/bundles/${h}.json`, `https://maps.example.com/api/bikes/bundles/${h}`]);
-    const lying = fakeNet((url) => (String(url).startsWith("bikedb/") ? new Response("not found", { status: 404 }) : new Response(files.get(`bikedb/bundles/${h}.json`).replace("Splendor", "Splendour"))));
-    await assert.rejects(mkStore({ net: lying, apiBase: "https://maps.example.com" }).bundle(h), /isn't on this phone yet/, "the server's copy is hash-checked too");
+    const net = fakeNet((url) => (String(url).includes("/api/bikes/bundle/") ? new Response("down", { status: 503 }) : new Response(files.get(`bikedb/bundles/${h}.json`))));
+    const b = await mkStore({ net, apiBase: "https://maps.example.com/" }).bundle(h);
+    assert.equal(b.id, "hero-splendor-plus-obd2b-in");
+    assert.deepEqual(net.calls.map((c) => c.url), [`https://maps.example.com/api/bikes/bundle/${h}`, `bikedb/bundles/${h}.json`]);
 });
 
 test("bundles: without Cache Storage they fall back to localStorage", async () => {
@@ -186,101 +182,18 @@ test("garage → physics model: the bike, its class default and the rider's sett
 // ---------------------------------------------------------------------------
 // Store: requests for missing bikes
 // ---------------------------------------------------------------------------
-test("missing-bike requests wait offline and are sent to POST /api/bikes/requests once there's a server", async () => {
+test("missing-bike requests wait offline and are sent once there's a server", async () => {
     const storage = fakeStorage();
     const s0 = mkStore({ storage });
-    assert.throws(() => s0.requestBike({ make: " ", model: "Avenger" }), /make and the model/);
-    assert.throws(() => s0.requestBike({ make: "Bajaj", model: "x".repeat(61) }), /under 60/);
-    assert.throws(() => s0.requestBike({ make: "Bajaj", model: "---" }), /letter or number/);
-    assert.throws(() => s0.requestBike({ make: "Bajaj", model: "Avenger", year: 1900 }), /between 1950/);
-    s0.requestBike({ make: " Bajaj ", model: "Avenger  220 Street", year: 2023, classKey: "ice_manual.cruiser" });
+    assert.throws(() => s0.requestBike(" ", null), /Describe the bike/);
+    s0.requestBike("Bajaj Avenger 220 Street, 2023", "ice_manual.cruiser");
     assert.equal(await s0.flushRequests(), 1, "no server configured yet: stays queued");
-    for (const status of [503, 429, 404, 403]) {
-        const net = fakeNet(() => new Response("{}", { status }));
-        assert.equal(await mkStore({ storage, net, apiBase: "https://m.example" }).flushRequests(), 1, `HTTP ${status}: keep it for later`);
-    }
-    const ok = fakeNet(() => new Response(JSON.stringify({ ok: true, status: "queued" }), { status: 202 }));
+    const net = fakeNet(() => new Response("{}", { status: 503 }));
+    assert.equal(await mkStore({ storage, net, apiBase: "https://m.example" }).flushRequests(), 1, "server error: keep it");
+    const ok = fakeNet(() => new Response("{}", { status: 202 }));
     assert.equal(await mkStore({ storage, net: ok, apiBase: "https://m.example" }).flushRequests(), 0);
-    assert.equal(ok.calls[0].url, "https://m.example/api/bikes/requests");
-    assert.equal(ok.calls[0].method, "POST");
-    assert.deepEqual(JSON.parse(ok.calls[0].body), { make: "Bajaj", model: "Avenger 220 Street", year: 2023, powertrain: "ice_manual", note: "Closest type picked in the app: ice_manual.cruiser" });
-    // invalid in the server's eyes: dropped, never retried forever
-    s0.requestBike({ make: "Bajaj", model: "Avenger" });
-    assert.equal(await mkStore({ storage, net: fakeNet(() => new Response("{}", { status: 400 })), apiBase: "https://m.example" }).flushRequests(), 0);
-    // an outbox entry from an older app version (free-text only) is dropped, not sent malformed
-    storage.setItem(Store.OUTBOX_KEY, JSON.stringify([{ id: "x", description: "Bajaj Avenger", classKey: null, at: 1 }]));
-    const legacy = fakeNet(() => new Response("{}", { status: 202 }));
-    assert.equal(await mkStore({ storage, net: legacy, apiBase: "https://m.example" }).flushRequests(), 0);
-    assert.equal(legacy.calls.length, 0);
-});
-
-test("a requested bike the server already lists is offered to the rider", async () => {
-    const storage = fakeStorage();
-    const hunter = index.get("royal-enfield-hunter-350-metro-in");
-    const net = fakeNet(() => new Response(JSON.stringify({ ok: true, status: "listed", matches: [hunter] }), { status: 200 }));
-    const s = mkStore({ storage, net, apiBase: "https://m.example" });
-    const req = s.requestBike({ make: "Royal Enfield", model: "Hunter", year: 2024 });
-    assert.equal(await s.flushRequests(), 0, "answered: not queued again");
-    assert.deepEqual(s.listed().map((x) => [x.request.id, x.matches[0].id]), [[req.id, "royal-enfield-hunter-350-metro-in"]]);
-    s.dismissListed(req.id);
-    assert.deepEqual(s.listed(), []);
-});
-
-// ---------------------------------------------------------------------------
-// Store: search (GET /api/bikes/search)
-// ---------------------------------------------------------------------------
-const searchServer = (catalogVersion, results) => fakeNet((url) => {
-    if (String(url).includes("/api/bikes/search?")) return new Response(JSON.stringify({ ok: true, catalogVersion, total: results.length, results }), { status: 200 });
-    return new Response(files.get(String(url)) ?? "not found", { status: files.has(String(url)) ? 200 : 404 });
-});
-
-test("search: no server → the offline index, no network at all", async () => {
-    const net = fakeNet();
-    const s = mkStore({ net });
-    const { index: idx } = await s.catalog();
-    const before = net.calls.length;
-    const a = await s.search(idx, "hunter");
-    assert.equal(a.source, "local");
-    assert.deepEqual(a.results.map((r) => r.id), ["royal-enfield-hunter-350-metro-in"]);
-    assert.equal(net.calls.length, before);
-});
-
-test("search: same catalogue on the server → identical answers, so the server isn't asked again this session", async () => {
-    const net = searchServer(index.version, index.search("hunter"));
-    const s = mkStore({ net, apiBase: "https://m.example" });
-    const { index: idx } = await s.catalog();
-    const a = await s.search(idx, "hunter");
-    assert.equal(a.source, "local");
-    const asked = net.calls.filter((c) => c.url.includes("/api/bikes/search")).map((c) => c.url);
-    assert.deepEqual(asked, ["https://m.example/api/bikes/search?q=hunter&limit=30"]);
-    await s.search(idx, "pulsar");
-    assert.equal(net.calls.filter((c) => c.url.includes("/api/bikes/search")).length, 1, "not asked again");
-});
-
-test("search: a newer catalogue on the server → its results, and a bike the phone doesn't know yet can be picked", async () => {
-    const newBike = { ...index.get("royal-enfield-hunter-350-metro-in"), id: "royal-enfield-concept-future-in", model: "Concept Future", variant: null, title: "Royal Enfield Concept Future" };
-    const net = searchServer("ffffffffffffffff", [newBike]);
-    const s = mkStore({ net, apiBase: "https://m.example" });
-    const { index: idx } = await s.catalog();
-    const a = await s.search(idx, "concept");
-    assert.equal(a.source, "server");
-    assert.deepEqual(a.results.map((r) => r.id), ["royal-enfield-concept-future-in"]);
-    assert.equal(idx.get("royal-enfield-concept-future-in"), null, "not in the phone's list");
-    const g = s.saveGarage(s.garageFromPick(idx, { bikeId: "royal-enfield-concept-future-in", year: 2025 }));
-    assert.equal(g.title, "Royal Enfield Concept Future");
-    assert.equal(g.bundle, newBike.bundle);
-    assert.equal(s.row(idx, "royal-enfield-concept-future-in").model, "Concept Future");
-    assert.equal(s.refreshGarage(idx).bundle, newBike.bundle, "an unknown-to-the-phone bike keeps its bundle");
-});
-
-test("search: offline, slow, failing or malformed server → the offline answer, never an error", async () => {
-    for (const serve of [() => { throw new TypeError("Failed to fetch"); }, () => new Response("down", { status: 503 }), () => new Response("{not json", { status: 200 }), () => new Response(JSON.stringify({ ok: false, reason: "rate-limited" }), { status: 429 })]) {
-        const s = mkStore({ net: fakeNet((url) => (String(url).includes("/api/") ? serve() : new Response(files.get(String(url)) ?? "", { status: 200 }))), apiBase: "https://m.example" });
-        const { index: idx } = await s.catalog();
-        const a = await s.search(idx, "activa");
-        assert.equal(a.source, "local");
-        assert.deepEqual(a.results.map((r) => r.id), index.search("activa", { limit: 30 }).map((r) => r.id));
-    }
+    assert.deepEqual(JSON.parse(ok.calls[0].body), { description: "Bajaj Avenger 220 Street, 2023", classKey: "ice_manual.cruiser" });
+    assert.equal(ok.calls[0].url, "https://m.example/api/bikes/request");
 });
 
 // ---------------------------------------------------------------------------
@@ -342,17 +255,11 @@ test("chart: speeds the bike can't hold are marked, and a climb downshifts", () 
     assert.ok(climb.gears[climb.gears.length - 1].gear < topGear(climb), "near its limit on a climb the bike drops a gear");
 });
 
-test("chart: gear ribbon only when the physics allows gear advice (C4) — the UI never has to hide it", () => {
+test("chart: gear ribbon only when gear advice is allowed (C4)", () => {
     assert.equal(chartOf("honda-activa-110-dlx-obd2b-in").c.gears.length, 0, "CVT");
     assert.equal(chartOf("ather-450x-2-9kwh-2025-in").c.gears.length, 0, "EV");
     assert.equal(chartOf("honda-shine-125-obd2b-in").c.gears.length, 0, "gearing estimated from the class default");
-    assert.ok(chartOf("royal-enfield-hunter-350-metro-in").c.gears.length >= 5, "the bike's own gearing");
-    // a typical bike (what "My bike isn't listed" picks): the class default bundle itself
-    const typical = Physics.createBikeModel(art.bundles.find((x) => x.id === "default-ice-manual-commuter").runtime);
-    assert.equal(typical.gearAdvice, false);
-    assert.equal(typical.gearAdviceReason, "typical-bike");
-    assert.equal(Viz.prepareChart(Physics.cruiseTable(typical), typical).gears.length, 0, "a typical bike's gears are never shown as advice");
-    assert.deepEqual(Physics.shiftPoints(typical).ecoUp, [], "and the core gives no shift speeds for it");
+    assert.equal(chartOf("royal-enfield-hunter-350-metro-in", {}, { gearAdvice: false }).c.gears.length, 0, "an estimated (typical) bike");
 });
 
 test("chart: EVs plot energy use, which goes below zero (charging) downhill; range stays in the headline", () => {

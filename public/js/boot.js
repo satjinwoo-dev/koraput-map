@@ -8,7 +8,7 @@
    modules. Must load last.
 
    Classic scripts sharing one global scope (no bundler, no build step),
-   loaded by index.html in this order: core → voice → gps → navigation → garage/fuel-baseline → smartdrive → groupnav → privacy → analytics → deadreckoning → presence → controls → chat → memories → calls → sos → pwa → skunkworks → radio → convoy → boot (then the bike data, physics and js/trip/, which wire themselves).
+   loaded by index.html in this order: core → voice → gps → navigation → smartdrive → groupnav → privacy → analytics → deadreckoning → presence → controls → chat → memories → calls → sos → pwa → skunkworks → radio → convoy → boot.
    ============================================================================ */
 
 // ==========================================

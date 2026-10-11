@@ -214,10 +214,9 @@ test("gear choice: the chosen gear is real, within the rev range, carries the lo
 
 test("shift points: finite, in order, up-shifts below the redline and landing above the lugging limit", () => {
     for (const m of ice.filter((x) => x.drive.kind === "manual")) {
-        const sp = /** @type {NonNullable<ReturnType<typeof Physics.shiftPoints>>} */ (Physics.shiftPoints(m, { altitude: 300 }, { diagnostic: true }));
-        assert.ok(allFinite(sp.ecoUp) && allFinite(sp.perfUp) && allFinite(sp.ecoDown), m.id);
+        const sp = /** @type {NonNullable<ReturnType<typeof Physics.shiftPoints>>} */ (Physics.shiftPoints(m, { altitude: 300 }));
+        assert.ok(allFinite(sp), m.id);
         assert.equal(sp.advisory, m.gearAdvice);
-        assert.equal(sp.ecoUp.length, m.drive.ratios.length - 1, `${m.id}: diagnostic shift points are always computed`);
         for (let i = 0; i < sp.ecoUp.length; i++) {
             assert.ok(sp.ecoUp[i].omegaTo >= m.engine.omegaLug - 1e-9);
             assert.ok(sp.perfUp[i].omegaFrom <= m.engine.omegaMax * (1 + 1e-9));

@@ -1,0 +1,38 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "target": "ES2020",
+    "module": "commonjs",
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "types": [],
+    "strict": false,
+    "noImplicitThis": false,
+    "noUnusedLocals": true
+  },
+  "files": [
+    "public/js/advice/gate.js",
+    "public/js/advice/ask.js",
+    "public/js/advice/conditions.js",
+    "public/js/advice/overlay.js",
+    "public/js/advice/advice-app.js",
+    "public/js/gradient/gradient.js",
+    "public/js/gradient/structures.js",
+    "public/js/gradient/profile-chart.js",
+    "public/js/gradient/gradient-app.js",
+    "public/js/rides/fleet.js",
+    "public/js/rides/ride-store.js",
+    "public/js/rides/ride-model.js",
+    "public/js/rides/rides-ui.js",
+    "public/js/rides/consent-ui.js",
+    "public/js/rides/rides-app.js",
+    "public/js/hud/hud.js",
+    "public/js/hud/hud-app.js",
+    "public/js/trip/trip-app.js"
+  ]
+}

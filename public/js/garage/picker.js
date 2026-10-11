@@ -3,13 +3,10 @@
    MapUnite garage — bike picker
    ==============================================================================
    Type-ahead search over the offline catalogue (BikeCatalogSearch.CatalogIndex):
-   instant, works in airplane mode, and matches what the server would. With a
-   server (o.search = store.search), GET /api/bikes/search is asked as well and
-   its answer replaces the list when the server has a newer catalogue (bikes
-   added since the phone's list was saved). Then a year, if the bike was sold
-   over several. Bikes that aren't listed get a typical bike of their class
-   (marked "estimated") and an optional request to add them (make, model, year:
-   POST /api/bikes/requests).
+   instant, works in airplane mode, and matches what the server would. Then a
+   year, if the bike was sold over several. Bikes that aren't listed get a
+   typical bike of their class (marked "estimated") and an optional request to
+   add them.
 
    Accessible combobox: label, listbox, aria-activedescendant, arrow keys,
    Enter, Escape. All catalogue text goes in via textContent.
@@ -60,14 +57,12 @@
     /**
      * @param {HTMLElement} root
      * @param {{ index: any, silhouettes: any, units: any, onPick: (p: { bikeId?: string, classKey?: string, year: number|null }) => void,
-     *           onRequest?: (r: { make: string, model: string, year: number|null, classKey: string|null }) => void,
-     *           search?: (index: any, q: string, opts: { limit: number }) => Promise<{ results: any[], source: "local"|"server" }>,
-     *           initialQuery?: string, offline?: boolean }} o
+     *           onRequest?: (description: string, classKey: string|null) => void, initialQuery?: string, offline?: boolean }} o
      */
     function createPicker(root, o) {
         const { index, silhouettes: sil, units: U } = o;
         const uid = `pk${Math.random().toString(36).slice(2, 8)}`;
-        let results = [], active = -1, chosen = null, fromServer = false, searchSeq = 0, searchTimer = null;
+        let results = [], active = -1, chosen = null;
         root.classList.add("mu-picker");
         root.replaceChildren();
 
@@ -96,10 +91,7 @@
 
         // ---------- not listed: pick a class ----------
         const classView = h("div", { class: "mu-picker-classes", hidden: true });
-        const reqMake = h("input", { id: `${uid}-req-make`, class: "mu-text-input", type: "text", maxlength: "60", autocomplete: "off", placeholder: "e.g. Bajaj", list: `${uid}-makes` });
-        const reqModel = h("input", { id: `${uid}-req-model`, class: "mu-text-input", type: "text", maxlength: "60", autocomplete: "off", placeholder: "e.g. Avenger 220 Street" });
-        const reqYear = h("input", { id: `${uid}-req-year`, class: "mu-text-input", type: "text", inputmode: "numeric", maxlength: "4", autocomplete: "off", placeholder: "e.g. 2023" });
-        const reqError = h("p", { class: "mu-field-error", role: "alert" });
+        const reqInput = h("input", { id: `${uid}-req`, class: "mu-text-input", type: "text", maxlength: "200", placeholder: "e.g. Bajaj Avenger 220 Street, 2023" });
         let reqClass = null;
         classView.append(
             h("button", { type: "button", class: "mu-back", text: "Back to search", onclick: () => show(searchView) }),
@@ -117,28 +109,13 @@
             }
             classView.append(h("h4", { class: "mu-group-title", text: g.label }), grid);
         }
-        classView.append(h("div", { class: "mu-request", role: "group", "aria-labelledby": `${uid}-req-title` }, [
-            h("p", { id: `${uid}-req-title`, class: "mu-label", text: "Tell us your bike, and we'll add it (optional)" }),
-            h("label", { class: "mu-label mu-label-sub", for: `${uid}-req-make`, text: "Make" }), reqMake,
-            h("datalist", { id: `${uid}-makes` }, [...new Set(index.rows.map((r) => r.make))].sort().map((mk) => h("option", { value: mk }))),
-            h("label", { class: "mu-label mu-label-sub", for: `${uid}-req-model`, text: "Model" }), reqModel,
-            h("label", { class: "mu-label mu-label-sub", for: `${uid}-req-year`, text: "Year (optional)" }), reqYear,
-            reqError
+        classView.append(h("div", { class: "mu-request" }, [
+            h("label", { class: "mu-label", for: `${uid}-req`, text: "Tell us your bike, and we'll add it (optional)" }),
+            reqInput
         ]));
-        /** Prefill the request from a search that found nothing: a known make at the start becomes the make. @param {string} q */
-        function prefillRequest(q) {
-            const t = q.trim().replace(/\s+/g, " ");
-            const mk = [...new Set(index.rows.map((r) => r.make))].sort((a, b) => b.length - a.length).find((m) => t.toLowerCase().startsWith(m.toLowerCase() + " ") || t.toLowerCase() === m.toLowerCase());
-            reqMake.value = mk || "";
-            reqModel.value = mk ? t.slice(mk.length).trim() : t;
-        }
         function finishClass(c) {
-            const make = reqMake.value.trim(), model = reqModel.value.trim(), year = reqYear.value.trim();
-            reqError.textContent = "";
-            if ((make || model || year) && o.onRequest) {
-                try { o.onRequest({ make, model, year: year ? Number(year) : null, classKey: reqClass }); }
-                catch (e) { reqError.textContent = /** @type {Error} */ (e).message; (make ? reqModel : reqMake).focus(); return; }   // fix it, or clear it, then choose again
-            }
+            const d = reqInput.value.trim();
+            if (d && o.onRequest) { try { o.onRequest(d, reqClass); } catch (e) { status.textContent = /** @type {Error} */ (e).message; } }
             o.onPick({ classKey: c.key, year: null });
         }
 
@@ -153,27 +130,9 @@
         // ---------- search behaviour ----------
         function run() {
             const q = input.value;
-            results = q.trim() ? index.search(q, { limit: 30 }) : [];          // instant, offline
-            fromServer = false;
+            results = q.trim() ? index.search(q, { limit: 30 }) : [];
             active = results.length ? 0 : -1;
             renderResults(q);
-            askServer(q);
-        }
-        /** GET /api/bikes/search (debounced). Its answer is used when the server has a newer catalogue. @param {string} q */
-        function askServer(q) {
-            if (!o.search || !q.trim()) return;
-            if (searchTimer) clearTimeout(searchTimer);
-            const seq = ++searchSeq;
-            searchTimer = setTimeout(() => {
-                /** @type {NonNullable<typeof o.search>} */ (o.search)(index, q, { limit: 30 }).then((ans) => {
-                    if (seq !== searchSeq || input.value !== q || !ans || ans.source !== "server") return;   // stale, or same as the phone's list
-                    const keep = results[active] ? results[active].id : null;
-                    results = ans.results;
-                    fromServer = true;
-                    active = results.length ? Math.max(0, results.findIndex((r) => r.id === keep)) : -1;
-                    renderResults(q);
-                }).catch(() => { });
-            }, 150);
         }
         function renderResults(q) {
             list.replaceChildren();
@@ -184,11 +143,11 @@
                 status.textContent = "";
                 list.append(h("li", { class: "mu-empty", role: "presentation" }, [
                     h("p", { text: `No bike matches “${q.trim()}”.` }),
-                    h("button", { type: "button", class: "mu-btn-ghost", text: "Use a typical bike instead", onclick: () => { prefillRequest(q); show(classView); } })
+                    h("button", { type: "button", class: "mu-btn-ghost", text: "Use a typical bike instead", onclick: () => { reqInput.value = q.trim(); show(classView); } })
                 ]));
                 return;
             }
-            status.textContent = `${results.length === 30 ? "30+" : results.length} ${results.length === 1 ? "bike" : "bikes"}${fromServer ? ", including bikes added since this phone's list was saved" : ""}`;
+            status.textContent = `${results.length === 30 ? "30+" : results.length} ${results.length === 1 ? "bike" : "bikes"}`;
             results.forEach((r, i) => {
                 const li = h("li", {
                     id: `${uid}-opt-${i}`, role: "option", class: "mu-result", "aria-selected": String(i === active),

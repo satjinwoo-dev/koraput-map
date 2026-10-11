@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
 const core = require("../../public/js/gradient/gradient.js");
-const ST = require("../../public/js/trip/structures.js");      // the ONE bridges/tunnels pipeline (roadmap Step 9)
+const ST = require("../../public/js/gradient/structures.js");
 const V = require("../../public/js/gradient/profile-chart.js");
 const P = require("../../public/js/trip/profile.js");
 const U = require("../../public/js/garage/units.js");
@@ -18,6 +18,50 @@ function straight(km) { const out = []; for (let m = 0; m <= km * 1000 + 1e-9; m
 /** Samples the way the trip card takes them. */
 function samples(path, distance) { return P.resample(path, P.plan(distance)); }
 
+test("OSM structures: a bridge along the route counts; a flyover crossing above it doesn't", () => {
+    const path = straight(6);
+    const G = core.routeGeometry(path);
+    assert.ok(Math.abs(G.length - 6000) < 2);
+    const bridge = { id: "way/1", kind: "bridge", name: "Kolab bridge", coords: [[LAT + 0.00002, lngAt(2950)], [LAT + 0.00002, lngAt(3150)], [LAT, lngAt(3350)]] };
+    const flyover = { id: "way/2", kind: "bridge", name: "Flyover", coords: [[LAT - 0.004, lngAt(4000)], [LAT, lngAt(4000)], [LAT + 0.004, lngAt(4005)]] };
+    const parallelFar = { id: "way/3", kind: "bridge", name: "", coords: [[LAT + 0.001, lngAt(1000)], [LAT + 0.001, lngAt(1300)]] };   // 110 m away
+    const tunnel = { id: "way/4", kind: "tunnel", name: "", coords: [[LAT, lngAt(5000)], [LAT, lngAt(5300)]] };
+    const tunnel2 = { id: "way/5", kind: "tunnel", name: "", coords: [[LAT, lngAt(5320)], [LAT, lngAt(5500)]] };            // continues it
+    const iv = core.structureIntervals(G, [bridge, flyover, parallelFar, tunnel, tunnel2]);
+    assert.equal(iv.length, 2);
+    assert.equal(iv[0].kind, "bridge"); assert.equal(iv[0].name, "Kolab bridge");
+    assert.ok(Math.abs(iv[0].s0 - 2950) < 3 && Math.abs(iv[0].s1 - 3350) < 3);
+    assert.equal(iv[1].kind, "tunnel"); assert.deepEqual(iv[1].ids, ["way/4", "way/5"]);   // merged across the 20 m gap
+    assert.ok(Math.abs(iv[1].s1 - 5500) < 3);
+});
+
+test("DEM spikes: a dip that comes back is a likely bridge, a hump a likely tunnel; a real climb is neither", () => {
+    const s = Float64Array.from({ length: 40 }, (_, i) => i * 90);
+    const z = Float64Array.from(s, (x) => 200 + 0.03 * x);                    // steady 3 % climb
+    z[10] -= 18; z[11] -= 22;                                                 // river valley under a bridge (~200 m)
+    z[25] += 14;                                                              // ridge over a tunnel
+    const sp = core.detectSpikes(s, z);
+    assert.deepEqual(sp.map((x) => x.kind), ["likely-bridge", "likely-tunnel"]);
+    assert.ok(sp[0].s0 <= 900 && sp[0].s1 >= 990 && sp[0].s1 - sp[0].s0 <= 450);
+    assert.ok(sp[0].deviation >= 18);
+    // an already-mapped structure suppresses the duplicate
+    assert.equal(core.detectSpikes(s, z, [{ s0: 800, s1: 1100, kind: "bridge", name: "", source: "osm" }]).filter((x) => x.kind === "likely-bridge").length, 0);
+    // a genuine 12 % climb that keeps going is not a spike
+    const z2 = Float64Array.from(s, (x) => (x < 1800 ? 100 + 0.12 * x : 100 + 0.12 * 1800));
+    assert.equal(core.detectSpikes(s, z2).length, 0);
+});
+
+test("applyStructures: a straight line between the road at either end; reports how far off the DEM was", () => {
+    const s = Float64Array.from({ length: 21 }, (_, i) => i * 50);
+    const z = Float64Array.from(s, () => 300);
+    z[9] = 270; z[10] = 262; z[11] = 275;                                     // dip under a bridge at 450–550 m
+    const r = core.applyStructures(s, z, [{ s0: 440, s1: 560, kind: "bridge", name: "", source: "osm" }]);
+    for (let i = 8; i <= 12; i++) assert.ok(Math.abs(r.z[i] - 300) < 1e-9);
+    assert.ok(Math.abs(r.intervals[0].deviation - 38) < 1e-9);
+    assert.ok(Math.abs(r.intervals[0].grade) < 1e-9);
+    assert.equal(z[10], 262, "input untouched");
+});
+
 test("analyze: the bridge dip disappears from the grades; steep sections are found and graded", () => {
     const path = straight(8);
     const rs = samples(path, 8000);
@@ -29,18 +73,15 @@ test("analyze: the bridge dip disappears from the grades; steep sections are fou
         if (x > 3300 && x < 3600) h -= 25;                                    // river under a bridge
         return h;
     });
-    const osm = { elements: [{ type: "way", id: 9, tags: { highway: "primary", bridge: "yes", name: "Indravati bridge" }, geometry: [{ lat: LAT, lon: lngAt(3280) }, { lat: LAT, lon: lngAt(3620) }] }] };
-    const spans = ST.fromOsm(osm, rs);
-    const withOsm = core.analyze({ sample: rs, z, distance: 8000, spans, profileLib: P });
-    const noOsm = core.analyze({ sample: rs, z, distance: 8000, spans: null, profileLib: P });
-    const naive = P.buildProfile(rs.s, z, { distance: 8000, detectStructures: false });          // the DEM as it is
+    const bridge = { id: "way/9", kind: "bridge", name: "Indravati bridge", coords: [[LAT, lngAt(3280)], [LAT, lngAt(3620)]] };
+    const withOsm = core.analyze({ path, sample: rs, z, distance: 8000, ways: [bridge], profileLib: P });
+    const noOsm = core.analyze({ path, sample: rs, z, distance: 8000, ways: null, profileLib: P });
+    const naive = P.buildProfile(rs.s, z, { distance: 8000 });
     const worst = (p, a, b) => { let w = 0; for (let i = 0; i < p.grade.length; i++) if (p.s[i] >= a && p.s[i] <= b) w = Math.max(w, Math.abs(p.grade[i])); return w; };
     assert.ok(worst(naive, 3100, 3800) > 0.06, "the raw DEM makes the bridge look steep");
     assert.ok(worst(withOsm.profile, 3100, 3800) < 0.02, "fixed with OpenStreetMap");
     assert.ok(worst(noOsm.profile, 3100, 3800) < 0.03, "fixed from the DEM alone");
-    assert.equal(withOsm.structures[0].kind, "bridge"); assert.equal(withOsm.structures[0].source, "osm"); assert.equal(withOsm.structures[0].name, "Indravati bridge");
-    assert.ok(withOsm.structures[0].deviation > 20 && withOsm.structures[0].deviation < 30, `the DEM was ${withOsm.structures[0].deviation} m off`);
-    assert.ok(Math.abs(withOsm.structures[0].grade) < 0.02, "the deck's grade now");
+    assert.equal(withOsm.structures[0].kind, "bridge"); assert.equal(withOsm.structures[0].source, "osm");
     assert.equal(noOsm.structures[0].kind, "likely-bridge"); assert.equal(noOsm.structures[0].source, "dem");
     assert.equal(withOsm.structureSource, "osm"); assert.equal(noOsm.structureSource, "none");
     const kinds = withOsm.sections.map((x) => `${x.kind}${x.level}`);
@@ -57,12 +98,61 @@ test("analyze: terrain still unbelievable after cleaning is capped and reported;
     const path = straight(3);
     const rs = samples(path, 3000);
     const z = Array.from(rs.s, (x) => (x < 1000 ? 100 : x < 1600 ? 100 + 0.45 * (x - 1000) : 370));   // a 45 % "road" for 600 m
-    const r = core.analyze({ sample: rs, z, distance: 3000, spans: [], profileLib: P });
+    const r = core.analyze({ path, sample: rs, z, distance: 3000, ways: [], profileLib: P });
     assert.ok(r.structures.some((x) => x.kind === "capped"));
     assert.ok(r.summary.capped >= 1);
     assert.ok(r.summary.maxClimb <= 0.25 + 1e-9);
-    const flat = core.analyze({ sample: rs, z: null, distance: 3000, spans: null, profileLib: P });
+    const flat = core.analyze({ path, sample: rs, z: null, distance: 3000, ways: null, profileLib: P });
     assert.equal(flat.profile.source, "flat"); assert.equal(flat.sections.length, 0); assert.equal(flat.raw, null);
+});
+
+test("structures: simplification keeps the road shape, the query buffers it, parsing keeps only road bridges/tunnels", () => {
+    const path = straight(30);                                                // 1501 points on a straight line
+    const sim = ST.simplify(path);
+    assert.equal(sim.pts.length, 2);
+    const zig = []; for (let i = 0; i < 4000; i++) zig.push([LAT + (i % 2 ? 0.0005 : 0), lngAt(i * 10)]);
+    const z2 = ST.simplify(zig);
+    assert.ok(z2.pts.length <= 1200 && z2.tol > 8, "tolerance grows to stay under the cap");
+    const q = ST.query([[LAT, 82.7], [LAT, 82.8]], 25);
+    assert.match(q, /way\["highway"\]\["bridge"\]\["bridge"!="no"\]\(around:25,18\.80000,82\.70000,18\.80000,82\.80000\)/);
+    assert.match(q, /\["tunnel"\]\["tunnel"!="no"\]/); assert.match(q, /out tags geom/);
+    const ways = ST.parse({ elements: [
+        { type: "way", id: 1, tags: { highway: "primary", bridge: "yes", name: "Big bridge" }, geometry: [{ lat: 1, lon: 2 }, { lat: 1.001, lon: 2 }] },
+        { type: "way", id: 2, tags: { highway: "primary", tunnel: "yes" }, geometry: [{ lat: 1, lon: 2 }, { lat: 1.001, lon: 2 }] },
+        { type: "way", id: 3, tags: { highway: "primary", bridge: "no" }, geometry: [{ lat: 1, lon: 2 }, { lat: 1.001, lon: 2 }] },
+        { type: "way", id: 4, tags: { highway: "residential", covered: "yes" }, geometry: [{ lat: 1, lon: 2 }, { lat: 1.001, lon: 2 }] },
+        { type: "node", id: 5, tags: { bridge: "yes" } },
+        { type: "way", id: 6, tags: { highway: "primary", bridge: "viaduct" }, geometry: [{ lat: 1, lon: 2 }] }
+    ] });
+    assert.deepEqual(ways.map((w) => [w.id, w.kind, w.name]), [["way/1", "bridge", "Big bridge"], ["way/2", "tunnel", ""], ["way/4", "tunnel", ""]]);
+    assert.equal(ST.routeKey([[1, 2], [3, 4]]), ST.routeKey([[1, 2], [3, 4]]));
+    assert.notEqual(ST.routeKey([[1, 2], [3, 4]]), ST.routeKey([[1, 2], [3, 4.5]]));
+});
+
+/** A minimal Cache Storage. */
+function fakeCaches() {
+    const store = new Map();
+    return { store, async open() { return { async match(k) { const v = store.get(k); return v ? { json: async () => JSON.parse(v) } : undefined; }, async put(k, res) { store.set(k, await res.text()); } }; } };
+}
+
+test("structures: one request per route, cached for 30 days, stale copy offline, nothing → 'none'", async () => {
+    const calls = [];
+    const fake = async (url, init) => { calls.push(init.body); return { ok: true, json: async () => ({ elements: [{ type: "way", id: 7, tags: { highway: "trunk", bridge: "yes" }, geometry: [{ lat: LAT, lon: 82.71 }, { lat: LAT, lon: 82.712 }] }] }) }; };
+    let t = 0, online = true;
+    const cs = fakeCaches();
+    const S = ST.createStructures({ fetch: /** @type {any} */ (fake), caches: /** @type {any} */ (cs), now: () => t, online: () => online });
+    const path = straight(5);
+    const a = await S.along(path);
+    assert.equal(a.source, "network"); assert.equal(a.ways.length, 1);
+    assert.match(decodeURIComponent(calls[0]), /^data=\[out:json\]/);
+    t = 10 * 86400000;
+    assert.equal((await S.along(path)).source, "cache"); assert.equal(calls.length, 1);
+    t = 40 * 86400000; online = false;
+    assert.equal((await S.along(path)).source, "stale");
+    const empty = ST.createStructures({ fetch: /** @type {any} */ (fake), caches: /** @type {any} */ (fakeCaches()), online: () => false });
+    assert.deepEqual(await empty.along(path), { ways: [], source: "none" });
+    const failing = ST.createStructures({ fetch: /** @type {any} */ (async () => ({ ok: false })), caches: null, online: () => true });
+    assert.equal((await failing.along(path)).source, "none");
 });
 
 test("chart helpers: nice ticks, a complete table (route order), provenance in words", () => {
@@ -102,15 +192,4 @@ test("sections: a short easing doesn't split a climb; a long one does; tiny runs
     assert.equal(core.sections(mk([0.02, 0.09, 0.02])).length, 0);            // 90 m < 150 m
     const down = core.sections(mk([-0.07, -0.07, 0.07, 0.07]));
     assert.deepEqual(down.map((x) => x.kind), ["descent", "climb"]);          // opposite kinds never merge
-});
-
-test("one pipeline: the sheet's profile is exactly the trip card's (buildProfile with the same spans)", () => {
-    const path = straight(5);
-    const rs = samples(path, 5000);
-    const z = Array.from(rs.s, (x) => 200 + 0.02 * x - (x > 2000 && x < 2400 ? 30 : 0));
-    const sheet = core.analyze({ sample: rs, z, distance: 5000, spans: null, profileLib: P });
-    const card = P.buildProfile(rs.s, z, { distance: 5000 });
-    assert.deepEqual(Array.from(sheet.profile.grade), Array.from(card.grade));
-    assert.deepEqual(sheet.structures.map((x) => x.kind), ["likely-bridge"]);
-    assert.ok(!("structureIntervals" in core) && !("detectSpikes" in core), "no second detector");
 });

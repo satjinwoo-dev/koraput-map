@@ -76,8 +76,9 @@ test("real catalogue: the bike you type comes first", () => {
     assert.deepEqual(top("splendor plus"), ["hero-splendor-plus-obd2b-in"]);
     assert.deepEqual(top("x pulse"), ["hero-xpulse-200-4v-std-in"]);
     assert.deepEqual(top("rtr 160 4v"), ["tvs-apache-rtr-160-4v-dual-abs-usd-in"]);
-    assert.deepEqual(top("ather", 5).sort(), ["ather-450-apex-in", "ather-450x-2-9kwh-2025-in", "ather-450x-3-7kwh-2025-in", "ather-rizta-3-7kwh-in"]);
-    assert.equal(top("pulsar", 10).length, 10);
+    assert.deepEqual(top("chetak"), ["bajaj-chetak-c3501-in"]);
+    assert.deepEqual(top("ather", 5).sort(), ["ather-450x-2-9kwh-2025-in", "ather-450x-3-7kwh-2025-in"]);
+    assert.equal(top("pulsar", 10).length, 3);
 });
 
 test("every query word must match (AND), and empty queries return nothing", () => {

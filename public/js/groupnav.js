@@ -212,9 +212,7 @@ const TripFuel = {
             const walking = (window.currentTravelMode || "bike") === "walk";
             let stated = false;
             try { stated = localStorage.getItem("sd_mileage") !== null; } catch (e) { /* storage blocked */ }
-            if (typeof BikeFuel !== "undefined" && BikeFuel.active()) stated = true;          // the bike from My bike
-            const own = SmartDrive.ratedKmPerL();
-            const km = stated && Number.isFinite(own) && own > 0 ? own : this.defaultKmPerL;
+            const km = stated && Number.isFinite(SmartDrive.baseMileage) && SmartDrive.baseMileage > 0 ? SmartDrive.baseMileage : this.defaultKmPerL;
             return { kmPerL: walking ? null : km, assumed: !walking && !stated, walking };
         }
         const p = this.profiles[id];
@@ -231,11 +229,6 @@ const TripFuel = {
 
     onProfiles(d) {
         if (!d || typeof d.profiles !== "object" || d.profiles === null) return;
-        // Advanced analytics (convoy planner): a shared fuel / charge level arrives as its age; keep it as a time on THIS phone's clock
-        for (const p of Object.values(d.profiles)) {
-            if (p && p.level && Number.isFinite(p.level.share) && Number.isFinite(p.level.ageMs)) p.level = { share: p.level.share, at: Date.now() - p.level.ageMs };
-            else if (p && p.level) delete p.level;
-        }
         this.profiles = d.profiles;
         this.tripId = d.tripId || null;
         if (Number.isFinite(d.defaultKmPerL) && d.defaultKmPerL > 0) this.defaultKmPerL = d.defaultKmPerL;
@@ -564,7 +557,7 @@ const CarpoolPlanner = {
             return { id: f.id, name: f.name, lat: f.lat, lng: f.lng };
         });
 
-        const kmPerL = parseFloat($("carpool-kmpl")?.value) || SmartDrive.ratedKmPerL() || 15;
+        const kmPerL = parseFloat($("carpool-kmpl")?.value) || SmartDrive.baseMileage || 15;
         const pricePerL = parseFloat($("carpool-price")?.value) || 0;
 
         const resultsBox = $("carpool-results");

@@ -102,8 +102,7 @@
         if (!FC || typeof FC.intervals !== "function") throw new Error("snapshotFromLearner needs the FuelCurve learner");
         const shape = typeof g.fuelShape === "function" ? g.fuelShape : () => 1;
         const rated = typeof FC.rated === "function" ? Number(FC.rated()) || 18 : 18;            // km/L
-        // idle burn the learner corrects: its own if it exposes one (your bike's physics), else the generic figure
-        const idleLh = typeof FC.priorIdleLPerHour === "function" && Number.isFinite(FC.priorIdleLPerHour()) ? FC.priorIdleLPerHour() : Number.isFinite(g.IDLE_L_PER_HOUR) ? g.IDLE_L_PER_HOUR : 0.4;   // L/h
+        const idleLh = Number.isFinite(g.IDLE_L_PER_HOUR) ? g.IDLE_L_PER_HOUR : 0.4;            // L/h
         const bands = DEFAULT_BANDS;                                                             // = FUEL_BANDS in smartdrive.js
         // starting curve: the learner's own if it exposes one (km/L at km/h), else rated × shape
         const startKmPerL = typeof FC.priorKmPerL === "function" ? (kmh) => FC.priorKmPerL(kmh) : (kmh) => rated * shape(kmh);

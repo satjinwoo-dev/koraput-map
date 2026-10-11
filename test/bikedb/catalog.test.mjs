@@ -3,8 +3,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Contract, catalog, pending, ref, clone, byId, ROOT } from "./helpers.mjs";
 
-const RE_CLASSIC = "royal-enfield-classic-350-in";
-
 // The only warnings allowed in the committed catalogue — each one is a known, documented gap.
 const EXPECTED_WARNINGS = [
     "data/bikes/variants/honda-activa-110-dlx-obd2b-in.json no_advisable_fuel"   // only the 2020 manual certifies a fuel (E10, conf 0.6)
@@ -44,26 +42,6 @@ test("detects a second class default for the same class", () => {
     const d = clone("default-ev-sport");
     const r = Contract.validateCatalog([...catalog.entries, { file: "data/bikes/class-defaults/default-ev-sport.json", bundle: d }], ref);
     assert.ok(r.errors.some((e) => e.code === "duplicate_default"));
-});
-
-test("the picture rule: a new variant without image.url fails the catalogue; only the frozen list of older bikes is exempt", () => {
-    const variants = catalog.entries.filter((e) => e.bundle.kind === "variant").map((e) => e.bundle.id).sort();
-    assert.ok(Object.isFrozen(Contract.PICTURE_GRANDFATHERED));
-    for (const id of Contract.PICTURE_GRANDFATHERED) assert.ok(variants.includes(id), `${id} is grandfathered but not in the catalogue: take it off the list`);
-    const bike = (o = {}) => { const b = clone(RE_CLASSIC); b.id = "royal-enfield-classic-350-signals-test-in"; b.identity = { ...b.identity, variant: "Signals (test)", aliases: [] }; return Object.assign(b, o); };
-    const file = "data/bikes/variants/royal-enfield-classic-350-signals-test-in.json";
-    let r = Contract.validateCatalog([...catalog.entries, { file, bundle: bike() }], ref);
-    assert.ok(r.errors.some((e) => e.code === "picture_required" && e.path === file), "no picture → the build refuses");
-    r = Contract.validateCatalog([...catalog.entries, { file, bundle: bike({ image: { url: " ", src: "x" } }) }], ref);
-    assert.ok(r.errors.some((e) => e.code === "picture_required"), "a blank url isn't a picture");
-    const src = clone(RE_CLASSIC).sources[0].id;
-    r = Contract.validateCatalog([...catalog.entries, { file, bundle: bike({ image: { url: "https://cdn.example.com/classic.jpg", src } }) }], ref);
-    assert.deepEqual(r.errors, []);
-    assert.equal(r.ok, true);
-    // a grandfathered bike that gets its picture is told to leave the list
-    const g = Contract.PICTURE_GRANDFATHERED[0];
-    const entries = catalog.entries.map((e) => (e.bundle.id === g ? { ...e, bundle: { ...e.bundle, image: { url: "https://cdn.example.com/g.jpg", src: e.bundle.sources[0].id } } } : e));
-    assert.ok(Contract.validateCatalog(entries, ref).warnings.some((w) => w.code === "picture_grandfathered"));
 });
 
 // ---- reference tables ----

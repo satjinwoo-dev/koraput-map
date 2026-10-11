@@ -225,7 +225,6 @@ satelliteLayer.addTo(map);
 
 let currentUser = { name: localStorage.getItem("koraput_name") || "", avatar: localStorage.getItem("koraput_avatar") || DEFAULT_AVATAR };
 let myCoords = null, myWeather = "", ownMarker = null, accuracyCircle = null, cityName = "";
-let myWeatherCode = null, myWeatherCodeAt = 0;     // Open-Meteo WMO code: the roadmap Step 8 advice gate holds advice on a wet road
 let lastWeatherFetch = 0;
 const friendMarkers = Object.create(null);
 const friendData = Object.create(null);
@@ -635,7 +634,6 @@ async function fetchWeather(lat, lng) {
         const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lng)}&current=temperature_2m,weather_code`);
         if (!r.ok) return ""; const d = await r.json();
         const t = Number(d?.current?.temperature_2m), code = Number(d?.current?.weather_code);
-        if (Number.isFinite(code)) { myWeatherCode = code; myWeatherCodeAt = Date.now(); }
         return Number.isFinite(t) ? `${weatherEmoji(code)} ${Math.round(t)}°C` : "";
     } catch { return ""; }
 }

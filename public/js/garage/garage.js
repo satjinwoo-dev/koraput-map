@@ -42,8 +42,7 @@
 
     /**
      * @param {HTMLElement} root
-     * @param {{ store: any, physics: any, env?: any, title?: string, onChange?: (g: any) => void }} o
-     *   onChange: called after the rider's bike or settings are saved (SmartDrive re-reads its fuel baseline)
+     * @param {{ store: any, physics: any, env?: any, title?: string }} o
      */
     function mount(root, o) {
         const { store, physics } = o;
@@ -53,7 +52,7 @@
         const body = h("div", { class: "mu-garage-body" });
         root.replaceChildren(head, net, body);
         let index = null, viz = null;
-        const onOnline = () => { sendRequests(); net.textContent = ""; };
+        const onOnline = () => { store.flushRequests().catch(() => { }); net.textContent = ""; };
         if (typeof window !== "undefined") window.addEventListener("online", onOnline);
 
         async function start() {
@@ -69,7 +68,7 @@
                 ]));
                 return;
             }
-            sendRequests();
+            store.flushRequests().catch(() => { });
             const g = store.refreshGarage(index);
             if (g) showBike(g); else showPicker(null);
         }
@@ -80,39 +79,13 @@
             body.replaceChildren(box);
             G.picker.createPicker(box, {
                 index, silhouettes: G.silhouettes, units: G.units, offline: net.textContent !== "",
-                search: store.apiBase ? store.search : undefined,                 // GET /api/bikes/search
-                onPick: (p) => pick(p, prev),
-                onRequest: (r) => { store.requestBike(r); sendRequests(); }    // throws a message the picker shows
+                onPick: (p) => {
+                    const keep = {};
+                    if (prev && prev.settings) for (const k of PERSONAL) if (prev.settings[k] !== undefined) keep[k] = prev.settings[k];
+                    showBike(store.saveGarage(store.garageFromPick(index, { ...p, settings: keep })));
+                },
+                onRequest: (d, cls) => { store.requestBike(d, cls); store.flushRequests().catch(() => { }); }
             }).focus();
-        }
-        /** Save a pick (keeping the rider's own settings) and show it. @param {any} p @param {any} prev */
-        function pick(p, prev) {
-            const keep = {};
-            if (prev && prev.settings) for (const k of PERSONAL) if (prev.settings[k] !== undefined) keep[k] = prev.settings[k];
-            showBike(saved(store.saveGarage(store.garageFromPick(index, { ...p, settings: keep }))));
-        }
-        /** Tell the host page (index.html's sheet) the garage changed. @param {any} g */
-        function saved(g) {
-            if (o.onChange) { try { o.onChange(g); } catch (e) { /* the host's problem, not the garage's */ } }
-            return g;
-        }
-        /** POST queued requests; if the server already lists a requested bike, offer it. */
-        function sendRequests() {
-            store.flushRequests().then(renderListed).catch(() => { });
-        }
-        const listedBox = h("div", { class: "mu-listed-box", "aria-live": "polite" });
-        function renderListed() {
-            const offers = store.listed();
-            listedBox.replaceChildren(...offers.map((o2) => {
-                const m = o2.matches[0];
-                return h("div", { class: "mu-listed", role: "status" }, [
-                    h("p", { text: `Good news: “${m.title}” is already in the bike list.` }),
-                    h("div", { class: "mu-actions" }, [
-                        h("button", { type: "button", class: "mu-btn", text: "Use it", onclick: () => { store.dismissListed(o2.request.id); renderListed(); pick({ bikeId: m.id, year: o2.request.year }, store.garage()); } }),
-                        h("button", { type: "button", class: "mu-btn-ghost", text: "Not my bike", onclick: () => { store.dismissListed(o2.request.id); renderListed(); } })
-                    ])
-                ]);
-            }));
         }
 
         async function showBike(g) {
@@ -134,7 +107,7 @@
                 ]));
                 return;
             }
-            const row = g.bikeId ? store.row(index, g.bikeId) : null;     // the phone's list, or a newer bike the server returned
+            const row = g.bikeId ? index.get(g.bikeId) : null;
             const cls = index.classes.find((c) => c.key === g.classKey);
             const thumbSrc = row || { classKey: g.classKey, image_url: cls ? cls.image_url : null };
 
@@ -146,7 +119,7 @@
                 img.addEventListener("error", () => img.remove());
                 thumb.append(img);
             }
-            const name = row ? `${row.make} ${row.model}` : g.bikeId ? g.title : `Typical ${cls ? cls.title : "bike"}`;
+            const name = row ? `${row.make} ${row.model}` : `Typical ${cls ? cls.title : "bike"}`;
             const card = h("section", { class: "mu-bike-card", "aria-label": "Your bike" }, [
                 thumb,
                 h("div", { class: "mu-bike-id" }, [
@@ -164,7 +137,7 @@
             const settingsBox = h("section", { class: "mu-garage-settings", "aria-label": "Rider settings" });
             const vizBox = h("section", { class: "mu-garage-viz", "aria-label": "Fuel and speed" });
             // phone: bike, chart, settings; wide screens: bike and settings on the left, chart on the right
-            body.replaceChildren(listedBox, h("div", { class: "mu-garage-grid" }, [
+            body.replaceChildren(h("div", { class: "mu-garage-grid" }, [
                 h("div", { class: "mu-area-bike" }, [card, estimates]),
                 h("div", { class: "mu-area-viz" }, [vizBox]),
                 h("div", { class: "mu-area-settings" }, [settingsBox])
@@ -192,7 +165,7 @@
             G.settings.createSettings(settingsBox, {
                 bundle, settings: g.settings, physics,
                 onChange: (st) => {
-                    g = saved(store.saveGarage({ ...g, settings: st }));
+                    g = store.saveGarage({ ...g, settings: st });
                     if (viz) { try { viz.update({ settings: st }); renderEstimates(); } catch (e) { /* invalid combination: keep the last chart */ } }
                 }
             });

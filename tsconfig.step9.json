@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "target": "ES2020",
+    "module": "commonjs",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": [],
+    "strict": false,
+    "noImplicitThis": false,
+    "noUnusedLocals": true
+  },
+  "files": [
+    "public/js/hud/live.js",
+    "public/js/hud/hud.js",
+    "public/js/hud/hud-app.js",
+    "public/js/share/card-model.js",
+    "public/js/share/card-render.js",
+    "public/js/share/share-ui.js",
+    "public/js/share/share-app.js",
+    "public/js/curator/draft.js",
+    "public/js/curator/api.js",
+    "public/js/curator/curator.js",
+    "public/js/curator/curator-page.js"
+  ]
+}

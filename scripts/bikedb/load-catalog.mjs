@@ -7,20 +7,13 @@ import { fileURLToPath } from "node:url";
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 export const DATA = path.join(ROOT, "data", "bikes");
 export const Contract = createRequire(import.meta.url)("../../public/js/bikedb/bundle-contract.js");
-import { applyCalibrations } from "./calibration-file.mjs";
 
 function readJson(file) {
     try { return JSON.parse(fs.readFileSync(file, "utf8")); }
     catch (e) { throw new Error(`${path.relative(ROOT, file)}: invalid JSON — ${e.message}`); }
 }
 
-/**
- * data/bikes as the build sees it: the bike files, the reference tables, and the
- * reviewed fleet calibrations (data/bikes/calibration/, roadmap Step 11) applied to the class
- * defaults' priors. `calibrations` (per class: the real-riding overhead, the evidence)
- * goes into the runtime bundles; `calibrationReport` says what was applied or skipped.
- */
-export function loadCatalog(dataDir = DATA, { calibrations = true } = {}) {
+export function loadCatalog(dataDir = DATA) {
     const entries = [];
     for (const sub of ["class-defaults", "variants"]) {
         const dir = path.join(dataDir, sub);
@@ -34,9 +27,7 @@ export function loadCatalog(dataDir = DATA, { calibrations = true } = {}) {
         fuelGrades: readJson(path.join(dataDir, "reference", "fuel-grades.json")),
         emissionStandards: readJson(path.join(dataDir, "reference", "emission-standards.json"))
     };
-    // calibrations: false = the curated data alone (what a fleet re-fit starts from, so tanks never count twice)
-    const cal = calibrations ? applyCalibrations(entries, dataDir) : { entries, calibrations: new Map(), report: [] };
-    return { entries: cal.entries, ref, calibrations: cal.calibrations, calibrationReport: cal.report };
+    return { entries, ref };
 }
 
 /**
