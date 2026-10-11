@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-11.3";           // Phase 2: bike dynamics (IMU + GNSS) agent, performance governor
+const VERSION = "mu-2026-10-11.4";           // Voice engine: neural Hinglish voice, premium /api/tts cache, native audio pipeline
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
@@ -53,6 +53,8 @@ const REQUIRED_PRECACHE = [SHELL_INDEX];       // install FAILS (and retries) wi
 // which the server generates (routing server, transports).
 const APP_SCRIPTS = [
     "/js/core.js",
+    "/js/voice/hinglish.js",
+    "/js/voice/engine.js",
     "/js/voice.js",
     "/js/gps.js",
     "/js/navigation.js",

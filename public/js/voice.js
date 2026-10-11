@@ -91,7 +91,13 @@ function spokenMinutes(min) {
 // ============================================================================
 // 5. VOICE ASSISTANT (Phase 3) — voice-first Safe Drive (roadmap Sections 4, 25)
 // ============================================================================
-// Speaking: SpeechSynthesis behind a small priority queue.
+// Speaking: the Voice Engine (js/voice/engine.js) behind a small priority queue.
+//   The engine picks the voice per line: premium neural audio from /api/tts
+//   (cached on the phone), else the MapUniteVoice plugin (Android's best neural
+//   hi-IN/en-IN voice, ducking, Bluetooth pre-roll), else speechSynthesis.
+//   Hinglish lines are spoken by a Hindi voice (js/voice/hinglish.js), English
+//   lines by an Indian English one. Without the engine scripts, plain
+//   speechSynthesis as before.
 //   - a higher-priority cue pre-empts a lower one (a speed warning never
 //     waits behind "Rahul is moving again");
 //   - equal/lower cues queue (max 4) and EXPIRE — a turn prompt heard ten
@@ -182,6 +188,7 @@ const VoiceAssistant = {
     handsFree: false,
     mutedUntil: 0,
     synth: ("speechSynthesis" in window) ? window.speechSynthesis : null,
+    eng: null,                     // the Voice Engine (null = not built yet, false = unavailable)
     voice: null,
     current: null,
     queue: [],
@@ -229,6 +236,8 @@ const VoiceAssistant = {
         document.addEventListener("keydown", unlock, { once: true, capture: true });
 
         this.bindUI();
+        // Warm the premium-voice cache with the ask-first questions once the page has settled.
+        setTimeout(() => this.prefetchCommon(), 4000);
         document.addEventListener("mu:drive-state", () => this.updateHandsFree());
         document.addEventListener("visibilitychange", () => this.updateHandsFree());
     },
@@ -260,7 +269,7 @@ const VoiceAssistant = {
         const hint = document.getElementById("voice-support-hint");
         if (hint) {
             const parts = [];
-            if (!this.synth) parts.push("This browser can't speak alerts.");
+            if (!this.canSpeak()) parts.push("This browser can't speak alerts.");
             if (!this.Recognition) parts.push("Voice commands aren't supported in this browser — Chrome on Android supports them.");
             else parts.push("While the mic is listening, your browser's speech service turns speech into text — in Chrome that audio is sent to Google.");
             parts.push("Emergency SOS alerts are always spoken.");
@@ -284,6 +293,36 @@ const VoiceAssistant = {
     },
 
     // ---------------------------------------------------------------- speaking
+    /** The Voice Engine, built on first use (its scripts load before this one). */
+    engine() {
+        if (this.eng === null) {
+            try {
+                const E = window.MUVoice && window.MUVoice.engine;
+                this.eng = (E && typeof E.forWindow === "function" && E.forWindow(window)) || false;
+            } catch (e) { this.eng = false; }
+        }
+        return this.eng || null;
+    },
+
+    canSpeak() { return Boolean(this.engine() || this.synth); },
+
+    /** Stop whatever is being said, on every route. */
+    stopSpeech() {
+        const eng = this.engine();
+        if (eng) { try { eng.stop(); } catch (e) { /* ignore */ } }
+        try { if (this.synth) this.synth.cancel(); } catch (e) { /* ignore */ }
+    },
+
+    /** Pre-download lines the rider will hear often (premium voice only; a no-op otherwise). */
+    prefetchCommon() {
+        const eng = this.engine();
+        const A = window.MUAdvice && window.MUAdvice.ask;
+        if (!eng || !A || typeof A.allPrompts !== "function") return;
+        const M = window.MUMaster && window.MUMaster.live;
+        const style = M && M.persona && M.persona.style === "plain" ? "plain" : "desi";
+        try { eng.prefetch(A.allPrompts(style), { priority: 50 }); } catch (e) { /* optional */ }
+    },
+
     pickVoice() {
         if (!this.synth) return;
         const voices = this.synth.getVoices() || [];
@@ -322,14 +361,14 @@ const VoiceAssistant = {
         this.queue = [];
         if (this.asking && typeof this.asking.abort === "function") this.asking.abort("interrupted");
         if (this.current) { const c = this.current; this.current = null; this.lastTtsEndTs = Date.now(); clearTimeout(this.watchdog); this.settle(c, false); }
-        try { if (this.synth) this.synth.cancel(); } catch (e) { /* ignore */ }
+        this.stopSpeech();
         // The cancelled utterance's onend is ignored (done() checks identity),
         // so hand hands-free listening back here instead.
         this.resumeRecognitionAfterTts();
     },
 
     announce(text, opts = {}) {
-        if (!this.synth || !text) return false;
+        if (!this.canSpeak() || !text) return false;
         const priority = Number.isFinite(opts.priority) ? opts.priority : 50;
         const force = Boolean(opts.force);
         if (!force) {
@@ -361,14 +400,18 @@ const VoiceAssistant = {
         const holdForAsk = Boolean(this.asking && this.asking.phase === "listen" && priority < 60);
         if (!this.current && !holdForAsk) { this.speakNow(item); return true; }
         if (this.current && priority > this.current.priority) {
-            // Pre-empt. Chrome can drop an utterance queued in the same tick
-            // as cancel(), so the new one starts a moment later.
+            // Pre-empt. The engine stops the old line itself when the new one starts;
+            // plain speechSynthesis can drop an utterance queued in the same tick as
+            // cancel(), so there the new one starts a moment later.
             const old = this.current;
             this.current = item;
             clearTimeout(this.watchdog);
             this.settle(old, false);
-            try { this.synth.cancel(); } catch (e) { /* ignore */ }
-            setTimeout(() => { if (this.current === item) this.utter(item); }, 60);
+            if (this.engine()) this.utter(item);
+            else {
+                try { this.synth.cancel(); } catch (e) { /* ignore */ }
+                setTimeout(() => { if (this.current === item) this.utter(item); }, 60);
+            }
             return true;
         }
         this.queue.push(item);
@@ -395,13 +438,25 @@ const VoiceAssistant = {
         // stop listening (the mic would hear the speaker) and drop that question.
         if (this.asking && this.asking.phase === "listen" && typeof this.asking.abort === "function") this.asking.abort("interrupted");
         this.suspendRecognitionForTts();
+        clearTimeout(this.watchdog);
+        const eng = this.engine();
+        if (eng) {
+            let h;
+            try { h = eng.speak(item.text, { priority: item.priority }); } catch (e) { this.done(item, false); return; }
+            item.handle = h;
+            h.done.then((r) => this.done(item, r === "ended"), () => this.done(item, false));
+            // The engine always settles, but never let the queue wedge on a stuck player:
+            // allow for the premium-voice wait (≤ 2.5 s) plus a slow speaker (~150 ms a character).
+            this.watchdog = setTimeout(() => { if (this.current === item) { try { h.cancel(); } catch (e) { /* ignore */ } this.done(item, true); } },
+                Math.max(8000, 3000 + item.text.length * 150));
+            return;
+        }
         let u;
         try { u = new SpeechSynthesisUtterance(item.text); } catch (e) { this.done(item, false); return; }
         if (this.voice) { u.voice = this.voice; u.lang = this.voice.lang; } else u.lang = "en-IN";
         u.rate = 1; u.pitch = 1; u.volume = 1;
         u.onend = () => this.done(item, true);
         u.onerror = () => this.done(item, false);
-        clearTimeout(this.watchdog);
         // Some engines never fire onend; don't let the queue wedge.
         this.watchdog = setTimeout(() => this.done(item, true), Math.max(4000, item.text.length * 110));
         try { this.synth.speak(u); } catch (e) { this.done(item, false); }
@@ -445,7 +500,7 @@ const VoiceAssistant = {
 
     /** Can the phone ask and listen right now? If not, voiceAnnounce falls back to the old behaviour. */
     canAsk() {
-        return Boolean(this.Recognition && this.synth && window.MUAdvice && window.MUAdvice.ask
+        return Boolean(this.Recognition && this.canSpeak() && window.MUAdvice && window.MUAdvice.ask
             && !this.micBlocked && !this.asking && Date.now() > this.askOffUntil
             && this.alertsEnabled && !this.isMuted() && !this.callActive()
             && this.listenMode !== "ptt" && document.visibilityState === "visible");

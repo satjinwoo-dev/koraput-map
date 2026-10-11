@@ -33,6 +33,10 @@
      NATIVE_APP_ORIGINS       Android app origins, always allowed too (default
                               "https://localhost,capacitor://localhost"; "" = none)
      PUBLIC_DIR               default ./public (index.html, js/, shell.js, sw.js …)
+     TTS_PROVIDER             premium neural voice for the Master AI (lib/tts.js, VOICE.md):
+                              "google" (GOOGLE_TTS_API_KEY, GOOGLE_TTS_VOICE=Puck) or
+                              "elevenlabs" (ELEVENLABS_API_KEY, ELEVENLABS_VOICE_ID); unset = phone voice only
+     TTS_CACHE_DIR            default ./data/tts-cache
      DB_PATH                  default ./data/mapunite.db
      BIKES_DB_PATH            bike catalogue built by npm run bikes:build, default
                               ./build/bikedb/bikes.sqlite (read-only; re-read after a rebuild)
@@ -91,6 +95,7 @@ const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const { Server } = require("socket.io");
 const { openServerDatabase } = require("./lib/server-db");
+const { createTts } = require("./lib/tts");
 const { createBus, attachSocketIoAdapter } = require("./lib/cluster");
 const { MediaStore } = require("./lib/media");
 const { createBikeApi } = require("./lib/bikedb/http-api");
@@ -185,6 +190,8 @@ const io = new Server(server, {
 app.set("trust proxy", 1);
 
 const media = new MediaStore(MEDIA_DIR);
+// Premium neural voice (lib/tts.js): keys stay here; the app falls back to the phone's voice without it.
+const tts = createTts({ log: (m) => console.warn(m) });
 
 // What the browser needs to know at boot (no secrets). Served both as JSON
 // and as /config.js, which index.html loads BEFORE the app scripts so the
@@ -199,7 +206,8 @@ function publicConfig() {
         approxGridKm: APPROX_GRID_KM,
         tripRetentionDays: TRIP_RETENTION_DAYS,
         chatRetentionDays: CHAT_RETENTION_DAYS,
-        maxPlausibleKmh: MAX_PLAUSIBLE_KMH
+        maxPlausibleKmh: MAX_PLAUSIBLE_KMH,
+        premiumVoice: tts.configured
     };
 }
 
@@ -279,6 +287,14 @@ app.get("/config.js", (_req, res) => {
 const mediaLimiter = rateLimit({ windowMs: 60 * 1000, max: 600, standardHeaders: true, legacyHeaders: false });
 app.get("/media/:dir/:file", mediaLimiter, media.handler());
 app.head("/media/:dir/:file", mediaLimiter, media.handler());
+
+// Premium voice (lib/tts.js). Its own budget (a ride speaks a few lines a minute; repeats are cached by the
+// phone, so this mostly counts new lines) and mounted before the global limiter so voice never starves the API.
+// With a provider configured, anyone who can reach the server can synthesise short lines on your key: keep
+// TTS_RATE_LIMIT_MAX modest and watch the provider's usage (VOICE.md).
+const ttsLimiter = rateLimit({ windowMs: 60 * 1000, max: Number(process.env.TTS_RATE_LIMIT_MAX) || 60, standardHeaders: true, legacyHeaders: false });
+const ttsAllowOrigin = (/** @type {string} */ origin) => CORS_ORIGIN === "*" || (Array.isArray(CORS_ORIGIN) && CORS_ORIGIN.includes(origin));
+app.get("/api/tts", ttsLimiter, tts.handler({ allowOrigin: ttsAllowOrigin }));
 
 // The bike catalogue's built files are gitignored, so a fresh checkout has none, and without
 // public/bikedb/catalog.json the app's bike list can't load ("The bike list isn't on this phone

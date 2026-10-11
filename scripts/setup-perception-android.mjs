@@ -9,6 +9,7 @@
  * again: every edit carries a "MapUnite perception" marker and is skipped when present.
  *
  *  1. copies native/android/perception/*.kt  → android/app/src/main/java/com/mapunite/app/perception/
+ *     and    native/android/voice/*.kt       → android/app/src/main/java/com/mapunite/app/voice/  (MapUniteVoice)
  *  2. copies native/android/MainActivity.java (registers the plugin) when the appId is com.mapunite.app
  *  3. android/build.gradle      adds the Kotlin Gradle plugin to buildscript (if Kotlin isn't there yet)
  *  4. android/app/build.gradle  applies Kotlin, adds CameraX, matches Kotlin's JVM target to Java's
@@ -23,6 +24,8 @@ import { fileURLToPath } from "node:url";
 export const MARK = "MapUnite perception";
 export const KOTLIN_VERSION = "2.1.21";
 export const CAMERAX_VERSION = "1.4.2";
+/** native/android/<pkg>/*.kt → android/app/src/main/java/com/mapunite/app/<pkg>/ */
+export const KOTLIN_PACKAGES = ["perception", "voice"];
 
 export const DEPS_BLOCK = [
     `    // ${MARK} (scripts/setup-perception-android.mjs): CameraX for the road camera`,
@@ -105,20 +108,22 @@ function main() {
     let appId = "com.mapunite.app";
     try { appId = JSON.parse(fs.readFileSync(path.join(ROOT, "capacitor.config.json"), "utf8")).appId || appId; } catch { /* default */ }
 
-    // 1. Kotlin sources
-    const srcDir = path.join(ROOT, "native/android/perception");
-    const dstDir = path.join(ANDROID, "app/src/main/java/com/mapunite/app/perception");
-    const kts = fs.readdirSync(srcDir).filter((f) => f.endsWith(".kt"));
-    if (!dry) { fs.mkdirSync(dstDir, { recursive: true }); for (const f of kts) fs.copyFileSync(path.join(srcDir, f), path.join(dstDir, f)); }
-    say(`${dry ? "would copy" : "copied"} ${kts.length} Kotlin files → ${path.relative(ROOT, dstDir)}`);
+    // 1. Kotlin sources (perception + the Master AI's voice)
+    for (const pkg of KOTLIN_PACKAGES) {
+        const srcDir = path.join(ROOT, "native/android", pkg);
+        const dstDir = path.join(ANDROID, "app/src/main/java/com/mapunite/app", pkg);
+        const kts = fs.readdirSync(srcDir).filter((f) => f.endsWith(".kt"));
+        if (!dry) { fs.mkdirSync(dstDir, { recursive: true }); for (const f of kts) fs.copyFileSync(path.join(srcDir, f), path.join(dstDir, f)); }
+        say(`${dry ? "would copy" : "copied"} ${kts.length} Kotlin files → ${path.relative(ROOT, dstDir)}`);
+    }
 
     // 2. MainActivity
     const maDst = path.join(ANDROID, "app/src/main/java", ...appId.split("."), "MainActivity.java");
     if (appId === "com.mapunite.app") {
         if (!dry) fs.copyFileSync(path.join(ROOT, "native/android/MainActivity.java"), maDst);
-        say(`${dry ? "would copy" : "copied"} MainActivity.java (registers MapUniteNative + MapUnitePerception)`);
+        say(`${dry ? "would copy" : "copied"} MainActivity.java (registers MapUniteNative + MapUnitePerception + MapUniteVoice)`);
     } else {
-        say(`appId is ${appId}: add this line to your MainActivity.onCreate, before super.onCreate():\n    registerPlugin(com.mapunite.app.perception.PerceptionPlugin.class);`);
+        say(`appId is ${appId}: add these lines to your MainActivity.onCreate, before super.onCreate():\n    registerPlugin(com.mapunite.app.perception.PerceptionPlugin.class);\n    registerPlugin(com.mapunite.app.voice.VoicePlugin.class);`);
     }
 
     // 3 + 4. Gradle

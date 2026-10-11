@@ -95,6 +95,8 @@ On Render, or anywhere with an ephemeral disk: the persistent disk must hold **b
 | `NATIVE_APP_ORIGINS` | `https://localhost,capacitor://localhost` | Android app origins allowed in addition to `CORS_ORIGIN` (see `ANDROID.md`); empty turns app access off |
 | `ADMIN_TOKEN` | — | Bearer token for the bike curator's admin API (`/api/admin`, `public/admin/curator.html`). At least 16 characters; unset = the admin API doesn't exist (404). Use a long random value (`openssl rand -hex 32`) and keep it out of the repo |
 | `BIKES_DATA_DIR` | `./data/bikes` | The curated bike files the curator's **Approve** writes into (and rebuilds from) |
+| `TTS_PROVIDER` | — | Premium neural voice for the Master AI (`lib/tts.js`, `/api/tts`): `google` (`GOOGLE_TTS_API_KEY`, `GOOGLE_TTS_VOICE`) or `elevenlabs` (`ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`). Unset = the phone's own voice. See `VOICE.md` |
+| `TTS_CACHE_DIR` / `TTS_RATE_LIMIT_MAX` | `./data/tts-cache` / `60` | Disk cache for synthesised lines (gitignored); requests per minute per IP to `/api/tts` |
 
 `OSRM_BASE_URL`, `OVERPASS_URL`, `TRIP_RETENTION_DAYS` and the rest are unchanged.
 
