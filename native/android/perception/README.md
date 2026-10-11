@@ -19,6 +19,8 @@ the recorder. Phase 2 drops a trained LiteRT model into the same slot.
 | `ThermalMonitor.kt` | Android thermal status + headroom, battery |
 | `FrameJson.kt` | PerceptionFrame contract v1 → JSON (no dependency, unit-tested on the JVM) |
 | `PerceptionTypes.kt` | Data classes mirroring contract v1 |
+| `DynamicsCore.kt` | Bike dynamics from IMU 100 Hz + GNSS: hard braking / acceleration, road jolts, roughness per 20 m (pure Kotlin, JVM-tested) |
+| `DynamicsJson.kt` | DynamicsFrame contract v1 → JSON, 1 per second |
 | `DatasetRecorder.kt` | Session folders: JPEG frames at 2 fps, imu.csv, gnss.csv, events.csv, meta.json |
 | `PrivacyRedactor.kt` | Pixelates faces (placeholder detector) and plates (model hints) before saving |
 
@@ -50,10 +52,40 @@ skipped (counted as `skippedBusy`), never queued.
 
 - The camera always delivers ~30 fps, and old frames are dropped, not queued.
 - Inference runs at **min(JS target, native thermal cap)**. `setTargetFps` comes from
-  the JS governor; the native cap is 30 / 20 / 10 / 5 fps for none–light / moderate /
-  severe / critical heat, so a hot phone slows down even if JS stops answering.
+  the JS governor. **Performance profile:** the full 30 fps from none up to "moderate"
+  heat. Only "severe" (15 fps) and "critical" (5 fps) slow it down; at those levels
+  Android itself throttles the CPU and may close the camera. A hot phone still slows
+  down even if JS stops answering.
 - `setTargetFps(0)` pauses the model. Frames still go to JS at 2 Hz, with fresh
   ego, heat and view quality, so the governor can un-pause.
+
+## Bike dynamics (Phase 2, component 1)
+
+`startDynamics({ owner })` runs the IMU + GNSS monitor without the camera, so it works on
+every ride. The camera can start and stop independently.
+
+- **Axes:** "up" and the bike's horizontal "forward" (the rear camera direction flattened)
+  come from the rotation vector in `SensorHub`. Portrait and landscape mounts both work.
+- **Filters:** longitudinal acceleration is low-passed at 2 Hz. Vertical is band-passed
+  0.5–12 Hz, so most single-cylinder engine vibration (25–60 Hz) doesn't count as road.
+- **Events** (baseline thresholds, to be tuned from your rides):
+
+| Event | Rule |
+| --- | --- |
+| `hard_brake` | ≤ −3.5 m/s² for ≥ 0.5 s; GNSS speed must fall ≥ 2 m/s (else IMU Δv ≤ −2 m/s); ≤ −6 m/s² = very hard |
+| `hard_accel` | ≥ 3 m/s² for ≥ 0.7 s, GNSS speed rising ≥ 2 m/s |
+| `jolt` | vertical shock ≥ 7 m/s² while ≥ 3 m/s, placed at the GNSS position of the hit |
+| roughness | RMS vertical per 20 m, scaled to 10 m/s: smooth < 1, fair < 2, rough < 3.5, very rough ≥ 3.5 m/s² |
+
+- **Output:** one DynamicsFrame per second (`"dynamics"` event). During a recording,
+  every event is also written to `events.csv` as `auto_hard_brake` / `auto_jolt` …,
+  so the dataset labels itself.
+- **What gets spoken** is decided in JS by `agents/dynamics-agent.js`. Braking tips come only
+  after 15 s stopped. A bump warning needs a strong jolt (≥ 12 m/s²) felt at the same spot
+  on 2 separate passes.
+- **Tested on a JVM:** `perception-jvmtest/GenDynamics.kt` simulates a 3-leg ride at 100 Hz
+  (engine vibration, rough stretch, pothole, three hard brakes). The JS tests run its
+  frames through the full Master AI.
 
 ## Timestamps
 

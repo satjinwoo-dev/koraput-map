@@ -120,6 +120,28 @@
         "perception.degraded": {
             advice: [{ say: "{{name}}, camera wala AI abhi kam kaam kar raha hai, phone garam hai ya view saaf nahi. Sadak pe poora dhyan khud rakhna." }]
         },
+        // bike dynamics (agents/dynamics-agent.js): braking tips only when stopped, bumps from memory
+        "ride.braking-pattern": {
+            advice: [
+                { say: "{{name}}, pichhle {{minutes}} minute mein {{count}} baar zor se brake lagana pada. Aage wali gaadi se thoda zyada gap rakho, aaram se rukne ka time milega." },
+                { say: "{{name}}, {{minutes}} minute mein {{count}} baar achanak brake. Thoda peeche reh ke chalo, safe bhi aur tyre bhi bachenge." }
+            ]
+        },
+        "ride.hard-brake-check": {
+            advice: [{ say: "{{name}}, abhi bahut zor ka brake laga tha. Sab theek hai na? Do minute ruk ke saans le lo, phir chalte hain." }]
+        },
+        "road.rough-stretch": {
+            advice: [
+                { say: "{{name}}, yahan sadak kaafi kharab hai. Speed thodi kam rakho, gaddhe aa sakte hain." },
+                { say: "Sadak ubad-khabad hai {{name}}, aaram se chalao." }
+            ]
+        },
+        "road.bump-ahead": {
+            warning: [
+                { say: "{{name}}, {{distanceM|round}} metre aage jhatka hai, pichhli baar yahin laga tha. Dheere kar." },
+                { say: "Dhyan se {{name}}, aage {{distanceM|round}} metre pe gaddha ya breaker hai." }
+            ]
+        },
 
         // ---------------------------------------------------------------- ready for the next agents
         "weather.ahead": {
@@ -195,6 +217,10 @@
         "traffic.wrong-side": { warning: [{ say: "Careful, a vehicle is coming on the wrong side.", title: "Wrong-side vehicle", sub: "{{vehicle}} ahead" }] },
         "traffic.cutting-in": { warning: [{ say: "Careful, a vehicle is cutting in.", title: "Vehicle cutting in", sub: "{{vehicle}}" }] },
         "perception.degraded": { advice: [{ say: "The road camera AI is limited right now: the phone is hot or the view isn't clear. Keep your own eyes on the road.", title: "Road AI limited", sub: "Phone hot or view unclear" }] },
+        "ride.braking-pattern": { advice: [{ say: "You braked hard {{count}} times in {{minutes}} minutes. Leave a bigger gap to the vehicle ahead.", title: "Hard braking", sub: "{{count}} times in {{minutes}} min" }] },
+        "ride.hard-brake-check": { advice: [{ say: "That was a very hard stop. All good? Take a minute before you ride on.", title: "Very hard braking", sub: "Take a short break" }] },
+        "road.rough-stretch": { advice: [{ say: "The road is rough here. Keep your speed down.", title: "Rough road", sub: "Ease off for a while" }] },
+        "road.bump-ahead": { warning: [{ say: "Bump or pothole in {{distanceM|round}} metres, where you hit one before. Slow down.", title: "Bump ahead", sub: "In {{distanceM|round}} m" }] },
         "weather.ahead": {
             warning: [{ say: "{{condition}} in {{distanceM|km}}. Slow down and keep a longer gap.", title: "{{condition}} ahead", sub: "In {{distanceM|km}}" }],
             advice: [{ say: "{{condition}} is likely ahead. Keep your rain gear handy.", title: "Weather changing", sub: "{{condition}} ahead" }]

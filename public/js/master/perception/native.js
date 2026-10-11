@@ -15,6 +15,7 @@
      await P.mark("pothole");                     // rider's "hazard here"
      const summary = await P.stopRecording();
      await P.stop();                              // releases this owner only
+     await P.startDynamics(); P.onDynamics((f) => …); // IMU 100 Hz + GNSS: braking, jolts, roughness (no camera)
 
    OWNERS: the camera stays on while any owner holds it ("app" = the road agent,
    "recorder" = the recorder page), so ending a ride never cuts a recording.
@@ -145,6 +146,19 @@
             },
             /** @param {(state: { state: string, [k: string]: any }) => void} fn */
             onState(fn) { return listen("state", fn); },
+            /** Bike dynamics (IMU 100 Hz + GNSS, no camera) for this owner. @returns {Promise<any>} */
+            startDynamics() { return call(() => plugin.startDynamics({ owner })); },
+            /** @returns {Promise<{ stopped: boolean }>} */
+            stopDynamics() { return call(() => plugin.stopDynamics({ owner })); },
+            /** DynamicsFrames (1 per second) as objects. @param {(frame: any) => void} fn */
+            onDynamics(fn) {
+                return listen("dynamics", (e) => {
+                    const raw = e && e.dynamics !== undefined ? e.dynamics : e;
+                    let f = raw;
+                    if (typeof raw === "string") { try { f = JSON.parse(raw); } catch (err) { return; } }
+                    fn(f);
+                });
+            },
             /** Removes every listener this wrapper added. */
             dispose() { for (const h of handles) { try { h.remove(); } catch (e) { /* gone */ } } handles.clear(); }
         };

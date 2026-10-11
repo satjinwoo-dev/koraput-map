@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-11.2";           // Road perception P1: settings link to the Android road data recorder (recorder.html)
+const VERSION = "mu-2026-10-11.3";           // Phase 2: bike dynamics (IMU + GNSS) agent, performance governor
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
@@ -162,6 +162,8 @@ const BIKE_SCRIPTS = [
     "/js/master/perception/confirm.js",
     "/js/master/perception/provider.js",
     "/js/master/agents/road-agent.js",
+    "/js/master/perception/dynamics.js",
+    "/js/master/agents/dynamics-agent.js",
     "/js/master/master-app.js"
 ];
 // The Socket.IO client library: a static script the server ships. index.html can't

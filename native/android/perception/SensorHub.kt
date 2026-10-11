@@ -59,6 +59,8 @@ class SensorHub(private val ctx: Context) {
 
     @Volatile var sink: Sink? = null
     @Volatile var calibration: Calibration? = null
+    /** Bike dynamics (hard braking, jolts, roughness): fed every accelerometer sample and GNSS fix while set. */
+    @Volatile var dynamics: DynamicsCore? = null
 
     private val sm = ctx.getSystemService(Context.SENSOR_SERVICE) as SensorManager
     private val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as LocationManager
@@ -95,6 +97,7 @@ class SensorHub(private val ctx: Context) {
                     else for (i in 0..2) gravity[i] += 0.05f * (e.values[i] - gravity[i])  // low-pass ≈ 0.3 s
                     if (!hasRotation) attitudeFromGravity()
                     sink?.onImu('a', t, e.values[0], e.values[1], e.values[2])
+                    dynamics?.let { d -> if (bikeAxes()) d.onImu(t, e.values[0].toDouble(), e.values[1].toDouble(), e.values[2].toDouble(), upDev, fwdDev) }
                 }
                 Sensor.TYPE_GYROSCOPE -> {
                     val gx = e.values[0].toDouble(); val gy = e.values[1].toDouble(); val gz = e.values[2].toDouble()
@@ -131,6 +134,8 @@ class SensorHub(private val ctx: Context) {
             gnssFixes++
             if (loc.hasBearing() && loc.hasSpeed() && loc.speed > 2f) headingDeg = loc.bearing.toDouble()
             sink?.onGnss(t, loc)
+            dynamics?.onGnss(t, if (loc.hasSpeed()) loc.speed.toDouble() else null, loc.latitude, loc.longitude,
+                if (loc.hasBearing() && loc.hasSpeed() && loc.speed > 2f) loc.bearing.toDouble() else null)
         }
         override fun onProviderEnabled(provider: String) {}
         override fun onProviderDisabled(provider: String) {}
@@ -248,6 +253,39 @@ class SensorHub(private val ctx: Context) {
         abs(gravity[0]) > abs(gravity[1]) -> if (gravity[0] > 0) floatArrayOf(0f, -1f, 0f) else floatArrayOf(0f, 1f, 0f)
         gravity[1] >= 0 -> floatArrayOf(1f, 0f, 0f)
         else -> floatArrayOf(-1f, 0f, 0f)
+    }
+
+    // bike axes in device coordinates, reused (sensor thread only, no allocation at 100 Hz)
+    private val upDev = DoubleArray(3)
+    private val fwdDev = DoubleArray(3)
+
+    /**
+     * Fills upDev (unit, pointing up) and fwdDev (unit, the bike's horizontal forward = the rear
+     * camera's direction flattened onto the ground), in device axes. False when the camera points
+     * nearly straight up or down (forward undefined: the phone isn't in a handlebar mount).
+     */
+    private fun bikeAxes(): Boolean {
+        if (hasRotation) {
+            upDev[0] = rot[6].toDouble(); upDev[1] = rot[7].toDouble(); upDev[2] = rot[8].toDouble()
+            // camera forward in world axes (device −z), flattened
+            var fx = -rot[2].toDouble(); var fy = -rot[5].toDouble()
+            val n = sqrt(fx * fx + fy * fy)
+            if (n < 0.3) return false
+            fx /= n; fy /= n
+            fwdDev[0] = rot[0] * fx + rot[3] * fy; fwdDev[1] = rot[1] * fx + rot[4] * fy; fwdDev[2] = rot[2] * fx + rot[5] * fy
+            return true
+        }
+        val gn = sqrt((gravity[0] * gravity[0] + gravity[1] * gravity[1] + gravity[2] * gravity[2]).toDouble())
+        if (gn < 5.0) return false
+        upDev[0] = gravity[0] / gn; upDev[1] = gravity[1] / gn; upDev[2] = gravity[2] / gn
+        // device −z minus its vertical part
+        val dot = -upDev[2]
+        var x = -dot * upDev[0]; var y = -dot * upDev[1]; var z = -1.0 - dot * upDev[2]
+        val n = sqrt(x * x + y * y + z * z)
+        if (n < 0.3) return false
+        x /= n; y /= n; z /= n
+        fwdDev[0] = x; fwdDev[1] = y; fwdDev[2] = z
+        return true
     }
 
     private fun checkMount(t: Long) {

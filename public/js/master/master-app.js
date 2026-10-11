@@ -4,7 +4,7 @@
    ==============================================================================
    Wires the pieces together and starts the kernel:
 
-     bus ─┬─ kernel (agents: ride, network, … later vision, radar, swarm)
+     bus ─┬─ kernel (agents: ride, network, vision, road, dynamics … later radar, swarm)
           ├─ brain  (policies → queue → persona → output → safety gate → voice)
           └─ caps   (network, location, route, drive, store; camera/bluetooth later)
 
@@ -56,6 +56,13 @@
         const plugin = M.perception.provider.nativePlugin(W);
         const replay = typeof W.MU_PERCEPTION_REPLAY === "string" || Array.isArray(W.MU_PERCEPTION_REPLAY) ? W.MU_PERCEPTION_REPLAY : null;
         if (plugin || replay) caps.provide("perception", M.perception.provider.createPerceptionProvider({ contract: M.perception.contract, plugin, replay }));
+    }
+    // bike dynamics (js/master/perception/dynamics.js): IMU 100 Hz + GNSS from the native plugin, no camera needed
+    //   window.MU_DYNAMICS_REPLAY = "<JSONL of DynamicsFrames>" to ride a recording in the browser
+    if (M.perception && M.perception.dynamics) {
+        const plugin = M.perception.provider ? M.perception.provider.nativePlugin(W) : null;
+        const replay = typeof W.MU_DYNAMICS_REPLAY === "string" || Array.isArray(W.MU_DYNAMICS_REPLAY) ? W.MU_DYNAMICS_REPLAY : null;
+        if (plugin || replay) caps.provide("dynamics", M.perception.dynamics.createDynamicsProvider({ plugin, replay }));
     }
     const persona = M.phrases.install(M.persona.createPersona({ style: config.style, name: config.name }));
     const output = M.output.createOutput({ window: W });
