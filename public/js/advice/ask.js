@@ -111,5 +111,20 @@
         return { answer, heard };
     }
 
-    return { classifyReply, promptFor, runAsk, normalize, TOPICS };
+    /**
+     * Every question promptFor() can produce for a style (the voice engine pre-downloads them,
+     * so "Bhai, ek baat bolun?" plays instantly in the premium voice).
+     * @param {string} [style]
+     * @returns {string[]}
+     */
+    function allPrompts(style) {
+        const s = style === "plain" ? "plain" : "desi";
+        const out = new Set(PROMPTS[s].plain);
+        for (const topic of Object.values(TOPICS[s])) {
+            for (const l of PROMPTS[s].topic) out.add(l.replace("{topic}", topic).replace("{Topic}", topic.charAt(0).toUpperCase() + topic.slice(1)));
+        }
+        return [...out];
+    }
+
+    return { classifyReply, promptFor, runAsk, normalize, allPrompts, TOPICS };
 });

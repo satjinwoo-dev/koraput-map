@@ -9,17 +9,22 @@ package com.mapunite.app;
 //   PerceptionPlugin      road camera + road model + dataset recorder (Kotlin,
 //                         native/android/perception/, set up by
 //                         scripts/setup-perception-android.mjs)
+//   VoicePlugin           the Master AI's voice: best neural hi-IN/en-IN voice,
+//                         navigation audio, ducking, Bluetooth pre-roll (Kotlin,
+//                         native/android/voice/, same setup script)
 
 import android.os.Bundle;
 
 import com.getcapacitor.BridgeActivity;
 import com.mapunite.app.perception.PerceptionPlugin;
+import com.mapunite.app.voice.VoicePlugin;
 
 public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(MapUniteNativePlugin.class);
         registerPlugin(PerceptionPlugin.class);
+        registerPlugin(VoicePlugin.class);
         super.onCreate(savedInstanceState);
     }
 }
