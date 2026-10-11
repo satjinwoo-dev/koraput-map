@@ -36,6 +36,8 @@
     "public/js/master/perception/governor.js",
     "public/js/master/perception/confirm.js",
     "public/js/master/perception/provider.js",
+    "public/js/master/perception/native.js",
+    "public/js/master/perception/recorder-page.js",
     "public/js/master/agents/road-agent.js",
     "public/js/master/master-app.js"
   ]

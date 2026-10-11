@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-11.1";           // Master AI (js/master/), ask before tips, the cue rules of the advice gate
+const VERSION = "mu-2026-10-11.2";           // Road perception P1: settings link to the Android road data recorder (recorder.html)
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;

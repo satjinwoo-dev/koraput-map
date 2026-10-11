@@ -11,6 +11,8 @@ Pixels never cross the bridge.
 | `provider.js` | Capability `perception`: the native plugin, or a replay of recorded frames (JSONL or an array). |
 | `confirm.js` | No single-frame alerts: hazard confirmer (≥ 1 s, ≥ 2/3 seen, conf ≥ 0.6, physics check), closing watch (TTC ≤ 4 s, 3 frames), relation watch. |
 | `governor.js` | Frame rate from heat, speed, battery and view quality, with hysteresis. |
+| `native.js` | Typed interface to the whole `MapUnitePerception` plugin (recorder, preview, calibration, status), with owners and `PerceptionError` codes. |
+| `recorder-page.js` | The road data recorder page (`/recorder.html`, Android app only). |
 | `../agents/road-agent.js` | The Master AI sub-agent: runs only while riding, speaks hazards 2–8 s ahead, keeps a 20 m hazard map on the phone. |
 
 ## Plugging in a trained model
@@ -21,15 +23,15 @@ Pixels never cross the bridge.
 3. Review a new model by replaying a recorded ride through it and comparing what would be said.
 4. A breaking schema change bumps `version` to 2.
 
-## Native plugin API (to build)
+## Native plugin API (Phase 1 built: native/android/perception/)
 
 | Call / event | Meaning |
 | --- | --- |
-| `start({ targetFps })` | Open camera, load the model, start emitting |
+| `start({ targetFps, emitHz, scenario, owner })` | Open camera, load the model, start emitting (camera stays on while any owner holds it) |
 | `stop()` | Release camera and model |
 | `setTargetFps({ fps })` | Governor cap; 0 pauses inference |
-| `status()` / `calibrate()` | Delegate, fps, latency, thermal / mount height and pitch |
-| `startRecording()` / `stopRecording()` | Dataset mode: 2 fps frames + IMU + GNSS, faces and plates blurred on the phone |
+| `status()` / `calibrate({ mountHeightM })` / `preview()` | Delegate, fps, latency, thermal / mount pitch, roll, height / a JPEG to aim the mount |
+| `startRecording()` / `stopRecording()` / `mark({ label })` | Dataset mode: 2 fps frames + IMU + GNSS + rider marks; faces blurred on the phone (placeholder), plates not yet |
 | event `frame` | One PerceptionFrame v1 |
 | event `state` | starting, running, error, thermal |
 

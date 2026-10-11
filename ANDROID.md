@@ -207,6 +207,37 @@ targetSdkVersion = 36
 npx cap sync android
 ```
 
+**f) Road camera + dataset recorder (MapUnitePerception, Kotlin)**
+
+This step adds the road model's native plugin. Phase 1 has a dummy model, plus the real camera, sensors and recorder for collecting your own ride data.
+
+```bash
+node scripts/setup-perception-android.mjs --dry-run   # shows what it will change
+node scripts/setup-perception-android.mjs
+npx cap sync android
+```
+
+The script:
+
+- copies `native/android/perception/*.kt` into `android/app/src/main/java/com/mapunite/app/perception/`;
+- copies `MainActivity.java`, which now also registers `PerceptionPlugin`;
+- adds Kotlin (Gradle plugin 2.1.21) and CameraX 1.4.2 to the Gradle files;
+- matches Kotlin's JVM target to Java's.
+
+It is safe to run again. If a Gradle file doesn't look like Capacitor's template, the script prints the lines to add by hand.
+
+No new permissions are needed: `CAMERA` is already in the manifest additions, and location comes from the background-location plugin. Recordings go to the app's own folder, so no storage permission either.
+
+**Using it**
+
+1. In the app, open Smart Drive Settings → **Road data recorder**.
+2. Tap **Start camera** and use **Check the view** to aim the mount: the horizon should sit a little above the middle.
+3. With the bike on its stand, enter the camera height and tap **Calibrate**.
+4. Tap **Start recording**.
+5. Copy rides to your computer: `adb pull /sdcard/Android/data/com.mapunite.app/files/perception-datasets`
+
+The Kotlin was compiled (`-Werror`) against the Android API 33 jar and API stubs, but not yet built with Gradle or run on a phone. Details, privacy notes and the Phase 2 LiteRT slot: `native/android/perception/README.md`.
+
 ---
 
 ## 6. Allow the app on your server and your Maps key
