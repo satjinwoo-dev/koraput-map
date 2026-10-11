@@ -190,6 +190,21 @@ There's one backend for each feature. The screens read it and drive it; none has
 - **Share card** (`js/share/`): after a ride of 1 km or more, or from **Share** in the trip summary, an image card with the route shape (the first and last 400 m cut off by default), eco score, distance, mileage, cost and moving time. It's drawn on a canvas on the phone with no map tiles; nothing is uploaded.
 - **Service worker.** The version is now `mu-2026-10-04.4`. All of the above is precached; the bike curator isn't (it's an admin page).
 
+### Master AI and "Ask before tips"
+
+These run on the phone; nothing new on the server.
+
+- **Master AI** (`public/js/master/`, see its README). Sub-agents report facts; a brain picks what reaches the rider; a desi Hinglish persona words it. Screens are always English. It speaks only through `voiceAnnounce()`, and so through the advice gate.
+  - **Running now:** the ride agent (break reminders after 1 h 30 and 2 h) and the network agent (signal lost or back, and no-signal zones it learns on the phone).
+  - **Waiting for missing pieces:**
+    - The fatigue check (`vision/`) needs `js/master/vision/landmarker.js`, `scripts/fetch-mediapipe.mjs` and a CSP change. They weren't in the delivery, so no check is offered yet.
+    - Road perception (`perception/`) needs the native `MapUnitePerception` plugin, or a recorded replay (`window.MU_PERCEPTION_REPLAY`).
+- **The cue rules** (`js/advice/gate.js`, one instance in `advice-ui.js`). Every spoken cue is now classified as critical, directions, warning or advice.
+  - **Advice-level cues** (tips, fuel stops, convoy chatter, Master suggestions) are held in quiet ride, after a turn or hard brake, in heavy weather, and are spaced 45 s apart.
+  - **Warnings, directions and critical cues** are always spoken, quiet ride included.
+- **Ask before tips** (Settings → Ride advice & safety, on by default). A tip starts with "Bhai, ek baat bolun?" and the mic listens for about 3.5 s. The answer goes to the phone's speech service, like voice commands. Without a mic, tips are spoken as before.
+- **Service worker:** `mu-2026-10-11.1` precaches all of the above.
+
 ### Bike curator (admin)
 
 `/admin/curator.html` (not linked from the app, `noindex`) turns riders' "my bike isn't listed" requests into reviewed bike files. See `public/js/curator/README.md`.

@@ -13,7 +13,12 @@
      - the speed-advice badge (#advice-overlay) above the limit sign;
      - the settings (#advice-section) and the HUD's quiet switch ("mu:advice-set"),
        both driving MUAdvice.app.setQuiet (the one quiet-ride setting);
-     - "mu:advice" { advised m/s|null, text, quiet, condition } for the HUD.
+     - "mu:advice" { advised m/s|null, text, quiet, condition } for the HUD;
+     - the cue rules every spoken cue passes (js/advice/gate.js via voiceAnnounce →
+       MUAdvice.live.decide): ONE instance, fed from the same signals — the one
+       quiet-ride setting, the badge's road condition, GPS confidence, hard braking —
+       plus "Ask before tips" (js/advice/ask.js asks "Bhai, ek baat bolun?" and
+       listens once; mu.advice.v1 askFirst, on by default).
 
    Reads (events): "mu:fix" (speed, GPS confidence), "mu:speed-limit",
    "mu:drive-state". Reads (globals, guarded): myCoords, voiceAnnounce,
@@ -27,25 +32,34 @@
     if (!A || !A.app || !A.conditions || !A.overlay) { console.warn("[advice] load js/advice/advice.js, advice-app.js, conditions.js and overlay.js before advice-ui.js"); return; }
     const app = A.app;                                        // the safety gate (js/advice/advice-app.js)
     const C = A.conditions;
+    // the cue rules for voiceAnnounce(): one instance, never a second quiet setting or weather source
+    const cues = A.gate && typeof A.gate.createGate === "function" ? A.gate.createGate() : null;
+    const HARSH_DECEL = 3.5;                                  // m/s² between two fixes: tips wait a moment after a hard brake
     const $ = (id) => document.getElementById(id);
     const KEY = "mu.advice.v1";
     const WEATHER_EVERY_MS = 10 * 60 * 1000, WEATHER_MOVE_M = 8000, RENDER_MS = 1000, OVER_ADVICE_HOLD_MS = 8000;
 
-    /** @returns {{ quiet: boolean, weather: boolean, overlay: boolean }}  quiet: mirrored from the gate's own setting */
+    /** @returns {{ quiet: boolean, weather: boolean, overlay: boolean, askFirst: boolean }}  quiet: mirrored from the gate's own setting */
     function loadPrefs() {
-        const d = { quiet: false, weather: true, overlay: true };
+        const d = { quiet: false, weather: true, overlay: true, askFirst: true };
         try { const o = JSON.parse(localStorage.getItem(KEY) || "{}"); for (const k of Object.keys(d)) if (typeof o[k] === "boolean") /** @type {any} */ (d)[k] = o[k]; } catch { /* defaults */ }
         return d;
     }
     const prefs = loadPrefs();
     prefs.quiet = app.quiet;
-    const save = () => { try { localStorage.setItem(KEY, JSON.stringify({ weather: prefs.weather, overlay: prefs.overlay })); } catch { /* storage blocked */ } };
+    const save = () => { try { localStorage.setItem(KEY, JSON.stringify({ weather: prefs.weather, overlay: prefs.overlay, askFirst: prefs.askFirst })); } catch { /* storage blocked */ } };
+    if (cues) { cues.setQuiet(prefs.quiet); cues.setAskFirst(prefs.askFirst); }
+    /** The road condition, to the economy-tip gate and the cue rules alike. @param {any} c */
+    function shareCondition(c) {
+        app.setRoadCondition(c);
+        if (cues) cues.setCondition(c && c.kind !== "unknown" && Number.isFinite(c.severity) ? c : null);
+    }
 
     const tracker = C.createTracker();
     const weather = C.createWeather();
 
     /** @type {any} */ let condition = null;
-    let limit = null, speed = null, conf = 1, driving = false;
+    let limit = null, speed = null, conf = 1, driving = false, /** @type {number|null} */ lastFixAt = null;
     let lastWeatherAt = 0, /** @type {{lat:number,lng:number}|null} */ lastWeatherPos = null, overAdvSince = null, tick = null, lastRender = 0, lastEmit = "", trailing = null;
     /** @type {any} */ let overlay = null;
 
@@ -65,30 +79,32 @@
     }
 
     // ---------------------------------------------------------------- settings
-    /** @param {"quiet"|"weather"|"overlay"} key @param {boolean} on */
+    /** @param {"quiet"|"weather"|"overlay"|"askFirst"} key @param {boolean} on */
     function set(key, on) {
         if (!(key in prefs) || prefs[key] === Boolean(on)) { syncToggles(); return; }
         prefs[key] = Boolean(on);
         save();
         if (key === "quiet") {
             if (app.quiet !== prefs.quiet) app.setQuiet(prefs.quiet);
+            if (cues) cues.setQuiet(prefs.quiet);
             const G = g();
             if (G.islandShow) G.islandShow({ id: "quiet-ride", kind: "info", icon: prefs.quiet ? "🔕" : "🔔", title: prefs.quiet ? "Quiet ride on" : "Quiet ride off", sub: prefs.quiet ? "No riding tips; safety alerts stay on" : "Riding tips are back", ttl: 3500, haptic: false });
         }
         if (key === "weather") {
-            if (!prefs.weather) { condition = null; app.setRoadCondition(null); }
+            if (!prefs.weather) { condition = null; shareCondition(null); }
             else if (driving) refreshWeather(true);
         }
+        if (key === "askFirst" && cues) cues.setAskFirst(prefs.askFirst);
         syncToggles();
         render(true);
         renderStatus();
     }
     function syncToggles() {
-        const map = { "quiet-ride-toggle": "quiet", "weather-alerts-toggle": "weather", "speed-advice-toggle": "overlay" };
+        const map = { "quiet-ride-toggle": "quiet", "weather-alerts-toggle": "weather", "speed-advice-toggle": "overlay", "ask-first-toggle": "askFirst" };
         for (const [id, k] of Object.entries(map)) { const el = /** @type {HTMLInputElement|null} */ ($(id)); if (el) el.checked = /** @type {any} */ (prefs)[k]; }
     }
     function bindSettings() {
-        const map = { "quiet-ride-toggle": "quiet", "weather-alerts-toggle": "weather", "speed-advice-toggle": "overlay" };
+        const map = { "quiet-ride-toggle": "quiet", "weather-alerts-toggle": "weather", "speed-advice-toggle": "overlay", "ask-first-toggle": "askFirst" };
         for (const [id, k] of Object.entries(map)) {
             const el = /** @type {HTMLInputElement|null} */ ($(id));
             if (el) el.addEventListener("change", () => set(/** @type {any} */ (k), el.checked));
@@ -104,7 +120,30 @@
             st.textContent = `${m.label}. ${road}`;
             st.dataset.mode = m.key;
         }
-        if (held) { const t = app.heldSummary(); held.textContent = t; held.hidden = !t; }
+        if (held) {
+            const t = [app.heldSummary(), cues ? A.gate.heldSummary(cues.state.held) : "", cues ? A.gate.askSummary(cues.state.asks) : ""].filter(Boolean).join(" ");
+            held.textContent = t; held.hidden = !t;
+        }
+    }
+
+    // ---------------------------------------------------------------- the cue rules (voiceAnnounce)
+    /**
+     * What happens to one spoken cue: { speak, show, level, reason, ask?, fallbackSpeak? }.
+     * Without the rules loaded, null (voiceAnnounce speaks as before).
+     * @param {string} text @param {any} opts
+     */
+    function decide(text, opts) {
+        if (!cues) return null;
+        const d = cues.decide({ text, ...(opts || {}) }, Date.now());
+        if (!d.speak) renderStatus();
+        return d;
+    }
+    /** How the rider answered "ek baat bolun?" (voice.js). @param {string} category @param {any} answer */
+    function noteAnswer(category, answer) {
+        if (!cues) return null;
+        const r = cues.noteAnswer(category, answer, Date.now());
+        renderStatus();
+        return r;
     }
 
     // ---------------------------------------------------------------- weather
@@ -127,7 +166,7 @@
         if (!prefs.weather) return;
         const u = tracker.update(r.condition, Date.now());
         condition = u.condition;
-        app.setRoadCondition(condition);
+        shareCondition(condition);
         if (u.worsened && driving && condition.severity > 0 && condition.kind !== "drying") announceCondition(condition);
         render(true);
         renderStatus();
@@ -222,7 +261,16 @@
         const v = Number.isFinite(f.smoothedKmh) ? f.smoothedKmh / 3.6 : null;
         const c = Number.isFinite(f.confidence) ? f.confidence : 1;
         conf = f.accepted === false ? Math.min(c, 0.59) : c;
-        if (v !== null && f.accepted !== false) speed = v;              // braking, cornering, GPS trust: the gate reads the fixes itself
+        if (cues) cues.setConfidence(conf);
+        if (v !== null && f.accepted !== false) {
+            // a hard brake between two trusted fixes: tips wait a moment (the cue rules' busy window)
+            const now = Date.now();
+            if (cues && speed !== null && lastFixAt !== null) {
+                const dt = (now - lastFixAt) / 1000;
+                if (dt >= 0.5 && dt <= 3 && (v - speed) / dt <= -HARSH_DECEL) cues.noteHarsh(now);
+            }
+            speed = v; lastFixAt = now;                              // cornering and GPS trust: the economy gate reads the fixes itself
+        }
         if (driving) render();
     }
     function onDriveState(e) {
@@ -231,12 +279,13 @@
         if (on === driving) return;
         driving = on;
         if (on) {
+            if (cues) cues.resetRide();                           // this ride's held-back and asked counts start over
             refreshWeather(true);
             clearInterval(tick);
             tick = setInterval(() => { refreshWeather(false); render(true); renderStatus(); }, 60000);
         } else {
             clearInterval(tick); tick = null;
-            overAdvSince = null;
+            overAdvSince = null; speed = null; lastFixAt = null;
         }
         render(true);
         renderStatus();
@@ -249,7 +298,7 @@
         document.addEventListener("mu:drive-state", onDriveState);
         document.addEventListener("mu:advice-set", (e) => { const d = /** @type {CustomEvent} */ (e).detail || {}; if (typeof d.quiet === "boolean") set("quiet", d.quiet); });
         // quiet ride switched elsewhere ("quiet ride" by voice): the switches and the HUD follow
-        document.addEventListener("mu:advice-quiet", (e) => { const d = /** @type {CustomEvent} */ (e).detail || {}; if (typeof d.quiet === "boolean" && d.quiet !== prefs.quiet) { prefs.quiet = d.quiet; syncToggles(); render(true); renderStatus(); } });
+        document.addEventListener("mu:advice-quiet", (e) => { const d = /** @type {CustomEvent} */ (e).detail || {}; if (typeof d.quiet === "boolean" && d.quiet !== prefs.quiet) { prefs.quiet = d.quiet; if (cues) cues.setQuiet(d.quiet); syncToggles(); render(true); renderStatus(); } });
         window.addEventListener("resize", () => render(true));
         const sm = $("profile-settings-modal");
         if (sm) new MutationObserver(() => renderStatus()).observe(sm, { attributes: true, attributeFilter: ["style", "class"] });
@@ -259,11 +308,13 @@
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init); else init();
 
     A.live = {
-        set, refreshWeather,
+        set, refreshWeather, decide, noteAnswer,
+        /** The cue rules' state (quiet, askFirst, held, asks …), for settings and tests. */
+        get cues() { return cues ? cues.state : null; },
         get prefs() { return { ...prefs }; },
         get condition() { return condition; },
         get driving() { return driving; },
         /** Test hook: feed a weather reading without the network. @param {any} w SI weather */
-        _applyWeather(w) { const u = tracker.update(C.classify(w), Date.now()); condition = u.condition; app.setRoadCondition(condition); if (u.worsened && driving && condition.severity > 0 && condition.kind !== "drying") announceCondition(condition); render(true); renderStatus(); }
+        _applyWeather(w) { const u = tracker.update(C.classify(w), Date.now()); condition = u.condition; shareCondition(condition); if (u.worsened && driving && condition.severity > 0 && condition.kind !== "drying") announceCondition(condition); render(true); renderStatus(); }
     };
 })(typeof globalThis !== "undefined" ? globalThis : this);

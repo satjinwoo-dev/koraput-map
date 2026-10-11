@@ -60,6 +60,7 @@
 .advice-status { display: flex; align-items: flex-start; gap: 8px; margin: 10px 0 0; padding: 10px 12px; border-radius: 14px; font-size: 13px; line-height: 1.45; color: var(--soft, #c6d2db); background: rgba(255,255,255,.04); border: 1px solid var(--line, rgba(255,255,255,.085)); }
 .advice-status::before { content: ""; flex: none; width: 9px; height: 9px; margin-top: 5px; border-radius: 50%; background: var(--mint, #34e0b4); }
 .advice-status[data-mode="quiet"]::before { background: #8b9bab; }
+.advice-status[data-mode="ask-paused"]::before { background: #8b9bab; }
 .advice-status[data-mode="storm"]::before, .advice-status[data-mode="degraded"]::before { background: var(--c-warn, #ffb020); }
 .advice-held { margin: 6px 0 0; font-size: 12px; color: var(--muted, #8b9bab); }
 .advice-held[hidden] { display: none; }

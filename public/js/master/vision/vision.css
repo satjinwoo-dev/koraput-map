@@ -1,0 +1,94 @@
+/* MapUnite Master AI — fatigue check (js/master/vision/face-scan.js). All text on these screens is English. */
+.mu-fc, .mu-fc-offer {
+  --fc-bg: #070d16; --fc-sheet: #0d1621; --fc-raise: #131e2b; --fc-line: rgba(255, 255, 255, .08);
+  --fc-text: #f2f6f8; --fc-soft: #c6d2db; --fc-muted: #8b9bab;
+  --fc-mint: #34e0b4; --fc-amber: #ffb020; --fc-red: #ff5d5d; --fc-grey: #8b9bab;
+  font-family: Inter, system-ui, sans-serif; color: var(--fc-text); -webkit-font-smoothing: antialiased;
+}
+
+/* ---------------------------------------------------------------- full-screen sheet (check + result) */
+.mu-fc { position: fixed; inset: 0; z-index: 4000; display: flex; align-items: center; justify-content: center;
+  padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom)); background: rgba(3, 7, 12, .86); backdrop-filter: blur(8px); overflow-y: auto; }
+.mu-fc-sheet { width: min(400px, 100%); background: var(--fc-sheet); border: 1px solid var(--fc-line); border-radius: 24px; padding: 22px 20px 20px;
+  display: flex; flex-direction: column; align-items: center; text-align: center; box-shadow: 0 24px 60px rgba(0, 0, 0, .55); }
+.mu-fc-eyebrow { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--fc-mint); }
+.mu-fc-h { margin: 6px 0 0; font: 700 21px/1.25 Sora, Inter, sans-serif; letter-spacing: -.01em; }
+
+/* ---------------------------------------------------------------- camera + progress ring */
+.mu-fc-cam-wrap { position: relative; width: min(232px, 64vw); aspect-ratio: 1; margin: 20px 0 6px; }
+.mu-fc-cam { position: absolute; inset: 14px; border-radius: 50%; overflow: hidden; background: #03070c; box-shadow: inset 0 0 0 1px var(--fc-line); }
+.mu-fc-cam video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); display: block; }   /* mirrored, like a mirror */
+.mu-fc-ring { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+.mu-fc-ring-track { fill: none; stroke: rgba(255, 255, 255, .09); stroke-width: 5; }
+.mu-fc-ring-bar { fill: none; stroke: var(--fc-mint); stroke-width: 5; stroke-linecap: round; transition: stroke-dashoffset .2s linear; }
+.mu-fc-check:not(.is-measuring) .mu-fc-ring-bar { opacity: 0; }           /* the ring fills only while measuring */
+.mu-fc-spinner { position: absolute; inset: 0; margin: auto; width: 34px; height: 34px; border-radius: 50%; border: 3px solid rgba(255, 255, 255, .15); border-top-color: var(--fc-mint); animation: mu-fc-spin .9s linear infinite; display: none; }
+.mu-fc-check.is-loading .mu-fc-spinner { display: block; }
+@keyframes mu-fc-spin { to { transform: rotate(360deg); } }
+
+/* countdown */
+.mu-fc-count { display: flex; flex-direction: column; align-items: center; min-height: 64px; }
+.mu-fc-count-num { font: 700 44px/1 Sora, Inter, sans-serif; font-variant-numeric: tabular-nums; }
+.mu-fc-count-label { margin-top: 4px; font-size: 13px; color: var(--fc-muted); }
+.mu-fc-check:not(.is-measuring) .mu-fc-count { visibility: hidden; }
+
+/* face chip */
+.mu-fc-chip { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; padding: 6px 12px 6px 9px; border-radius: 999px;
+  font-size: 13px; font-weight: 600; color: var(--fc-amber); background: rgba(255, 176, 32, .12); }
+.mu-fc-check.has-face .mu-fc-chip { color: var(--fc-mint); background: rgba(52, 224, 180, .12); }
+.mu-fc-check.is-loading .mu-fc-chip { visibility: hidden; }
+.mu-fc-chip-dot { width: 10px; height: 10px; fill: currentColor; }
+.mu-fc-status { margin: 10px 0 0; min-height: 20px; font-size: 14px; color: var(--fc-soft); }
+.mu-fc-tips { list-style: none; display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin: 14px 0 0; padding: 0; }
+.mu-fc-tips li { padding: 5px 10px; border-radius: 8px; font-size: 12.5px; color: var(--fc-soft); background: var(--fc-raise); border: 1px solid var(--fc-line); }
+
+/* ---------------------------------------------------------------- buttons */
+.mu-fc-btn { min-height: 48px; padding: 0 20px; border-radius: 14px; border: 1px solid transparent; font: 600 15px Inter, system-ui, sans-serif; cursor: pointer; }
+.mu-fc-primary { background: var(--fc-mint); color: #04130e; }
+.mu-fc-ghost { background: transparent; color: var(--fc-text); border-color: rgba(255, 255, 255, .16); }
+.mu-fc-wide { width: 100%; margin-top: 18px; }
+.mu-fc-btn:focus-visible { outline: 3px solid rgba(52, 224, 180, .55); outline-offset: 2px; }
+
+/* ---------------------------------------------------------------- result */
+.mu-fc-gauge-wrap { position: relative; width: 210px; margin-top: 16px; }
+.mu-fc-gauge { display: block; width: 100%; height: auto; }
+.mu-fc-gauge-track, .mu-fc-gauge-bar { fill: none; stroke-width: 14; stroke-linecap: round; }
+.mu-fc-gauge-track { stroke: rgba(255, 255, 255, .08); }
+.mu-fc-gauge.is-low .mu-fc-gauge-bar { stroke: var(--fc-mint); }
+.mu-fc-gauge.is-moderate .mu-fc-gauge-bar { stroke: var(--fc-amber); }
+.mu-fc-gauge.is-high .mu-fc-gauge-bar { stroke: var(--fc-red); }
+.mu-fc-score { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: baseline; justify-content: center; gap: 3px; }
+.mu-fc-score-num { font: 700 48px/1 Sora, Inter, sans-serif; font-variant-numeric: tabular-nums; }
+.mu-fc-score-of { font-size: 15px; color: var(--fc-muted); }
+.mu-fc-pill { margin: 12px 0 0; padding: 5px 12px; border-radius: 999px; font-size: 13px; font-weight: 700; letter-spacing: .02em; }
+.mu-fc-pill.is-low { color: var(--fc-mint); background: rgba(52, 224, 180, .13); }
+.mu-fc-pill.is-moderate { color: var(--fc-amber); background: rgba(255, 176, 32, .14); }
+.mu-fc-pill.is-high { color: var(--fc-red); background: rgba(255, 93, 93, .14); }
+.mu-fc-advice { margin: 12px 0 0; font-size: 16px; line-height: 1.45; color: var(--fc-text); }
+.mu-fc-section { align-self: stretch; margin-top: 18px; padding: 14px; border-radius: 16px; background: var(--fc-raise); border: 1px solid var(--fc-line); text-align: left; }
+.mu-fc-label { margin: 0 0 8px; font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--fc-muted); }
+.mu-fc-seen { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.mu-fc-seen li { display: flex; align-items: center; gap: 10px; font-size: 15px; }
+.mu-fc-seen-dot { width: 8px; height: 8px; flex: none; fill: var(--fc-amber); }
+.mu-fc-result.is-high .mu-fc-seen-dot { fill: var(--fc-red); }
+.mu-fc-none { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 15px; color: var(--fc-soft); }
+.mu-fc-none-icon { width: 18px; height: 18px; fill: none; stroke: var(--fc-mint); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.mu-fc-facts { align-self: stretch; display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 8px; margin: 10px 0 0; }
+.mu-fc-facts div { padding: 10px 6px; border-radius: 12px; border: 1px solid var(--fc-line); }
+.mu-fc-facts dt { font: 700 18px/1.1 Sora, Inter, sans-serif; font-variant-numeric: tabular-nums; }
+.mu-fc-facts dd { margin: 4px 0 0; font-size: 11.5px; color: var(--fc-muted); }
+.mu-fc-conf { margin: 12px 0 0; font-size: 13px; line-height: 1.4; color: var(--fc-amber); }
+.mu-fc-note { margin: 14px 0 0; font-size: 12.5px; line-height: 1.45; color: var(--fc-muted); }
+
+/* ---------------------------------------------------------------- offer card (not modal) */
+.mu-fc-offer { position: fixed; left: 16px; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom)); z-index: 3900; max-width: 480px; margin: 0 auto;
+  display: grid; grid-template-columns: 44px 1fr; gap: 12px 14px; align-items: start; padding: 16px; border-radius: 20px;
+  background: var(--fc-sheet); border: 1px solid rgba(52, 224, 180, .3); box-shadow: 0 16px 44px rgba(0, 0, 0, .5); }
+.mu-fc-badge { width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; background: rgba(52, 224, 180, .13); }
+.mu-fc-icon { width: 24px; height: 24px; fill: var(--fc-mint); }
+.mu-fc-offer-text strong { display: block; font: 700 16px/1.3 Sora, Inter, sans-serif; }
+.mu-fc-offer-text span { display: block; margin-top: 4px; font-size: 14px; line-height: 1.45; color: var(--fc-soft); }
+.mu-fc-actions { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1.4fr; gap: 10px; }
+
+@media (prefers-reduced-motion: reduce) { .mu-fc-ring-bar { transition: none; } .mu-fc-spinner { animation-duration: 2.5s; } }
+@media (max-height: 640px) { .mu-fc-cam-wrap { width: min(180px, 50vw); margin-top: 12px; } .mu-fc-tips { display: none; } }

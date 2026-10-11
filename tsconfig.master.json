@@ -1,0 +1,42 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "target": "ES2022",
+    "module": "commonjs",
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "types": [],
+    "strict": false,
+    "noImplicitThis": false,
+    "noUnusedLocals": true
+  },
+  "files": [
+    "public/js/advice/gate.js",
+    "public/js/advice/ask.js",
+    "public/js/master/contracts.js",
+    "public/js/master/bus.js",
+    "public/js/master/capabilities.js",
+    "public/js/master/kernel.js",
+    "public/js/master/persona.js",
+    "public/js/master/phrases-desi.js",
+    "public/js/master/output.js",
+    "public/js/master/brain.js",
+    "public/js/master/agents/ride-agent.js",
+    "public/js/master/agents/network-agent.js",
+    "public/js/master/agents/_template.js",
+    "public/js/master/vision/fatigue.js",
+    "public/js/master/vision/face-scan.js",
+    "public/js/master/agents/vision-agent.js",
+    "public/js/master/perception/contract.js",
+    "public/js/master/perception/governor.js",
+    "public/js/master/perception/confirm.js",
+    "public/js/master/perception/provider.js",
+    "public/js/master/agents/road-agent.js",
+    "public/js/master/master-app.js"
+  ]
+}

@@ -141,30 +141,37 @@ test("HUD scale: the red line is the POSTED limit even when the eco band is clam
     assert.equal(HUD.scaleGeometry(s, 50 * KMH, null).limit, null);                 // no posted limit: no red line
 });
 
-test("advice UI → the safety gate: one quiet-ride setting, and a wet road from the weather tracker holds tips there", () => {
+test("advice UI → the safety gate: one quiet-ride setting and one road condition for tips AND the cue rules every spoken cue passes", () => {
     const store = new Map(), doc = {}, el = {};
     const mkEl = (id) => (el[id] ||= { id, checked: false, hidden: false, textContent: "", dataset: {}, style: {}, addEventListener(e, h) { (this._h ||= {})[e] = h; }, closest: () => null, getBoundingClientRect: () => ({ left: 0, top: 0, width: 0, height: 0 }) });
     const ctx = vm.createContext({
         console, Math, JSON, Date, Number, Array, Object, String, Map, Set, Promise, setTimeout, clearTimeout, setInterval, clearInterval, Error,
         CustomEvent: class { constructor(t, o) { this.type = t; this.detail = o && o.detail; } },
         localStorage: { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k) },
-        document: { readyState: "complete", getElementById: (id) => (["quiet-ride-toggle", "weather-alerts-toggle", "speed-advice-toggle", "advice-status", "advice-held"].includes(id) ? mkEl(id) : null),
+        document: { readyState: "complete", getElementById: (id) => (["quiet-ride-toggle", "weather-alerts-toggle", "speed-advice-toggle", "ask-first-toggle", "advice-status", "advice-held"].includes(id) ? mkEl(id) : null),
             addEventListener: (e, h) => { (doc[e] ||= []).push(h); }, dispatchEvent: (e) => { for (const h of doc[e.type] || []) h(e); } },
         addEventListener() {}, removeEventListener() {}, getComputedStyle: () => ({ display: "block", visibility: "visible" }), MutationObserver: class { observe() {} }
     });
     ctx.window = ctx; ctx.globalThis = ctx;
     vm.runInContext("const SmartDrive = { trip: { active: true } };", ctx);           // riding
-    for (const f of ["public/js/advice/advice.js", "public/js/advice/advice-app.js", "public/js/advice/conditions.js", "public/js/advice/overlay.js", "public/js/advice/advice-ui.js"]) vm.runInContext(fs.readFileSync(path.join(ROOT, f), "utf8"), ctx, { filename: f });
+    for (const f of ["public/js/advice/advice.js", "public/js/advice/advice-app.js", "public/js/advice/gate.js", "public/js/advice/ask.js", "public/js/advice/conditions.js", "public/js/advice/overlay.js", "public/js/advice/advice-ui.js"]) vm.runInContext(fs.readFileSync(path.join(ROOT, f), "utf8"), ctx, { filename: f });
     const app = ctx.MUAdvice.app, live = ctx.MUAdvice.live;
-    assert.equal(live.gate, undefined, "no second gate");
-    assert.equal(live.allowVoice, undefined, "nothing hooks into every spoken cue");
+    assert.equal(live.gate, undefined, "no second gate object: the cue rules are one instance inside the advice layer");
+    assert.equal(live.allowVoice, undefined);
+    assert.equal(typeof live.decide, "function");
+    assert.equal(live.cues.askFirst, true, "Ask before tips is on by default");
     // the settings switch drives the gate's quiet ride; the voice command's change comes back to the switch
     el["quiet-ride-toggle"].checked = true; el["quiet-ride-toggle"]._h.change();
     assert.equal(app.quiet, true);
+    assert.equal(live.cues.quiet, true, "the cue rules follow the same switch");
+    assert.equal(live.decide("Fuel stop in 2 km", { priority: 40, category: "fuel" }).reason, "quiet", "quiet ride holds a tip");
+    const warn = live.decide("Over the limit", { priority: 70, category: "speed" });
+    assert.equal(warn.speak, true, "quiet ride never mutes a safety warning");
     assert.equal(store.get("mu_quiet_ride"), "1");
     assert.equal(el["advice-status"].dataset.mode, "quiet");
     app.setQuiet(false);
     assert.equal(el["quiet-ride-toggle"].checked, false, "\"quiet ride\" by voice moves the switch");
+    assert.equal(live.cues.quiet, false, "… and the cue rules");
     // the HUD's quiet button
     ctx.document.dispatchEvent(new ctx.CustomEvent("mu:advice-set", { detail: { quiet: true } }));
     assert.equal(app.quiet, true);
@@ -176,6 +183,14 @@ test("advice UI → the safety gate: one quiet-ride setting, and a wet road from
     const r = app.onTick({ smoothedKmh: 60, accepted: true, accuracyM: 5 });
     assert.ok(r.reasons.includes("wet"), JSON.stringify(r));
     assert.equal(app.mode().key, "storm");
+    // the same wet reading reaches the cue rules: heavy rain (severity ≥ 2) holds tips there too
+    live._applyWeather({ rate: 8 * MMH, recent: 10 * MM, code: 65, temperature: 300, gust: 3 });
+    assert.ok(live.cues.condition && live.cues.condition.severity >= 2, JSON.stringify(live.cues.condition));
+    assert.equal(live.decide("Eco tip", { priority: 30, category: "eco" }).reason, "weather");
+    // Ask before tips: the switch, stored on the phone
+    el["ask-first-toggle"].checked = false; el["ask-first-toggle"]._h.change();
+    assert.equal(live.cues.askFirst, false);
+    assert.equal(JSON.parse(store.get("mu.advice.v1")).askFirst, false);
     live._applyWeather({ rate: 0, recent: 0, code: 0, temperature: 300, gust: 2 });
     assert.ok(["dry", "drying"].includes(live.condition.kind));
     assert.equal(JSON.parse(store.get("mu.advice.v1") || "{}").quiet, undefined, "quiet ride is stored once, by the gate");
