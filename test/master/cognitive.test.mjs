@@ -259,7 +259,10 @@ test("topology: steep runs from heights; level crossing and breaker said at the 
 });
 
 // ================================================================ blackspot
-test("blackspot agent: warned once at speed × 30 s, louder after dark, fatalities only when known", async () => {
+test("blackspot agent: warned once at speed × 30 s, louder after dark, fatalities only when known", async (t) => {
+    // the corridor agent works out state.light from the real clock (sun elevation at the rider): pin it to
+    // night in India, or a CI run in the Indian daytime publishes "day" over the "dark" this test sets
+    t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-10-11T18:00:00Z") });   // 23:30 IST
     const api = fakeApi({ "/blackspots": () => ({ ok: true, datasetVersion: "x@1:1", spots: [{ id: "x:1", lat: 20.009, lng: 85, radiusM: 200, fatalities: 5, source: "x" }] }) });
     const h = harness({ api, route: ROUTE, agents: [A.corridor, A.blackspot] });
     h.bus.publish("state.light", "dark", { sticky: true });

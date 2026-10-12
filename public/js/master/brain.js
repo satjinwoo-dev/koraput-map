@@ -22,6 +22,8 @@
       app's safety gate and shows the status island.
    6. Every decision is published on "master.decision" (debug / tests) and
       every line on "master.said" (a chat feed can show the transcript).
+      A delegated task is announced on "master.delegated" and closed on
+      "master.task-done" ({ task, ok, ms }).
    7. ASK FIRST: when output asks the rider first ("Bhai, ek baat bolun?"),
       the decision is "asking"; nothing else leaves the queue until the answer
       is in. Then: "spoken" (yes), "declined" (nahi), "unanswered" (silence),
@@ -189,12 +191,17 @@
          * @returns {Promise<{ ok: true, result: any } | { ok: false, error: string, message: string }>}
          */
         async function delegate(task, payload, o = {}) {
-            bus.publish("master.delegated", { task, at: now() }, { source: "master" });
+            const at = now();
+            bus.publish("master.delegated", { task, at }, { source: "master" });
+            // "master.task-done" closes it (the avatar's "thinking" face ends there)
+            const doneWith = (/** @type {boolean} */ ok) => bus.publish("master.task-done", { task, ok, ms: now() - at }, { source: "master" });
             try {
                 const result = await bus.request(C.TOPIC.task(task), payload, { timeoutMs: o.timeoutMs ?? 15000, source: "master" });
+                doneWith(true);
                 return { ok: true, result };
             } catch (err) {
                 const e = /** @type {any} */ (err);
+                doneWith(false);
                 return { ok: false, error: (e && e.code) || "ERROR", message: String((e && e.message) || e) };
             }
         }

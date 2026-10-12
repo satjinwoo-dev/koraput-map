@@ -374,7 +374,7 @@ const VoiceAssistant = {
         for (const q of this.queue) this.settle(q, false);
         this.queue = [];
         if (this.asking && typeof this.asking.abort === "function") this.asking.abort("interrupted");
-        if (this.current) { const c = this.current; this.current = null; this.lastTtsEndTs = Date.now(); clearTimeout(this.watchdog); this.settle(c, false); }
+        if (this.current) { const c = this.current; this.current = null; this.lastTtsEndTs = Date.now(); clearTimeout(this.watchdog); this.settle(c, false); this.emitState("mu:voice-state", { phase: "end" }); }
         this.stopSpeech();
         // The cancelled utterance's onend is ignored (done() checks identity),
         // so hand hands-free listening back here instead.
@@ -434,6 +434,11 @@ const VoiceAssistant = {
         return true;
     },
 
+    /** Tell the page what the voice is doing ("mu:voice-state", "mu:mic-state"): the Master AI's face follows it (js/ai/avatar-app.js). */
+    emitState(type, detail) {
+        try { document.dispatchEvent(new CustomEvent(type, { detail })); } catch (e) { /* optional */ }
+    },
+
     /** Tell whoever waits on an utterance that it's over (once). */
     settle(item, finished) {
         if (!item || !item.onDone) return;
@@ -458,6 +463,7 @@ const VoiceAssistant = {
             let h;
             try { h = eng.speak(item.text, { priority: item.priority }); } catch (e) { this.done(item, false); return; }
             item.handle = h;
+            this.emitState("mu:voice-state", { phase: "start", priority: item.priority, route: h.route || "" });
             h.done.then((r) => this.done(item, r === "ended"), () => this.done(item, false));
             // The engine always settles, but never let the queue wedge on a stuck player:
             // allow for the premium-voice wait (≤ 2.5 s) plus a slow speaker (~150 ms a character).
@@ -473,6 +479,7 @@ const VoiceAssistant = {
         u.onerror = () => this.done(item, false);
         // Some engines never fire onend; don't let the queue wedge.
         this.watchdog = setTimeout(() => this.done(item, true), Math.max(4000, item.text.length * 110));
+        this.emitState("mu:voice-state", { phase: "start", priority: item.priority, route: "web" });
         try { this.synth.speak(u); } catch (e) { this.done(item, false); }
     },
 
@@ -481,6 +488,7 @@ const VoiceAssistant = {
         clearTimeout(this.watchdog);
         this.current = null;
         this.lastTtsEndTs = Date.now();
+        this.emitState("mu:voice-state", { phase: "end" });
         this.settle(item, finished);
         // After a question, the mic needs the floor: the queue waits for the answer
         // (askThenSay calls kickQueue() when it's over).
@@ -717,6 +725,7 @@ const VoiceAssistant = {
     },
 
     setMicUi(on, mode) {
+        this.emitState("mu:mic-state", { on: Boolean(on), mode: on ? mode : null });
         ["voice-cmd-btn", "voice-cmd-map-btn"].forEach((id) => {
             const b = document.getElementById(id);
             if (!b) return;

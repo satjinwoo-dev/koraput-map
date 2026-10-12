@@ -1,0 +1,112 @@
+/* ==========================================================================
+   Master AI avatar (js/ai/avatar-app.js): corner view on the map + full screen
+   Everything is scoped under #mu-avatar; the app's own ids are untouched.
+   ========================================================================== */
+#mu-avatar {
+  --mu-avatar-w: 96px; --mu-avatar-h: 124px;
+  --mu-avatar-ink: #03070d; --mu-avatar-text: #e9f6ff; --mu-avatar-muted: #7f97ab;
+  --mu-avatar-line: rgba(120, 210, 255, .22); --mu-avatar-cyan: #4fd8ff; --mu-avatar-red: #ff3b2e;
+  --mu-avatar-amber: #ffb53a; --mu-avatar-mint: #34e0b4;
+  /* the free band on the left of the map: under the search bar / weather pill, above the speed dial */
+  --mu-avatar-min: calc(166px + var(--safe-t, 0px));
+  --mu-avatar-max: calc(var(--app-h, 100vh) - var(--safe-b, 0px) - 230px - var(--mu-avatar-h));
+  position: fixed; z-index: calc(var(--z-hud, 1000) + 5);
+  width: var(--mu-avatar-w); height: var(--mu-avatar-h);
+  left: 12px; top: clamp(var(--mu-avatar-min), var(--mu-avatar-y, var(--mu-avatar-min)), var(--mu-avatar-max));
+  border-radius: 22px; overflow: hidden; color: var(--mu-avatar-text); isolation: isolate;
+  background: radial-gradient(90% 70% at 50% 38%, rgba(10, 26, 43, .94) 0%, rgba(5, 12, 22, .95) 55%, rgba(3, 7, 13, .96) 100%);
+  border: 1px solid var(--mu-avatar-line);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .45), 0 0 0 0 rgba(79, 216, 255, 0);
+  opacity: 0; transform: scale(.92);
+  transition: opacity .45s ease, transform .45s cubic-bezier(.2, .9, .3, 1.2), box-shadow .35s ease, border-color .35s ease;
+}
+#mu-avatar[hidden] { display: none; }
+#mu-avatar.is-ready, #mu-avatar.is-full { opacity: 1; transform: none; }
+#mu-avatar[data-side="right"] { left: auto; right: 72px; }           /* clear of the map tools column */
+#mu-avatar.is-dragging { transition: none; box-shadow: 0 16px 36px rgba(0, 0, 0, .55); }
+/* during a drive: below the turn banner, above the speed limit / advice stack */
+body:has(#premium-nav-ui[style*="block"]) #mu-avatar.is-pip {
+  --mu-avatar-min: calc(178px + var(--safe-t, 0px));
+  --mu-avatar-max: calc(var(--app-h, 100vh) - var(--safe-b, 0px) - 430px - var(--mu-avatar-h));
+}
+@media (min-width: 768px) and (min-height: 640px) { #mu-avatar { --mu-avatar-w: 136px; --mu-avatar-h: 172px; } }
+
+#ai-master-core { position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
+/* the core frames the bust with room for the aura (made for a full screen); in the corner the canvas is
+   drawn larger and cropped so the head and shoulders fill the window and the dust stays legible */
+#mu-avatar.is-pip #ai-master-core { inset: auto; left: -19%; top: -17%; width: 138%; height: 138%; }
+
+/* the whole corner view is one button: tap = full screen, drag = move */
+#mu-avatar-pip-btn { position: absolute; inset: 0; z-index: 2; margin: 0; padding: 0; border: 0; background: transparent;
+  cursor: pointer; touch-action: none; border-radius: inherit; -webkit-tap-highlight-color: transparent; }
+#mu-avatar-pip-btn:focus-visible { outline: 2px solid var(--mu-avatar-cyan); outline-offset: -3px; }
+#mu-avatar-pip-btn::after { content: ""; position: absolute; right: 7px; top: 7px; width: 14px; height: 14px; opacity: .7;
+  background: no-repeat center/contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23bfeaff' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7'/%3E%3C/svg%3E"); }
+
+/* state cues on the frame (the face itself changes through the core's modes) */
+#mu-avatar.is-pip[data-mode="speaking"] { border-color: rgba(79, 216, 255, .6); box-shadow: 0 10px 28px rgba(0, 0, 0, .45), 0 0 18px 2px rgba(79, 216, 255, .35); }
+#mu-avatar.is-pip[data-mode="listening"] { border-color: rgba(52, 224, 180, .65); box-shadow: 0 10px 28px rgba(0, 0, 0, .45), 0 0 16px 2px rgba(52, 224, 180, .3); }
+#mu-avatar.is-pip[data-mode="thinking"] { border-color: rgba(255, 181, 58, .5); }
+#mu-avatar.is-pip[data-mode="alert"] { border-color: rgba(255, 59, 46, .85); animation: mu-avatar-alert 1.1s ease-in-out infinite; }
+@keyframes mu-avatar-alert {
+  0%, 100% { box-shadow: 0 10px 28px rgba(0, 0, 0, .45), 0 0 10px 1px rgba(255, 59, 46, .35); }
+  50% { box-shadow: 0 10px 28px rgba(0, 0, 0, .45), 0 0 24px 5px rgba(255, 59, 46, .6); }
+}
+
+/* ---- full screen ---- */
+.mu-avatar-full-ui { display: none; }
+#mu-avatar.is-full {
+  inset: 0; left: 0; right: 0; top: 0; width: 100%; height: 100%; border: 0; border-radius: 0;
+  z-index: 7000;                                     /* over the map and sheets; the status island, toasts and confirms stay above */
+  background: radial-gradient(90% 70% at 50% 38%, #0a1a2b 0%, #050c16 55%, var(--mu-avatar-ink) 100%);
+  box-shadow: none; animation: mu-avatar-in .32s ease-out;
+}
+#mu-avatar.is-full #mu-avatar-pip-btn { display: none; }
+#mu-avatar.is-full .mu-avatar-full-ui { display: block; }
+@keyframes mu-avatar-in { from { opacity: 0; transform: scale(.97); } to { opacity: 1; transform: none; } }
+body.mu-avatar-full #map { visibility: hidden; }
+
+.mu-avatar-full-ui { position: absolute; inset: 0; z-index: 3; pointer-events: none; font: 500 13px/1.4 Inter, system-ui, sans-serif; }
+.mu-avatar-full-ui > * { pointer-events: auto; }
+.mu-avatar-top { position: absolute; top: calc(14px + var(--safe-t, 0px)); left: 14px; right: 14px; display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; pointer-events: none; }
+.mu-avatar-top > * { pointer-events: auto; }
+/* below the app's status island, which stays on top of the full screen (warnings must show) */
+.mu-avatar-title { position: absolute; left: 0; right: 0; top: 50px; text-align: center; pointer-events: none; }
+.mu-avatar-title h2 { margin: 0; font: 600 15px/1.2 Sora, Inter, system-ui, sans-serif; letter-spacing: .22em; color: var(--mu-avatar-text); }
+#mu-avatar-state { display: block; margin-top: 4px; color: var(--mu-avatar-muted); font-size: 12px; letter-spacing: .06em; }
+#mu-avatar[data-mode="speaking"] #mu-avatar-state { color: var(--mu-avatar-cyan); }
+#mu-avatar[data-mode="listening"] #mu-avatar-state { color: var(--mu-avatar-mint); }
+#mu-avatar[data-mode="thinking"] #mu-avatar-state { color: var(--mu-avatar-amber); }
+#mu-avatar[data-mode="alert"] #mu-avatar-state { color: var(--mu-avatar-red); }
+
+.mu-avatar-pill { position: relative; z-index: 1; height: 36px; padding: 0 14px; border-radius: 18px; border: 1px solid var(--mu-avatar-line);
+  background: rgba(6, 16, 28, .72); color: var(--mu-avatar-text); font: inherit; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+.mu-avatar-pill:focus-visible, #mu-avatar-talk:focus-visible { outline: 2px solid var(--mu-avatar-cyan); outline-offset: 2px; }
+.mu-avatar-pill[aria-pressed="true"] { border-color: var(--mu-avatar-cyan); color: var(--mu-avatar-cyan); background: rgba(79, 216, 255, .12); }
+.mu-avatar-pill svg { width: 16px; height: 16px; }
+
+.mu-avatar-bottom { position: absolute; left: 16px; right: 16px; bottom: calc(18px + var(--safe-b, 0px)); display: flex; flex-direction: column; align-items: center; gap: 12px; pointer-events: none; }
+/* the SOS button stays above the full screen too: keep the caption out of its way on a phone */
+@media (max-width: 599px) { .mu-avatar-bottom { left: 76px; right: 76px; } }
+.mu-avatar-bottom > * { pointer-events: auto; }
+#mu-avatar-caption { margin: 0; max-width: 560px; padding: 9px 14px; border-radius: 14px; text-align: center; color: var(--mu-avatar-text);
+  background: rgba(5, 12, 22, .72); border: 1px solid var(--mu-avatar-line); font-size: 14px; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+#mu-avatar-caption[hidden], #mu-avatar-nav[hidden] { display: none; }
+#mu-avatar-caption[data-severity="warning"] { border-color: rgba(255, 181, 58, .6); }
+#mu-avatar-caption[data-severity="critical"] { border-color: rgba(255, 59, 46, .8); }
+#mu-avatar-nav { display: flex; align-items: center; gap: 10px; padding: 8px 12px 8px 8px; border-radius: 16px; max-width: min(560px, 100%);
+  background: rgba(5, 12, 22, .8); border: 1px solid var(--mu-avatar-line); }
+#mu-avatar-nav-speed { min-width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; font: 700 18px/1 Sora, Inter, sans-serif;
+  border: 2px solid var(--mu-avatar-cyan); color: var(--mu-avatar-text); }
+#mu-avatar-nav-turn { font-weight: 600; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+#mu-avatar-talk { width: 64px; height: 64px; border-radius: 50%; border: 1px solid rgba(79, 216, 255, .55); cursor: pointer;
+  background: radial-gradient(circle at 50% 40%, rgba(79, 216, 255, .28), rgba(6, 16, 28, .85) 70%); color: var(--mu-avatar-text);
+  display: grid; place-items: center; box-shadow: 0 0 22px rgba(79, 216, 255, .25); }
+#mu-avatar-talk svg { width: 26px; height: 26px; }
+#mu-avatar[data-mode="listening"] #mu-avatar-talk { border-color: var(--mu-avatar-mint); box-shadow: 0 0 26px rgba(52, 224, 180, .45); }
+
+@media (prefers-reduced-motion: reduce) {
+  #mu-avatar, #mu-avatar.is-full { transition: none; animation: none; }
+  #mu-avatar.is-pip[data-mode="alert"] { animation: none; box-shadow: 0 0 0 2px rgba(255, 59, 46, .8); }
+}

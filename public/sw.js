@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-11.5";           // Master AI cognitive engines: 2 km radar, vetted places, Deep Search, mood, destination safety
+const VERSION = "mu-2026-10-11.6";           // Master AI avatar: the particle face (corner view + full screen), synced to the voice and the brain
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
@@ -182,7 +182,13 @@ const BIKE_SCRIPTS = [
     "/js/master/agents/mood-agent.js",
     "/js/master/agents/destination-agent.js",
     "/js/master/agents/context-agent.js",
-    "/js/master/master-app.js"
+    "/js/master/master-app.js",
+    // the Master AI avatar (js/ai/): its state rules, then the module and what it imports
+    "/js/ai/avatar-state.js",
+    "/js/ai/avatar-app.js",
+    "/js/ai/ai-particle-core.js",
+    "/js/ai/avatar-ridges.js",
+    "/js/ai/avatar.css"
 ];
 // The Socket.IO client library: a static script the server ships. index.html can't
 // boot offline without it (core.js calls io() at once; offline it just keeps
@@ -196,7 +202,9 @@ const OPTIONAL_PRECACHE = [
 // Third-party assets the shell needs to render offline (pinned versions).
 const CDN_PRECACHE = [
     "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css",
-    "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",
+    // Three.js for the Master AI avatar (index.html's import map; same pinned URL)
+    "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js"
 ];
 
 // The one Google Fonts stylesheet both pages use (same URL in index.html and
