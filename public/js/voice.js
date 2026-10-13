@@ -226,6 +226,8 @@ const VoiceAssistant = {
     MUTE_MS: 30 * 60 * 1000,
     MAX_QUEUE: 4,
     ECHO_GUARD_MS: 700,
+    // "Ek second…" only if the Master hasn't answered by then: a quick answer (and every action) goes out at once
+    MASTER_FILLER_MS: 2500,
 
     alertsEnabled: true,
     handsFree: false,
@@ -879,9 +881,12 @@ const VoiceAssistant = {
     /** @param {string} query @param {{ chat?: boolean }} [o] chat: small talk, answered at once without a lookup */
     async masterAsk(query, o = {}) {
         const M = window.MUMaster.live;
-        if (!o.chat) this.reply(this.masterStyle() === "plain" ? "One moment, I'll look that up." : "Ek second, dhoondh ke batata hoon.");
+        // No lead-in up front: it delayed the action's own acknowledgement ("Chal bhai, Araku ka rasta nikalta hoon").
+        // It's said only while a slow lookup (an engine falling back) keeps the rider waiting.
+        const filler = o.chat ? null : setTimeout(() => this.reply(this.masterStyle() === "plain" ? "One moment, still looking." : "Ek second, dhoondh raha hoon."), this.MASTER_FILLER_MS);
         let ans;
-        try { ans = await M.ask(query, { chat: Boolean(o.chat) }); } catch (e) { this.reply("Sorry, I couldn't look that up right now."); return; }
+        try { ans = await M.ask(query, { chat: Boolean(o.chat) }); } catch (e) { clearTimeout(filler); this.reply("Sorry, I couldn't look that up right now."); return; }
+        clearTimeout(filler);
         const cmd = masterActionCommand(ans && ans.result && ans.result.action);
         // The Master's quick acknowledgement first ("Chal bhai, Araku ka rasta nikalta hoon"), then the app does it.
         // When the app's command IS the answer (the nearest place, where you are, how far, the squad), only the
