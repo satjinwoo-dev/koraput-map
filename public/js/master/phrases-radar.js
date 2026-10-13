@@ -80,6 +80,7 @@
             chill: { desi: "chill", plain: "chilled" }, sad: { desi: "thoda udaas", plain: "a bit low" }, devotional: { desi: "bhakti wala", plain: "devotional" },
             intense: { desi: "full power", plain: "intense" }
         },
+        side: { left: { desi: "left", plain: "left" }, right: { desi: "right", plain: "right" } },
         ghat: { descent: { desi: "utraai", plain: "descent" }, climb: { desi: "chadhaai", plain: "climb" }, steep: { desi: "tez dhalaan", plain: "steep slope" } },
         bridgeWhy: { wet: { desi: "geela pul fislan wala hota hai", plain: "wet bridge decks are slippery" }, wind: { desi: "pul pe hawa side se dhakka degi", plain: "expect crosswinds on the bridge" } }
     });
@@ -219,6 +220,12 @@
             advice: [
                 { say: "{{name}}, {{distanceM|km}} aage {{dir}} shuru hoti hai, {{gradePct}} percent. Gear sahi rakh." },
                 { say: "{{name}}, aage {{distanceM|km}} pe ghat wala raasta hai. Aaram se chadhaayi-utraai." }
+            ]
+        },
+        "terrain.valley-edge": {
+            advice: [
+                { say: "{{name}}, {{distanceM|km}} aage {{side}} side gehri khai hai. Kinare se door, apni lane mein reh, mod pe overtaking nahi." },
+                { say: "Dhyan de {{name}}, {{distanceM|km}} aage {{side}} taraf valley ka khula kinara hai. Speed control mein rakh." }
             ]
         },
         "terrain.hairpins": {
@@ -424,6 +431,7 @@
             warning: [{ say: "Steep {{dir}} in {{distanceM|km}}, {{gradePct}} percent. Low gear, engine braking, don't ride the brakes.", title: "Steep ghat ahead", sub: "{{gradePct}}% {{dir}} in {{distanceM|km}}" }],
             advice: [{ say: "A {{dir}} starts in {{distanceM|km}}, {{gradePct}} percent.", title: "Ghat road ahead", sub: "{{gradePct}}% {{dir}} in {{distanceM|km}}" }]
         },
+        "terrain.valley-edge": { advice: [{ say: "Steep drop on your {{side}} in {{distanceM|km}}. Keep away from the edge and don't overtake on bends.", title: "Valley edge ahead", sub: "Drop on the {{side}} · in {{distanceM|km}}" }] },
         "terrain.hairpins": { warning: [{ say: "{{count}} hairpin bends in {{distanceM|km}}. Slow before each bend, stay in your lane, use the horn.", title: "Hairpin bends ahead", sub: "{{count}} bends in {{distanceM|km}}" }] },
         "road.breaker-ahead": { advice: [{ say: "Speed breaker in {{distanceM|round}} metres.", title: "Speed breaker", sub: "In {{distanceM|round}} m" }] },
         "road.level-crossing": { warning: [{ say: "Railway crossing in {{distanceM|round}} metres. Stop if the gate is down; cross the rails straight.", title: "Railway crossing", sub: "In {{distanceM|round}} m" }] },

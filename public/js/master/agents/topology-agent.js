@@ -1,7 +1,7 @@
 // @ts-check
 /* ============================================================================
-   MapUnite Master AI — Topology agent ("topology"): ghats, hairpins, bridges,
-   breakers, railway crossings, bad road and mapped hazards ahead
+   MapUnite Master AI — Topology agent ("topology"): ghats, hairpins, valley
+   edges, bridges, breakers, railway crossings, bad road and mapped hazards ahead
    ==============================================================================
    Needs the ROUTE (corridor mode "route"): road features are only meaningful
    along the road you'll actually take. Two sources, merged into one list of
@@ -16,6 +16,18 @@
                   (brake fade, the classic ghat crash).
         hairpins  heading change ≥ 100° within 80 m (geo.turnRate) on the route
                   geometry; ≥ 2 within 1 km are reported together.
+        valley    a drop beside the road: the same DEM, sampled 90 m and 135 m out on
+        edge      both sides of every 50 m station. A side counts when the ground there
+                  is ≥ 30 % lower (27 m at 90 m, 40.5 m at 135 m: FAO's "steep" slope
+                  class, Guidelines for Soil Description 2006) AND the other side isn't
+                  falling too (< half as much): a road cut into a hillside, open on one
+                  side. Both sides falling is a bridge, a ridge or an embankment, not an
+                  edge. A run of ≥ 200 m is reported, with the side (left/right of travel).
+                  Checked against Copernicus GLO-90 + OpenStreetMap roads from
+                  Visakhapatnam to Koraput (5 300 km of main roads): ~100 km flagged, all
+                  on ghats (the Paderu ghat, Simhachalam, Ananthagiri / Araku), none below
+                  150 m altitude. A 90 m DEM smooths cliffs, so it MISSES short sharp drops
+                  rather than inventing them; it can't see crash barriers either.
 
    WHEN each is said (distance ahead, speed-aware; once per feature per 30 min):
      breaker          4–10 s ahead, only at ≥ 8 m/s; at most one a minute (towns have dozens)
@@ -24,6 +36,8 @@
      bad-surface      200–1000 m, ≥ 100 m long          advice
      bridge           300–1200 m, ≥ 250 m long, ONLY when it's wet or windy (state.weather)
      ghat / hairpins  300–1500 m                        warning (descent ≥ 8 %, hairpins) / advice
+     valley edge      300–1500 m, ≥ 200 m long          advice; with rain, fog, wind or night it
+                                                        becomes one compound warning (cognition.js)
    ============================================================================ */
 (function (root, factory) {
     // geo.js and phrases-radar.js load before this file (index.html); in Node they're required
@@ -68,6 +82,53 @@
         return runs;
     }
 
+    /** Cross-section points beside each station: [left 90, left 135, right 90, right 135] m, left/right of travel. @param {any} G @param {ArrayLike<number>[]} pts */
+    function crossPoints(G, pts, offsetsM = [90, 135]) {
+        /** @type {Array<[number, number]>} */ const out = [];
+        for (let i = 0; i < pts.length; i++) {
+            const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
+            const brg = G.bearing(a[0], a[1], b[0], b[1]);
+            for (const side of [-90, 90]) for (const d of offsetsM) out.push(G.offset(pts[i][0], pts[i][1], (brg + side + 360) % 360, d));
+        }
+        return out;
+    }
+
+    /**
+     * Valley edges from heights. Pure, exported for tests.
+     * zRoad[i]: the road at station i; zSide[i] = [left 90, left 135, right 90, right 135] (crossPoints' order).
+     * Unknown heights (NaN) never make an edge.
+     * @param {number[]} zRoad @param {number[][]} zSide @param {number} stepM
+     * @returns {Array<{ s0: number, s1: number, side: "left"|"right", dropM: number }>}
+     */
+    function valleyEdges(zRoad, zSide, stepM, o = { offsetsM: [90, 135], minSlope: 0.3, otherSideMax: 0.5, minLengthM: 200, gapStations: 1 }) {
+        const [d1, d2] = o.offsetsM;
+        /** @returns {""|"left"|"right"} */
+        const flag = (/** @type {number} */ i) => {
+            const z0 = zRoad[i], zs = zSide[i];
+            if (!Number.isFinite(z0) || !zs || zs.length < 4 || !zs.every(Number.isFinite)) return "";
+            const L = [z0 - zs[0], z0 - zs[1]], R = [z0 - zs[2], z0 - zs[3]];
+            const edge = (/** @type {number[]} */ D, /** @type {number[]} */ O) => D[0] >= o.minSlope * d1 && D[1] >= o.minSlope * d2 && O[1] < o.otherSideMax * D[1];
+            return edge(L, R) ? "left" : edge(R, L) ? "right" : "";
+        };
+        /** @type {Array<{ s0: number, s1: number, side: "left"|"right", dropM: number }>} */ const runs = [];
+        /** @type {{ side: "left"|"right", first: number, last: number, drop: number }|null} */ let cur = null;
+        const close = () => {
+            if (cur && (cur.last - cur.first + 1) * stepM >= o.minLengthM) runs.push({ s0: cur.first * stepM, s1: (cur.last + 1) * stepM, side: cur.side, dropM: Math.round(cur.drop) });
+            cur = null;
+        };
+        for (let i = 0; i < zRoad.length; i++) {
+            const f = flag(i);
+            // a run survives one unflagged station (DEM noise); another side, or a longer gap, ends it
+            if (cur && (f ? f !== cur.side : i - cur.last > o.gapStations)) close();
+            if (!f) continue;
+            const zs = zSide[i], drop = zRoad[i] - (f === "left" ? zs[1] : zs[3]);
+            if (!cur) cur = { side: f, first: i, last: i, drop };
+            else { cur.last = i; cur.drop = Math.max(cur.drop, drop); }
+        }
+        close();
+        return runs;
+    }
+
     /** Hairpin positions (s, metres along) from a polyline. @param {any} G @param {Array<[number, number]>} line */
     function hairpins(G, line, o = { windowM: 80, minTurnDeg: 100, gapM: 60 }) {
         const out = [];
@@ -88,15 +149,15 @@
 
     return {
         id: "topology",
-        version: "1.0.0",
+        version: "1.1.0",
         apiVersion: 1,
-        description: "Ghats, hairpins, bridges, speed breakers, railway crossings and bad road on the route ahead.",
+        description: "Ghats, hairpins, valley edges, bridges, speed breakers, railway crossings and bad road on the route ahead.",
         requires: ["master-api"],
         optional: ["terrain"],
         depends: ["corridor"],
         runWhen: { topic: "state.corridor", test: (/** @type {any} */ c) => Boolean(c && c.active && c.mode === "route") },
         defaults: { requeryM: 1000, demStepM: 50, repeatMs: 1800000, breakerMinSpeedMs: 8, breakerGapMs: 60000, maxOffM: 45, timeoutMs: 25000 },
-        steepRuns, hairpins,
+        steepRuns, hairpins, valleyEdges, crossPoints,
 
         /** @param {any} ctx */
         start(ctx) {
@@ -142,7 +203,17 @@
                 hairpinsOnly(c);
                 const pts = G.resample(c.line, cfg.demStepM).map((/** @type {number[]} */ p) => [p[0], p[1]]);
                 if (pts.length < 10) return;
-                const z = await terrain.heights(pts);
+                // one lookup: the road, then four points beside each station (the DEM cache rounds to ~11 m)
+                const side = crossPoints(G, pts);
+                const all = await terrain.heights(pts.concat(side));
+                const z = all.slice(0, pts.length);
+                const zSide = pts.map((/** @type {any} */ _p, /** @type {number} */ i) => all.slice(pts.length + i * 4, pts.length + i * 4 + 4));
+                for (const e of valleyEdges(z, zSide, cfg.demStepM)) {
+                    const [lat, lng] = pointAt(G, c.line, e.s0);
+                    if ([...features.values()].some((f) => f.type === "valley-edge" && f.side === e.side && G.metres(f.lat, f.lng, lat, lng) < 300)) continue;
+                    const id = `valley:${lat.toFixed(4)},${lng.toFixed(4)}`;
+                    features.set(id, { id, type: "valley-edge", lat, lng, side: e.side, lengthM: Math.round(e.s1 - e.s0), dropM: e.dropM, source: "dem" });
+                }
                 for (const run of steepRuns(z, cfg.demStepM)) {
                     const [lat, lng] = pointAt(G, c.line, run.s0);
                     if ([...features.values()].some((f) => f.type === "ghat" && G.metres(f.lat, f.lng, lat, lng) < 500)) continue;
@@ -208,6 +279,12 @@
                         if (s < 300 || s > 1500) return null;
                         const dir = f.grade < 0 ? WD.ghat.descent : WD.ghat.climb;
                         return { kind: "terrain.ghat-ahead", severity: f.grade <= -0.08 ? "warning" : "advice", data: { distanceM: km(s), gradePct: Math.round(Math.abs(f.grade) * 100), dir: dir.desi, screen: { dir: dir.plain } }, ttlMs: 90000 };
+                    }
+                    case "valley-edge": {
+                        // the drop isn't spoken: a 90 m DEM gives a lower bound, and the number doesn't change what to do
+                        if (s < 300 || s > 1500 || (f.lengthM || 0) < 200) return null;
+                        const sd = WD.side[f.side] || WD.side.left;
+                        return { kind: "terrain.valley-edge", severity: "advice", data: { distanceM: km(s), lengthM: f.lengthM, dropM: f.dropM, side: sd.desi, screen: { side: sd.plain } }, ttlMs: 90000 };
                     }
                     case "hairpins": return s >= 300 && s <= 1500 ? { kind: "terrain.hairpins", severity: "warning", data: { distanceM: km(s), count: f.count }, ttlMs: 90000 } : null;
                     default: return null;

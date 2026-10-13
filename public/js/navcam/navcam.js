@@ -1,0 +1,259 @@
+/* ============================================================================
+   MapUnite navigation camera — heading-up, 3D tilt, rider in the lower third
+   ==============================================================================
+   NavCamera.start({ map, route })   when a drive starts (js/navigation.js)
+   NavCamera.follow({ lat, lng, speedMs, headingDeg })   every fix / estimate
+   NavCamera.stop()                  when the drive ends
+
+   HOW: Leaflet draws a flat, north-up map. While the camera is on, #map is
+   made an oversized square centred on the rider's spot on screen (so Leaflet
+   loads tiles for everything the tilted view can show), and turned with one
+   CSS transform about that spot: perspective · rotateX(pitch) · rotateZ(-bearing).
+   The maths (which way is ahead, how fast to turn, zoom, sizes) is in
+   navcam-core.js and tested on its own.
+
+   Markers stay readable: each marker's content is turned back by the same
+   bearing and stretched by 1/cos(pitch), so it stands upright facing the
+   rider instead of lying flat. Tooltips and popups are hidden while the
+   camera is on (they'd be sideways); they come back when it's off.
+
+   TOUCHING THE MAP hands it back: the view goes flat and north-up at once
+   (so a drag moves the map under the finger, not at an angle), and a
+   "Re-centre" button brings the camera back. The compass switches between
+   heading-up 3D and north-up 2D; the choice is remembered on this phone
+   (localStorage "mu.navcam.v1").
+
+   Nothing here touches the Maps script tag or any existing element id; the
+   two buttons and the sky band are added by this file.
+   ============================================================================ */
+"use strict";
+
+const NavCamera = (() => {
+    const C = typeof window !== "undefined" ? window.MUNavCamCore : null;
+    const KEY = "mu.navcam.v1";
+    const PAN_S = 0.9;                      // glide between 1 Hz fixes instead of jumping
+
+    /** @type {any} */ let lmap = null;
+    let routeFn = () => null;
+    let on = false, paused = false, headingUp = true;
+    let bearing = 0, target = null, course = null, zoom = null;
+    let user = null, lastMoveFrom = null;
+    let geom = null, applied = null;        // the geometry now on #map
+    let raf = 0, lastT = 0;
+    const els = {};
+    const reduceMotion = () => { try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) { return false; } };
+
+    function load() { try { const s = JSON.parse(localStorage.getItem(KEY) || "{}"); headingUp = s.headingUp !== false; } catch (e) { headingUp = true; } }
+    function save() { try { localStorage.setItem(KEY, JSON.stringify({ headingUp })); } catch (e) { /* private mode */ } }
+
+    function supported() {
+        return Boolean(C && typeof L !== "undefined" && typeof CSS !== "undefined" && CSS.supports && CSS.supports("transform", "perspective(100px) rotateX(10deg)"));
+    }
+
+    // ---------------------------------------------------------------- layout
+    const visible = (el) => { if (!el || el.hidden) return null; const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== "hidden" && getComputedStyle(el).display !== "none" ? r : null; };
+    /** The visible map: under the turn banner, above the speed dial / HUD / drive panel. */
+    function obstacles() {
+        const vh = window.innerHeight;
+        const banner = visible(document.getElementById("turn-banner"));
+        let top = banner ? banner.bottom : 0;
+        let bottom = vh;
+        for (const id of ["speed-dial", "smartdrive-hud", "nav-bottom-sheet"]) {
+            const r = visible(document.getElementById(id));
+            if (r && r.top > top + 60) bottom = Math.min(bottom, r.top);
+        }
+        return { top, bottom };
+    }
+
+    function ensureUi() {
+        if (els.compass) return;
+        els.sky = document.createElement("div");
+        els.sky.id = "navcam-sky";
+        els.sky.setAttribute("aria-hidden", "true");
+        els.compass = document.createElement("button");
+        els.compass.id = "navcam-compass";
+        els.compass.type = "button";
+        els.compass.innerHTML = '<span class="navcam-needle" aria-hidden="true"><span class="n">N</span></span>';
+        els.compass.addEventListener("click", (e) => { e.stopPropagation(); toggleHeadingUp(); });
+        els.recenter = document.createElement("button");
+        els.recenter.id = "navcam-recenter";
+        els.recenter.type = "button";
+        els.recenter.innerHTML = '<span class="navcam-arrow" aria-hidden="true"></span>Re-centre';
+        els.recenter.addEventListener("click", (e) => { e.stopPropagation(); resume(); });
+        document.body.append(els.sky, els.compass, els.recenter);
+    }
+    function placeUi(ob) {
+        if (!els.compass) return;
+        els.compass.style.top = `${Math.round(ob.top + 12)}px`;
+        els.recenter.style.top = `${Math.round(Math.max(ob.top + 64, ob.bottom - 56))}px`;
+        els.compass.hidden = !on;
+        els.recenter.hidden = !(on && paused);
+        els.compass.setAttribute("aria-label", headingUp ? "Heading up, 3D. Tap for north up." : "North up. Tap for heading up, 3D.");
+        els.compass.classList.toggle("north", !headingUp);
+        const tilted = on && !paused && geom && geom.pitchDeg > 0;
+        els.sky.hidden = !tilted || !(geom.horizonY > 0);
+        if (!els.sky.hidden) els.sky.style.height = `${geom.horizonY + 56}px`;
+    }
+
+    // ---------------------------------------------------------------- the transform
+    const displayBearing = () => (headingUp ? bearing : 0);
+
+    /** Size #map for the current layout and mode; returns true if Leaflet had to re-measure. */
+    function layout() {
+        const ob = obstacles();
+        const o = headingUp ? C.DEFAULTS : { ...C.DEFAULTS, anchorFrac: 0.5 };
+        geom = C.geometry({ vw: window.innerWidth, vh: window.innerHeight, top: ob.top, bottom: ob.bottom, flat: !headingUp }, o);
+        placeUi(ob);
+        const same = applied && Math.abs(applied.radius - geom.radius) < 4 && Math.abs(applied.ax - geom.ax) < 2 && Math.abs(applied.ay - geom.ay) < 2;
+        if (same) return false;
+        const el = lmap.getContainer(), r = geom.radius;
+        Object.assign(el.style, { left: `${geom.ax - r}px`, top: `${geom.ay - r}px`, right: "auto", bottom: "auto", width: `${2 * r}px`, height: `${2 * r}px`, transformOrigin: `${r}px ${r}px` });
+        el.classList.add("navcam");
+        applied = { radius: geom.radius, ax: geom.ax, ay: geom.ay };
+        lmap.invalidateSize({ pan: false, animate: false });
+        if (user) lmap.setView([user.lat, user.lng], zoom || lmap.getZoom(), { animate: false });
+        return true;
+    }
+    function paint() {
+        if (!on || paused || !geom) return;
+        const el = lmap.getContainer();
+        const b = displayBearing();
+        el.style.transform = C.cssTransform(geom, b);
+        el.style.setProperty("--navcam-bearing", `${Math.round(b * 100) / 100}deg`);
+        el.style.setProperty("--navcam-unpitch", String(Math.round(1000 / Math.cos(geom.pitchDeg * Math.PI / 180)) / 1000));
+        el.style.setProperty("--navcam-course-rel", `${Math.round(((course == null ? b : course) - b) * 100) / 100}deg`);
+        if (els.compass) els.compass.style.setProperty("--navcam-north", `${-b}deg`);
+    }
+    function restore() {
+        const el = lmap && lmap.getContainer();
+        if (!el) return;
+        for (const p of ["left", "top", "right", "bottom", "width", "height", "transform", "transformOrigin"]) el.style[p] = "";
+        for (const v of ["--navcam-bearing", "--navcam-unpitch", "--navcam-course-rel"]) el.style.removeProperty(v);
+        el.classList.remove("navcam");
+        applied = null;
+        lmap.invalidateSize({ pan: false, animate: false });
+    }
+
+    function tick(t) {
+        raf = 0;
+        if (!on || paused) return;
+        const dt = lastT ? Math.min(100, t - lastT) : 16;
+        lastT = t;
+        if (target != null) bearing = reduceMotion() ? target : C.stepBearing(bearing, target, dt);
+        paint();
+        if (target != null && Math.abs(C.angleDiff(bearing, target)) > 0.05) raf = requestAnimationFrame(tick);
+        else lastT = 0;
+    }
+    const kick = () => { if (!raf && on && !paused) raf = requestAnimationFrame(tick); };
+
+    // ---------------------------------------------------------------- touch hands the map back
+    function onTouch(e) {
+        if (!on || paused || !lmap) return;
+        const el = lmap.getContainer();
+        if (!el.contains(e.target) || (e.target.closest && e.target.closest(".leaflet-control"))) return;
+        pause();
+    }
+    const onResize = () => { if (on && !paused) { layout(); paint(); } };
+
+    // ---------------------------------------------------------------- API
+    function start(o) {
+        if (!supported() || !o || !o.map) return false;
+        lmap = o.map;
+        routeFn = typeof o.route === "function" ? o.route : () => null;
+        load();
+        ensureUi();
+        on = true; paused = false;
+        bearing = 0; target = null; course = null; zoom = null; lastMoveFrom = null;
+        const at = o.at && Number.isFinite(o.at.lat) ? o.at : null;
+        if (at) {
+            user = { lat: at.lat, lng: at.lng };
+            const rb = C.routeBearing(routeFn() || [], at.lat, at.lng);
+            if (rb != null) { course = rb; target = rb; }
+        }
+        zoom = C.zoomForSpeed(0, null);
+        document.addEventListener("pointerdown", onTouch, true);
+        document.addEventListener("wheel", onTouch, { capture: true, passive: true });
+        window.addEventListener("resize", onResize);
+        layout();
+        if (user) lmap.setView([user.lat, user.lng], zoom, { animate: false });
+        paint();
+        kick();                                    // swings from north to the road's direction
+        return true;
+    }
+
+    /** @param {{ lat: number, lng: number, speedMs?: number, headingDeg?: number|null }} f */
+    function follow(f) {
+        if (!on || !f || !Number.isFinite(f.lat) || !Number.isFinite(f.lng)) return;
+        const speed = Number.isFinite(f.speedMs) ? f.speedMs : 0;
+        let moveBearing = null, moveM = 0;
+        if (lastMoveFrom) {
+            moveM = C.metres(lastMoveFrom.lat, lastMoveFrom.lng, f.lat, f.lng);
+            if (moveM >= C.DEFAULTS.moveMinM) moveBearing = C.bearing(lastMoveFrom.lat, lastMoveFrom.lng, f.lat, f.lng);
+        }
+        if (!lastMoveFrom || moveM >= C.DEFAULTS.moveMinM) lastMoveFrom = { lat: f.lat, lng: f.lng };
+        const c = C.courseFrom({ gpsHeading: f.headingDeg, speedMs: speed, routeBearing: C.routeBearing(routeFn() || [], f.lat, f.lng), moveBearing, moveM }, course);
+        if (c.deg != null) { course = c.deg; if (C.shouldRetarget(target, c.deg)) target = c.deg; }
+        user = { lat: f.lat, lng: f.lng };
+        const z = C.zoomForSpeed(speed, zoom);
+        const zoomChanged = z !== zoom;
+        zoom = z;
+        if (paused) return;
+        layout();                                  // the drive panel can grow or shrink
+        if (zoomChanged) lmap.setView([f.lat, f.lng], zoom, { animate: !reduceMotion() });
+        else lmap.setView([f.lat, f.lng], zoom, { pan: { animate: !reduceMotion(), duration: PAN_S, easeLinearity: 1 } });
+        paint();
+        kick();
+    }
+
+    function pause() {
+        if (!on || paused) return;
+        paused = true;
+        if (raf) { cancelAnimationFrame(raf); raf = 0; }
+        lastT = 0;
+        const center = lmap.getCenter();
+        restore();
+        lmap.setView(center, lmap.getZoom(), { animate: false });
+        placeUi(obstacles());
+    }
+    function resume() {
+        if (!on) return;
+        paused = false;
+        layout();
+        if (user) lmap.setView([user.lat, user.lng], zoom || lmap.getZoom(), { animate: false });
+        paint();
+        placeUi(obstacles());
+        kick();
+    }
+    function toggleHeadingUp() {
+        headingUp = !headingUp;
+        save();
+        if (paused) { resume(); return; }
+        applied = null;                            // a different anchor and size
+        layout();
+        paint();
+        kick();
+    }
+    function stop() {
+        if (!on) return;
+        on = false; paused = false;
+        if (raf) { cancelAnimationFrame(raf); raf = 0; }
+        lastT = 0;
+        document.removeEventListener("pointerdown", onTouch, true);
+        document.removeEventListener("wheel", onTouch, true);
+        window.removeEventListener("resize", onResize);
+        restore();
+        placeUi({ top: 0, bottom: 0 });
+        if (els.sky) els.sky.hidden = true;
+        geom = null;
+    }
+
+    return {
+        start, follow, stop, pause, resume, supported, toggleHeadingUp,
+        get active() { return on; },
+        get paused() { return paused; },
+        /** For the console and tests. */
+        state: () => ({ on, paused, headingUp, bearing: Math.round(bearing * 10) / 10, target, course, zoom, geom })
+    };
+})();
+
+if (typeof window !== "undefined") window.NavCamera = NavCamera;

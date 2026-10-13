@@ -28,10 +28,10 @@
       reports arrive within 90 s, both about the next ~2 km (weather also counts
       when it's only in state.weather: rain already here isn't re-reported), the
       second one becomes ONE compound warning ("aage ghat bhi hai aur baarish bhi"):
-        wet road (rain, heavy rain, drizzle, storm)  × ghat / hairpins / blackspot / bridge / level crossing
-        fog                                           × blackspot / hairpins / ghat / level crossing
-        strong wind                                   × bridge / ghat
-        night (state.light = "dark")                  × blackspot / hairpins
+        wet road (rain, heavy rain, drizzle, storm)  × ghat / hairpins / valley edge / blackspot / bridge / level crossing
+        fog                                           × blackspot / hairpins / valley edge / ghat / level crossing
+        strong wind                                   × bridge / ghat / valley edge
+        night (state.light = "dark")                  × blackspot / hairpins / valley edge
       Rules are data (RULES below): explainable, testable, no black box.
       A pair is fused at most once per 10 min.
 
@@ -50,16 +50,16 @@
     const WET = ["weather.rain", "weather.heavy-rain", "weather.drizzle", "weather.storm"];
     /** [groupA kinds, groupB kinds] — either order */
     const RULES = Object.freeze([
-        { id: "wet-road", a: WET, b: ["terrain.ghat-ahead", "terrain.hairpins", "blackspot.ahead", "road.bridge-ahead", "road.level-crossing"] },
-        { id: "fog", a: ["weather.fog"], b: ["blackspot.ahead", "terrain.hairpins", "terrain.ghat-ahead", "road.level-crossing"] },
-        { id: "wind", a: ["weather.wind"], b: ["road.bridge-ahead", "terrain.ghat-ahead"] },
-        { id: "night", a: ["light.dark"], b: ["blackspot.ahead", "terrain.hairpins"] }
+        { id: "wet-road", a: WET, b: ["terrain.ghat-ahead", "terrain.hairpins", "terrain.valley-edge", "blackspot.ahead", "road.bridge-ahead", "road.level-crossing"] },
+        { id: "fog", a: ["weather.fog"], b: ["blackspot.ahead", "terrain.hairpins", "terrain.valley-edge", "terrain.ghat-ahead", "road.level-crossing"] },
+        { id: "wind", a: ["weather.wind"], b: ["road.bridge-ahead", "terrain.ghat-ahead", "terrain.valley-edge"] },
+        { id: "night", a: ["light.dark"], b: ["blackspot.ahead", "terrain.hairpins", "terrain.valley-edge"] }
     ]);
     /** words for the compound line: kind → [desi, plain] */
     const NAMES = Object.freeze({
         "weather.rain": ["baarish", "Rain"], "weather.heavy-rain": ["tez baarish", "Heavy rain"], "weather.drizzle": ["boonda-baandi", "Drizzle"],
         "weather.storm": ["toofan", "Storm"], "weather.fog": ["kohra", "Fog"], "weather.wind": ["tez hawa", "Strong wind"],
-        "terrain.ghat-ahead": ["ghat", "Ghat"], "terrain.hairpins": ["hairpin mod", "Hairpins"], "blackspot.ahead": ["accident blackspot", "Blackspot"],
+        "terrain.ghat-ahead": ["ghat", "Ghat"], "terrain.hairpins": ["hairpin mod", "Hairpins"], "terrain.valley-edge": ["khai wala kinara", "Valley edge"], "blackspot.ahead": ["accident blackspot", "Blackspot"],
         "road.bridge-ahead": ["lamba pul", "Bridge"], "road.level-crossing": ["railway crossing", "Rail crossing"], "light.dark": ["andhera", "Darkness"]
     });
 

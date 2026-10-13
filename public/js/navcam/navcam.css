@@ -1,0 +1,38 @@
+/* MapUnite navigation camera (js/navcam/navcam.js): heading-up, 3D tilt, rider in the lower third */
+
+/* #map is turned by an inline transform while the camera is on. Markers' content is turned back and
+   stretched by 1/cos(pitch), so names and avatars stand upright facing the rider. */
+#map.navcam { will-change: transform; backface-visibility: hidden; }
+#map.navcam .leaflet-marker-icon > * { rotate: var(--navcam-bearing, 0deg); scale: 1 var(--navcam-unpitch, 1); }
+/* Tooltips and popups would lie sideways on a turned map: hidden until the camera hands the map back. */
+#map.navcam .leaflet-tooltip-pane,
+#map.navcam .leaflet-popup-pane { visibility: hidden; }
+
+/* The rider's marker during a drive: an arrow showing the direction of travel (straight up in heading-up). */
+.nav-avatar-wrap { position: relative; width: 100%; height: 100%; }
+.nav-avatar-wrap > img { display: block; }
+.navcam-chevron { position: absolute; inset: -14px; pointer-events: none; display: none; rotate: var(--navcam-course-rel, 0deg); }
+.navcam-chevron::before { content: ""; position: absolute; left: 50%; top: 0; width: 0; height: 0; transform: translateX(-50%);
+  border-left: 8px solid transparent; border-right: 8px solid transparent; border-bottom: 12px solid #34e0b4; filter: drop-shadow(0 1px 2px rgba(0,0,0,.6)); }
+#map.navcam .navcam-chevron { display: block; }
+
+/* Above the horizon: a band that fades the far edge of the map into the app's background. */
+#navcam-sky { position: fixed; left: 0; right: 0; top: 0; z-index: 2; pointer-events: none;
+  background: linear-gradient(to bottom, var(--ink, #0b0f14) 0%, var(--ink, #0b0f14) calc(100% - 56px), transparent 100%); }
+
+#navcam-compass, #navcam-recenter { position: fixed; z-index: var(--z-nav, 3000); font: 600 14px/1 var(--font-ui, system-ui, sans-serif);
+  color: #fff; background: var(--glass-strong, rgba(16,20,28,.86)); border: 1px solid var(--line-strong, rgba(255,255,255,.16));
+  box-shadow: var(--elev-2, 0 4px 14px rgba(0,0,0,.4)); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); cursor: pointer; }
+#navcam-compass { right: 14px; width: 44px; height: 44px; border-radius: 50%; padding: 0; display: grid; place-items: center; }
+#navcam-compass .navcam-needle { position: relative; width: 22px; height: 22px; rotate: var(--navcam-north, 0deg); transition: rotate .2s linear; }
+#navcam-compass .navcam-needle::before { content: ""; position: absolute; left: 50%; top: 0; transform: translateX(-50%);
+  border-left: 6px solid transparent; border-right: 6px solid transparent; border-bottom: 11px solid #ff5a5f; }
+#navcam-compass .navcam-needle::after { content: ""; position: absolute; left: 50%; bottom: 0; transform: translateX(-50%);
+  border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 11px solid rgba(255,255,255,.8); }
+#navcam-compass .n { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: 8px; color: #fff; opacity: 0; }
+#navcam-compass.north .n { opacity: 1; }
+#navcam-compass.north .navcam-needle::before, #navcam-compass.north .navcam-needle::after { opacity: .35; }
+#navcam-recenter { left: 14px; height: 40px; padding: 0 16px 0 12px; border-radius: 20px; display: inline-flex; align-items: center; gap: 8px; color: var(--mint, #34e0b4); }
+#navcam-recenter .navcam-arrow { width: 0; height: 0; border-left: 7px solid transparent; border-right: 7px solid transparent; border-bottom: 12px solid currentColor; }
+#navcam-compass[hidden], #navcam-recenter[hidden], #navcam-sky[hidden] { display: none; }
+@media (prefers-reduced-motion: reduce) { #navcam-compass .navcam-needle { transition: none; } }

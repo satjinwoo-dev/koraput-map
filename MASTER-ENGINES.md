@@ -66,6 +66,12 @@ Set `OLLAMA_MODEL` to the one you pulled. Ollama listens on `127.0.0.1:11434`, w
 
 **Weather.** Storms, rain, drizzle, ice, fog, wind, heat, cold, dust (PM10), dry air, and rain within the hour. The thresholds are in `lib/master/weather.js`. Model data has a resolution of 1–11 km, so the agent asks again every 1 km or every 5 minutes, not every second. Weather you're already riding in stays with the existing advice module's voice line, so nothing is said twice.
 
+**Valley edges.** The topology agent also looks *beside* the road. At every 50 m of the route ahead, it reads the ground 90 m and 135 m out on both sides from the same 90 m elevation data the ghat check uses (Copernicus GLO-90, cached on the phone, so no new service and no key).
+- **What counts:** one side ≥ 30 % lower (27 m down at 90 m and 40.5 m at 135 m; 30 % is the "steep" class in FAO's *Guidelines for Soil Description*, 2006), while the other side isn't falling too. That's a road cut into a hillside with an open drop, and the run must be ≥ 200 m long. Both sides falling is a bridge, a ridge or an embankment, not an edge.
+- **What's said:** "Bhai, 1.2 km aage left side gehri khai hai…", 300–1500 m ahead, once per stretch per 30 min, as advice. With rain, fog, strong wind or after dark it becomes one compound warning ("aage khai wala kinara bhi hai aur baarish bhi"). The side is left or right of travel; the height isn't spoken.
+- **Checked on real data:** the shipped code was run over Copernicus GLO-90 and the OpenStreetMap roads (via Overture Maps) from Visakhapatnam to Koraput, on 5 831 km of trunk, primary, secondary and tertiary roads. It flagged 103 km, all on ghats: the Paderu ghat (the Minimuluru–Garikabanda stretch ASR district police call the most dangerous), Simhachalam ghat road, and the Ananthagiri / Araku ghat. Nothing was flagged on the coastal plain (no stretch below 150 m altitude).
+- **Limits:** a 90 m grid smooths cliffs, so it misses short, sharp drops rather than inventing them. It can't see crash barriers or parapets. It needs a route, like the ghat check.
+
 **Accident blackspots.** No data ships with this, and none was made up. Import an official list with coordinates using `scripts/master/import-blackspots.mjs` (see `data/master/blackspots/README.md`). Until you do, the blackspot agent reports itself as degraded.
 
 **Places, every second.** Ranking runs on the phone every second from a cache of 0.02° tiles, so an emergency answer is instant and works offline. The network is used only to fetch a tile you haven't got.

@@ -258,6 +258,74 @@ test("topology: steep runs from heights; level crossing and breaker said at the 
     assert.ok(h.reports.some((r) => r.kind === "terrain.ghat-ahead" && r.severity === "warning"), h.kinds().join());
 });
 
+test("topology: valley edges from cross-sections: one side falling steeply; bridges, gentle slopes, short or unknown stretches don't count", () => {
+    const T = A.topology;
+    // 10 stations every 50 m; zSide = [left 90, left 135, right 90, right 135]
+    const road = Array(10).fill(500);
+    const flat = [500, 500, 500, 500];
+    const leftDrop = [460, 430, 505, 510];                 // 40 m at 90 (44 %), 70 m at 135 (52 %); the right rises: a hillside road
+    const sides = (from, to, cs) => road.map((_, i) => (i >= from && i <= to ? cs : flat));
+    const runs = T.valleyEdges(road, sides(2, 6, leftDrop), 50);
+    assert.deepEqual(runs, [{ s0: 100, s1: 350, side: "left", dropM: 70 }]);
+    // mirrored: the right side
+    assert.equal(T.valleyEdges(road, sides(2, 6, [505, 510, 460, 430]), 50)[0].side, "right");
+    // both sides falling = a bridge or a ridge, not an edge
+    assert.deepEqual(T.valleyEdges(road, sides(2, 6, [460, 430, 465, 440]), 50), []);
+    // under 30 %: 20 m at 90 m (22 %) is a slope, not a drop
+    assert.deepEqual(T.valleyEdges(road, sides(2, 6, [480, 455, 500, 500]), 50), []);
+    // shorter than 200 m (3 stations = 150 m)
+    assert.deepEqual(T.valleyEdges(road, sides(2, 4, leftDrop), 50), []);
+    // one noisy station inside a run doesn't split it; a DEM hole (NaN) never makes an edge
+    const gap = sides(1, 7, leftDrop); gap[4] = flat;
+    assert.deepEqual(T.valleyEdges(road, gap, 50), [{ s0: 50, s1: 400, side: "left", dropM: 70 }]);
+    assert.deepEqual(T.valleyEdges(road, sides(2, 6, [NaN, 430, 505, 510]), 50), []);
+    // cross-section points sit 90 m and 135 m left/right of travel (heading north: left = west)
+    const pts = [[20, 85], [20.001, 85], [20.002, 85]];
+    const cp = T.crossPoints(GEO, pts);
+    assert.equal(cp.length, 12);
+    const [l90, l135, r90, r135] = cp.slice(4, 8);
+    assert.ok(l90[1] < 85 && r90[1] > 85 && Math.abs(l90[0] - 20.001) < 1e-6);
+    assert.ok(Math.abs(GEO.metres(20.001, 85, l90[0], l90[1]) - 90) < 0.5 && Math.abs(GEO.metres(20.001, 85, r135[0], r135[1]) - 135) < 0.5);
+    assert.ok(GEO.metres(20.001, 85, l135[0], l135[1]) > GEO.metres(20.001, 85, l90[0], l90[1]));
+});
+
+test("topology: a valley edge on the route is said 300–1500 m ahead with its side; at night it becomes one compound warning", async () => {
+    // the ground west of the road falls away between 20.010° and 20.015° N (≈ 550 m of road); east is flat
+    const terrain = { available: () => true, heights: async (pts) => pts.map(([lat, lng]) => {
+        if (lng >= 85 || lat < 20.010 || lat > 20.015) return 500;
+        return 500 - 0.6 * GEO.metres(lat, lng, lat, 85);
+    }) };
+    const h = harness({ api: fakeApi({ "/road": () => ({ ok: true, features: [] }) }), route: ROUTE, agents: [A.corridor, A.topology], extraCaps: { terrain } });
+    h.ride(true);
+    h.fix(20, 85);
+    await flush();
+    rideNorth(h, 50, 300, 50, 12);
+    const v = h.reports.filter((r) => r.kind === "terrain.valley-edge");
+    assert.equal(v.length, 1, h.kinds().join());
+    assert.equal(v[0].severity, "advice");
+    assert.ok(v[0].data.distanceM >= 300 && v[0].data.distanceM <= 1500, `at ${v[0].data.distanceM} m`);
+    assert.ok(v[0].data.lengthM >= 400 && v[0].data.lengthM <= 650, `length ${v[0].data.lengthM}`);
+    assert.equal(v[0].data.side, "left");
+    assert.equal(v[0].data.screen.side, "left");
+    rideNorth(h, 350, 700, 50, 12);
+    assert.equal(h.reports.filter((r) => r.kind === "terrain.valley-edge").length, 1, "said once");
+    // the words: Hinglish spoken, English on screen
+    const persona = PR.install(PH.install(P.createPersona({ style: "desi", rng: () => 0 })));
+    const out = persona.phrase({ kind: "terrain.valley-edge", key: "x", severity: "advice", data: v[0].data }, {});
+    assert.match(out.text, /left side gehri khai hai/);
+    assert.equal(out.display.title, "Valley edge ahead");
+    assert.match(out.display.sub, /^Drop on the left · in /);
+    // after dark the same report is fused into one warning
+    const h2 = harness();
+    COG.install({ brain: h2.brain, bus: h2.bus, now: h2.clock.now });
+    h2.bus.publish("state.ride", { active: true }, { sticky: true });
+    h2.bus.publish("state.light", "dark", { sticky: true });
+    h2.brain.tell({ kind: "terrain.valley-edge", severity: "advice", data: { distanceM: 900, side: "left", screen: { side: "left" } } });
+    h2.clock.advance(100);
+    assert.match(h2.said.at(-1).key, /^master:radar\.compound:night:/);
+    assert.match(h2.said.at(-1).text, /khai wala kinara/);
+});
+
 // ================================================================ blackspot
 test("blackspot agent: warned once at speed × 30 s, louder after dark, fatalities only when known", async (t) => {
     // the corridor agent works out state.light from the real clock (sun elevation at the rider): pin it to
@@ -454,7 +522,7 @@ test("cognition: declined tips teach the Master to stop (with exploration); wet 
 
 // ================================================================ phrases
 test("radar phrase pack: every line renders, desi/plain cover the same kinds, the screen is always English", () => {
-    const sample = { distanceM: 1200, lengthM: 400, now: "abhi", delayMin: 6, dir: "utraai", gradePct: 9, count: 3, hazard: "khatra", why: "fislan", fatalities: 4, first: "ghat", second: "baarish", place: "Sharma Dhaba", category: "dhaba", destination: "Daringbadi", reason: "andhera", mood: "chill", song: "Kesariya", condition: "baarish" };
+    const sample = { distanceM: 1200, lengthM: 400, now: "abhi", delayMin: 6, dir: "utraai", gradePct: 9, count: 3, hazard: "khatra", why: "fislan", fatalities: 4, first: "ghat", second: "baarish", place: "Sharma Dhaba", category: "dhaba", destination: "Daringbadi", reason: "andhera", mood: "chill", song: "Kesariya", condition: "baarish", side: "left" };
     for (const [style, pack] of Object.entries({ desi: PR.desi, plain: PR.plain })) {
         const p = P.createPersona({ style, name: "Asha" });
         for (const [kind, bySev] of Object.entries(pack)) for (const [sev, lines] of Object.entries(bySev)) for (const line of lines) {
@@ -467,7 +535,7 @@ test("radar phrase pack: every line renders, desi/plain cover the same kinds, th
     for (const bySev of Object.values(PR.desi)) for (const lines of Object.values(bySev)) for (const l of lines) assert.equal("title" in l || "sub" in l, false);
     const HINGLISH = /\b(bhai|hai|hain|nahi|kar|karo|aage|ruk|chal|raha|rahi|gaya|thoda|thodi|bahut|aankh|kamzor|wapas|paani|abhi|baad|dhyan|baarish|utraai|andhera)\b/i;
     const persona = PR.install(PH.install(P.createPersona({ style: "desi", rng: () => 0 })));
-    const data = { ...sample, screen: { now: "Now", dir: "descent", hazard: "Sharp bend", why: "wet bridge decks are slippery", first: "Ghat", second: "Rain", category: "Food stop", reason: "you'll arrive after dark", mood: "chilled", destination: "Daringbadi", condition: "Rain" } };
+    const data = { ...sample, screen: { now: "Now", dir: "descent", hazard: "Sharp bend", why: "wet bridge decks are slippery", first: "Ghat", second: "Rain", category: "Food stop", reason: "you'll arrive after dark", mood: "chilled", destination: "Daringbadi", condition: "Rain", side: "left" } };
     for (const [kind, bySev] of Object.entries(PR.desi)) for (const sev of Object.keys(bySev)) {
         const out = persona.phrase({ kind, key: kind, severity: sev, data });
         assert.doesNotMatch(`${out.display.title} ${out.display.sub}`, HINGLISH, `${kind}/${sev}: ${out.display.title} / ${out.display.sub}`);
