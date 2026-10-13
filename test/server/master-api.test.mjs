@@ -235,14 +235,14 @@ function llmWorld({ gemini, chat, tags = ["llama3.2:3b"], wiki = [] } = {}) {
 }
 const geminiOk = (text, chunks = [{ web: { uri: "https://b.example/y", title: "b.example" } }]) => () => ({ json: { candidates: [{ content: { parts: [{ text: "thinking…", thought: true }, { text }] }, finishReason: "STOP", groundingMetadata: { webSearchQueries: ["petrol pump"], groundingChunks: chunks } }] } });
 
-test("deep search on Gemini: grounded with Google Search, sources from grounding chunks, speech made safe, cache + budget", async () => {
+test("deep search on Gemini with grounding on (GEMINI_GROUNDING=auto): Google Search, sources from grounding chunks, speech made safe, cache + budget", async () => {
     const { f, seen } = llmWorld({ gemini: geminiOk("```json\n" + ANSWER("Bhai, pump 2 km aage hai, number 9876543210 hai, details https://x.y pe. Emergency ho toh 112.") + "\n```") });
-    const engines = LLM.enginesFromEnv({ GEMINI_API_KEY: "GK", OLLAMA_DISABLED: "1" }, { fetchImpl: f, now: () => NOW });
+    const engines = LLM.enginesFromEnv({ GEMINI_API_KEY: "GK", GEMINI_GROUNDING: "auto", OLLAMA_DISABLED: "1" }, { fetchImpl: f, now: () => NOW });
     const s = S.createSearch({ engines, now: () => NOW, dailyMax: 1 });
     const r = await s.handle({ query: "petrol pump kahan hai", context: { lat: 20.2, lng: 85.1, riding: true } });
     assert.equal(r.status, 200);
     assert.equal(seen.gemini[0].key, "GK");
-    assert.match(seen.gemini[0].url, /models\/gemini-flash-latest:generateContent$/);
+    assert.match(seen.gemini[0].url, /models\/gemini-flash-lite-latest:generateContent$/);
     assert.deepEqual(seen.gemini[0].body.tools, [{ google_search: {} }]);
     assert.match(seen.gemini[0].body.systemInstruction.parts[0].text, /Desi|desi/);
     assert.deepEqual([r.json.engine, r.json.grounded], ["gemini", true]);
@@ -299,7 +299,7 @@ test("deep search: an unusable Gemini reply also falls back; a local model with 
     // Ollama not running at all, no Gemini key
     const w3 = llmWorld({ tags: null });
     const r3 = await S.createSearch({ engines: LLM.enginesFromEnv({}, { fetchImpl: w3.f, now: () => NOW }), now: () => NOW }).handle({ query: "kuch bhi batao" });
-    assert.deepEqual(r3.json.tried.map((t) => t.error), ["not-configured", "UNREACHABLE"]);
+    assert.deepEqual(r3.json.tried.map((t) => t.error), ["not-configured", "not-configured", "UNREACHABLE"]);   // gemini, groq: no keys
     // only Ollama switched off and no key: nothing configured at all
     assert.equal((await S.createSearch({ engines: LLM.enginesFromEnv({ OLLAMA_DISABLED: "1" }) }).handle({ query: "hello" })).status, 503);
 });
@@ -407,7 +407,7 @@ test("router: every route is mounted with its own limit; CORS for the app, 403 f
     assert.equal(site.code, 400);
     const status = await run(routes[9], { method: "GET", headers: {}, query: {} });
     assert.equal(status.body.configured.traffic, false);
-    assert.deepEqual([status.body.reasoning.order, status.body.reasoning.ready], [["gemini"], false]);
+    assert.deepEqual([status.body.reasoning.order, status.body.reasoning.ready], [["gemini", "groq"], false]);
     const bw = await run(routes[8], { method: "GET", headers: {}, query: { kb: "8" } });
     assert.equal(bw.body.length, 8192);
 });

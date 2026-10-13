@@ -120,8 +120,9 @@
         async ask(query) {
             const r = await brain.delegate("deep-search", { query }, { timeoutMs: 60000 });
             if (r.ok && r.result && r.result.spoken) {
-                // be honest on screen about an answer nobody checked live (the local model with nothing retrieved)
-                const note = r.result.engine === "ollama" && !r.result.grounded ? "Local AI, not checked live · " : "";
+                // be honest on screen about an answer nobody checked live: only Gemini with Google Search reads the web
+                // just now; every other answer (Gemini without Search, Groq, the local model) is from what the model knows
+                const note = r.result.live ? "" : r.result.engine === "ollama" ? "Local AI, not checked live · " : "Not checked live · ";
                 return { ok: true, text: r.result.spoken, display: { title: r.result.title, sub: `${note}${r.result.summary}`.slice(0, 140) }, result: r.result };
             }
             const w = words("search.failed", {});

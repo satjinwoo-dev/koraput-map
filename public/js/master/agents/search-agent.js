@@ -7,10 +7,11 @@
      → { ok, result: { spoken, title, summary, bullets, sources, confidence, cached } }
 
    The research itself runs on our server (/api/master/search, lib/master/search.js
-   + llm.js): Google Gemini grounded with Google Search (free tier), or, when
-   Gemini is unavailable or over quota, a LOCAL model through Ollama on the
-   server's own GPU. Either way the answer has the same shape; result.engine
-   ("gemini" | "ollama") and result.grounded (sources were read) say which.
+   + llm.js), on a chain of free engines: Google Gemini (free tier, without
+   Google Search unless GEMINI_GROUNDING=auto), then Groq (free tier), then a
+   LOCAL model through Ollama on the server's own GPU. Either way the answer has
+   the same shape; result.engine ("gemini" | "groq" | "ollama"), result.grounded
+   (sources were read) and result.live (the web was searched just now) say which.
    This agent adds what only the phone knows, as CONTEXT for the answer:
    roughly where the rider is (2 decimals ≈ 1 km), the place name, riding or
    stopped, the bike, the destination, local time, the voice's style (desi /
@@ -88,7 +89,7 @@
                     throw err;
                 }
                 const a = r.data.answer || {};
-                const result = { spoken: a.spoken || "", title: a.title || "Answer", summary: a.summary || "", bullets: a.bullets || [], confidence: a.confidence ?? 0.5, sources: r.data.sources || [], cached: Boolean(r.data.cached), engine: r.data.engine || null, grounded: Boolean(r.data.grounded) };
+                const result = { spoken: a.spoken || "", title: a.title || "Answer", summary: a.summary || "", bullets: a.bullets || [], confidence: a.confidence ?? 0.5, sources: r.data.sources || [], cached: Boolean(r.data.cached), engine: r.data.engine || null, grounded: Boolean(r.data.grounded), live: Boolean(r.data.live) };
                 ctx.setState("answer", { at: ctx.now(), query, ...result });
                 return result;
             }
