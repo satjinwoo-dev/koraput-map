@@ -160,6 +160,8 @@ const VOICE_COMMANDS = [
     { name: "quietRide", test: (t) => (/\b(quiet ride|no (coaching|advice|tips)|(coaching|advice|tips) off)\b/.test(t) ? "on" : /\b((coaching|advice|tips) (on|back)|normal ride)\b/.test(t) ? "off" : false) },
     { name: "unmute", test: (t) => /\b(unmute|un mute|voice on|alerts on|sound on|speak again)\b/.test(t) },
     { name: "mute", test: (t) => /\b(mute|quiet|silence|shut up|chup|alerts off|voice off)\b/.test(t) },
+    // "share my location" / "meri location bhej do" / "gang ko location bhejo": posts where you are to the group chat
+    { name: "shareLocation", test: (t) => /\b(share|send|bhej|bhejo|bhejna|bhej do)\b.*\b(location|position|lokeshan)\b|\b(location|position|lokeshan)\b.*\b(share|send|bhej|bhejo|bhejna|bhej do)\b/.test(t) },
     { name: "stopNav", test: (t, ctx) => /\b(stop|end|cancel|exit|finish)\b.*\b(navigation|navigating|drive|ride|trip|route|directions)\b/.test(t) || (ctx.mode === "ptt" && /^(stop|ruko|band karo|end)$/.test(t)) },
     { name: "routeAvoid", test: (t) => {
         const R = "(tolls?|toll roads?|highways?|motorways?|expressways?)";
@@ -182,6 +184,33 @@ const VOICE_COMMANDS = [
     { name: "speed", test: (t) => /\b(my speed|how fast|what speed|current speed)\b/.test(t) },
     { name: "recenter", test: (t) => /\b(re ?cent(er|re)|locate me|center map|centre map|show my location)\b/.test(t) }
 ];
+
+/**
+ * The Master AI's action (lib/master/search.js ACTIONS: already checked on the server) → one of the
+ * voice commands above, so it runs through exactly the same code and checks as a spoken command:
+ * an SOS still waits for "confirm SOS". Anything unknown or malformed → null (nothing happens).
+ */
+/** Commands whose spoken reply is the answer itself (the Master's line is skipped for these). */
+const MASTER_ANSWERING_COMMANDS = ["masterNearest", "whereAmI", "howFar", "convoy"];
+
+function masterActionCommand(action) {
+    if (!action || typeof action !== "object") return null;
+    const str = (v) => (typeof v === "string" ? v.trim() : "");
+    switch (action.name) {
+        case "navigate_to": { const p = str(action.place); return p.length >= 2 && p.length <= 80 ? { name: "navigateTo", arg: p } : null; }
+        case "start_navigation": return { name: "startNav", arg: null };
+        case "stop_navigation": return { name: "stopNav", arg: null };
+        case "send_sos": return { name: "sos", arg: null };
+        case "share_location": return { name: "shareLocation", arg: null };
+        case "find_nearby": return ["hospital", "mechanic", "service", "hotel", "food"].includes(action.category) ? { name: "masterNearest", arg: action.category } : null;
+        case "where_am_i": return { name: "whereAmI", arg: null };
+        case "how_far": return { name: "howFar", arg: null };
+        case "squad_status": return { name: "convoy", arg: null };
+        case "quiet_ride": return typeof action.on === "boolean" ? { name: "quietRide", arg: action.on ? "on" : "off" } : null;
+        case "music": return ["next", "previous", "pause", "play"].includes(action.control) ? { name: "masterMusic", arg: action.control } : null;
+        default: return null;
+    }
+}
 
 function matchVoiceCommand(text, ctx) {
     for (const c of VOICE_COMMANDS) {
@@ -851,7 +880,14 @@ const VoiceAssistant = {
     async masterAsk(query, o = {}) {
         const M = window.MUMaster.live;
         if (!o.chat) this.reply(this.masterStyle() === "plain" ? "One moment, I'll look that up." : "Ek second, dhoondh ke batata hoon.");
-        try { this.masterSay(await M.ask(query, { chat: Boolean(o.chat) })); } catch (e) { this.reply("Sorry, I couldn't look that up right now."); }
+        let ans;
+        try { ans = await M.ask(query, { chat: Boolean(o.chat) }); } catch (e) { this.reply("Sorry, I couldn't look that up right now."); return; }
+        const cmd = masterActionCommand(ans && ans.result && ans.result.action);
+        // The Master's quick acknowledgement first ("Chal bhai, Araku ka rasta nikalta hoon"), then the app does it.
+        // When the app's command IS the answer (the nearest place, where you are, how far, the squad), only the
+        // app speaks: its answer is real data, and the model's guess must never contradict it.
+        if (!cmd || !MASTER_ANSWERING_COMMANDS.includes(cmd.name)) this.masterSay(ans);
+        if (cmd) this.execute(cmd);
     },
     async masterHelp(cmd) {
         const M = window.MUMaster && window.MUMaster.live;
@@ -878,7 +914,7 @@ const VoiceAssistant = {
                 this.masterHelp(cmd);
                 break;
             case "help":
-                this.reply("You can say: how far, where is, then a name, squad status, radio status, regroup, who's approaching, speed limit, avoid tolls, navigate to, then a place, start navigation, stop navigation, where am I, mute, or send S O S.");
+                this.reply("You can say: how far, where is, then a name, squad status, radio status, regroup, who's approaching, speed limit, avoid tolls, navigate to, then a place, start navigation, stop navigation, where am I, share my location, mute, or send S O S. Or just ask me anything.");
                 break;
             case "mute":
                 this.mutedUntil = Date.now() + this.MUTE_MS;
@@ -913,6 +949,9 @@ const VoiceAssistant = {
                 break;
             case "whereAmI":
                 this.whereAmI();
+                break;
+            case "shareLocation":
+                this.shareLocation();
                 break;
             case "whereIs":
                 this.whereIs(cmd.arg || "");
@@ -1071,6 +1110,26 @@ const VoiceAssistant = {
             } catch (e) { return null; }
         };
         return viaGoogle().then((g) => g || viaNominatim());
+    },
+
+    /** Post where the rider is to the group chat (respects the sharing setting; rounded in approximate mode). */
+    shareLocation() {
+        const desi = this.masterStyle() !== "plain";
+        if (!myCoords) { this.reply(desi ? "Bhai, GPS abhi lock nahi hua. Thodi der mein bolna." : "I don't have your GPS position yet."); return; }
+        const mode = typeof PrivacyControls !== "undefined" ? PrivacyControls.state.sharingMode : "exact";
+        if (mode === "off") { this.reply(desi ? "Location sharing band hai settings mein. Ruk ke on kar le, phir bhejta hoon." : "Location sharing is off in your settings. Once you've stopped, switch it on and ask again."); return; }
+        const digits = mode === "approx" ? 2 : 5;                           // ~1 km in approximate mode, like the live map
+        const lat = myCoords.lat.toFixed(digits), lng = myCoords.lng.toFixed(digits);
+        // "Local Area" is core.js's placeholder when the town couldn't be looked up: not a place to tell the gang
+        const town = typeof cityName === "string" && cityName && cityName !== "Local Area" ? cityName : "";
+        const where = town ? `near ${town}` : "here";
+        const who = (typeof currentUser !== "undefined" && currentUser.name) || "I";
+        const payload = { name: typeof currentUser !== "undefined" ? currentUser.name : "", type: "text", data: `📍 ${who} is ${where}${mode === "approx" ? " (approx.)" : ""}: https://www.google.com/maps?q=${lat},${lng}`, replyTo: null };
+        const online = typeof navigator === "undefined" || navigator.onLine !== false;
+        if (online && typeof socket !== "undefined") socket.emit("chatMessage", payload);
+        else if (typeof offlineMessageQueue !== "undefined") offlineMessageQueue.push(payload);
+        this.reply(online ? (desi ? "Gang ko location bhej di, bhai." : "Sent your location to the group chat.")
+            : (desi ? "Network nahi hai, location queue mein hai. Signal aate hi chali jayegi." : "No connection: your location will be sent as soon as you're back online."));
     },
 
     whereAmI() {

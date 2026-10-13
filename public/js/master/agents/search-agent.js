@@ -89,7 +89,9 @@
                     throw err;
                 }
                 const a = r.data.answer || {};
-                const result = { spoken: a.spoken || "", title: a.title || "Answer", summary: a.summary || "", bullets: a.bullets || [], confidence: a.confidence ?? 0.5, sources: r.data.sources || [], cached: Boolean(r.data.cached), engine: r.data.engine || null, grounded: Boolean(r.data.grounded), live: Boolean(r.data.live) };
+                const result = { spoken: a.spoken || "", title: a.title || "Answer", summary: a.summary || "", bullets: a.bullets || [], confidence: a.confidence ?? 0.5, sources: r.data.sources || [], cached: Boolean(r.data.cached), engine: r.data.engine || null, grounded: Boolean(r.data.grounded), live: Boolean(r.data.live),
+                    // what the rider asked the app to do (checked on the server; js/voice.js runs it through its own commands)
+                    action: r.data.action && typeof r.data.action === "object" ? r.data.action : null };
                 ctx.setState("answer", { at: ctx.now(), query, ...result });
                 return result;
             }
