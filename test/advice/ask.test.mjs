@@ -279,12 +279,12 @@ test("push-to-talk: 'hello' (one word, no command) goes to the Master as chat, n
     await sleep(0);
     assert.deepEqual(asked, [{ q: "Hello", chat: true }]);
     assert.deepEqual(v.spoken, ["say:Namaste bhai! Bol, kya help karun?"], "no 'Ek second, dhoondh ke…' before a greeting, and no fallback");
-    // a real question (more than 3 words) is a lookup: the 'one moment' line first, chat off
+    // a real question (more than 3 words) is a lookup, chat off; answered quickly, it has no lead-in
     v.spoken.length = 0;
     v.VA.handleAlternatives([{ transcript: "Araku valley mein kal baarish hogi kya", confidence: 0.9 }], "ptt");
     await sleep(0);
     assert.deepEqual(asked.at(-1), { q: "Araku valley mein kal baarish hogi kya", chat: false });
-    assert.match(v.spoken[0], /^reply:Ek second/);
+    assert.deepEqual(v.spoken, ["say:Namaste bhai! Bol, kya help karun?"]);
     // nothing usable heard: an honest line, the Master isn't bothered
     v.spoken.length = 0;
     v.VA.handleAlternatives([{ transcript: " ", confidence: 0.9 }], "ptt");
@@ -387,10 +387,33 @@ test("voice action: an answer without an action only speaks; a bad action is ign
     const none = actionWorld({ action: null, spoken: "Haan bhai, mast weather hai." });
     await none.v.VA.masterAsk("mausam kaisa hai", {});
     assert.deepEqual(none.executed, []);
-    assert.deepEqual(none.said, ["Ek second, dhoondh ke batata hoon.", "say:Haan bhai, mast weather hai."]);
+    assert.deepEqual(none.said, ["say:Haan bhai, mast weather hai."], "a quick answer has no 'Ek second' lead-in");
     const bad = actionWorld({ action: { name: "delete_everything" } });
     await bad.v.VA.masterAsk("sab delete kar de", {});
     assert.deepEqual(bad.executed, []);
+});
+
+test("voice action: an action runs at once, with no 'Ek second' lead-in; only a slow lookup gets one", async () => {
+    const nav = actionWorld({ action: { name: "navigate_to", place: "Araku Valley" }, spoken: "Chal bhai, Araku ka rasta nikalta hoon." });
+    nav.v.VA.navigateTo = () => {};
+    await nav.v.VA.masterAsk("Araku le chal", {});
+    assert.deepEqual(nav.said, ["say:Chal bhai, Araku ka rasta nikalta hoon."]);
+    assert.deepEqual(nav.executed, [{ name: "navigateTo", arg: "Araku Valley" }]);
+    await sleep(40);
+    assert.deepEqual(nav.said, ["say:Chal bhai, Araku ka rasta nikalta hoon."], "the lead-in timer was cancelled, nothing late");
+    // an engine falling back takes longer: the rider hears that it's still working, then the answer
+    const slow = actionWorld({ spoken: "Haan bhai, kal baarish hai." });
+    slow.v.VA.MASTER_FILLER_MS = 10;
+    slow.v.setMaster({ persona: { style: "desi" }, ask: async () => { await sleep(40); return { ok: true, text: "Haan bhai, kal baarish hai.", display: { title: "x", sub: "y" }, result: { action: null } }; } });
+    await slow.v.VA.masterAsk("Araku mein kal baarish hogi kya", {});
+    assert.deepEqual(slow.said, ["Ek second, dhoondh raha hoon.", "say:Haan bhai, kal baarish hai."]);
+    // a failed lookup cancels it too
+    const fail = actionWorld();
+    fail.v.VA.MASTER_FILLER_MS = 10;
+    fail.v.setMaster({ persona: { style: "desi" }, ask: async () => { throw new Error("offline"); } });
+    await fail.v.VA.masterAsk("kuch bhi", {});
+    await sleep(30);
+    assert.deepEqual(fail.said, ["Sorry, I couldn't look that up right now."]);
 });
 
 test("voice action: when the app's command is the answer (nearest place, squad, where am I, how far), only the app speaks", async () => {

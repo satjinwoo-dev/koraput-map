@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-13.3";           // Voice actions: the Master can navigate, share location, find help, start an SOS (confirmed), control music
+const VERSION = "mu-2026-10-13.4";           // Voice: no "Ek second" lead-in before a quick answer or an action
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
