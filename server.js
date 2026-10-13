@@ -65,7 +65,8 @@
                               has no free quota without billing, it answers 429) | "auto" (try it, drop it for
                               the day on the first 429); GEMINI_DAILY_MAX default 200
      GROQ_API_KEY             Master AI cloud engine 2 (Groq free tier, no card; OpenAI-compatible).
-                              GROQ_MODEL default llama-3.3-70b-versatile; GROQ_DAILY_MAX default 500;
+                              GROQ_MODEL default llama-3.3-70b-versatile (a retired one is replaced by a model
+                              the account's list still serves; start-up says which); GROQ_DAILY_MAX default 500;
                               GROQ_BASE_URL default https://api.groq.com/openai/v1
      OLLAMA_URL               Master AI local engine (Ollama), default http://127.0.0.1:11434;
                               OLLAMA_MODEL default llama3.2:3b (4 GB GPU; llama3.1:8b / qwen2.5:7b on 6–8 GB);
@@ -3398,7 +3399,9 @@ function listen() {
             const g = h.gemini ? (h.gemini.configured ? `gemini (${(h.gemini.models || [h.gemini.model]).join(" → ")}${h.gemini.grounding === "auto" ? ", Google Search on" : ""})` : "gemini: no GEMINI_API_KEY") : "";
             const q = h.groq ? (!h.groq.configured ? "groq: no GROQ_API_KEY"
                 : !h.groq.reachable ? `groq: key not accepted or unreachable (${h.groq.error || "?"})`
-                : h.groq.hasModel === false ? `groq: model ${h.groq.model} no longer served, set GROQ_MODEL` : `groq (${h.groq.model})`) : "";
+                : h.groq.hasModel === false ? `groq: no chat model served (models: ${(h.groq.served || []).join(", ") || "none"})`
+                : h.groq.configuredServed === false ? `groq (${h.groq.model}; GROQ_MODEL ${h.groq.configuredModel} is no longer served, using this instead)`
+                : `groq (${h.groq.model})`) : "";
             const o = h.ollama ? (h.ollama.up ? (h.ollama.hasModel ? `ollama (${h.ollama.model})` : `ollama up, but run: ollama pull ${h.ollama.model}`) : "ollama: not running") : "";
             console.log(`   Master AI reasoning [${h.order.join(" → ")}]: ${[g, q, o].filter(Boolean).join(" · ")}${h.ready ? "" : "  ⚠ no engine ready: Deep Search will answer \"not available\""}`);
         }).catch(() => {});

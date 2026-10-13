@@ -149,16 +149,24 @@ test("Groq: a model without JSON mode (400) is asked once more plainly; GROQ_MOD
     assert.equal(w2.seen.groq[0].url, "https://llm.example/openai/v1/chat/completions");
 });
 
-test("health: Groq's model list says whether GROQ_MODEL is still served (cached); a bad key or retired model isn't 'ready'", async () => {
+test("health: Groq's model list says whether GROQ_MODEL is still served (cached); a retired one is replaced by a served model; a bad key or no chat model isn't 'ready'", async () => {
     const ok = world({ groqModels: ["llama-3.3-70b-versatile", "other"] });
     const e = LLM.enginesFromEnv({ GROQ_API_KEY: "QK", MASTER_LLM_ORDER: "groq" }, { fetchImpl: ok.fetchImpl, now: () => T0, log: quiet });
     const h = await e.health();
     assert.deepEqual([h.ready, h.groq.reachable, h.groq.hasModel, h.groq.model], [true, true, true, "llama-3.3-70b-versatile"]);
     await e.health();
     assert.equal(ok.seen.groqModels, 1, "cached");
-    const retired = world({ groqModels: ["something-else"] });
-    const h2 = await LLM.enginesFromEnv({ GROQ_API_KEY: "QK", MASTER_LLM_ORDER: "groq" }, { fetchImpl: retired.fetchImpl, now: () => T0, log: quiet }).health();
-    assert.deepEqual([h2.ready, h2.groq.hasModel], [false, false]);
+    // GROQ_MODEL retired (what Render's log said on 13 Oct 2026 for llama-3.1-8b-instant): a served model takes over
+    const retired = world({ groqModels: ["whisper-large-v3", "openai/gpt-oss-20b", "llama-3.3-70b-versatile"] });
+    const h2 = await LLM.enginesFromEnv({ GROQ_API_KEY: "QK", GROQ_MODEL: "llama-3.1-8b-instant", MASTER_LLM_ORDER: "groq" }, { fetchImpl: retired.fetchImpl, now: () => T0, log: quiet }).health();
+    assert.deepEqual([h2.ready, h2.groq.hasModel, h2.groq.configuredServed, h2.groq.model, h2.groq.configuredModel], [true, true, false, "llama-3.3-70b-versatile", "llama-3.1-8b-instant"]);
+    assert.deepEqual(h2.groq.served, ["llama-3.3-70b-versatile", "openai/gpt-oss-20b"], "speech models aren't offered");
+    // not even a preferred one: any chat model; only speech models: not ready
+    const other = world({ groqModels: ["vendor/new-chat-model"] });
+    assert.equal((await LLM.enginesFromEnv({ GROQ_API_KEY: "QK", MASTER_LLM_ORDER: "groq" }, { fetchImpl: other.fetchImpl, now: () => T0, log: quiet }).health()).groq.model, "vendor/new-chat-model");
+    const speechOnly = world({ groqModels: ["whisper-large-v3"] });
+    const h4 = await LLM.enginesFromEnv({ GROQ_API_KEY: "QK", MASTER_LLM_ORDER: "groq" }, { fetchImpl: speechOnly.fetchImpl, now: () => T0, log: quiet }).health();
+    assert.deepEqual([h4.ready, h4.groq.hasModel], [false, false]);
     const badKey = world({ groqModels: null });
     const h3 = await LLM.enginesFromEnv({ GROQ_API_KEY: "nope", MASTER_LLM_ORDER: "groq" }, { fetchImpl: badKey.fetchImpl, now: () => T0, log: quiet }).health();
     assert.deepEqual([h3.ready, h3.groq.reachable, h3.groq.error], [false, false, "HTTP_ERROR"]);
@@ -316,4 +324,24 @@ test("the chain doesn't hold time back for an engine known to be down: with Olla
     await ollama.check();                                            // what the server does at start-up
     await engines.reason({ system: "s", prompt: "p", deadlineMs: 20000 });
     assert.ok(got[1] > 19000, `known down: Gemini gets the whole 20 s (${got[1]} ms)`);
+});
+
+test("Groq answers on a served model when GROQ_MODEL is retired, and re-reads the list if a model is retired mid-day", async () => {
+    let served = ["llama-3.3-70b-versatile", "openai/gpt-oss-120b"];
+    const { fetchImpl, seen } = world({ groqModels: served, groq: (body) => served.includes(body.model)
+        ? groqText(ANSWER("Haan bhai, bol!"))() : { status: 400, json: { error: { code: "model_decommissioned", message: `The model ${body.model} has been decommissioned` } } } });
+    const groqModels = () => served;
+    const f = async (url, init) => (String(url).endsWith("/openai/v1/models") ? { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ data: groqModels().map((id) => ({ id })) }) } : fetchImpl(url, init));
+    let t = T0;
+    const e = LLM.enginesFromEnv({ GROQ_API_KEY: "QK", GROQ_MODEL: "llama-3.1-8b-instant", MASTER_LLM_ORDER: "groq", OLLAMA_DISABLED: "1", MASTER_RETRIEVAL: "none" }, { fetchImpl: f, now: () => t, log: quiet });
+    // no health check first (as if start-up didn't get the list): the first question fetches it
+    const r = await e.reason({ system: "s", prompt: "Hello", deadlineMs: 20000, accept: (x) => S.parseAnswer(x) !== null });
+    assert.deepEqual([r.ok, r.engine, r.model], [true, "groq", "llama-3.3-70b-versatile"]);
+    assert.deepEqual(seen.groq.map((g) => g.body.model), ["llama-3.3-70b-versatile"], "never asks the retired model");
+    // Groq retires llama-3.3 later the same day: the 400 makes it read the list again and move on at once
+    served = ["openai/gpt-oss-120b"];
+    t += 60000;
+    const r2 = await e.reason({ system: "s", prompt: "Hello", deadlineMs: 20000, accept: (x) => S.parseAnswer(x) !== null });
+    assert.deepEqual([r2.ok, r2.model], [true, "openai/gpt-oss-120b"]);
+    assert.deepEqual(seen.groq.slice(1).map((g) => g.body.model), ["llama-3.3-70b-versatile", "openai/gpt-oss-120b"]);
 });
