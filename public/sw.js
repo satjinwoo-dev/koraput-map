@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-11.6";           // Master AI avatar: the particle face (corner view + full screen), synced to the voice and the brain
+const VERSION = "mu-2026-10-13.1";           // Master AI: free reasoning chain (Gemini without Search → Groq → Ollama), "not checked live" note
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;

@@ -11,8 +11,9 @@ This adds the "Section 2" engines to the Master AI's existing kernel (`public/js
                                            │   + terrain cap (DEM) → ghats; geometry → hairpins
                                            └─ blackspot  ──POST──▶ /blackspots   official lists you import
  poi (ranks every 1 s from its tile cache) ──────────────POST──▶ /poi          Google Places (vetted) + OSM
- deep-search (task.deep-search) ─────────────────────────POST──▶ /search       Gemini + Google Search (GEMINI_API_KEY)
-                                                                     └─ fallback: Ollama on this machine (+ Wikipedia)
+ deep-search (task.deep-search) ─────────────────────────POST──▶ /search       free chain: Gemini (GEMINI_API_KEY)
+                                                                     → Groq (GROQ_API_KEY) → Ollama on this machine
+                                                                     (+ Wikipedia notes for engines without live web)
  destination (on a new route) ───────────────────────────POST──▶ /destination  sun, forecast, blackspots, hospital/police
  mood (media cap: Android media sessions) ───────────────POST──▶ /music        Last.fm tags/similar  (LASTFM_API_KEY)
  link (radio cap + response timings) ─────────────────────GET──▶ /bw           random bytes, timed on the phone
@@ -29,14 +30,21 @@ Nothing to install: the routes are mounted in `server.js` and the scripts are in
 | none | weather, air quality, road features, destination check | always on (Open-Meteo, Overpass) |
 | `GOOGLE_MAPS_SERVER_KEY` | ratings and reviews for places (vetting). Cost: up to 5 Places calls per new 2.2 km tile, with the reviews field (a premium SKU). `MASTER_POI_GOOGLE=0` turns this off and keeps the key for the search box | OSM places only, labelled "unvetted" |
 | `TOMTOM_API_KEY` | live jams and closures | no traffic reports |
-| `GEMINI_API_KEY` (+ `GEMINI_MODEL`, `GEMINI_DAILY_MAX`) | Deep Search on Google Gemini's free tier, grounded with Google Search | Deep Search runs on local Ollama only |
-| `OLLAMA_URL`, `OLLAMA_MODEL` (no key) | Deep Search on a local model, free and private; the fallback when Gemini is down or over quota | without Gemini either, the voice says it can't look things up |
-| `MASTER_LLM_ORDER` | `gemini,ollama` (default), `ollama,gemini` (local first), `ollama` (local only) | |
+| `GEMINI_API_KEY` (+ `GEMINI_MODEL`, `GEMINI_THINKING`, `GEMINI_GROUNDING`, `GEMINI_DAILY_MAX`) | Deep Search on Google Gemini's free tier, no card. Default model `gemini-flash-lite-latest`, about 1 s an answer. Google Search grounding is **off** by default: without billing it answers 429 | the next engine answers |
+| `GROQ_API_KEY` (+ `GROQ_MODEL`, `GROQ_DAILY_MAX`, `GROQ_BASE_URL`) | Deep Search on Groq's free tier, no card (OpenAI-compatible). Default model `llama-3.3-70b-versatile` | the next engine answers |
+| `OLLAMA_URL`, `OLLAMA_MODEL` (no key) | Deep Search on a local model, free and private; the last fallback | without any engine, the voice says it can't look things up |
+| `MASTER_LLM_ORDER` | `gemini,groq,ollama` (default); any subset, any order (`ollama,groq` = local first) | |
+| `MASTER_RETRIEVAL` | `wikipedia` (default) or `none`: notes for the engines that don't search the web themselves (`OLLAMA_RETRIEVAL` is the old name) | |
 | `LASTFM_API_KEY` | music mood from tags, song suggestions | mood from title words only, no suggestions |
 | `OPEN_METEO_API_KEY` | only with a commercial Open-Meteo plan | keyless (free for non-commercial use) |
 | `MASTER_BLACKSPOTS_DIR` | where the official blackspot files are | `data/master/blackspots/` (empty until you import a list) |
 
 `GET /api/master/status` shows what's configured, how many blackspots are loaded, and the cache and circuit-breaker health of each upstream.
+
+**The free cloud engines (no credit card).** Make both keys. Both have free tiers with per-minute and per-day limits, and the chain moves on when one is used up:
+- **Gemini:** create a key in Google AI Studio and set `GEMINI_API_KEY`. Leave `GEMINI_GROUNDING` unset unless the key's project has billing.
+- **Groq:** sign up at console.groq.com, create an API key, and set `GROQ_API_KEY`.
+- **Where the keys go:** on Render, under the service's **Environment** settings. On your machine, run `GEMINI_API_KEY=… GROQ_API_KEY=… npm start`. The server reads no `.env` file, and a key never goes in the repository.
 
 **Local reasoning on your RTX 3050 (Ollama).** Install Ollama on the machine that runs `server.js`, then pull a model sized for your card:
 
@@ -46,7 +54,7 @@ ollama pull llama3.1:8b     # 6–8 GB RTX 3050: better reasoning and Hinglish
 ollama pull qwen2.5:7b      # 6–8 GB alternative, strong at following the JSON format
 ```
 
-Set `OLLAMA_MODEL` to the one you pulled. Ollama listens on `127.0.0.1:11434`, which is the default `OLLAMA_URL`. If the server runs somewhere else (Render, a VPS), the local GPU isn't reachable from there: run `server.js` on the GPU machine, or point `OLLAMA_URL` at it over a private network, and never expose Ollama to the internet. Start-up prints which engines are ready, for example `Master AI reasoning [gemini → ollama]: gemini (gemini-flash-latest) · ollama (llama3.2:3b)`. `GET /api/master/status` shows the same under `reasoning`. The first question after a cold start loads the model into the GPU, which takes a few seconds. `OLLAMA_KEEP_ALIVE=30m` keeps it loaded.
+Set `OLLAMA_MODEL` to the one you pulled. Ollama listens on `127.0.0.1:11434`, which is the default `OLLAMA_URL`. If the server runs somewhere else (Render, a VPS), the local GPU isn't reachable from there: run `server.js` on the GPU machine, or point `OLLAMA_URL` at it over a private network, and never expose Ollama to the internet. Start-up prints which engines are ready, for example `Master AI reasoning [gemini → groq → ollama]: gemini (gemini-flash-lite-latest) · groq (llama-3.3-70b-versatile) · ollama (llama3.2:3b)`. `GET /api/master/status` shows the same under `reasoning`. The first question after a cold start loads the model into the GPU, which takes a few seconds. `OLLAMA_KEEP_ALIVE=30m` keeps it loaded.
 
 **Android:** `node scripts/setup-perception-android.mjs` now also copies `native/android/radar/` (the `MapUniteRadio` and `MapUniteMedia` plugins) and declares the media listener service. Then run `npx cap sync android`.
 
@@ -65,11 +73,13 @@ Set `OLLAMA_MODEL` to the one you pulled. Ollama listens on `127.0.0.1:11434`, w
 - **What "vetted" means:** reviews can be filtered but not verified, so the app says "well reviewed".
 - **What's stored:** Google's terms allow storing only place IDs and coordinates. Names, phone numbers and ratings from Google stay in memory. OpenStreetMap places (phone numbers included) are stored in full, and they're what makes an offline emergency answer possible.
 
-**Deep Search.** A spoken question that isn't a voice command goes to `/api/master/search`. It runs on one of two engines (`lib/master/llm.js`), with no paid dependency:
-- **Google Gemini (cloud, primary):** `generateContent` with the `google_search` tool, on the free tier. Gemini plans the searches, reads and cross-checks, and the sources are Google's own grounding chunks. `GEMINI_DAILY_MAX` (default 200) keeps a margin under the free quota.
-- **Ollama (local fallback):** a model on your own GPU. It takes over when Gemini is over quota, rate-limited, down, slow, or gives a reply that doesn't parse. A local model has no web access, so it first gets Wikipedia excerpts (free, keyless). For live facts (weather, traffic, opening hours) it says it can't check them live, and its confidence is capped at 0.6. The screen then says "Local AI, not checked live".
+**Deep Search.** A spoken question that isn't a voice command goes to `/api/master/search`. It runs on a chain of free engines (`lib/master/llm.js`), none needing a credit card. The first that answers wins; a 429, quota, outage, timeout or unparseable reply hands over to the next, inside one 48 s deadline:
+1. **Google Gemini (free tier):** `gemini-flash-lite-latest` with low thinking (`GEMINI_THINKING=low`). Measured on a free key: about 1–2 s an answer. `gemini-flash-latest` took 6–28 s, because it reasons at length first, and it's the one Google sheds under load (503 "high demand"). **Google Search grounding is off by default:** on a key without billing it answers 429 while plain answers work. `GEMINI_GROUNDING=auto` tries it, and the first 429 turns it off until the next UTC day; the same question is then asked again without it, so a quota on Search never costs an answer. `GEMINI_DAILY_MAX` (default 200) keeps a margin under the free quota.
+2. **Groq (free tier):** an OpenAI-compatible API (`/chat/completions`, JSON mode). Default `llama-3.3-70b-versatile`, a large open model with good Hinglish. Groq retires models over time; start-up and `/api/master/status` say whether `GROQ_MODEL` is still served. `GROQ_DAILY_MAX` (default 500) is our own margin: set it to your plan's limit. `GROQ_BASE_URL` points it at any other OpenAI-compatible server.
+3. **Ollama (local, last):** a model on your own GPU, for when the cloud is down or for private, offline development.
+- **No live web, honestly:** only Gemini with grounding on searches the web. Every other engine first gets Wikipedia excerpts (free, keyless, fetched once per question and shared down the chain) and is told it can't check live facts (weather, traffic, opening hours), so it says so instead of guessing. Its confidence is capped at 0.6. The answer carries `live: false`, and the screen says "Not checked live" ("Local AI, not checked live" for Ollama).
 - **Live data from the phone:** the phone also sends what its agents already know (the weather at the rider and the 2 km ahead, the best places nearby), so either engine can answer "aage baarish hai kya?" or "kahan rukein?" from real data.
-- **Same output either way:** both engines return the same strict JSON (Ollama is held to it by a JSON schema), so the persona, the voice and the screen don't change. The answer carries `engine` and `grounded`.
+- **Same output from every engine:** each returns the same strict JSON (Ollama is held to it by a JSON schema, Groq by JSON mode, Gemini by the prompt), so the persona, the voice and the screen don't change. The answer carries `engine`, `grounded` (sources were read) and `live` (the web was searched just now).
 - **While riding:** the spoken line has no URLs and no long numbers, any phone action starts with "ruk ke…", and emergencies always mention 112.
 - **Offline:** questions are kept on the phone and answered when the network comes back.
 
@@ -102,4 +112,11 @@ All of it stays on the phone. `MUMaster.live.forget()` wipes what was learned.
 
 - `node --test test/master/cognitive.test.mjs`: 17 tests covering geometry, every agent with a fake server and a fake clock, the learning, affect and fusion policies, the phrase pack, and the providers.
 - `node --test test/server/master-api.test.mjs`: 19 tests covering the cache, circuit breaker, thresholds, vetting, Deep Search on Gemini and the Ollama fallback (quota, bad reply, model not pulled, Ollama down), speech safety, router wiring and CORS.
+- `node --test test/server/llm-engines.test.mjs`: the free chain. Covers:
+  - Gemini without Search by default, with the Wikipedia notes and the "can't check live" line;
+  - Flash-Lite with low thinking, and the retry without thinking on a 400;
+  - `GEMINI_GROUNDING=auto`, dropped for the day on a 429 and asked again plainly;
+  - Groq's request shape, JSON mode, the retry without it, its budget, and `/models` health;
+  - one Wikipedia lookup per question, shared down the chain;
+  - everything down, reported as one clear failure.
 - `npm run master:typecheck` and `npm run master-server:typecheck`.
