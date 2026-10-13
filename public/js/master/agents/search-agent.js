@@ -80,9 +80,9 @@
                 return c;
             }
 
-            /** @param {string} query */
-            async function ask(query) {
-                const r = await api.post("/search", { query, context: context() }, { timeoutMs: cfg.timeoutMs, signal: ctx.signal });
+            /** @param {string} query @param {boolean} [chat] */
+            async function ask(query, chat = false) {
+                const r = await api.post("/search", { query, ...(chat ? { chat: true } : {}), context: context() }, { timeoutMs: cfg.timeoutMs, signal: ctx.signal });
                 if (!r.ok) {
                     const err = new Error(r.reason || `http-${r.status}`);
                     /** @type {any} */ (err).code = r.reason === "offline" ? "OFFLINE" : r.status === 503 ? "NOT_CONFIGURED" : r.status === 429 ? "BUDGET" : "FAILED";
@@ -96,8 +96,8 @@
 
             ctx.bus.handle("task.deep-search", async (/** @type {any} */ payload) => {
                 const query = String((payload && payload.query) || "").trim().slice(0, 500);
-                if (query.length < 3) throw Object.assign(new Error("empty question"), { code: "BAD_QUERY" });
-                try { return await ask(query); }
+                if (query.length < 2) throw Object.assign(new Error("empty question"), { code: "BAD_QUERY" });
+                try { return await ask(query, Boolean(payload && payload.chat)); }
                 catch (e) {
                     if (/** @type {any} */ (e).code === "OFFLINE" && pending.length < cfg.maxPending) pending.push({ query, at: ctx.now() });
                     throw e;

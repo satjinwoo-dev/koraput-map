@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-13.1";           // Master AI: free reasoning chain (Gemini without Search → Groq → Ollama), "not checked live" note
+const VERSION = "mu-2026-10-13.2";           // Voice: push-to-talk sends anything that is not a command to the Master AI ("hello" too)
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;

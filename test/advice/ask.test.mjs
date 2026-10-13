@@ -162,7 +162,8 @@ function loadVoice({ quietMutesWarnings = false, recognition = true } = {}) {
         noteAnswer: (cat, answer) => gate.noteAnswer(cat, answer, Date.now())
     };
     const announce = vm.runInContext("voiceAnnounce", ctx);
-    return { VA, gate, spoken, islands, events, announce, setReply: (r) => { reply = r; }, Recognition };
+    return { VA, gate, spoken, islands, events, announce, setReply: (r) => { reply = r; }, Recognition,
+        setMaster: (live) => { sandbox.MUMaster = live ? { live } : undefined; } };
 }
 
 test("voice: tip → question → 'haan bol' → the tip is spoken; onResult reports it", async () => {
@@ -264,4 +265,37 @@ test("voice: mic blocked mid-question → that tip is spoken as before, and aski
     assert.deepEqual(plain(result), { spoken: true, reason: "asked:unavailable" });
     assert.equal(v.VA.micBlocked, true);
     assert.equal(v.VA.canAsk(), false);
+});
+
+// ================================================================ push-to-talk: what isn't a command goes to the Master AI
+test("push-to-talk: 'hello' (one word, no command) goes to the Master as chat, not to 'didn't catch a command'", async () => {
+    const v = loadVoice();
+    const asked = [];
+    v.VA.reply = (t) => { v.spoken.push(`reply:${t}`); return true; };
+    const live = { persona: { style: "desi" }, ask: async (q, o) => { asked.push({ q, chat: Boolean(o && o.chat) }); return { ok: true, text: "Namaste bhai! Bol, kya help karun?", display: { title: "Chat", sub: "Namaste bhai!" } }; } };
+    v.VA.masterSay = (ans) => v.spoken.push(`say:${ans.text}`);
+    v.setMaster(live);
+    assert.equal(v.VA.handleAlternatives([{ transcript: "Hello", confidence: 0.9 }], "ptt"), true);
+    await sleep(0);
+    assert.deepEqual(asked, [{ q: "Hello", chat: true }]);
+    assert.deepEqual(v.spoken, ["say:Namaste bhai! Bol, kya help karun?"], "no 'Ek second, dhoondh ke…' before a greeting, and no fallback");
+    // a real question (more than 3 words) is a lookup: the 'one moment' line first, chat off
+    v.spoken.length = 0;
+    v.VA.handleAlternatives([{ transcript: "Araku valley mein kal baarish hogi kya", confidence: 0.9 }], "ptt");
+    await sleep(0);
+    assert.deepEqual(asked.at(-1), { q: "Araku valley mein kal baarish hogi kya", chat: false });
+    assert.match(v.spoken[0], /^reply:Ek second/);
+    // nothing usable heard: an honest line, the Master isn't bothered
+    v.spoken.length = 0;
+    v.VA.handleAlternatives([{ transcript: " ", confidence: 0.9 }], "ptt");
+    assert.deepEqual(v.spoken, ["reply:Sorry, I didn't hear anything. Tap the mic and try again."]);
+    assert.equal(asked.length, 2);
+    // hands-free never sends conversation to the Master (only commands)
+    v.VA.handleAlternatives([{ transcript: "hello", confidence: 0.9 }], "handsfree");
+    assert.equal(asked.length, 2);
+    // without the Master running, the old fallback stays
+    v.setMaster(null);
+    v.spoken.length = 0;
+    v.VA.handleAlternatives([{ transcript: "hello", confidence: 0.9 }], "ptt");
+    assert.deepEqual(v.spoken, ["reply:Sorry, I didn't catch a command. Say help to hear what I can do."]);
 });

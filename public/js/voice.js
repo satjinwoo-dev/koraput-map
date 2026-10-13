@@ -767,11 +767,13 @@ const VoiceAssistant = {
         }
         if (mode === "ptt") {
             islandHide("voice-listen");
-            // not a command: a question for the Master's Deep Search (a few words at least, and the Master is running)
+            // Not a command: the rider pressed the mic to talk to us, so whatever they said goes to the
+            // Master, however short ("hello", "kaise ho", "thanks" too). Up to 3 words is chat: answered
+            // like a friend, without the "let me look it up" line or a web lookup.
             const q = alts[0] ? String(alts[0].transcript || "").trim() : "";
             const M = window.MUMaster && window.MUMaster.live;
-            if (M && typeof M.ask === "function" && q.split(/\s+/).length >= 3) { this.masterAsk(q); return true; }
-            this.reply("Sorry, I didn't catch a command. Say help to hear what I can do.");
+            if (M && typeof M.ask === "function" && q.length >= 2) { this.masterAsk(q, { chat: q.split(/\s+/).length <= 3 }); return true; }
+            this.reply(q ? "Sorry, I didn't catch a command. Say help to hear what I can do." : "Sorry, I didn't hear anything. Tap the mic and try again.");
         }
         return false;
     },
@@ -845,10 +847,11 @@ const VoiceAssistant = {
         islandShow({ id: "master-answer", kind: extra.kind || "info", icon: extra.icon || "🧠", title: ans.display.title, sub: ans.display.sub, ttl: 12000, haptic: false, action });
     },
     masterStyle() { const M = window.MUMaster && window.MUMaster.live; return M && M.persona && M.persona.style === "plain" ? "plain" : "desi"; },
-    async masterAsk(query) {
+    /** @param {string} query @param {{ chat?: boolean }} [o] chat: small talk, answered at once without a lookup */
+    async masterAsk(query, o = {}) {
         const M = window.MUMaster.live;
-        this.reply(this.masterStyle() === "plain" ? "One moment, I'll look that up." : "Ek second, dhoondh ke batata hoon.");
-        try { this.masterSay(await M.ask(query)); } catch (e) { this.reply("Sorry, I couldn't look that up right now."); }
+        if (!o.chat) this.reply(this.masterStyle() === "plain" ? "One moment, I'll look that up." : "Ek second, dhoondh ke batata hoon.");
+        try { this.masterSay(await M.ask(query, { chat: Boolean(o.chat) })); } catch (e) { this.reply("Sorry, I couldn't look that up right now."); }
     },
     async masterHelp(cmd) {
         const M = window.MUMaster && window.MUMaster.live;

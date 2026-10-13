@@ -176,3 +176,20 @@ test("offlineNotes: notes when there are some, the honest 'can't check live' lin
     assert.match(LLM.offlineNotes([{ title: "A", text: "a" }]), /\[1\] A: a[\s\S]*NO live web access beyond these notes/);
     assert.match(LLM.offlineNotes([]), /NO live web access for this question[\s\S]*confidence ≤ 0\.4/);
 });
+
+test("chat from the mic ('hello', 'hi'): answered without a web lookup, a short budget, the small-talk rule in the prompt", async () => {
+    const { fetchImpl, seen } = world({ gemini: geminiText(ANSWER("Namaste bhai! Bol, kya help karun?", { title: "Chat", confidence: 1 })), wiki: DEOMALI });
+    const s = S.createSearch({ engines: LLM.enginesFromEnv(env({ GEMINI_API_KEY: "GK" }), { fetchImpl, now: () => T0, log: quiet }), now: () => T0 });
+    const r = await s.handle({ query: "hello", chat: true, context: { style: "desi", lat: 18.81, lng: 82.71 } });
+    assert.equal(r.status, 200);
+    assert.equal(r.json.answer.spoken, "Namaste bhai! Bol, kya help karun?");
+    assert.equal(seen.wiki, 0, "no Wikipedia for a greeting");
+    assert.equal(seen.gemini[0].body.generationConfig.maxOutputTokens, 400);
+    assert.match(seen.gemini[0].body.systemInstruction.parts[0].text, /just chatting[\s\S]*warm riding buddy/);
+    // two characters are enough now ("hi"); one still isn't
+    assert.equal((await s.handle({ query: "hi", chat: true, context: {} })).status, 200);
+    assert.equal((await s.handle({ query: "h", chat: true, context: {} })).status, 400);
+    // the same words as a real question still get the lookup
+    await s.handle({ query: "hello song kisne gaya", context: { style: "desi" } });
+    assert.equal(seen.wiki, 1);
+});
