@@ -163,7 +163,7 @@ function loadVoice({ quietMutesWarnings = false, recognition = true } = {}) {
     };
     const announce = vm.runInContext("voiceAnnounce", ctx);
     return { VA, gate, spoken, islands, events, announce, setReply: (r) => { reply = r; }, Recognition,
-        setMaster: (live) => { sandbox.MUMaster = live ? { live } : undefined; } };
+        setMaster: (live) => { sandbox.MUMaster = live ? { live } : undefined; }, sandbox, ctx };
 }
 
 test("voice: tip → question → 'haan bol' → the tip is spoken; onResult reports it", async () => {
@@ -299,3 +299,111 @@ test("push-to-talk: 'hello' (one word, no command) goes to the Master as chat, n
     v.VA.handleAlternatives([{ transcript: "hello", confidence: 0.9 }], "ptt");
     assert.deepEqual(v.spoken, ["reply:Sorry, I didn't catch a command. Say help to hear what I can do."]);
 });
+
+// ================================================================ voice actions: the Master's "action" runs through the app's own commands
+test("Master actions map onto the app's voice commands; anything unknown or malformed does nothing", () => {
+    const v = loadVoice();
+    const map = vm.runInContext("masterActionCommand", v.ctx);
+    const m = (a) => plain(map(a));
+    assert.deepEqual(m({ name: "navigate_to", place: "Araku Valley" }), { name: "navigateTo", arg: "Araku Valley" });
+    assert.deepEqual(m({ name: "send_sos" }), { name: "sos", arg: null });
+    assert.deepEqual(m({ name: "share_location" }), { name: "shareLocation", arg: null });
+    assert.deepEqual(m({ name: "find_nearby", category: "mechanic" }), { name: "masterNearest", arg: "mechanic" });
+    assert.deepEqual(m({ name: "quiet_ride", on: false }), { name: "quietRide", arg: "off" });
+    assert.deepEqual(m({ name: "music", control: "next" }), { name: "masterMusic", arg: "next" });
+    for (const n of ["start_navigation", "stop_navigation", "where_am_i", "how_far", "squad_status"]) assert.ok(map({ name: n }), n);
+    for (const bad of [null, "navigate_to", {}, { name: "rm -rf" }, { name: "navigate_to" }, { name: "navigate_to", place: "x" }, { name: "find_nearby", category: "casino" }, { name: "quiet_ride", on: "yes" }, { name: "music", control: "louder" }]) assert.equal(map(bad), null, JSON.stringify(bad));
+});
+
+test("'share my location' / 'meri location bhej do' is a command; 'location sharing off' isn't", () => {
+    const v = loadVoice();
+    const match = vm.runInContext("matchVoiceCommand", v.ctx);
+    const name = (t) => { const c = match(t, { mode: "ptt", pendingSos: false }); return c && c.name; };
+    for (const t of ["share my location", "send my location to the group", "meri location bhej do", "gang ko location bhejo", "location share kar"]) assert.equal(name(t), "shareLocation", t);
+    assert.notEqual(name("location sharing off"), "shareLocation");
+    assert.equal(name("send sos"), "sos");
+});
+
+/** voice.js with a fake socket, GPS, privacy mode and Master; returns what it sent and said. */
+function actionWorld({ mode = "exact", online = true, action = null, spoken = "Theek hai bhai." } = {}) {
+    const v = loadVoice();
+    const sent = [], queued = [], said = [], sos = [];
+    v.sandbox.myCoords = { lat: 18.812345678, lng: 82.713456789 };
+    v.sandbox.cityName = "Koraput";
+    v.sandbox.currentUser = { name: "Satyam" };
+    v.sandbox.socket = { emit: (ev, p) => sent.push({ ev, p }) };
+    v.sandbox.offlineMessageQueue = queued;
+    v.sandbox.PrivacyControls = { state: { sharingMode: mode } };
+    v.sandbox.navigator.onLine = online;
+    v.sandbox.sendSOS = () => { sos.push(1); return true; };
+    vm.runInContext("var sendSOS = globalThis.sendSOS; var myCoords = globalThis.myCoords; var cityName = globalThis.cityName; var currentUser = globalThis.currentUser; var socket = globalThis.socket; var offlineMessageQueue = globalThis.offlineMessageQueue; var PrivacyControls = globalThis.PrivacyControls;", v.ctx);
+    v.VA.reply = (t) => { said.push(t); return true; };
+    v.VA.masterSay = (ans) => said.push(`say:${ans.text}`);
+    const executed = [];
+    const realExecute = v.VA.execute.bind(v.VA);
+    v.VA.execute = (cmd) => { executed.push(plain(cmd)); return realExecute(cmd); };
+    v.setMaster({ persona: { style: "desi" }, ask: async () => ({ ok: true, text: spoken, display: { title: "x", sub: "y" }, result: { action } }) });
+    return { v, sent, queued, said, sos, executed };
+}
+
+test("voice action: 'SOS bhej' via the Master never sends an SOS by itself; it asks for 'confirm SOS'", async () => {
+    const w = actionWorld({ action: { name: "send_sos" }, spoken: "Bhai, confirm SOS bol de, gang ko alert bhejta hoon." });
+    await w.v.VA.masterAsk("bhai kuch gadbad hai help chahiye", {});
+    assert.deepEqual(w.executed, [{ name: "sos", arg: null }]);
+    assert.equal(w.sos.length, 0, "nothing sent yet");
+    assert.equal(w.v.VA.pendingConfirm.type, "sos");
+    assert.match(w.said.join(" | "), /say:Bhai, confirm SOS[\s\S]*Say confirm S O S within 10 seconds/);
+    w.v.VA.confirmSos();                                      // only the rider's confirmation sends it
+    assert.equal(w.sos.length, 1);
+});
+
+test("voice action: share location posts to the group chat, rounded in approximate mode, queued offline, refused when sharing is off", async () => {
+    const exact = actionWorld({ action: { name: "share_location" }, spoken: "Gang ko location bhej raha hoon." });
+    await exact.v.VA.masterAsk("gang ko bata main kahan hoon", {});
+    assert.equal(exact.sent.length, 1);
+    assert.equal(exact.sent[0].ev, "chatMessage");
+    assert.equal(exact.sent[0].p.type, "text");
+    assert.match(exact.sent[0].p.data, /^📍 Satyam is near Koraput: https:\/\/www\.google\.com\/maps\?q=18\.81235,82\.71346$/);
+    assert.match(exact.said.at(-1), /Gang ko location bhej di/);
+    const unnamed = actionWorld({ action: { name: "share_location" } });
+    vm.runInContext("cityName = 'Local Area';", unnamed.v.ctx);
+    await unnamed.v.VA.masterAsk("location bhej", {});
+    assert.match(unnamed.sent[0].p.data, /^📍 Satyam is here: https/, "core.js's placeholder never goes out as a town");
+    const approx = actionWorld({ mode: "approx", action: { name: "share_location" } });
+    await approx.v.VA.masterAsk("location bhej", {});
+    assert.match(approx.sent[0].p.data, /\(approx\.\): https:\/\/www\.google\.com\/maps\?q=18\.81,82\.71$/);
+    const off = actionWorld({ mode: "off", action: { name: "share_location" } });
+    await off.v.VA.masterAsk("location bhej", {});
+    assert.equal(off.sent.length, 0);
+    assert.match(off.said.at(-1), /sharing band hai/);
+    const offline = actionWorld({ online: false, action: { name: "share_location" } });
+    await offline.v.VA.masterAsk("location bhej", {});
+    assert.equal(offline.sent.length, 0);
+    assert.equal(offline.queued.length, 1);
+    assert.match(offline.said.at(-1), /queue mein hai/);
+});
+
+test("voice action: an answer without an action only speaks; a bad action is ignored", async () => {
+    const none = actionWorld({ action: null, spoken: "Haan bhai, mast weather hai." });
+    await none.v.VA.masterAsk("mausam kaisa hai", {});
+    assert.deepEqual(none.executed, []);
+    assert.deepEqual(none.said, ["Ek second, dhoondh ke batata hoon.", "say:Haan bhai, mast weather hai."]);
+    const bad = actionWorld({ action: { name: "delete_everything" } });
+    await bad.v.VA.masterAsk("sab delete kar de", {});
+    assert.deepEqual(bad.executed, []);
+});
+
+test("voice action: when the app's command is the answer (nearest place, squad, where am I, how far), only the app speaks", async () => {
+    const w = actionWorld({ action: { name: "squad_status" }, spoken: "Gang kahan hai, yeh live check nahi kar sakta bhai." });
+    w.v.sandbox.ConvoyIntelligence = { summary: () => "Rahul 2 km behind, Asha 500 m ahead." };
+    vm.runInContext("var ConvoyIntelligence = globalThis.ConvoyIntelligence;", w.v.ctx);
+    await w.v.VA.masterAsk("sab log kahan hain", { chat: true });
+    assert.deepEqual(w.executed, [{ name: "convoy", arg: null }]);
+    assert.deepEqual(w.said, ["Rahul 2 km behind, Asha 500 m ahead."], "the model's 'can't check' line is never spoken over real data");
+    // a doing-action keeps the buddy's acknowledgement
+    const nav = actionWorld({ action: { name: "stop_navigation" }, spoken: "Le bhai, band kar diya." });
+    vm.runInContext("navState.active = false; navState.ready = false;", nav.v.ctx);
+    await nav.v.VA.masterAsk("navigation band kar", { chat: true });
+    assert.equal(nav.said[0], "say:Le bhai, band kar diya.");
+});
+

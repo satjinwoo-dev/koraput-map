@@ -87,6 +87,14 @@ Set `OLLAMA_MODEL` to the one you pulled. Ollama listens on `127.0.0.1:11434`, w
   - **Plain style:** if the rider chose it, the same buddy speaks in simple English.
   - **Screen text** (title, summary, bullets) stays in clear English.
 - **While riding:** the spoken line has no URLs and no long numbers, any phone action starts with "ruk ke…", and emergencies always mention 112.
+- **Doing things by voice (actions):**
+  - **How it works:** when the rider asks the Master to *do* something ("Araku le chal", "gang ko bata main kahan hoon", "agla gaana laga"), the answer carries an `action`. It's one of a fixed list (`ACTIONS` in `lib/master/search.js`): `navigate_to`, `start_navigation`, `stop_navigation`, `send_sos`, `share_location`, `find_nearby`, `where_am_i`, `how_far`, `squad_status`, `quiet_ride`, `music`.
+  - **Server checks:** an unknown action, a bad argument or markup becomes `null`, and an answer with an action is never served from the cache.
+  - **Phone side:** `js/voice.js` maps the action onto the app's existing voice commands (`masterActionCommand`), so it runs through exactly the same code and checks.
+  - **SOS:** `send_sos` only arms the usual "say *confirm SOS* within 10 s" step. The AI can't send an SOS by itself.
+  - **Who speaks:** when the app's command is the answer (nearest place, where am I, how far, squad), only the app speaks, from real data. For the others, the Master's short acknowledgement comes first.
+  - **Share location:** `share_location` (also the voice command "share my location" / "location bhej") posts a map link to the group chat. It's rounded to about 1 km in approximate mode, refused when sharing is off, and queued offline.
+  - The same JSON works on Gemini, Groq and Ollama, so there are no provider-specific tool-calling APIs.
 - **Offline:** questions are kept on the phone and answered when the network comes back.
 
 **Mood and music.** The mood agent reads the track playing in any app through Android's media sessions. The rider has to switch on notification access once; no app can do that for itself. Mood comes from the track's tags as two values: valence (sad to happy) and energy (calm to intense).

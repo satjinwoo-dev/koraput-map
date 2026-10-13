@@ -217,3 +217,28 @@ test("the Master's persona: a desi riding buddy and babysitter, colloquial Hingl
     assert.match(p, /Return ONLY one JSON object/);
     for (const k of S.ANSWER_SCHEMA.required) assert.ok(p.includes(`"${k}"`), k);
 });
+
+test("actions: the model proposes one, the server keeps only a known action with valid arguments, and never caches it", async () => {
+    const A = S.sanitizeAction;
+    assert.deepEqual(A({ name: "navigate_to", place: "  Araku   Valley " }), { name: "navigate_to", place: "Araku Valley" });
+    assert.deepEqual(A({ name: "SEND_SOS", extra: "ignored" }), { name: "send_sos" });
+    assert.deepEqual(A({ name: "find_nearby", category: "Mechanic" }), { name: "find_nearby", category: "mechanic" });
+    assert.deepEqual(A({ name: "quiet_ride", on: true }), { name: "quiet_ride", on: true });
+    for (const bad of [null, "send_sos", { name: "format_disk" }, { name: "navigate_to" }, { name: "navigate_to", place: "x".repeat(81) }, { name: "navigate_to", place: "<script>" },
+        { name: "find_nearby", category: "casino" }, { name: "quiet_ride", on: "true" }, { name: "music", control: "louder" }]) assert.equal(A(bad), null, JSON.stringify(bad));
+    assert.ok(S.SYSTEM.includes('"name":"send_sos"') && S.SYSTEM.includes("confirm SOS"));
+    assert.deepEqual(Object.keys(S.ACTIONS).sort(), ["find_nearby", "how_far", "music", "navigate_to", "quiet_ride", "send_sos", "share_location", "squad_status", "start_navigation", "stop_navigation", "where_am_i"]);
+    // through the whole pipeline
+    let reply = ANSWER("Chal bhai, Araku ka rasta nikalta hoon.", { action: { name: "navigate_to", place: "Araku Valley" } });
+    const { fetchImpl, seen } = world({ gemini: () => geminiText(reply)() });
+    const s = S.createSearch({ engines: LLM.enginesFromEnv(env({ GEMINI_API_KEY: "GK", MASTER_RETRIEVAL: "none" }), { fetchImpl, now: () => T0, log: quiet }), now: () => T0 });
+    const r = await s.handle({ query: "Araku le chal", chat: true, context: { style: "desi" } });
+    assert.deepEqual(r.json.action, { name: "navigate_to", place: "Araku Valley" });
+    await s.handle({ query: "Araku le chal", chat: true, context: { style: "desi" } });
+    assert.equal(seen.gemini.length, 2, "an action is never replayed from the cache");
+    // an answer that does nothing, or proposes nonsense, carries action: null
+    reply = ANSWER("Haan bhai, 3 ghante.", { action: null });
+    assert.equal((await s.handle({ query: "Araku kitna door hai", context: {} })).json.action, null);
+    reply = ANSWER("ok", { action: { name: "rm_rf" } });
+    assert.equal((await s.handle({ query: "kuch bhi kar", context: {} })).json.action, null);
+});
