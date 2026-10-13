@@ -577,7 +577,8 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
 
     const userIcon = L.divIcon({
         className: 'nav-avatar-marker',
-        html: `<img src="${escapeHTML(currentUser.avatar)}" style="width:100%;height:100%;object-fit:cover; border-radius:50%; border:2px solid #34e0b4;">`,
+        // the wrap lets the navigation camera (js/navcam/) keep the avatar upright; the chevron shows the direction of travel
+        html: `<div class="nav-avatar-wrap"><img src="${escapeHTML(currentUser.avatar)}" style="width:100%;height:100%;object-fit:cover; border-radius:50%; border:2px solid #34e0b4;"><span class="navcam-chevron"></span></div>`,
         iconSize: [40, 40], iconAnchor: [20, 20]
     });
 
@@ -664,7 +665,9 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
 
             if ($("stat-status")) { $("stat-status").textContent = "En route"; $("stat-status").style.color = "#f5a524"; }
 
-            if (myCoords) map.flyTo([myCoords.lat, myCoords.lng], 18, { animate: true, duration: 1.5 });
+            // Navigation camera (js/navcam/): heading-up, tilted, rider in the lower third. Without it, the old close-up.
+            const camOn = typeof NavCamera !== "undefined" && NavCamera.start({ map, route: () => fullPath, at: myCoords ? { lat: myCoords.lat, lng: myCoords.lng } : { lat: startPos[0], lng: startPos[1] } });
+            if (!camOn && myCoords) map.flyTo([myCoords.lat, myCoords.lng], 18, { animate: true, duration: 1.5 });
 
             navState.ready = false;
             navState.active = true;
@@ -687,7 +690,7 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
                 // estimates (mu:dr-position). Estimates move the marker, the
                 // trail and the turn prompts, but never trigger an off-route
                 // reroute or "arrived" off a guess.
-                const onNavPosition = async (currentLat, currentLng, speedMps, estimated) => {
+                const onNavPosition = async (currentLat, currentLng, speedMps, estimated, headingDeg = null) => {
                     const currentPos = [currentLat, currentLng];
                     lastPos = currentPos;
 
@@ -699,7 +702,8 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
                     if (umEl) umEl.classList.toggle("dr-est", Boolean(estimated));
                     const ss = $("stat-status");
                     if (ss && ss.textContent !== "Arrived") { ss.textContent = estimated ? "No GPS" : "En route"; ss.style.color = estimated ? "var(--c-sensor)" : "#f5a524"; }
-                    map.panTo(currentPos);
+                    if (typeof NavCamera !== "undefined" && NavCamera.active) NavCamera.follow({ lat: currentLat, lng: currentLng, speedMs: speedMps, headingDeg });
+                    else map.panTo(currentPos);
 
                     traveledCoords.push(L.latLng(currentLat, currentLng));
                     solidPath.setLatLngs(traveledCoords);
@@ -789,7 +793,7 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
                 };
                 navWatchId = navigator.geolocation.watchPosition((pos) => {
                     if (DeadReckoning.shouldIgnoreNavFix(pos)) return;   // coarse fix mid-outage: the estimate has it
-                    onNavPosition(pos.coords.latitude, pos.coords.longitude, pos.coords.speed || 0, false);
+                    onNavPosition(pos.coords.latitude, pos.coords.longitude, pos.coords.speed || 0, false, pos.coords.heading == null ? null : Number(pos.coords.heading));
                 }, (err) => {
                     // TIMEOUT (3) is routine when stationary or under canopy — the
                     // watch keeps running, so it isn't worth an error. Surface a
@@ -885,6 +889,7 @@ function stopDrive(cancelled = false) {
     // Navigating to a meeting point: bring the meetup sheet back afterwards.
     if (typeof GroupNavigation !== "undefined" && GroupNavigation.active) setTimeout(() => safeShow("group-nav-active", "flex"), 0);
     if (navDrListener) { document.removeEventListener("mu:dr-position", navDrListener); navDrListener = null; }
+    if (typeof NavCamera !== "undefined") NavCamera.stop();
     navigationLayer.clearLayers();
     safeHide("premium-nav-ui");
     safeHide("nav-bottom-sheet");

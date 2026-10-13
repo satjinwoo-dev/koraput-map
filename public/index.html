@@ -23,7 +23,8 @@
 <link rel="stylesheet" href="js/hud/hud.css?v=20261004-ui"><!-- SmartDrive HUD (needed the moment a ride starts, so not lazy) -->
 <link rel="stylesheet" href="js/advice/advice.css?v=20261011-ask"><!-- Roadmap Step 8: the road-conditions badge (shows during a ride) -->
 <link rel="stylesheet" href="js/master/vision/vision.css?v=20261011-master"><!-- Master AI: break-time fatigue check (camera only while stopped) -->
-<link rel="stylesheet" href="js/ai/avatar.css?v=20261011-avatar"><!-- Master AI avatar: the particle face (corner view + full screen) -->
+<link rel="stylesheet" href="js/ai/avatar.css?v=20261011-avatar">
+<link rel="stylesheet" href="js/navcam/navcam.css?v=20261013-cam"><!-- navigation camera: heading-up, 3D tilt (js/navcam/) --><!-- Master AI avatar: the particle face (corner view + full screen) -->
 <!-- Three.js for the Master AI avatar (js/ai/). Must come before any module script. The CSP allows this inline
      block by its SHA-256, which server.js computes from this file at start-up (lib/csp-inline.js; test/ai checks it). -->
 <script type="importmap">
@@ -1653,7 +1654,9 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="js/voice/engine.js?v=20261011-voice"></script>
 <script src="js/voice.js?v=20261013-fast"></script>
 <script src="js/gps.js?v=20261003-step7"></script>
-<script src="js/navigation.js?v=20261004-step10"></script>
+<script src="js/navcam/navcam-core.js?v=20261013-cam"></script>
+<script src="js/navcam/navcam.js?v=20261013-cam"></script>
+<script src="js/navigation.js?v=20261013-cam"></script>
 <script src="js/garage/fuel-baseline.js?v=20261003-step8"></script>
 <script src="js/smartdrive.js?v=20261004-ui"></script>
 <script src="js/groupnav.js?v=20261004-step8"></script>
