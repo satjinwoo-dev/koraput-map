@@ -407,6 +407,31 @@ test("link agent: a falling RSRP predicts the drop; slow passive throughput → 
 });
 
 // ================================================================ deep search
+test("deep-search agent: remembers the last 10 messages and sends them; a long pause or reset starts a new conversation; expectsReply comes through", async () => {
+    let n = 0;
+    const api = fakeApi({ "/search": (b) => ({ ok: true, answer: { spoken: `Jawaab ${++n}: ${b.query}?`, title: "Chat", summary: "s", bullets: [], confidence: 1, expectsReply: n === 1 }, sources: [] }) });
+    const h = harness({ api, agents: [A.search] });
+    const ask = (query, extra = {}) => h.brain.delegate("deep-search", { query, chat: true, ...extra });
+    const r1 = await ask("hello");
+    assert.equal(r1.result.expectsReply, true);
+    assert.equal(api.calls[0].body.history, undefined, "nothing to remember yet");
+    await ask("Araku");
+    assert.deepEqual(api.calls[1].body.history, [{ role: "user", text: "hello" }, { role: "assistant", text: "Jawaab 1: hello?" }]);
+    // the window rolls: by the 8th question 7 exchanges (14 messages) are remembered, and only the last 10 go
+    for (let i = 0; i < 6; i++) await ask(`q${i}`);
+    const sent = api.calls.at(-1).body.history;
+    assert.equal(sent.length, 10);
+    assert.deepEqual([sent[0], sent.at(-1)], [{ role: "user", text: "q0" }, { role: "assistant", text: "Jawaab 7: q4?" }]);
+    // 10 minutes without talking: a new conversation
+    h.clock.advance(600001);
+    await ask("naya sawaal");
+    assert.equal(api.calls.at(-1).body.history, undefined);
+    await ask("aur?");
+    assert.equal(api.calls.at(-1).body.history.length, 2);
+    await ask("fresh start", { reset: true });
+    assert.equal(api.calls.at(-1).body.history, undefined, "reset forgets it");
+});
+
 test("deep-search agent: delegated questions carry coarse context; offline questions are answered when the network is back", async () => {
     let offline = true;
     const api = fakeApi({ "/search": (b) => (offline ? { __fail: true, status: 0, reason: "offline" } : { ok: true, answer: { spoken: `Bhai, jawaab: ${b.query}`, title: "Answer", summary: "Summary", bullets: [], confidence: 0.9 }, sources: [{ title: "S", url: "https://s" }] }) });

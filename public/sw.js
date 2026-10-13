@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-13.6";           // Navigation camera: heading-up, 3D tilt, rider in the lower third
+const VERSION = "mu-2026-10-13.7";           // Conversation: the mic reopens after the Master asks; memory of the last 10 messages
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;

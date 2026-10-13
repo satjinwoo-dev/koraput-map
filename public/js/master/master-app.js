@@ -115,11 +115,12 @@
         bus, caps, kernel, brain, persona, output, config, cognition,
         /**
          * Ask the Master anything: Deep Search, answered in the persona's voice.
-         * @param {string} query @param {{ chat?: boolean }} [o] chat: small talk ("hello"): a quick friendly reply, no web lookup
+         * @param {string} query @param {{ chat?: boolean, reset?: boolean }} [o] chat: small talk ("hello"): a quick friendly reply, no web lookup;
+         *   reset: forget the conversation so far first
          * @returns {Promise<{ ok: boolean, text: string, display: { title: string, sub: string }, result?: any }>}
          */
         async ask(query, o = {}) {
-            const r = await brain.delegate("deep-search", { query, chat: Boolean(o && o.chat) }, { timeoutMs: 60000 });
+            const r = await brain.delegate("deep-search", { query, chat: Boolean(o && o.chat), reset: Boolean(o && o.reset) }, { timeoutMs: 60000 });
             if (r.ok && r.result && r.result.spoken) {
                 // be honest on screen about an answer nobody checked live: only Gemini with Google Search reads the web
                 // just now; every other answer (Gemini without Search, Groq, the local model) is from what the model knows

@@ -100,6 +100,16 @@ Set `OLLAMA_MODEL` to the one you pulled. Ollama listens on `127.0.0.1:11434`, w
   - **Plain style:** if the rider chose it, the same buddy speaks in simple English.
   - **Screen text** (title, summary, bullets) stays in clear English.
 - **While riding:** the spoken line has no URLs and no long numbers, any phone action starts with "ruk ke…", and emergencies always mention 112.
+- **Conversation (memory and the mic that reopens):**
+  - **Memory:** the phone keeps the last 10 messages, your questions and the Master's spoken replies (`agents/search-agent.js`). It sends them with each question, so "haan", "wahan" or "aur?" carry on the topic.
+    - The server keeps nothing between requests, so restarts and multiple Render instances don't matter, and no conversation is stored there.
+    - `cleanHistory()` in `lib/master/search.js` keeps at most 10 entries of ≤ 400 characters. They go into the prompt as "Conversation so far". An answer that depends on a conversation is never cached.
+    - The memory is forgotten after 10 minutes of silence, when the page closes, or with `ask(q, { reset: true })`.
+  - **The mic reopens:** when the Master's reply asks something back ("Aaj kahan ki ride hai?"), the model sets `expects_reply`; a spoken line ending in "?" counts too. Once the line has been spoken in full, `js/voice.js` opens the mic by itself, as if you had tapped it.
+    - It never reopens after an action, during a call, while muted, while an SOS waits for "confirm SOS", when other speech is queued, or after a line that was cut off.
+    - Silence closes it. After 6 automatic turns in a row it waits for a tap.
+    - Settings → Voice → "Keep listening when the Master asks you something" turns it off (`mu_voice_followup`).
+  - **Which model:** Groq answers on `llama-3.3-70b-versatile` unless `GROQ_MODEL` says otherwise. To make Groq the first engine instead of Gemini (whose free tier allows only 20 requests a day per model), set `MASTER_LLM_ORDER=groq,gemini,ollama`.
 - **Doing things by voice (actions):**
   - **How it works:** when the rider asks the Master to *do* something ("Araku le chal", "gang ko bata main kahan hoon", "agla gaana laga"), the answer carries an `action`. It's one of a fixed list (`ACTIONS` in `lib/master/search.js`): `navigate_to`, `start_navigation`, `stop_navigation`, `send_sos`, `share_location`, `find_nearby`, `where_am_i`, `how_far`, `squad_status`, `quiet_ride`, `music`.
   - **Server checks:** an unknown action, a bad argument or markup becomes `null`, and an answer with an action is never served from the cache.

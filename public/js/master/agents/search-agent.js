@@ -26,6 +26,12 @@
 
    Answers are kept in state.answer = { at, query, title, summary, bullets, sources }
    so the screen can show the full answer and sources when the rider stops.
+
+   CONVERSATION MEMORY: the last 10 messages (the rider's questions and the Master's
+   spoken replies) are kept on the phone, in memory only, and sent with each question,
+   so "haan", "wahan" or "aur?" continue the topic. They're forgotten after 10 minutes
+   without talking, when the page closes, or with payload.reset ("naya topic").
+   result.expectsReply says the Master asked something back (js/voice.js reopens the mic).
    ============================================================================ */
 (function (root, factory) {
     const def = factory();
@@ -39,12 +45,12 @@
 
     return {
         id: "deep-search",
-        version: "1.0.0",
+        version: "1.1.0",
         apiVersion: 1,
         description: "Researches questions on the web (through our server) and answers in the Master's voice.",
         requires: ["master-api"],
         optional: ["location", "app-context"],
-        defaults: { timeoutMs: 55000, maxPending: 3, pendingTtlMs: 1800000 },
+        defaults: { timeoutMs: 55000, maxPending: 3, pendingTtlMs: 1800000, historyMax: 10, historyIdleMs: 600000 },
 
         /** @param {any} ctx */
         start(ctx) {
@@ -53,6 +59,18 @@
             const loc = ctx.caps.get("location");
             const app = ctx.caps.get("app-context");
             /** @type {Array<{ query: string, at: number }>} */ const pending = [];
+            /** the conversation so far, oldest first: { role: "user"|"assistant", text, at } */
+            /** @type {Array<{ role: "user"|"assistant", text: string, at: number }>} */ let history = [];
+            const recent = () => {
+                const last = history[history.length - 1];
+                if (last && ctx.now() - last.at > cfg.historyIdleMs) history = [];      // a long pause: a new conversation
+                return history.map((m) => ({ role: m.role, text: m.text }));
+            };
+            const remember = (/** @type {"user"|"assistant"} */ role, /** @type {string} */ text) => {
+                if (!text) return;
+                history.push({ role, text: text.slice(0, 400), at: ctx.now() });
+                if (history.length > cfg.historyMax) history = history.slice(-cfg.historyMax);
+            };
 
             function context() {
                 const f = loc ? loc.current() : null;
@@ -80,9 +98,10 @@
                 return c;
             }
 
-            /** @param {string} query @param {boolean} [chat] */
-            async function ask(query, chat = false) {
-                const r = await api.post("/search", { query, ...(chat ? { chat: true } : {}), context: context() }, { timeoutMs: cfg.timeoutMs, signal: ctx.signal });
+            /** @param {string} query @param {boolean} [chat] @param {boolean} [withHistory] */
+            async function ask(query, chat = false, withHistory = true) {
+                const past = withHistory ? recent() : [];
+                const r = await api.post("/search", { query, ...(chat ? { chat: true } : {}), context: context(), ...(past.length ? { history: past } : {}) }, { timeoutMs: cfg.timeoutMs, signal: ctx.signal });
                 if (!r.ok) {
                     const err = new Error(r.reason || `http-${r.status}`);
                     /** @type {any} */ (err).code = r.reason === "offline" ? "OFFLINE" : r.status === 503 ? "NOT_CONFIGURED" : r.status === 429 ? "BUDGET" : "FAILED";
@@ -91,7 +110,10 @@
                 const a = r.data.answer || {};
                 const result = { spoken: a.spoken || "", title: a.title || "Answer", summary: a.summary || "", bullets: a.bullets || [], confidence: a.confidence ?? 0.5, sources: r.data.sources || [], cached: Boolean(r.data.cached), engine: r.data.engine || null, grounded: Boolean(r.data.grounded), live: Boolean(r.data.live),
                     // what the rider asked the app to do (checked on the server; js/voice.js runs it through its own commands)
-                    action: r.data.action && typeof r.data.action === "object" ? r.data.action : null };
+                    action: r.data.action && typeof r.data.action === "object" ? r.data.action : null,
+                    // the Master asked something back: js/voice.js keeps the mic open for the answer
+                    expectsReply: a.expectsReply === true };
+                if (withHistory) { remember("user", query); remember("assistant", result.spoken); }
                 ctx.setState("answer", { at: ctx.now(), query, ...result });
                 return result;
             }
@@ -99,6 +121,7 @@
             ctx.bus.handle("task.deep-search", async (/** @type {any} */ payload) => {
                 const query = String((payload && payload.query) || "").trim().slice(0, 500);
                 if (query.length < 2) throw Object.assign(new Error("empty question"), { code: "BAD_QUERY" });
+                if (payload && payload.reset) history = [];
                 try { return await ask(query, Boolean(payload && payload.chat)); }
                 catch (e) {
                     if (/** @type {any} */ (e).code === "OFFLINE" && pending.length < cfg.maxPending) pending.push({ query, at: ctx.now() });
@@ -112,7 +135,7 @@
                 const jobs = pending.splice(0).filter((p) => ctx.now() - p.at < cfg.pendingTtlMs);
                 for (const j of jobs) {
                     try {
-                        const a = await ask(j.query);
+                        const a = await ask(j.query, false, false);       // answered later, outside the conversation
                         ctx.report("search.answer", { severity: "advice", key: `search.${j.at}`, category: "search", text: a.spoken, data: { query: j.query, screen: { title: a.title, sub: a.summary.slice(0, 140) } }, ttlMs: 600000 });
                     } catch (e) {
                         ctx.report("search.failed", { severity: "advice", key: "search.failed", category: "search", data: { query: j.query } });
