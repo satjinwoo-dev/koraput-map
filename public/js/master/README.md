@@ -42,7 +42,7 @@ The Master never has a voice of its own. It goes through the same `voiceAnnounce
 | `agents/corridor-agent.js` | `state.corridor`: the road 2 km ahead (the route, else the heading), shared by every radar agent; `state.light`. |
 | `agents/weather-agent.js` | Storms, rain, fog, wind, heat, cold, dust, dry air along the corridor (`weather.<type>`). |
 | `agents/traffic-agent.js` | Jams and closures ahead (`traffic.jam-ahead`, `traffic.closure-ahead`, `traffic.slow-ahead`). Needs `TOMTOM_API_KEY` on the server. |
-| `agents/topology-agent.js` | Ghats (DEM grades), hairpins (geometry), breakers, railway crossings, bad road, long bridges when wet, OSM hazards. Route only. |
+| `agents/topology-agent.js` | Ghats (DEM grades), hairpins (geometry), valley edges (a steep drop on one side, from DEM cross-sections), breakers, railway crossings, bad road, long bridges when wet, OSM hazards. Route only. |
 | `agents/blackspot-agent.js` | Official accident blackspots ahead, warned at speed × 30 s (`blackspot.ahead`). |
 | `agents/link-agent.js` | Radio dBm trend → `network.degrading` before the drop; real throughput → `network.slow`; `state.link`. |
 | `agents/poi-agent.js` | Vetted hospitals, mechanics, service centres, hotels, dhabas: ranked every second from a tile cache; `task.poi-best`, `task.emergency`; `rest.stop` on a break. |
