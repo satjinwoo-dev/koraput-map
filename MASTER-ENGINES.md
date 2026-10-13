@@ -80,6 +80,12 @@ Set `OLLAMA_MODEL` to the one you pulled. Ollama listens on `127.0.0.1:11434`, w
 - **No live web, honestly:** only Gemini with grounding on searches the web. Every other engine first gets Wikipedia excerpts (free, keyless, fetched once per question and shared down the chain) and is told it can't check live facts (weather, traffic, opening hours), so it says so instead of guessing. Its confidence is capped at 0.6. The answer carries `live: false`, and the screen says "Not checked live" ("Local AI, not checked live" for Ollama).
 - **Live data from the phone:** the phone also sends what its agents already know (the weather at the rider and the 2 km ahead, the best places nearby), so either engine can answer "aage baarish hai kya?" or "kahan rukein?" from real data.
 - **Same output from every engine:** each returns the same strict JSON (Ollama is held to it by a JSON schema, Groq by JSON mode, Gemini by the prompt), so the persona, the voice and the screen don't change. The answer carries `engine`, `grounded` (sources were read) and `live` (the web was searched just now).
+- **The voice (`SYSTEM` in `lib/master/search.js`, the same for every engine):** "Master", a desi riding companion who knows the local roads and babysits the gang without nagging.
+  - **Language:** colloquial Hinglish in Roman script ("Bhai, 2 kilometer aage ek badhiya mechanic hai, wahan chalte hain"). Never robotic or formal English, never bookish Hindi or Devanagari.
+  - **Length:** intercom-short, usually under 30 words, and under 20 while riding.
+  - **Context:** uses the live data from the phone.
+  - **Plain style:** if the rider chose it, the same buddy speaks in simple English.
+  - **Screen text** (title, summary, bullets) stays in clear English.
 - **While riding:** the spoken line has no URLs and no long numbers, any phone action starts with "ruk ke…", and emergencies always mention 112.
 - **Offline:** questions are kept on the phone and answered when the network comes back.
 
