@@ -193,3 +193,27 @@ test("chat from the mic ('hello', 'hi'): answered without a web lookup, a short 
     await s.handle({ query: "hello song kisne gaya", context: { style: "desi" } });
     assert.equal(seen.wiki, 1);
 });
+
+test("the Master's persona: a desi riding buddy and babysitter, colloquial Hinglish, intercom-short, still honest and safe", () => {
+    const p = S.SYSTEM;
+    // persona
+    assert.match(p, /desi riding companion/);
+    assert.match(p, /babysitter/);
+    // language: colloquial Hinglish in Roman script, never robotic English or bookish Hindi
+    assert.match(p, /colloquial Hinglish in Roman script/);
+    assert.match(p, /NEVER robotic or formal English/);
+    assert.match(p, /NEVER pure or bookish Hindi[\s\S]*never Devanagari/);
+    assert.match(p, /2 kilometer aage ek badhiya mechanic hai, wahan chalte hain/);
+    // brevity
+    assert.match(p, /intercom/);
+    assert.match(p, /under 30 words[\s\S]*riding, under 20 words/);
+    // what must never be lost: honesty, rider safety, English on screen, the JSON contract
+    assert.match(p, /Never invent places, distances, phone numbers, prices or URLs/);
+    assert.match(p, /Never tell the rider to look at, tap or use the phone while moving/);
+    assert.match(p, /mention calling 112/);
+    assert.match(p, /No URLs and no long digit strings/);
+    assert.match(p, /"title", "summary" and "bullets" [\s\S]*clear English/);
+    assert.match(p, /Style "plain"/);
+    assert.match(p, /Return ONLY one JSON object/);
+    for (const k of S.ANSWER_SCHEMA.required) assert.ok(p.includes(`"${k}"`), k);
+});
