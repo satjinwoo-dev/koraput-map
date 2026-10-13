@@ -58,7 +58,9 @@
                               also the Master AI's vetted places (/api/master/poi)
      TOMTOM_API_KEY           Master AI live traffic ahead (/api/master/traffic); unset = off
      GEMINI_API_KEY           Master AI reasoning / Deep Search, cloud engine 1 (Google Gemini free tier, no card).
-                              GEMINI_MODEL default gemini-flash-lite-latest (~1 s an answer); GEMINI_THINKING
+                              GEMINI_MODEL: one model or a comma-separated list tried in order within a request
+                              (an overloaded / hung / retired model hands over to the next); default
+                              gemini-3.5-flash,gemini-3.6-flash,gemini-flash-lite-latest; GEMINI_THINKING
                               "low" (default) | "model"; GEMINI_GROUNDING "off" (default: Google Search grounding
                               has no free quota without billing, it answers 429) | "auto" (try it, drop it for
                               the day on the first 429); GEMINI_DAILY_MAX default 200
@@ -3393,7 +3395,7 @@ function listen() {
         console.log(`   CSP: ${process.env.ENFORCE_CSP === "1" ? "enforced" : "report-only"}`);
         // which reasoning engines the Master AI can use right now (Ollama is asked, not assumed)
         masterApi.services.engines.health().then((h) => {
-            const g = h.gemini ? (h.gemini.configured ? `gemini (${h.gemini.model}${h.gemini.grounding === "auto" ? ", Google Search on" : ""})` : "gemini: no GEMINI_API_KEY") : "";
+            const g = h.gemini ? (h.gemini.configured ? `gemini (${(h.gemini.models || [h.gemini.model]).join(" → ")}${h.gemini.grounding === "auto" ? ", Google Search on" : ""})` : "gemini: no GEMINI_API_KEY") : "";
             const q = h.groq ? (!h.groq.configured ? "groq: no GROQ_API_KEY"
                 : !h.groq.reachable ? `groq: key not accepted or unreachable (${h.groq.error || "?"})`
                 : h.groq.hasModel === false ? `groq: model ${h.groq.model} no longer served, set GROQ_MODEL` : `groq (${h.groq.model})`) : "";

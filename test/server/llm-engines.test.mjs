@@ -65,13 +65,14 @@ test("Gemini by default never asks for Google Search (the part that answers 429 
     assert.deepEqual([r2.json.grounded, r2.json.answer.confidence], [false, 0.6]);
 });
 
-test("Gemini defaults to the fast Flash-Lite alias with low thinking; a model that rejects thinkingLevel (400) is asked once more without it; GEMINI_THINKING=model leaves it", async () => {
+test("Gemini defaults to a list of models with low thinking; a model that rejects thinkingLevel (400) is asked once more without it; GEMINI_THINKING=model leaves it", async () => {
     const { fetchImpl, seen } = world({
         gemini: (body) => (body.generationConfig.thinkingConfig ? { status: 400, json: { error: { message: "Thinking level LOW is not supported for this model." } } } : geminiText(ANSWER("Bhai, ho gaya."))())
     });
     const r = await LLM.enginesFromEnv(env({ GEMINI_API_KEY: "GK", MASTER_RETRIEVAL: "none" }), { fetchImpl, now: () => T0, log: quiet }).reason({ system: "s", prompt: "p", accept: (x) => S.parseAnswer(x) !== null });
-    assert.deepEqual([r.ok, r.engine, r.model], [true, "gemini", "gemini-flash-lite-latest"]);
-    assert.match(seen.gemini[0].url, /models\/gemini-flash-lite-latest:generateContent$/);
+    assert.deepEqual([r.ok, r.engine, r.model], [true, "gemini", LLM.GEMINI_MODELS[0]]);
+    assert.deepEqual(LLM.GEMINI_MODELS, ["gemini-3.5-flash", "gemini-3.6-flash", "gemini-flash-lite-latest"]);
+    assert.ok(seen.gemini[0].url.endsWith(`models/${LLM.GEMINI_MODELS[0]}:generateContent`));
     assert.deepEqual(seen.gemini.map((g) => g.body.generationConfig.thinkingConfig || null), [{ thinkingLevel: "low" }, null]);
     const w2 = world({ gemini: geminiText(ANSWER("x")) });
     await LLM.enginesFromEnv(env({ GEMINI_API_KEY: "GK", GEMINI_THINKING: "model", GEMINI_MODEL: "gemini-flash-latest", MASTER_RETRIEVAL: "none" }), { fetchImpl: w2.fetchImpl, now: () => T0, log: quiet }).reason({ system: "s", prompt: "p" });
@@ -202,6 +203,8 @@ test("the Master's persona: a desi riding buddy and babysitter, colloquial Hingl
     // language: colloquial Hinglish in Roman script, never robotic English or bookish Hindi
     assert.match(p, /colloquial Hinglish in Roman script/);
     assert.match(p, /NEVER robotic or formal English/);
+    // SI only: a live answer once said "1,672 meters yaani 5,486 feet"
+    assert.match(p, /metres, kilometres and °C only; never feet, miles, °F or mph/);
     assert.match(p, /NEVER pure or bookish Hindi[\s\S]*never Devanagari/);
     assert.match(p, /2 kilometer aage ek badhiya mechanic hai, wahan chalte hain/);
     // brevity
@@ -241,4 +244,76 @@ test("actions: the model proposes one, the server keeps only a known action with
     assert.equal((await s.handle({ query: "Araku kitna door hai", context: {} })).json.action, null);
     reply = ANSWER("ok", { action: { name: "rm_rf" } });
     assert.equal((await s.handle({ query: "kuch bhi kar", context: {} })).json.action, null);
+});
+
+// ================================================================ Gemini overloaded (13 Oct 2026: 503 "high demand" and hangs on the free tier)
+const modelOf = (url) => /models\/([^:]+):generateContent/.exec(url)[1];
+
+test("Gemini tries the next model when one is overloaded (503) or retired (404, then skipped for a day); a blocked answer isn't retried elsewhere", async () => {
+    const { fetchImpl, seen } = world({ gemini: (body) => body.__m === "gemini-3.5-flash" ? { status: 503, json: { error: { status: "UNAVAILABLE" } } } : geminiText(ANSWER("Haan bhai, bol!"))() });
+    // the fake needs the model: tag each body with it from the URL
+    const tagging = async (url, init = {}) => { if (String(url).includes("generativelanguage")) { const b = JSON.parse(init.body); b.__m = modelOf(String(url)); init = { ...init, body: JSON.stringify(b) }; } return fetchImpl(url, init); };
+    const engines = LLM.enginesFromEnv(env({ GEMINI_API_KEY: "GK", MASTER_RETRIEVAL: "none" }), { fetchImpl: tagging, now: () => T0, log: quiet });
+    const r = await engines.reason({ system: "s", prompt: "Hello", deadlineMs: 20000, accept: (x) => S.parseAnswer(x) !== null });
+    assert.deepEqual([r.ok, r.engine, r.model], [true, "gemini", "gemini-3.6-flash"]);
+    assert.deepEqual(seen.gemini.map((g) => modelOf(g.url)), ["gemini-3.5-flash", "gemini-3.6-flash"]);
+    // a model Google has retired (404) is skipped for the rest of the day
+    let t = T0;
+    const w = world({ gemini: (body) => body.__m === "gemini-old" ? { status: 404, json: { error: { message: "no longer available to new users" } } } : geminiText(ANSWER("ok"))() });
+    const tag2 = async (url, init = {}) => { if (String(url).includes("generativelanguage")) { const b = JSON.parse(init.body); b.__m = modelOf(String(url)); init = { ...init, body: JSON.stringify(b) }; } return w.fetchImpl(url, init); };
+    const g = LLM.createGemini({ apiKey: "GK", model: "gemini-old, gemini-new", fetchImpl: tag2, now: () => t });
+    assert.equal((await g.generate({ system: "s", prompt: "p", timeoutMs: 20000 })).model, "gemini-new");
+    await g.generate({ system: "s", prompt: "p", timeoutMs: 20000 });
+    assert.deepEqual(w.seen.gemini.map((x) => modelOf(x.url)), ["gemini-old", "gemini-new", "gemini-new"]);
+    t += DAY + 1;
+    await g.generate({ system: "s", prompt: "p", timeoutMs: 20000 });
+    assert.equal(modelOf(w.seen.gemini.at(-2).url), "gemini-old", "asked again the next day");
+    // blocked content: another model would block it too
+    const b = world({ gemini: () => ({ json: { candidates: [{ content: { parts: [] }, finishReason: "SAFETY" }] } }) });
+    const gb = LLM.createGemini({ apiKey: "GK", model: "a,b", fetchImpl: b.fetchImpl, now: () => T0 });
+    await assert.rejects(gb.generate({ system: "s", prompt: "p", timeoutMs: 20000 }), (e) => e.code === "BLOCKED");
+    assert.equal(b.seen.gemini.length, 1);
+});
+
+test("a model that hangs is cut off at its share of the time and the next model answers; each model has its own circuit breaker", async (t) => {
+    // AbortSignal.timeout's timer doesn't hold the event loop open (the server's listener does): hold it here
+    const hold = setInterval(() => {}, 1000);
+    t.after(() => clearInterval(hold));
+    const calls = [];
+    const fetchImpl = (url, init) => {
+        const m = modelOf(String(url)); calls.push(m);
+        if (m === "hangs") return new Promise((_, reject) => init.signal.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "TimeoutError" }))));
+        return Promise.resolve({ ok: true, status: 200, headers: { get: () => null }, json: async () => ({ candidates: [{ content: { parts: [{ text: ANSWER("Namaste bhai!") }] }, finishReason: "STOP" }] }) });
+    };
+    const g = LLM.createGemini({ apiKey: "GK", model: "hangs,works", modelTimeoutMs: 300, fetchImpl });
+    const t0 = Date.now();
+    const r = await g.generate({ system: "s", prompt: "Hello", timeoutMs: 8000 });
+    const ms = Date.now() - t0;
+    assert.equal(r.model, "works");
+    assert.deepEqual(r.modelFallbacks, ["hangs: TIMEOUT"]);
+    assert.ok(ms >= 1400 && ms < 4000, `cut off at the 1.5 s floor, not the 8 s budget (${ms} ms)`);
+    // four timeouts pause "hangs" only; "works" keeps answering, straight away
+    for (let i = 0; i < 3; i++) await g.generate({ system: "s", prompt: "Hello", timeoutMs: 8000 });
+    const before = calls.length;
+    const t1 = Date.now();
+    assert.equal((await g.generate({ system: "s", prompt: "Hello", timeoutMs: 8000 })).model, "works");
+    assert.deepEqual(calls.slice(before), ["works"], "the paused model isn't even asked");
+    assert.ok(Date.now() - t1 < 500);
+    assert.equal(g.available(), true);
+    assert.deepEqual(g.stats().upstreams.map((u) => [u.name, u.open]), [["gemini:hangs", true], ["gemini:works", false]]);
+});
+
+test("the chain doesn't hold time back for an engine known to be down: with Ollama not running and no Groq key, Gemini gets the whole deadline", async () => {
+    const got = [];
+    const gemini = { name: "gemini", configured: () => true, available: () => true, liveWeb: () => false, stats: () => ({}),
+        async generate(q) { got.push(q.timeoutMs); return { text: ANSWER("Haan bhai"), sources: [], grounded: false, model: "x" }; } };
+    const groq = LLM.createGroq({ apiKey: "" });
+    const { fetchImpl } = world({ tags: null });
+    const ollama = LLM.createOllama({ fetchImpl });
+    const engines = LLM.createEngines({ order: ["gemini", "groq", "ollama"], gemini, groq, ollama, log: quiet });
+    await engines.reason({ system: "s", prompt: "p", deadlineMs: 20000 });
+    assert.ok(got[0] <= 8000, `before Ollama has been checked it may still be there: ${got[0]} ms`);
+    await ollama.check();                                            // what the server does at start-up
+    await engines.reason({ system: "s", prompt: "p", deadlineMs: 20000 });
+    assert.ok(got[1] > 19000, `known down: Gemini gets the whole 20 s (${got[1]} ms)`);
 });

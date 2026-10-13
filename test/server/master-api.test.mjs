@@ -242,7 +242,7 @@ test("deep search on Gemini with grounding on (GEMINI_GROUNDING=auto): Google Se
     const r = await s.handle({ query: "petrol pump kahan hai", context: { lat: 20.2, lng: 85.1, riding: true } });
     assert.equal(r.status, 200);
     assert.equal(seen.gemini[0].key, "GK");
-    assert.match(seen.gemini[0].url, /models\/gemini-flash-lite-latest:generateContent$/);
+    assert.ok(seen.gemini[0].url.endsWith(`models/${LLM.GEMINI_MODELS[0]}:generateContent`), seen.gemini[0].url);
     assert.deepEqual(seen.gemini[0].body.tools, [{ google_search: {} }]);
     assert.match(seen.gemini[0].body.systemInstruction.parts[0].text, /Desi|desi/);
     assert.deepEqual([r.json.engine, r.json.grounded], ["gemini", true]);
@@ -276,7 +276,7 @@ test("deep search falls back to local Ollama: Gemini over quota → Llama answer
     assert.match(chat.messages[1].content, /Highest peak of Odisha/);
     assert.match(chat.messages[1].content, /Live data from the rider's phone:[\s\S]*fog at 800 m[\s\S]*Sharma Dhaba, 900 m away, well reviewed/);
     assert.doesNotMatch(r.json.answer.spoken, /think/);
-    assert.equal(seen.gemini.length, 1);
+    assert.equal(seen.gemini.length, LLM.GEMINI_MODELS.length, "free-tier quotas are per model: each Gemini model is asked once before the next engine");
     assert.equal(engines.stats().fallbacks, 1);
 });
 
