@@ -1093,6 +1093,10 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
         <label for="voice-handsfree-toggle">Hands-free commands while driving</label>
         <input type="checkbox" id="voice-handsfree-toggle" class="switch">
       </div>
+      <div class="modal-row">
+        <label for="voice-followup-toggle">Keep listening when the Master asks you something</label>
+        <input type="checkbox" id="voice-followup-toggle" class="switch" checked>
+      </div>
       <p class="field-hint" id="voice-support-hint">Tap the microphone on the map or in navigation and say “help” to hear the commands.</p>
       <button id="voice-test-btn" type="button" class="btn-secondary-nav btn-block">🔊 Test voice</button>
     </div>
@@ -1652,7 +1656,7 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="js/core.js?v=20261004-step10"></script>
 <script src="js/voice/hinglish.js?v=20261011-voice"></script>
 <script src="js/voice/engine.js?v=20261011-voice"></script>
-<script src="js/voice.js?v=20261013-fast"></script>
+<script src="js/voice.js?v=20261013-convo"></script>
 <script src="js/gps.js?v=20261003-step7"></script>
 <script src="js/navcam/navcam-core.js?v=20261013-cam"></script>
 <script src="js/navcam/navcam.js?v=20261013-cam"></script>
@@ -1753,11 +1757,11 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="js/master/agents/topology-agent.js?v=20261013-valley"></script>
 <script src="js/master/agents/blackspot-agent.js?v=20261011-cog1"></script>
 <script src="js/master/agents/poi-agent.js?v=20261011-cog1"></script>
-<script src="js/master/agents/search-agent.js?v=20261013-act"></script>
+<script src="js/master/agents/search-agent.js?v=20261013-convo"></script>
 <script src="js/master/agents/mood-agent.js?v=20261011-cog1"></script>
 <script src="js/master/agents/destination-agent.js?v=20261011-cog1"></script>
 <script src="js/master/agents/context-agent.js?v=20261011-cog1"></script>
-<script src="js/master/master-app.js?v=20261013-chat"></script>
+<script src="js/master/master-app.js?v=20261013-convo"></script>
 <!-- Master AI avatar: the state rules, then the module that draws the face (Three.js via the import map in <head>) -->
 <script src="js/ai/avatar-state.js?v=20261011-avatar"></script>
 <script type="module" src="js/ai/avatar-app.js?v=20261011-avatar"></script>

@@ -430,3 +430,70 @@ test("voice action: when the app's command is the answer (nearest place, squad, 
     assert.equal(nav.said[0], "say:Le bhai, band kar diya.");
 });
 
+
+// ================================================================ conversation: the mic reopens after the Master asks something
+/** voice.js with a scripted Master: answers[i] for the i-th question; records the questions. */
+function convoWorld(answers, { followUpOn = true } = {}) {
+    const v = loadVoice();
+    vm.runInContext("var myCoords = null;", v.ctx);                  // core.js's GPS fix: none here (masterSay reads it)
+    v.VA.FOLLOWUP_ECHO_MS = 5;
+    v.VA.followUpOn = followUpOn;
+    const asked = [];
+    v.setMaster({ persona: { style: "desi" }, ask: async (q, o) => {
+        asked.push({ q, chat: Boolean(o && o.chat) });
+        const a = answers[asked.length - 1] || { text: "Theek hai bhai.", expectsReply: false };
+        return { ok: true, text: a.text, display: { title: "Chat", sub: a.text }, result: { expectsReply: a.expectsReply, action: a.action || null } };
+    } });
+    return { v, asked, listens: () => v.Recognition.instances.length };
+}
+
+test("conversation: the Master asks back → after its line is spoken the mic opens by itself; the answer goes to the Master; a reply without a question ends it", async () => {
+    const w = convoWorld([
+        { text: "Arre bhai! Aaj kahan ki ride hai?", expectsReply: true },
+        { text: "Araku mast hai! Ghat pe dhyan se chalana.", expectsReply: false }
+    ]);
+    w.v.setReply({ type: "say", text: "Araku ja raha hoon" });
+    await w.v.VA.masterAsk("Hello", { chat: true });
+    await sleep(200);
+    assert.deepEqual(w.asked.map((a) => a.q), ["Hello", "Araku ja raha hoon"], "no tap: the reply reached the Master");
+    assert.ok(w.v.islands.some((i) => i.title === "Listening for your reply…"));
+    assert.deepEqual(w.v.spoken, ["Arre bhai! Aaj kahan ki ride hai?", "Araku mast hai! Ghat pe dhyan se chalana."]);
+    assert.equal(w.listens(), 1, "the second line asked nothing: the mic stays closed");
+    assert.equal(w.v.VA.convoTurns, 0);
+});
+
+test("conversation: a line ending in '?' counts even without the model's flag; silence ends it; at most 6 turns in a row", async () => {
+    const q = convoWorld([{ text: "Chai break le lein kya?", expectsReply: false }]);
+    q.v.setReply({ type: "silence" });
+    await q.v.VA.masterAsk("thak gaya yaar", {});
+    await sleep(120);
+    assert.equal(q.listens(), 1, "opened once for the answer");
+    assert.equal(q.asked.length, 1, "silence: nothing more is asked");
+    // the turn limit: a 7th question in a row doesn't reopen the mic
+    const many = convoWorld(Array.from({ length: 10 }, (_, i) => ({ text: `Sawaal ${i}?`, expectsReply: true })));
+    many.v.setReply({ type: "say", text: "haan" });
+    await many.v.VA.masterAsk("hello", { chat: true });
+    await sleep(900);
+    assert.equal(many.asked.length, 7, `1 tap + 6 automatic turns, then it waits for a tap (${many.asked.length})`);
+    many.v.VA.togglePushToTalk();                                   // a tap starts a fresh count
+    assert.equal(many.v.VA.convoTurns, 0);
+});
+
+test("conversation: the mic doesn't reopen by itself after an action, when switched off, when muted, or in a call", async () => {
+    const act = convoWorld([{ text: "Chal bhai, Araku ka rasta nikalta hoon. Theek hai?", expectsReply: true, action: { name: "stop_navigation" } }]);
+    vm.runInContext("navState.active = false; navState.ready = false;", act.v.ctx);
+    await act.v.VA.masterAsk("navigation band kar", {});
+    await sleep(120);
+    assert.equal(act.listens(), 0, "an action's own command has the floor");
+    const off = convoWorld([{ text: "Kahan ja rahe ho?", expectsReply: true }], { followUpOn: false });
+    await off.v.VA.masterAsk("hello", { chat: true });
+    await sleep(120);
+    assert.equal(off.listens(), 0, "setting off");
+    const muted = convoWorld([{ text: "Kahan ja rahe ho?", expectsReply: true }]);
+    muted.v.VA.mutedUntil = Date.now() + 60000;
+    muted.v.VA.wantsFollowUp({ ok: true, text: "x?" });
+    assert.equal(muted.v.VA.canFollowUp(), false, "muted");
+    const call = convoWorld([]);
+    vm.runInContext("var peerConnection = {};", call.v.ctx);
+    assert.equal(call.v.VA.canFollowUp(), false, "in a call");
+});

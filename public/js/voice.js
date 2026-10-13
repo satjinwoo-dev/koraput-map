@@ -223,6 +223,7 @@ function matchVoiceCommand(text, ctx) {
 const VoiceAssistant = {
     KEY_ALERTS: "mu_voice_alerts",
     KEY_HANDSFREE: "mu_voice_handsfree",
+    KEY_FOLLOWUP: "mu_voice_followup",
     MUTE_MS: 30 * 60 * 1000,
     MAX_QUEUE: 4,
     ECHO_GUARD_MS: 700,
@@ -255,7 +256,13 @@ const VoiceAssistant = {
     // Ask first ("Bhai, ek baat bolun?" → listen → speak only after a yes; js/advice/ask.js)
     ASK_LISTEN_MS: 3500,           // the answer window, from the moment the mic is open
     ASK_EXTEND_MS: 2500,           // more time once the rider has started talking
-    ASK_ECHO_MS: 200,              // let the question's last syllable die away before listening
+    ASK_ECHO_MS: 200,
+    // Conversation: when the Master's reply asks something, the mic reopens on its own after it has
+    // spoken (no tap). At most FOLLOWUP_MAX turns in a row; silence, a tap or "bas" ends it.
+    FOLLOWUP_MAX: 6,
+    FOLLOWUP_ECHO_MS: 350,          // let the reply's last syllable die away (the speaker would be heard)
+    followUpOn: true,
+    convoTurns: 0,              // let the question's last syllable die away before listening
     asking: null,                  // { text, opts, phase: "prompt" | "listen", abort(reason) }
     askOffUntil: 0,                // the recognizer kept failing: don't ask for a while
     micBlocked: false,
@@ -265,6 +272,7 @@ const VoiceAssistant = {
         try {
             this.alertsEnabled = localStorage.getItem(this.KEY_ALERTS) !== "0";
             this.handsFree = localStorage.getItem(this.KEY_HANDSFREE) === "1";
+            this.followUpOn = localStorage.getItem(this.KEY_FOLLOWUP) !== "0";
         } catch (e) { /* storage blocked: keep defaults */ }
 
         if (this.synth) {
@@ -295,6 +303,16 @@ const VoiceAssistant = {
                 this.alertsEnabled = alertsToggle.checked;
                 try { localStorage.setItem(this.KEY_ALERTS, this.alertsEnabled ? "1" : "0"); } catch (e) { /* ignore */ }
                 if (!this.alertsEnabled) this.silence();
+            });
+        }
+
+        const fuToggle = document.getElementById("voice-followup-toggle");
+        if (fuToggle) {
+            fuToggle.checked = this.followUpOn && Boolean(this.Recognition);
+            fuToggle.disabled = !this.Recognition;
+            fuToggle.addEventListener("change", () => {
+                this.followUpOn = fuToggle.checked;
+                try { localStorage.setItem(this.KEY_FOLLOWUP, this.followUpOn ? "1" : "0"); } catch (e) { /* ignore */ }
             });
         }
 
@@ -712,10 +730,12 @@ const VoiceAssistant = {
         if (this.callActive()) { showToast("Voice commands are paused during a call.", 3500); return; }
         if (this.asking && typeof this.asking.abort === "function") this.asking.abort("interrupted");   // the rider wants to give a command
         if (this.current) this.silence();           // the rider wants to talk, not listen
+        this.convoTurns = 0;
         this.startListening("ptt");
     },
 
-    startListening(mode) {
+    /** @param {string} mode @param {{ followUp?: boolean }} [o] followUp: reopened on its own for the answer to the Master's question */
+    startListening(mode, o = {}) {
         this.stopRecognizerOnly();
         let r;
         try { r = new this.Recognition(); } catch (e) { return false; }
@@ -728,6 +748,7 @@ const VoiceAssistant = {
         r.onend = () => this.onEnd(r, mode);
         this.recognizer = r;
         this.listenMode = mode;
+        this.listenStartedAt = Date.now();
         try { r.start(); } catch (e) {
             this.recognizer = null;
             this.listenMode = null;
@@ -736,7 +757,8 @@ const VoiceAssistant = {
         this.setMicUi(true, mode);
         if (mode === "ptt") {
             const pending = this.pendingConfirm && this.pendingConfirm.until > Date.now();
-            islandShow({ id: "voice-listen", kind: "info", icon: "🎙️", title: pending ? "Say “confirm SOS”" : "Listening…", sub: pending ? "Or say “cancel”" : "Try “how far?” or “where is …”", ttl: 9000, haptic: false });
+            if (o.followUp) islandShow({ id: "voice-listen", kind: "info", icon: "🎙️", title: "Listening for your reply…", sub: "Answer, or stay quiet to end", ttl: 9000, haptic: false });
+            else islandShow({ id: "voice-listen", kind: "info", icon: "🎙️", title: pending ? "Say “confirm SOS”" : "Listening…", sub: pending ? "Or say “cancel”" : "Try “how far?” or “where is …”", ttl: 9000, haptic: false });
         }
         return true;
     },
@@ -767,8 +789,11 @@ const VoiceAssistant = {
     },
 
     onResult(e, mode) {
-        // Echo guard: never act on something heard while (or just after) we spoke.
-        if (this.current || Date.now() - this.lastTtsEndTs < this.ECHO_GUARD_MS) return;
+        // Echo guard: never act on something heard while (or just after) we spoke. A mic opened after
+        // the last line had finished (a tap, or the reopen after the Master's question) can't have heard
+        // it, and a quick "haan" mustn't be thrown away.
+        if (this.current) return;
+        if (Date.now() - this.lastTtsEndTs < this.ECHO_GUARD_MS && !(this.listenStartedAt > this.lastTtsEndTs)) return;
         for (let i = e.resultIndex; i < e.results.length; i++) {
             const res = e.results[i];
             if (!res.isFinal) continue;
@@ -888,11 +913,43 @@ const VoiceAssistant = {
         try { ans = await M.ask(query, { chat: Boolean(o.chat) }); } catch (e) { clearTimeout(filler); this.reply("Sorry, I couldn't look that up right now."); return; }
         clearTimeout(filler);
         const cmd = masterActionCommand(ans && ans.result && ans.result.action);
+        // The Master asked something back ("Kahan ja rahe ho aaj?"): once it has said it, the mic opens on its own.
+        const followUp = !cmd && this.wantsFollowUp(ans);
+        if (!followUp) this.convoTurns = 0;
         // The Master's quick acknowledgement first ("Chal bhai, Araku ka rasta nikalta hoon"), then the app does it.
         // When the app's command IS the answer (the nearest place, where you are, how far, the squad), only the
         // app speaks: its answer is real data, and the model's guess must never contradict it.
-        if (!cmd || !MASTER_ANSWERING_COMMANDS.includes(cmd.name)) this.masterSay(ans);
+        if (!cmd || !MASTER_ANSWERING_COMMANDS.includes(cmd.name)) this.masterSay(ans, followUp ? { onDone: (finished) => { if (finished) this.followUp(); } } : {});
         if (cmd) this.execute(cmd);
+    },
+
+    /** Does this answer wait for the rider's reply? The model says so (expectsReply); a line ending in "?" counts too. */
+    wantsFollowUp(ans) {
+        if (!this.followUpOn || !ans || !ans.ok || !ans.text) return false;
+        if (this.convoTurns >= this.FOLLOWUP_MAX) return false;          // a long back-and-forth: the rider taps to go on
+        const asked = Boolean(ans.result && ans.result.expectsReply) || /\?\s*["”’']?\s*$/.test(String(ans.text));
+        return asked;
+    },
+
+    /** Can the mic reopen by itself right now? Never over speech, a call, mute, a pending SOS confirm or another question. */
+    canFollowUp() {
+        return Boolean(this.Recognition && this.followUpOn && !this.micBlocked && this.alertsEnabled && !this.isMuted()
+            && !this.callActive() && document.visibilityState === "visible" && !this.current && !this.queue.length && !this.asking
+            && (!this.listenMode || this.listenMode === "handsfree")
+            && !(this.pendingConfirm && this.pendingConfirm.until > Date.now()));
+    },
+
+    /** The Master's question has been spoken: listen for the answer, as if the rider had tapped the mic. */
+    followUp() {
+        if (!this.canFollowUp()) { this.convoTurns = 0; return false; }
+        this.convoTurns++;
+        clearTimeout(this.followUpTimer);
+        this.followUpTimer = setTimeout(() => {
+            if (!this.canFollowUp()) { this.convoTurns = 0; return; }
+            if (this.listenMode === "handsfree") this.stopRecognizerOnly();   // the reply goes to the Master, not the command grammar
+            this.startListening("ptt", { followUp: true });
+        }, this.FOLLOWUP_ECHO_MS);
+        return true;
     },
     async masterHelp(cmd) {
         const M = window.MUMaster && window.MUMaster.live;
