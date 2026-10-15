@@ -25,7 +25,11 @@ Leaflet only draws flat, north-up maps, so no plugin is used. While the camera i
 - Otherwise, your last 8 m of movement.
 - The map turns toward that direction smoothly: a 0.6 s time constant, at most 90°/s, and changes under 2° are ignored.
 
-**Tiles:** the map is drawn only up to just under the turn banner; above that is a fade into the background. Measured in Chromium on a 390 × 844 phone, that needs about 105–115 tiles on screen, against 130–160 when drawn to the top edge. That's more than the flat map's dozen or so, which is the cost of seeing the road ahead.
+**No black horizon:** a tilted map needs many more tiles than a flat one, and a phone fetches only a few at a time, nearest first, so the far road at the top of the screen used to show the dark background until its tiles arrived. Now:
+- **Underlay:** a low-resolution copy of the base map (zoom 15, scaled up) sits under the sharp tiles. 1–4 tiles cover the whole tilted view at once, so a gap is a slightly blurry patch for a moment, never black. In Chromium with sharp tiles slowed to 2.5–4 s, the map area was 0 % background 1.2 s after Start.
+- **Heading-fitted drawn area:** `#map` is only what the camera sees for the current heading, re-measured when the heading leaves its 15° band (`box()` in `navcam-core.js`). On a 390 × 844 phone that's 42 % of the old every-heading square heading N/S/E/W and 57 % on average; a drive loaded about half the sharp tiles. Its centre is ahead of the rider, so Leaflet loads the road ahead first.
+- **Wider tile ring:** the sharp layer keeps `keepBuffer` 4 while the camera is on, so turning doesn't throw away what's loaded. Both changes are undone on Stop.
+- **Beyond the horizon:** a sky band fades the far edge, and the map's own background is ground-coloured, not black.
 
 | File | What it does |
 |---|---|

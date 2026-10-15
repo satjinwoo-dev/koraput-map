@@ -2,7 +2,8 @@
 
 /* #map is turned by an inline transform while the camera is on. Markers' content is turned back and
    stretched by 1/cos(pitch), so names and avatars stand upright facing the rider. */
-#map.navcam { will-change: transform; backface-visibility: hidden; }
+/* Ground-coloured, not black: what isn't drawn yet looks like land fading to the horizon (the underlay covers the rest). */
+#map.navcam { will-change: transform; backface-visibility: hidden; background: #2f3a30; }
 #map.navcam .leaflet-marker-icon > * { rotate: var(--navcam-bearing, 0deg); scale: 1 var(--navcam-unpitch, 1); }
 /* Tooltips and popups would lie sideways on a turned map: hidden until the camera hands the map back. */
 #map.navcam .leaflet-tooltip-pane,
