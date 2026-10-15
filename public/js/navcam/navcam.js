@@ -6,11 +6,26 @@
    NavCamera.stop()                  when the drive ends
 
    HOW: Leaflet draws a flat, north-up map. While the camera is on, #map is
-   made an oversized square centred on the rider's spot on screen (so Leaflet
-   loads tiles for everything the tilted view can show), and turned with one
-   CSS transform about that spot: perspective · rotateX(pitch) · rotateZ(-bearing).
+   resized to exactly what the tilted camera sees for the current heading (a
+   rectangle reaching far ahead, re-measured when the heading leaves its 15° band),
+   placed so the rider sits on their spot on screen, and turned with one CSS
+   transform about that spot: perspective · rotateX(pitch) · rotateZ(-bearing).
    The maths (which way is ahead, how fast to turn, zoom, sizes) is in
    navcam-core.js and tested on its own.
+
+   NO BLACK HORIZON: a tilted map needs many more tiles than a flat one, and a phone
+   fetches a handful at a time, nearest first, so the far road (the top of the
+   screen) used to show the dark background until its tiles came. Now:
+     - a low-resolution UNDERLAY of the same map (zoom 15, scaled up) sits under
+       the sharp tiles: 1–4 tiles cover the whole tilted plane at once, so a gap
+       is a slightly blurry patch for a moment, never black;
+     - the drawn area is only what the camera sees (2–4× fewer tiles than a square
+       for every heading), and its centre is AHEAD of the rider, so Leaflet loads
+       the road ahead first;
+     - the sharp layer keeps a wider ring of loaded tiles (keepBuffer 4) while the
+       camera is on, so turning doesn't throw away what's loaded;
+     - what's left beyond the horizon fades into a sky band; the map's own
+       background is ground-coloured, not black.
 
    Markers stay readable: each marker's content is turned back by the same
    bearing and stretched by 1/cos(pitch), so it stands upright facing the
@@ -38,7 +53,10 @@ const NavCamera = (() => {
     let on = false, paused = false, headingUp = true;
     let bearing = 0, target = null, course = null, zoom = null;
     let user = null, lastMoveFrom = null;
-    let geom = null, applied = null;        // the geometry now on #map
+    let geom = null, applied = null;        // the geometry now on #map; applied: the box (w, h, ox, oy, band) and anchor
+    const UNDERLAY_ZOOM = 15;               // the underlay's tiles: one covers 16× the ground of a zoom-17 tile
+    /** @type {any} */ let underlay = null;
+    /** @type {Array<[any, number]>} */ let boosted = [];
     let raf = 0, lastT = 0;
     const els = {};
     const reduceMotion = () => { try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) { return false; } };
@@ -98,21 +116,53 @@ const NavCamera = (() => {
     // ---------------------------------------------------------------- the transform
     const displayBearing = () => (headingUp ? bearing : 0);
 
-    /** Size #map for the current layout and mode; returns true if Leaflet had to re-measure. */
+    /** The map centre that puts this point on the rider's spot (ox, oy) in the drawn box. @param {{ lat: number, lng: number }} ll @param {number} z */
+    function viewCenter(ll, z) {
+        if (!applied) return L.latLng(ll.lat, ll.lng);
+        const p = lmap.project(L.latLng(ll.lat, ll.lng), z).add(L.point(applied.w / 2 - applied.ox, applied.h / 2 - applied.oy));
+        return lmap.unproject(p, z);
+    }
+    /** Size #map for the current layout, mode and heading band; returns true if Leaflet had to re-measure. */
     function layout() {
         const ob = obstacles();
         const o = headingUp ? C.DEFAULTS : { ...C.DEFAULTS, anchorFrac: 0.5 };
         geom = C.geometry({ vw: window.innerWidth, vh: window.innerHeight, top: ob.top, bottom: ob.bottom, flat: !headingUp }, o);
         placeUi(ob);
-        const same = applied && Math.abs(applied.radius - geom.radius) < 4 && Math.abs(applied.ax - geom.ax) < 2 && Math.abs(applied.ay - geom.ay) < 2;
+        const bx = C.box(geom, displayBearing());
+        const same = applied && applied.band === bx.band && Math.abs(applied.w - bx.w) < 4 && Math.abs(applied.h - bx.h) < 4
+            && Math.abs(applied.ax - geom.ax) < 2 && Math.abs(applied.ay - geom.ay) < 2;
         if (same) return false;
-        const el = lmap.getContainer(), r = geom.radius;
-        Object.assign(el.style, { left: `${geom.ax - r}px`, top: `${geom.ay - r}px`, right: "auto", bottom: "auto", width: `${2 * r}px`, height: `${2 * r}px`, transformOrigin: `${r}px ${r}px` });
+        // where the rider is drawn right now (mid-glide too), so the new box doesn't make the map jump
+        const here = applied ? lmap.containerPointToLatLng([applied.ox, applied.oy]) : (user ? L.latLng(user.lat, user.lng) : null);
+        const el = lmap.getContainer();
+        Object.assign(el.style, { left: `${geom.ax - bx.ox}px`, top: `${geom.ay - bx.oy}px`, right: "auto", bottom: "auto",
+            width: `${bx.w}px`, height: `${bx.h}px`, transformOrigin: `${bx.ox}px ${bx.oy}px` });
         el.classList.add("navcam");
-        applied = { radius: geom.radius, ax: geom.ax, ay: geom.ay };
+        applied = { ...bx, ax: geom.ax, ay: geom.ay };
         lmap.invalidateSize({ pan: false, animate: false });
-        if (user) lmap.setView([user.lat, user.lng], zoom || lmap.getZoom(), { animate: false });
+        if (here) lmap.setView(viewCenter(here, lmap.getZoom()), lmap.getZoom(), { animate: false });
         return true;
+    }
+
+    /** A low-resolution copy of the base map under it: covers the whole tilted view in a few tiles. */
+    function addUnderlay() {
+        removeUnderlay();
+        /** @type {any} */ let base = null;
+        lmap.eachLayer((/** @type {any} */ l) => { if (!base && l instanceof L.TileLayer && typeof l._url === "string") base = l; });
+        if (!base) return;
+        const o = base.options;
+        underlay = L.tileLayer(base._url, {
+            subdomains: o.subdomains, maxZoom: o.maxZoom, maxNativeZoom: Math.min(UNDERLAY_ZOOM, o.maxNativeZoom || o.maxZoom || UNDERLAY_ZOOM),
+            zIndex: 0, keepBuffer: 1, attribution: "", className: "navcam-underlay", crossOrigin: o.crossOrigin
+        }).addTo(lmap);
+        // the sharp layer keeps a wider ring of tiles while the view turns
+        lmap.eachLayer((/** @type {any} */ l) => { if (l !== underlay && l instanceof L.TileLayer) { boosted.push([l, l.options.keepBuffer]); l.options.keepBuffer = 4; } });
+    }
+    function removeUnderlay() {
+        if (underlay && lmap) { try { lmap.removeLayer(underlay); } catch (e) { /* already gone */ } }
+        underlay = null;
+        for (const [l, kb] of boosted) l.options.keepBuffer = kb;
+        boosted = [];
     }
     function paint() {
         if (!on || paused || !geom) return;
@@ -140,6 +190,7 @@ const NavCamera = (() => {
         const dt = lastT ? Math.min(100, t - lastT) : 16;
         lastT = t;
         if (target != null) bearing = reduceMotion() ? target : C.stepBearing(bearing, target, dt);
+        if (applied && geom && C.box(geom, displayBearing()).band !== applied.band) layout();   // a new 15° band: re-measure
         paint();
         if (target != null && Math.abs(C.angleDiff(bearing, target)) > 0.05) raf = requestAnimationFrame(tick);
         else lastT = 0;
@@ -174,8 +225,9 @@ const NavCamera = (() => {
         document.addEventListener("pointerdown", onTouch, true);
         document.addEventListener("wheel", onTouch, { capture: true, passive: true });
         window.addEventListener("resize", onResize);
+        addUnderlay();
         layout();
-        if (user) lmap.setView([user.lat, user.lng], zoom, { animate: false });
+        if (user) lmap.setView(viewCenter(user, zoom), zoom, { animate: false });
         paint();
         kick();                                    // swings from north to the road's direction
         return true;
@@ -199,8 +251,8 @@ const NavCamera = (() => {
         zoom = z;
         if (paused) return;
         layout();                                  // the drive panel can grow or shrink
-        if (zoomChanged) lmap.setView([f.lat, f.lng], zoom, { animate: !reduceMotion() });
-        else lmap.setView([f.lat, f.lng], zoom, { pan: { animate: !reduceMotion(), duration: PAN_S, easeLinearity: 1 } });
+        if (zoomChanged) lmap.setView(viewCenter(f, zoom), zoom, { animate: !reduceMotion() });
+        else lmap.setView(viewCenter(f, zoom), zoom, { pan: { animate: !reduceMotion(), duration: PAN_S, easeLinearity: 1 } });
         paint();
         kick();
     }
@@ -210,7 +262,8 @@ const NavCamera = (() => {
         paused = true;
         if (raf) { cancelAnimationFrame(raf); raf = 0; }
         lastT = 0;
-        const center = lmap.getCenter();
+        // where the rider is drawn becomes the centre of the flat map
+        const center = applied ? lmap.containerPointToLatLng([applied.ox, applied.oy]) : lmap.getCenter();
         restore();
         lmap.setView(center, lmap.getZoom(), { animate: false });
         placeUi(obstacles());
@@ -219,7 +272,7 @@ const NavCamera = (() => {
         if (!on) return;
         paused = false;
         layout();
-        if (user) lmap.setView([user.lat, user.lng], zoom || lmap.getZoom(), { animate: false });
+        if (user) lmap.setView(viewCenter(user, zoom || lmap.getZoom()), zoom || lmap.getZoom(), { animate: false });
         paint();
         placeUi(obstacles());
         kick();
@@ -241,6 +294,7 @@ const NavCamera = (() => {
         document.removeEventListener("pointerdown", onTouch, true);
         document.removeEventListener("wheel", onTouch, true);
         window.removeEventListener("resize", onResize);
+        removeUnderlay();
         restore();
         placeUi({ top: 0, bottom: 0 });
         if (els.sky) els.sky.hidden = true;
@@ -252,7 +306,7 @@ const NavCamera = (() => {
         get active() { return on; },
         get paused() { return paused; },
         /** For the console and tests. */
-        state: () => ({ on, paused, headingUp, bearing: Math.round(bearing * 10) / 10, target, course, zoom, geom })
+        state: () => ({ on, paused, headingUp, bearing: Math.round(bearing * 10) / 10, target, course, zoom, geom, box: applied, underlay: Boolean(underlay) })
     };
 })();
 

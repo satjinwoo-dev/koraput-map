@@ -21,8 +21,14 @@
                   0.6 s, never more than 90°/s), the short way round.
    zoomForSpeed() closer in town, further out at speed, with hysteresis so it
                   doesn't pump at a band edge.
-   geometry()     where the rider sits on screen, and how big the square must
-                  be so the tilted, turning map always covers the screen.
+   geometry()     where the rider sits on screen, and how far the drawn map must
+                  reach ahead, behind and to the sides for the tilted view.
+   box()          the drawn rectangle for the current heading: only what the camera
+                  sees, turned into the map's north-up frame and widened to cover a
+                  15° band of headings, so it's re-measured only when the heading
+                  leaves the band. Far fewer tiles than a square that covers every
+                  heading, and Leaflet (which loads nearest-the-centre first) starts
+                  with the road AHEAD, where new tiles appear.
 
    These are display choices, not measurements: they're tuning values,
    named here and in DEFAULTS, so they can be changed in one place.
@@ -157,7 +163,7 @@
      * @param {{ vw: number, vh: number, top?: number, bottom?: number, pitchDeg?: number, flat?: boolean }} v
      *   top/bottom: the visible map between the turn banner and the drive panel (px from the top)
      * @param {typeof DEFAULTS} [o]
-     * @returns {{ ax: number, ay: number, radius: number, perspective: number, pitchDeg: number, horizonY: number, aheadPx: number }}
+     * @returns {{ ax: number, ay: number, radius: number, perspective: number, pitchDeg: number, horizonY: number, aheadPx: number, region: { hw: number, ahead: number, behind: number } }}
      */
     function geometry(v, o = DEFAULTS) {
         const vw = Math.max(1, v.vw), vh = Math.max(1, v.vh);
@@ -178,7 +184,33 @@
         const halfWideFar = (vw / 2) * (P + aheadPx * Math.sin(th)) / P;
         const behindPx = (down * P) / (P * Math.cos(th) + down * Math.sin(th));
         const radius = Math.ceil(Math.max(Math.hypot(halfWideFar, aheadPx), Math.hypot(vw / 2, behindPx), v.flat ? Math.hypot(vw / 2, up) : 0) + o.marginPx);
-        return { ax, ay, radius, perspective: P, pitchDeg, horizonY, aheadPx: Math.round(aheadPx) };
+        // the region the camera sees, in the heading-up frame, from the rider (map px), with the slack added
+        const m = o.marginPx;
+        const region = { hw: Math.ceil(Math.max(halfWideFar, vw / 2) + m), ahead: Math.ceil(aheadPx + m), behind: Math.ceil(Math.max(behindPx, v.flat ? down : 0) + m) };
+        return { ax, ay, radius, perspective: P, pitchDeg, horizonY, aheadPx: Math.round(aheadPx), region };
+    }
+
+    /**
+     * The drawn rectangle in the map's north-up frame for a heading: covers what the camera sees for
+     * every bearing in the 15° band around this one. ox/oy: where the rider is inside it.
+     * Display = rotateZ(-bearing)(map), so a map offset is the display offset turned by +bearing.
+     * @param {{ region: { hw: number, ahead: number, behind: number } }} g @param {number} bearingDeg
+     * @returns {{ band: number, w: number, h: number, ox: number, oy: number }}
+     */
+    function box(g, bearingDeg, bandDeg = 15) {
+        const { hw, ahead, behind } = g.region;
+        const band = (Math.round(norm(bearingDeg) / bandDeg) * bandDeg) % 360;
+        const corners = [[-hw, -ahead], [hw, -ahead], [hw, behind], [-hw, behind]];
+        let minx = Infinity, maxx = -Infinity, miny = Infinity, maxy = -Infinity;
+        for (const a of [band - bandDeg / 2 - 1, band - bandDeg / 4, band, band + bandDeg / 4, band + bandDeg / 2 + 1]) {
+            const c = Math.cos(a * RAD), sn = Math.sin(a * RAD);
+            for (const [x, y] of corners) {
+                const mx = x * c - y * sn, my = x * sn + y * c;
+                if (mx < minx) minx = mx; if (mx > maxx) maxx = mx;
+                if (my < miny) miny = my; if (my > maxy) maxy = my;
+            }
+        }
+        return { band, w: Math.ceil(maxx - minx), h: Math.ceil(maxy - miny), ox: Math.ceil(-minx), oy: Math.ceil(-miny) };
     }
 
     /** The CSS transform for the drawn square, about the rider's point. @param {{ perspective: number, pitchDeg: number }} g @param {number} bearingDeg */
@@ -187,5 +219,5 @@
         return g.pitchDeg > 0 ? `perspective(${g.perspective}px) rotateX(${g.pitchDeg}deg) rotateZ(${-b}deg)` : `rotateZ(${-b}deg)`;
     }
 
-    return { DEFAULTS, angleDiff, bearing, metres, routeBearing, courseFrom, stepBearing, shouldRetarget, zoomForSpeed, geometry, cssTransform };
+    return { DEFAULTS, angleDiff, bearing, metres, routeBearing, courseFrom, stepBearing, shouldRetarget, zoomForSpeed, geometry, box, cssTransform };
 });

@@ -121,3 +121,33 @@ test("wiring: scripts load in order, offline precache, navigation hands its fixe
     assert.match(navjs, /pos\.coords\.heading/);
     assert.ok(navjs.indexOf("NavCamera.stop()") > navjs.indexOf("function stopDrive"));
 });
+
+test("box: the drawn rectangle covers every visible screen point at every heading in its 15° band, and is far smaller than a square for every heading", () => {
+    const g = C.geometry({ vw: 390, vh: 844, top: 140, bottom: 562 });
+    const pts = [];
+    for (let sy = 100; sy <= 844; sy += 37) for (let sx = 0; sx <= 390; sx += 39) pts.push(screenToPlane(g, sx, sy));
+    let maxArea = 0, sumArea = 0, n = 0;
+    for (let b = 0; b < 360; b += 3) {
+        const bx = C.box(g, b);
+        maxArea = Math.max(maxArea, bx.w * bx.h); sumArea += bx.w * bx.h; n++;
+        // the heading can drift anywhere in the band before the box is re-measured
+        for (const actual of [b, bx.band - 7.5, bx.band + 7.5]) {
+            const c = Math.cos(actual * Math.PI / 180), s = Math.sin(actual * Math.PI / 180);
+            for (const p of pts) {
+                const mx = p.x * c - p.y * s + bx.ox, my = p.x * s + p.y * c + bx.oy;   // display → the map's north-up frame, from the box's corner
+                assert.ok(mx >= 0 && mx <= bx.w && my >= 0 && my <= bx.h, `bearing ${actual}: (${Math.round(mx)}, ${Math.round(my)}) outside ${bx.w}×${bx.h}`);
+            }
+        }
+    }
+    // the drive panel is frosted glass, so the box reaches the screen's bottom too: measured 0.42 of the square
+    // heading N/S/E/W, 0.57 on average, 0.67 at the worst diagonal
+    const square = (2 * g.radius) ** 2;
+    assert.ok(sumArea / n < square * 0.6, `average ${Math.round(sumArea / n / 1e3)}k px² vs square ${Math.round(square / 1e3)}k`);
+    assert.ok(maxArea < square * 0.7, `worst heading ${Math.round(maxArea / 1e3)}k px² vs square ${Math.round(square / 1e3)}k`);
+    assert.ok(C.box(g, 0).w * C.box(g, 0).h < square * 0.45);
+    const ahead = C.box(g, 0);
+    assert.ok(ahead.oy > ahead.h / 2, "heading north: the rider sits low in the box, most of it is ahead (Leaflet loads from the centre)");
+    assert.equal(C.box(g, 0).band, C.box(g, 7).band);
+    assert.notEqual(C.box(g, 0).band, C.box(g, 8).band);
+    assert.equal(C.box(g, 355).band, 0, "wraps round north");
+});
