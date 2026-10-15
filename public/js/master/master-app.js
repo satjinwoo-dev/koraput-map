@@ -71,6 +71,13 @@
         const replay = typeof W.MU_DYNAMICS_REPLAY === "string" || Array.isArray(W.MU_DYNAMICS_REPLAY) ? W.MU_DYNAMICS_REPLAY : null;
         if (plugin || replay) caps.provide("dynamics", M.perception.dynamics.createDynamicsProvider({ plugin, replay }));
     }
+    // RoadSense Live (js/master/roadsense/): the one road event log on the phone, shared by every agent that
+    // sees the road (the dynamics agent today; the camera's road agent and the server sync next)
+    if (M.roadsense) {
+        const roadsense = M.roadsense.createLog({ store: caps.get("store").namespace("roadsense") });
+        roadsense.load();
+        caps.provide("roadsense", roadsense);
+    }
     // the cognitive engines: our server's /api/master (keys stay there), the app's own context, the DEM cache,
     // and in the Android app the radio-signal and media-session plugins
     if (M.remote) caps.provide("master-api", M.remote.createMasterApiProvider({ window: W }));

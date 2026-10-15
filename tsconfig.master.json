@@ -40,6 +40,7 @@
     "public/js/master/perception/recorder-page.js",
     "public/js/master/agents/road-agent.js",
     "public/js/master/perception/dynamics.js",
+    "public/js/master/roadsense/roadsense.js",
     "public/js/master/agents/dynamics-agent.js",
     "public/js/master/geo.js",
     "public/js/master/remote.js",

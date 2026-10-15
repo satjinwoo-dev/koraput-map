@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-15.1";           // Navigation camera: no black horizon (low-res underlay, heading-fitted drawn area)
+const VERSION = "mu-2026-10-15.2";           // RoadSense Live: the road event log + verification and expiry rules
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
@@ -167,6 +167,7 @@ const BIKE_SCRIPTS = [
     "/js/master/perception/provider.js",
     "/js/master/agents/road-agent.js",
     "/js/master/perception/dynamics.js",
+    "/js/master/roadsense/roadsense.js",
     "/js/master/agents/dynamics-agent.js",
     "/js/master/geo.js",
     "/js/master/remote.js",
