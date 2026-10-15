@@ -245,3 +245,23 @@ test("RoadSense: with the shared 'roadsense' capability (as master-app provides 
     assert.ok(saved.get("events").events.length >= 1, "saved through the shared log's own store");
     assert.equal(store.localStorage.getItem("mu.master.dynamics.events"), null, "not into the agent's private store");
 });
+
+test("RoadSense: a pothole verified only by other riders (sync) is warned on this phone's first ride, as reported by them", async () => {
+    const RS = require("../../public/js/master/roadsense/roadsense.js");
+    const list = frames();
+    const shared = RS.createLog();
+    const at = { lat: 18.5204, lng: LNG0 + 300 / M_PER_DEG_LNG };
+    // two other riders felt it yesterday (what /api/master/roadsense/area hands the phone)
+    shared.addAll([
+        { id: "remote-a-0001", type: "bump", t: list[0].t - 86400000, ...at, source: "imu", rider: "r1111111111aaaaa", present: true, conf: 0.7, peakMs2: 18 },
+        { id: "remote-b-0001", type: "bump", t: list[0].t - 80000000, ...at, source: "imu", rider: "r2222222222bbbbb", present: true, conf: 0.7, peakMs2: 17 }
+    ]);
+    const leg1End = list.findIndex((f, i) => i > 20 && f.ego.speedMs < 0.5);
+    const e = await ride(list.slice(0, leg1End + 1), fakeWindow(), shared);
+    const reported = e.reports.filter((r) => r.kind === "road.bump-reported");
+    assert.equal(reported.length, 1, "warned before the phone ever felt it");
+    assert.equal(reported[0].data.riders, 2);
+    assert.equal(e.reports.filter((r) => r.kind === "road.bump-ahead").length, 0, "not 'where you hit one before'");
+    assert.ok(e.said.some((s) => /riders ne report kiya|doosre riders/.test(s.text)));
+    assert.ok(e.islands.some((i) => i.title === "Bump reported ahead"));
+});

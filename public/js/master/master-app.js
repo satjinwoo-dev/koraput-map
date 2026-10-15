@@ -81,6 +81,12 @@
     // the cognitive engines: our server's /api/master (keys stay there), the app's own context, the DEM cache,
     // and in the Android app the radio-signal and media-session plugins
     if (M.remote) caps.provide("master-api", M.remote.createMasterApiProvider({ window: W }));
+    // RoadSense sync (js/master/roadsense/sync.js): opt-in sharing with /api/master/roadsense, into the same log
+    if (M.roadsense && M.roadsenseSync && caps.get("roadsense")) {
+        caps.provide("roadsense-sync", M.roadsenseSync.createSync({
+            RS: M.roadsense, log: caps.get("roadsense"), store: caps.get("store").namespace("roadsense-sync"), api: caps.get("master-api")
+        }));
+    }
     if (M.providers) {
         caps.provide("app-context", M.providers.createAppContextProvider(W, W.document));
         if (W.MUTrip && W.MUTrip.elevation && typeof W.MUTrip.elevation.createElevation === "function") caps.provide("terrain", M.providers.createTerrainProvider(W.MUTrip.elevation.createElevation()));

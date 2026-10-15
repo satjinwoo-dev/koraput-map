@@ -159,7 +159,11 @@ test("storage: saved and loaded intact; expired and cleared events pruned; least
     assert.equal(again.prune(T0 + 3 * H), 1, "the animal is long gone");
     assert.deepEqual(again.stats(T0 + 3 * H), { events: 1, candidate: 0, verified: 1, cleared: 0, expired: 0 });
     // corrupt or foreign data is skipped, not trusted
-    store.set("events", { v: 1, events: [["x", 99, 1, 1, 1, [[0, 0, "self", 1, 70, 0, -1]]], null, ["z", 0, LAT, LNG, 1, [[0, 7, "self", 1, 70, 0, -1]]], ["y", 0, LAT, LNG, T0 / 1000, [[0, 0, "self", 1, 70, 0, 130]]]] });
+    store.set("events", { v: 1, events: [
+        ["x", 99, 1, 1, 1, [[0, 0, "self", 1, 70, 0, -1, "obs-x-1"]]], null,
+        ["z", 0, LAT, LNG, 1, [[0, 7, "self", 1, 70, 0, -1, "obs-z-1"]]],                 // unknown source
+        ["w", 0, LAT, LNG, 1, [[0, 0, "self", 1, 70, 0, -1]]],                            // no observation id
+        ["y", 0, LAT, LNG, T0 / 1000, [[0, 0, "self", 1, 70, 0, 130, "obs-y-1"]]]] });
     const ok = RS.createLog({ store });
     assert.equal(ok.load(), 1, "unknown kind, garbage, unknown source: skipped");
     assert.equal(ok.get("y", T0).peakMs2, 13);

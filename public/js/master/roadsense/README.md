@@ -5,7 +5,11 @@ One record of what is on the road, kept on the phone. **Sensors and people add o
 | File | What it does |
 |---|---|
 | `roadsense.js` | The observation format, the event log (merging, a 20 m spatial index, saving), and the verification and expiry rules (`assess`). Pure and `// @ts-check`. It is shared as the capability `roadsense` (`master-app.js`). |
-| `../agents/dynamics-agent.js` | The first writer. It adds IMU jolts ("bump") and rough 20 m stretches, plus **clean passes** (rode over a known bump at ≥ 3 m/s and felt nothing). It warns `road.bump-ahead` only for **verified** bumps. |
+| `../agents/dynamics-agent.js` | The first writer. It adds IMU jolts ("bump") and rough 20 m stretches, plus **clean passes** (rode over a known bump at ≥ 3 m/s and felt nothing). It warns only for **verified** bumps: `road.bump-ahead` when this phone felt it before, `road.bump-reported` ("reported by 2 riders") when only other riders did. |
+| `sync.js` | **Opt-in** sync with our server (capability `roadsense-sync`): the outbox of this phone's own observations, private zones, daily pseudonyms, and downloads by ≈ 5.5 km tile into the same log, which is the offline cache. |
+| `../agents/roadsense-agent.js` | Drives the sync: uploads every minute, fetches the tiles along a route when one is set and around the rider every 5 minutes, and marks where rides start and end as private. |
+| `roadsense-ui.js` | Settings → **Community road reports**: the switch (off by default), a status line, and **Delete my road reports from the server**. |
+| `lib/master/roadsense.js` (server) | `/api/master/roadsense/upload`, `/area` and `/forget` on the server's SQLite database. It runs the same `roadsense.js` rules per tile. |
 
 ## Observations and events
 
@@ -13,7 +17,8 @@ One record of what is on the road, kept on the phone. **Sensors and people add o
 observation { type, t, lat, lng, source, rider, present, conf, peakMs2? }
   type     bump · pothole · speed_breaker · rough · waterlogging · gravel · debris · animal
   source   imu · camera · rider (a spoken or tapped report) · official (SACHET CAP, IMD, NHAI)
-  rider    an opaque id: "self" for this phone; other riders' ids come from the server later, never names or numbers
+  rider    "self" for this phone; other riders are labels from the server (see Sync), never names or numbers
+  id       random, 12 characters: an observation already in the log is a duplicate and changes nothing
   present  true = "it is here"; false = "I went over this spot and it was NOT there"
 ```
 
@@ -32,7 +37,7 @@ observation { type, t, lat, lng, source, rider, present, conf, peakMs2? }
 |---|---|
 | `expired` | Nothing alive: faded below 0.1, or older than the kind's maxAge. |
 | `cleared` | Enough clean passes after the last sighting: 3 for shocks and rough road; 2 for water, gravel and debris; 1 for an animal. Only sources that can sense that kind count, so an IMU clean pass doesn't clear water. |
-| `verified` | An official source, or ≥ 2 independent pieces with confidence ≥ 0.5. A piece is a different rider, a separate pass by the same rider (≥ 60 s apart), or a second sensor on the same pass (IMU + camera). |
+| `verified` | An official source, or ≥ 2 independent pieces with confidence ≥ 0.5. A piece is a different rider, a separate pass by this phone (≥ 60 s apart), or a second sensor on the same pass (IMU + camera). **Another rider counts as one piece per sensor however many passes they claim, and their clean passes as one.** So one uploader can neither verify a fake pothole nor clear a real one. |
 | `candidate` | Seen, not confirmed. **Never spoken as fact.** |
 
 - **Expiry is mostly rule 2:** riders going over a repaired pothole clear it. Half-lives are only the backstop for roads nobody rides.
@@ -67,12 +72,51 @@ observation { type, t, lat, lng, source, rider, present, conf, peakMs2? }
 - `node --test test/master/roadsense.test.mjs`: the rules, storage and wiring.
 - `test/master/dynamics.test.mjs`: the Kotlin ride fixture end to end, including a repaired pothole being cleared after 3 clean passes and no longer warned.
 
+## Sync (step 3): opt-in, anonymous, offline-first
+
+**Off by default.** Settings → *Community road reports* turns on sharing and receiving together. Turning it off empties the queue; nothing from before it was turned on is ever sent.
+
+**What leaves the phone.** Only this phone's own observations (rider `"self"`, sources imu, camera or rider):
+- uploaded no sooner than **10 minutes** after they happened, so nothing is ever live tracking;
+- never within **250 m** of where a ride started or ended, or of the first fix after the app opens (a ride the phone died in never "ended"). Those observations are **dropped**, not delayed. The private zones stay on the phone;
+- with time rounded to 10 s and position to 1e-5° (≈ 1 m: a pothole needs it);
+- under a **pseudonym that changes every calendar day**, random and made on the phone.
+
+**What the server keeps** (`roadsense_obs` in the server's database):
+- the observation's id, kind, time, position, source, present or not there, confidence and shock size;
+- a **rider label** = HMAC(`SERVER_SECRET`, pseudonym).
+
+It never stores the pseudonym or the IP address. Labels let phones count distinct riders without learning who they are; a new day is a new label, so `riders` counts rider-days.
+
+**Server limits:**
+- 200 observations per upload; only imu, camera and rider sources (phones can't claim to be IMD);
+- times from 30 days ago to 10 minutes ahead; 3,000 observations per label per day;
+- per-route rate limits.
+
+**Retention:** each observation is deleted once past its kind's `maxAge`, checked hourly.
+
+**Delete my road reports:** the phone keeps its pseudonyms (≤ 800 days) only so it can send them to `/forget`; the server deletes every row under their labels.
+
+**What comes down.**
+- `/area` runs the same rules over each requested tile and returns only the evidence of live (candidate or verified) events, verified first, at most 300 events per tile and 4,000 observations per answer.
+- The phone fetches every tile along a route when one is set (≤ 200 tiles, about 1,000 km), and around itself every 5 minutes while riding. A tile fetched in the last 15 minutes isn't fetched again.
+- Everything lands in the **same log** in phone storage, so it warns with no signal and survives restarts.
+- The phone's own uploads coming back are recognised by id (and by a remembered list of 5,000 sent ids) and never counted as another rider.
+- Failures back off from 1 to 30 minutes, and every call goes through `master-api`, which answers at once when offline.
+
+**What this doesn't stop.** Anyone can post to the API. The limits above stop one uploader. A coordinated group posting under many pseudonyms (a Sybil attack) could still verify a fake spot. Device attestation (Play Integrity) is the fix for that when the app is in the Play Store.
+
+**Tests:**
+- `test/server/roadsense-api.test.mjs`: the server on in-memory SQLite, plus the mounted routes.
+- `test/master/roadsense-sync.test.mjs`: several simulated phones syncing through the real server handlers. Covers privacy, offline and restart, abuse, delete, the agent, and the wiring.
+- `test/master/dynamics.test.mjs`: a pothole verified only by other riders is warned on a first ride.
+
 ## Next (not built yet)
 
 | Step | What it adds |
 |---|---|
-| 3 | Opt-in server sync of observations, with per-cell aggregation and the offline cache along the route. |
 | 4 | Voice and Truth Card lines that use `riders`, `sources` and `lastSeen`. |
 | 5 | The labelled 1D-CNN behind the same DynamicsFrame. |
-| Camera | The road agent (`road.hazards`) becomes a second writer. `road.bump-ahead`'s words ("where you hit one before") then need a variant for spots this phone hasn't felt. |
+| Camera | The road agent (`road.hazards`) becomes a second writer. |
+| Bigger cache | localStorage holds 2,000 events. A long route in a dense area can exceed that, and the least recently seen go first. IndexedDB would remove the limit. |
 | Rough road | The dynamics agent sends smooth 20 m stretches as clean passes for `rough`. Today rough events expire only by fading (30-day half-life). |

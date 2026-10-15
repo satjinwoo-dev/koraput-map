@@ -142,6 +142,13 @@
                 { say: "Dhyan se {{name}}, aage {{distanceM|round}} metre pe gaddha ya breaker hai." }
             ]
         },
+        // RoadSense: verified by other riders' reports, never felt by this phone
+        "road.bump-reported": {
+            warning: [
+                { say: "{{name}}, {{distanceM|round}} metre aage gaddha ya breaker hai, {{riders}} riders ne report kiya hai. Dheere kar." },
+                { say: "Dhyan se {{name}}, aage {{distanceM|round}} metre pe jhatka hai, doosre riders ne bataya hai." }
+            ]
+        },
 
         // ---------------------------------------------------------------- ready for the next agents
         "weather.ahead": {
@@ -221,6 +228,7 @@
         "ride.hard-brake-check": { advice: [{ say: "That was a very hard stop. All good? Take a minute before you ride on.", title: "Very hard braking", sub: "Take a short break" }] },
         "road.rough-stretch": { advice: [{ say: "The road is rough here. Keep your speed down.", title: "Rough road", sub: "Ease off for a while" }] },
         "road.bump-ahead": { warning: [{ say: "Bump or pothole in {{distanceM|round}} metres, where you hit one before. Slow down.", title: "Bump ahead", sub: "In {{distanceM|round}} m" }] },
+        "road.bump-reported": { warning: [{ say: "Bump or pothole reported by {{riders}} riders in {{distanceM|round}} metres. Slow down.", title: "Bump reported ahead", sub: "In {{distanceM|round}} m · {{riders}} riders" }] },
         "weather.ahead": {
             warning: [{ say: "{{condition}} in {{distanceM|km}}. Slow down and keep a longer gap.", title: "{{condition}} ahead", sub: "In {{distanceM|km}}" }],
             advice: [{ say: "{{condition}} is likely ahead. Keep your rain gear handy.", title: "Weather changing", sub: "{{condition}} ahead" }]

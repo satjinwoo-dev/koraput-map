@@ -15,6 +15,8 @@
      road.rough-stretch    advice   60 m+ of rough road while riding (once per 10 min)
      road.bump-ahead       warning  a strong jolt this phone has felt at the same
                                     spot on 2 separate passes is ahead, 2–8 s away
+     road.bump-reported    warning  the same, verified by other riders' reports
+                                    (RoadSense sync) where this phone felt nothing yet
 
    Why braking is never said while riding: the rider is busy braking, and a
    voice then is a distraction. It's useful afterwards, when stopped.
@@ -174,7 +176,8 @@
                     if (f.t - (bumpSaidAt.get(c.id) ?? -Infinity) < cfg.bumpCooldownMs) continue;
                     bumpSaidAt.set(c.id, f.t);
                     stats.bumpsWarned++;
-                    ctx.report("road.bump-ahead", {
+                    // felt here before → "where you hit one before"; only other riders' reports → say so
+                    ctx.report(c.felt ? "road.bump-ahead" : "road.bump-reported", {
                         severity: "warning", key: `road.bump.${c.id}`, category: "road", ridingOnly: true, ttlMs: 4000, confidence: c.confidence,
                         data: {
                             distanceM: Math.max(10, Math.round(along / 10) * 10), passes: c.passes, riders: c.riders, peakMs2: c.peakMs2 === null ? null : Math.round(c.peakMs2),

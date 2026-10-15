@@ -1101,6 +1101,18 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
       <button id="voice-test-btn" type="button" class="btn-secondary-nav btn-block">🔊 Test voice</button>
     </div>
 
+    <!-- RoadSense Live: opt-in community road reports (js/master/roadsense/sync.js; this section: roadsense-ui.js) -->
+    <div class="form-section" id="roadsense-section">
+      <h3><svg class="i sm" style="width:13px;height:13px;vertical-align:-2px;"><use href="#i-shield"/></svg> Community road reports</h3>
+      <div class="modal-row">
+        <label for="roadsense-share-toggle">Share &amp; receive road reports (anonymous)</label>
+        <input type="checkbox" id="roadsense-share-toggle" class="switch">
+      </div>
+      <p class="field-hint">When on, the bumps, rough road and repaired spots your phone feels are shared without your name, account or route: only single spots, sent at least 10 minutes later, never near where your rides start or end, under an ID that changes every day. In return the phone downloads other riders' reports along your route and keeps them, so warnings work with no signal.</p>
+      <p class="field-hint" id="roadsense-status" aria-live="polite">Off.</p>
+      <button id="roadsense-forget-btn" type="button" class="btn-secondary-nav btn-block">Delete my road reports from the server</button>
+    </div>
+
     <!-- Roadmap Step 8: ride advice & its safety gate (js/advice/advice-app.js; this section: js/advice/advice-ui.js) -->
     <div class="form-section" id="advice-section">
       <h3><svg class="i sm" style="width:13px;height:13px;vertical-align:-2px;"><use href="#i-shield"/></svg> Ride advice &amp; safety</h3>
@@ -1654,7 +1666,7 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="/shell.js"></script>
 <!-- App scripts, split by concern (Batch 2). Order matters: core first, boot last. -->
 <script src="js/core.js?v=20261004-step10"></script>
-<script src="js/voice/hinglish.js?v=20261011-voice"></script>
+<script src="js/voice/hinglish.js?v=20261015-rs3"></script>
 <script src="js/voice/engine.js?v=20261011-voice"></script>
 <script src="js/voice.js?v=20261013-convo"></script>
 <script src="js/gps.js?v=20261003-step7"></script>
@@ -1727,7 +1739,7 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="js/master/capabilities.js?v=20261011-master"></script>
 <script src="js/master/kernel.js?v=20261011-master"></script>
 <script src="js/master/persona.js?v=20261011-master"></script>
-<script src="js/master/phrases-desi.js?v=20261011-d1"></script>
+<script src="js/master/phrases-desi.js?v=20261015-rs3"></script>
 <script src="js/master/output.js?v=20261011-master"></script>
 <script src="js/master/brain.js?v=20261011-master"></script>
 <script src="js/master/agents/ride-agent.js?v=20261011-master"></script>
@@ -1741,8 +1753,9 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="js/master/perception/provider.js?v=20261011-master"></script>
 <script src="js/master/agents/road-agent.js?v=20261011-master"></script>
 <script src="js/master/perception/dynamics.js?v=20261011-d1"></script>
-<script src="js/master/roadsense/roadsense.js?v=20261015-rs1"></script>
-<script src="js/master/agents/dynamics-agent.js?v=20261015-rs1"></script>
+<script src="js/master/roadsense/roadsense.js?v=20261015-rs3"></script>
+<script src="js/master/roadsense/sync.js?v=20261015-rs3"></script>
+<script src="js/master/agents/dynamics-agent.js?v=20261015-rs3"></script>
 <!-- Master AI cognitive engines: the 2 km radar (corridor → weather, traffic, topology, blackspot), link, vetted places,
      Deep Search, destination safety, music mood, rider context; learning/affect/fusion policies. Every third-party call goes
      through our server's /api/master (keys stay on the server). -->
@@ -1762,7 +1775,9 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="js/master/agents/mood-agent.js?v=20261011-cog1"></script>
 <script src="js/master/agents/destination-agent.js?v=20261011-cog1"></script>
 <script src="js/master/agents/context-agent.js?v=20261011-cog1"></script>
-<script src="js/master/master-app.js?v=20261013-convo"></script>
+<script src="js/master/agents/roadsense-agent.js?v=20261015-rs3"></script>
+<script src="js/master/master-app.js?v=20261015-rs3"></script>
+<script src="js/master/roadsense/roadsense-ui.js?v=20261015-rs3"></script>
 <!-- Master AI avatar: the state rules, then the module that draws the face (Three.js via the import map in <head>) -->
 <script src="js/ai/avatar-state.js?v=20261011-avatar"></script>
 <script type="module" src="js/ai/avatar-app.js?v=20261011-avatar"></script>
