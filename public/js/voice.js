@@ -152,6 +152,8 @@ const VOICE_COMMANDS = [
         const w = m[1];
         return /hospital|clinic/.test(w) ? "hospital" : /mechanic|garage|puncture/.test(w) ? "mechanic" : /service/.test(w) ? "service" : /hotel|lodge/.test(w) ? "hotel" : "food";
     } },
+    // RoadSense: "aage sadak kaisi hai", "any potholes ahead", "road condition": answered from the road reports (no AI guess)
+    { name: "masterRoadTruth", test: (t) => /\bhow('?s| is) the road\b|\broad (ahead|condition|conditions|report|reports)\b|\b(sadak|road|raasta|rasta|raste)\b.*\b(kaisi|kaisa|kaise|haalat|halat|condition)\b|\b(any )?(potholes?|gaddhe?|gadde)\b.*\b(ahead|aage|hai|hain|kya|on the way)\b/.test(t) },
     { name: "masterMusic", test: (t) => (/\b(next song|agla gaana|agla gana|gaana badal|gana badal|skip (the )?(song|track)|change (the )?song)\b/.test(t) ? "next"
         : /\b(previous song|pichhla gaana|pichla gana)\b/.test(t) ? "previous"
         : /\b(no music (tips|suggestions)|music (tips|suggestions) off|gaane suggest mat|gane suggest mat)\b/.test(t) ? "tips-off"
@@ -191,7 +193,7 @@ const VOICE_COMMANDS = [
  * an SOS still waits for "confirm SOS". Anything unknown or malformed → null (nothing happens).
  */
 /** Commands whose spoken reply is the answer itself (the Master's line is skipped for these). */
-const MASTER_ANSWERING_COMMANDS = ["masterNearest", "whereAmI", "howFar", "convoy"];
+const MASTER_ANSWERING_COMMANDS = ["masterNearest", "whereAmI", "howFar", "convoy", "masterRoadTruth"];
 
 function masterActionCommand(action) {
     if (!action || typeof action !== "object") return null;
@@ -204,6 +206,7 @@ function masterActionCommand(action) {
         case "share_location": return { name: "shareLocation", arg: null };
         case "find_nearby": return ["hospital", "mechanic", "service", "hotel", "food"].includes(action.category) ? { name: "masterNearest", arg: action.category } : null;
         case "where_am_i": return { name: "whereAmI", arg: null };
+        case "road_ahead": return { name: "masterRoadTruth", arg: null };
         case "how_far": return { name: "howFar", arg: null };
         case "squad_status": return { name: "convoy", arg: null };
         case "quiet_ride": return typeof action.on === "boolean" ? { name: "quietRide", arg: action.on ? "on" : "off" } : null;
@@ -960,6 +963,7 @@ const VoiceAssistant = {
                 if (a.ok) this.masterSay(a, { kind: "sos", icon: "🏥" });
                 else this.reply(this.masterStyle() === "plain" ? "I don't have a hospital nearby saved yet. If it's serious, call 112 now." : "Abhi paas ka hospital save nahi hai. Haalat serious hai toh turant 112 pe call kar.");
             } else if (cmd.name === "masterNearest") this.masterSay(await M.nearest(cmd.arg || "food"), { icon: cmd.arg === "hospital" ? "🏥" : cmd.arg === "food" ? "🍲" : "📍" });
+            else if (cmd.name === "masterRoadTruth") this.masterSay(await M.roadTruth(), { icon: "🛣️" });
             else if (cmd.name === "masterMusic") {
                 if (cmd.arg === "tips-off" || cmd.arg === "tips-on") { await M.musicTips(cmd.arg === "tips-on"); this.reply(cmd.arg === "tips-on" ? "Music tips are back on." : "OK, no more music suggestions this ride."); }
                 else if (!(await M.music(cmd.arg))) this.reply("I can't control the music player right now.");
@@ -972,11 +976,12 @@ const VoiceAssistant = {
         switch (cmd.name) {
             case "masterEmergency":
             case "masterNearest":
+            case "masterRoadTruth":
             case "masterMusic":
                 this.masterHelp(cmd);
                 break;
             case "help":
-                this.reply("You can say: how far, where is, then a name, squad status, radio status, regroup, who's approaching, speed limit, avoid tolls, navigate to, then a place, start navigation, stop navigation, where am I, share my location, mute, or send S O S. Or just ask me anything.");
+                this.reply("You can say: how far, where is, then a name, squad status, radio status, regroup, who's approaching, speed limit, how's the road ahead, avoid tolls, navigate to, then a place, start navigation, stop navigation, where am I, share my location, mute, or send S O S. Or just ask me anything.");
                 break;
             case "mute":
                 this.mutedUntil = Date.now() + this.MUTE_MS;

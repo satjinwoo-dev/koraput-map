@@ -24,6 +24,7 @@
 <link rel="stylesheet" href="js/advice/advice.css?v=20261011-ask"><!-- Roadmap Step 8: the road-conditions badge (shows during a ride) -->
 <link rel="stylesheet" href="js/master/vision/vision.css?v=20261011-master"><!-- Master AI: break-time fatigue check (camera only while stopped) -->
 <link rel="stylesheet" href="js/ai/avatar.css?v=20261011-avatar">
+<link rel="stylesheet" href="js/master/roadsense/roadsense.css?v=20261016-rs4"><!-- RoadSense Live: the Route Truth Card -->
 <link rel="stylesheet" href="js/navcam/navcam.css?v=20261015-horizon"><!-- navigation camera: heading-up, 3D tilt (js/navcam/) --><!-- Master AI avatar: the particle face (corner view + full screen) -->
 <!-- Three.js for the Master AI avatar (js/ai/). Must come before any module script. The CSP allows this inline
      block by its SHA-256, which server.js computes from this file at start-up (lib/csp-inline.js; test/ai checks it). -->
@@ -1666,9 +1667,9 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="/shell.js"></script>
 <!-- App scripts, split by concern (Batch 2). Order matters: core first, boot last. -->
 <script src="js/core.js?v=20261004-step10"></script>
-<script src="js/voice/hinglish.js?v=20261015-rs3"></script>
+<script src="js/voice/hinglish.js?v=20261016-rs4"></script>
 <script src="js/voice/engine.js?v=20261011-voice"></script>
-<script src="js/voice.js?v=20261013-convo"></script>
+<script src="js/voice.js?v=20261016-rs4"></script>
 <script src="js/gps.js?v=20261003-step7"></script>
 <script src="js/navcam/navcam-core.js?v=20261015-horizon"></script>
 <script src="js/navcam/navcam.js?v=20261015-horizon"></script>
@@ -1739,7 +1740,7 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="js/master/capabilities.js?v=20261011-master"></script>
 <script src="js/master/kernel.js?v=20261011-master"></script>
 <script src="js/master/persona.js?v=20261011-master"></script>
-<script src="js/master/phrases-desi.js?v=20261015-rs3"></script>
+<script src="js/master/phrases-desi.js?v=20261016-rs4"></script>
 <script src="js/master/output.js?v=20261011-master"></script>
 <script src="js/master/brain.js?v=20261011-master"></script>
 <script src="js/master/agents/ride-agent.js?v=20261011-master"></script>
@@ -1755,7 +1756,8 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="js/master/perception/dynamics.js?v=20261011-d1"></script>
 <script src="js/master/roadsense/roadsense.js?v=20261015-rs3"></script>
 <script src="js/master/roadsense/sync.js?v=20261015-rs3"></script>
-<script src="js/master/agents/dynamics-agent.js?v=20261015-rs3"></script>
+<script src="js/master/roadsense/truth.js?v=20261016-rs4"></script>
+<script src="js/master/agents/dynamics-agent.js?v=20261016-rs4"></script>
 <!-- Master AI cognitive engines: the 2 km radar (corridor → weather, traffic, topology, blackspot), link, vetted places,
      Deep Search, destination safety, music mood, rider context; learning/affect/fusion policies. Every third-party call goes
      through our server's /api/master (keys stay on the server). -->
@@ -1776,8 +1778,10 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="js/master/agents/destination-agent.js?v=20261011-cog1"></script>
 <script src="js/master/agents/context-agent.js?v=20261011-cog1"></script>
 <script src="js/master/agents/roadsense-agent.js?v=20261015-rs3"></script>
-<script src="js/master/master-app.js?v=20261015-rs3"></script>
+<script src="js/master/agents/truth-agent.js?v=20261016-rs4"></script>
+<script src="js/master/master-app.js?v=20261016-rs4"></script>
 <script src="js/master/roadsense/roadsense-ui.js?v=20261015-rs3"></script>
+<script src="js/master/roadsense/truth-card.js?v=20261016-rs4"></script>
 <!-- Master AI avatar: the state rules, then the module that draws the face (Three.js via the import map in <head>) -->
 <script src="js/ai/avatar-state.js?v=20261011-avatar"></script>
 <script type="module" src="js/ai/avatar-app.js?v=20261011-avatar"></script>

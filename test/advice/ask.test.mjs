@@ -311,7 +311,7 @@ test("Master actions map onto the app's voice commands; anything unknown or malf
     assert.deepEqual(m({ name: "find_nearby", category: "mechanic" }), { name: "masterNearest", arg: "mechanic" });
     assert.deepEqual(m({ name: "quiet_ride", on: false }), { name: "quietRide", arg: "off" });
     assert.deepEqual(m({ name: "music", control: "next" }), { name: "masterMusic", arg: "next" });
-    for (const n of ["start_navigation", "stop_navigation", "where_am_i", "how_far", "squad_status"]) assert.ok(map({ name: n }), n);
+    for (const n of ["start_navigation", "stop_navigation", "where_am_i", "how_far", "squad_status", "road_ahead"]) assert.ok(map({ name: n }), n);
     for (const bad of [null, "navigate_to", {}, { name: "rm -rf" }, { name: "navigate_to" }, { name: "navigate_to", place: "x" }, { name: "find_nearby", category: "casino" }, { name: "quiet_ride", on: "yes" }, { name: "music", control: "louder" }]) assert.equal(map(bad), null, JSON.stringify(bad));
 });
 
@@ -496,4 +496,32 @@ test("conversation: the mic doesn't reopen by itself after an action, when switc
     const call = convoWorld([]);
     vm.runInContext("var peerConnection = {};", call.v.ctx);
     assert.equal(call.v.VA.canFollowUp(), false, "in a call");
+});
+
+// ================================================================ RoadSense Step 4: road questions go to the road reports, never to the AI
+test("'aage sadak kaisi hai?' is answered from the road reports (M.roadTruth), never by the language model; other commands keep their meaning", async () => {
+    const v = loadVoice();
+    const match = vm.runInContext("matchVoiceCommand", v.ctx);
+    for (const t of ["aage sadak kaisi hai", "how's the road ahead", "how is the road", "road condition", "any potholes ahead", "gaddhe hain kya aage", "raasta kaisa hai", "road reports"]) {
+        assert.equal(match(t, { mode: "ptt" })?.name, "masterRoadTruth", t);
+    }
+    for (const [t, want] of [["where is the nearest hospital", "masterNearest"], ["navigate to araku", "navigateTo"], ["avoid tolls", "routeAvoid"], ["how far", "howFar"], ["where am i", "whereAmI"]]) {
+        assert.equal(match(t, { mode: "ptt" })?.name, want, t);
+    }
+    const asked = [], truth = [];
+    v.VA.reply = (t) => { v.spoken.push(`reply:${t}`); return true; };
+    v.VA.masterSay = (ans) => v.spoken.push(`say:${ans.text}`);
+    v.setMaster({
+        persona: { style: "desi" },
+        ask: async (q) => { asked.push(q); return { ok: true, text: "model text", display: { title: "", sub: "" } }; },
+        roadTruth: async () => { truth.push(1); return { ok: true, text: "Bhai, aage ke raaste ki koi report nahi hai, na sensor se na riders se. Haalat pata nahi, dhyan se chalao.", display: { title: "Condition unknown", sub: "No sensor or rider reports" } }; }
+    });
+    v.VA.handleAlternatives([{ transcript: "aage sadak kaisi hai", confidence: 0.9 }], "ptt");
+    await sleep(0);
+    assert.equal(truth.length, 1);
+    assert.deepEqual(asked, [], "the model is never asked what the road is like");
+    assert.match(v.spoken.at(-1), /^say:Bhai, aage ke raaste ki koi report nahi hai/);
+    // the model's road_ahead action routes to the same solver
+    assert.deepEqual(JSON.parse(JSON.stringify(vm.runInContext("masterActionCommand", v.ctx)({ name: "road_ahead" }))), { name: "masterRoadTruth", arg: null });
+    assert.ok(vm.runInContext("MASTER_ANSWERING_COMMANDS", v.ctx).includes("masterRoadTruth"), "the model's own line is not spoken over the solver's answer");
 });

@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-15.3";           // RoadSense Live: opt-in server sync + offline cache of other riders' reports
+const VERSION = "mu-2026-10-16.1";           // RoadSense Live: the Route Truth Card + evidence in the voice
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
@@ -170,6 +170,10 @@ const BIKE_SCRIPTS = [
     "/js/master/roadsense/roadsense.js",
     "/js/master/roadsense/sync.js",
     "/js/master/roadsense/roadsense-ui.js",
+    "/js/master/roadsense/truth.js",
+    "/js/master/roadsense/truth-card.js",
+    "/js/master/roadsense/roadsense.css",
+    "/js/master/agents/truth-agent.js",
     "/js/master/agents/roadsense-agent.js",
     "/js/master/agents/dynamics-agent.js",
     "/js/master/geo.js",

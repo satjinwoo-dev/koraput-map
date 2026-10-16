@@ -64,7 +64,7 @@
         baat: "बात", baar: "बार", aankh: "आँख", aankhen: "आँखें", aankhon: "आँखों", chehra: "चेहरा", chehre: "चेहरे", muh: "मुँह", sir: "सिर",
         haath: "हाथ", kamar: "कमर", saans: "साँस", neend: "नींद", jhapki: "झपकी", thakaan: "थकान", palkein: "पलकें", ubaasi: "उबासी",
         doosre: "दूसरे", doosra: "दूसरा",
-        sadak: "सड़क", raasta: "रास्ता", raste: "रास्ते", gaddha: "गड्ढा", gaddhe: "गड्ढे", jhatka: "झटका", jhatke: "झटके",
+        sadak: "सड़क", raasta: "रास्ता", raste: "रास्ते", raaste: "रास्ते", haalat: "हालत", pata: "पता", pakki: "पक्की", kachchi: "कच्ची", bataunga: "बताऊँगा", gaddha: "गड्ढा", gaddhe: "गड्ढे", jhatka: "झटका", jhatke: "झटके",
         gaadi: "गाड़ी", paani: "पानी", chai: "चाय", tapri: "टपरी", dhaba: "ढाबा", ghar: "घर", jagah: "जगह", taraf: "तरफ़", beech: "बीच",
         mausam: "मौसम", baarish: "बारिश", dhoop: "धूप", kohra: "कोहरा", dhund: "धुंध", toofan: "तूफ़ान", aandhi: "आँधी", hawa: "हवा", roshni: "रोशनी",
         khatra: "ख़तरा", galti: "ग़लती", kaam: "काम", aaram: "आराम", mann: "मन", baare: "बारे", ghante: "घंटे", ghanta: "घंटा",
@@ -72,7 +72,7 @@
         paidal: "पैदल", thela: "ठेला", gaay: "गाय", bhains: "भैंस", kutta: "कुत्ता", janwar: "जानवर",
         // adjectives, adverbs
         aage: "आगे", peeche: "पीछे", paas: "पास", door: "दूर", saamne: "सामने", saath: "साथ", neeche: "नीचे", upar: "ऊपर",
-        pehle: "पहले", baad: "बाद", agle: "अगले", agla: "अगला", pichhle: "पिछले", pichhli: "पिछली", dobara: "दोबारा", wapas: "वापस", turant: "तुरंत",
+        pehle: "पहले", pehli: "पहली", baaki: "बाकी", har: "हर", is: "इस", baad: "बाद", agle: "अगले", agla: "अगला", pichhle: "पिछले", pichhli: "पिछली", dobara: "दोबारा", wapas: "वापस", turant: "तुरंत",
         achanak: "अचानक", dheere: "धीरे", jaldi: "जल्दी", bahut: "बहुत", zyada: "ज़्यादा", kam: "कम", thoda: "थोड़ा", thodi: "थोड़ी", thode: "थोड़े",
         kaafi: "काफ़ी", bilkul: "बिल्कुल", poora: "पूरा", pura: "पूरा", khud: "ख़ुद", sirf: "सिर्फ़",
         achha: "अच्छा", achhi: "अच्छी", achhe: "अच्छे", badhiya: "बढ़िया", theek: "ठीक", kharab: "ख़राब", galat: "ग़लत", saaf: "साफ़",
@@ -90,11 +90,11 @@
         "phone", "raincoat", "ride", "route", "rumble", "safe", "save", "screen", "side", "signal", "speed", "spot", "start", "strip", "sync",
         "tempo", "tension", "time", "tractor", "traffic", "truck", "try", "tyre", "up", "update", "view", "visor", "weak", "gps", "helmet",
         "tip", "app", "battery", "charge", "map", "location", "selfie", "mode", "please", "sorry", "thanks", "rickshaw", "e",
-        "report", "riders", "rider"
+        "report", "riders", "rider", "sensor"
     ]));
 
     /** Words that are Hindi in our lines but also English (or too short) to prove a line is Hinglish on their own. */
-    const AMBIGUOUS = Object.freeze(new Set(["do", "main", "sir", "band", "pi", "ho", "to", "sun", "na", "ya", "hi", "de", "le", "lo", "pe", "se",
+    const AMBIGUOUS = Object.freeze(new Set(["do", "main", "sir", "is", "har", "band", "pi", "ho", "to", "sun", "na", "ya", "hi", "de", "le", "lo", "pe", "se",
         "sa", "si", "ja", "aa", "door", "the", "tab", "ret", "tel", "bas", "par", "mat", "kam", "metre", "metres", "meter", "meters", "km",
         "minute", "minutes", "second", "seconds"]));
 

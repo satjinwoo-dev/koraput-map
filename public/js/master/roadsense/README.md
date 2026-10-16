@@ -9,6 +9,9 @@ One record of what is on the road, kept on the phone. **Sensors and people add o
 | `sync.js` | **Opt-in** sync with our server (capability `roadsense-sync`): the outbox of this phone's own observations, private zones, daily pseudonyms, and downloads by ≈ 5.5 km tile into the same log, which is the offline cache. |
 | `../agents/roadsense-agent.js` | Drives the sync: uploads every minute, fetches the tiles along a route when one is set and around the rider every 5 minutes, and marks where rides start and end as private. |
 | `roadsense-ui.js` | Settings → **Community road reports**: the switch (off by default), a status line, and **Delete my road reports from the server**. |
+| `truth.js` | The **Route Truth Card**: the events on a route, nearest first, each with who saw it, when, and how confident. Says "unknown" when there is nothing, never "clear". Pure. |
+| `../agents/truth-agent.js` | Keeps the card current (`state.truth`): route changes, new evidence, the rider moving along the route. Answers `task.road-truth`, and says a one-line summary when navigation starts on a route with confirmed reports. |
+| `truth-card.js` + `roadsense.css` | The card in the route sheet (`#road-truth`), with 🔊 to hear it. |
 | `lib/master/roadsense.js` (server) | `/api/master/roadsense/upload`, `/area` and `/forget` on the server's SQLite database. It runs the same `roadsense.js` rules per tile. |
 
 ## Observations and events
@@ -111,11 +114,61 @@ It never stores the pseudonym or the IP address. Labels let phones count distinc
 - `test/master/roadsense-sync.test.mjs`: several simulated phones syncing through the real server handlers. Covers privacy, offline and restart, abuse, delete, the agent, and the wiring.
 - `test/master/dynamics.test.mjs`: a pothole verified only by other riders is warned on a first ride.
 
+## The Route Truth Card and the voice (step 4)
+
+**Rule: sensors verify, language models talk.** Every value the rider hears or sees comes from the log's rules:
+- status, confidence, riders, sources, last seen, valid until.
+
+**How those values become words:**
+- Fixed phrases in `phrases-desi.js` turn them into words: `road.truth`, `road.truth-unconfirmed`, `road.truth-unknown`, `road.route-truth`, and the bump warnings.
+- No model is asked what the road is like. A test checks that the truth path never calls the network or a model.
+- The Deep Search model's only part is routing: it may answer "how's the road?" with the action `road_ahead`, which runs the same solver. Its system prompt forbids it to describe road condition itself.
+
+**On screen** (the route sheet, under the trip card):
+- **Pill:** *N confirmed*, *N unconfirmed* or *Condition unknown*.
+- **One summary line.**
+- **One row per report:**
+  - distance;
+  - kind;
+  - *Confirmed* / *Unconfirmed*;
+  - *who · which sensor · how long ago · confidence %*;
+  - *until* (when it fades if nobody sees it again).
+- **Where the data came from:** this phone only, other riders updated N min ago, a saved copy with no signal, or reports saved before sharing was turned off.
+- **Always:** *No report doesn't mean the road is clear.*
+- **While navigating:** the next 2 reports, counted from the rider.
+
+**By voice:**
+
+| When | What is said |
+|---|---|
+| "aage sadak kaisi hai?", "how's the road ahead", "any potholes ahead" (`js/voice.js` `masterRoadTruth`) | The confirmed count and kinds, then the first one with its evidence and confidence ("bharosa zyada", high confidence). The rest is "haalat pata nahi" (condition unknown). |
+| Only unconfirmed reports | Said as unconfirmed ("kachchi report … abhi pakka nahi"). |
+| Nothing at all | "koi report nahi … haalat pata nahi". |
+| Navigation starts on a route with confirmed reports | One summary, as advice behind the ask-first gate. |
+| A warning 2–8 s before a bump | Only a short who-and-when ("2 riders ne bataya, kal" / "you hit it here 3 hours ago"). It has to finish before the bike reaches the spot. The confidence and sensors are on the screen line. |
+
+Confidence is spoken in bands:
+- **high:** ≥ 0.8;
+- **medium:** ≥ 0.5;
+- **low:** below that.
+
+The screen shows the exact percentage.
+
+**What the card doesn't cover yet:**
+- Official layers (SACHET, IMD) aren't in the log, so the card shows RoadSense evidence only.
+- "Unknown" stretches aren't told apart from "ridden recently, nothing found". The log keeps events, not coverage.
+
+**Tests:**
+- `test/master/truth.test.mjs`: the card, the words in both styles, the agent, the screen view model, and the no-model rule.
+- `test/advice/ask.test.mjs`: road questions go to the solver, never to the model.
+- `test/master/dynamics.test.mjs`: the evidence said and shown in a bump warning.
+
 ## Next (not built yet)
 
 | Step | What it adds |
 |---|---|
-| 4 | Voice and Truth Card lines that use `riders`, `sources` and `lastSeen`. |
+| Coverage | Remember stretches ridden with nothing found, so the card can say "ridden yesterday, nothing felt" instead of "unknown". |
+| Official layers | SACHET CAP and IMD alerts as `official` observations on the card. |
 | 5 | The labelled 1D-CNN behind the same DynamicsFrame. |
 | Camera | The road agent (`road.hazards`) becomes a second writer. |
 | Bigger cache | localStorage holds 2,000 events. A long route in a dense area can exceed that, and the least recently seen go first. IndexedDB would remove the limit. |

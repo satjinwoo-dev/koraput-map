@@ -238,7 +238,7 @@ test("actions: the model proposes one, the server keeps only a known action with
     for (const bad of [null, "send_sos", { name: "format_disk" }, { name: "navigate_to" }, { name: "navigate_to", place: "x".repeat(81) }, { name: "navigate_to", place: "<script>" },
         { name: "find_nearby", category: "casino" }, { name: "quiet_ride", on: "true" }, { name: "music", control: "louder" }]) assert.equal(A(bad), null, JSON.stringify(bad));
     assert.ok(S.SYSTEM.includes('"name":"send_sos"') && S.SYSTEM.includes("confirm SOS"));
-    assert.deepEqual(Object.keys(S.ACTIONS).sort(), ["find_nearby", "how_far", "music", "navigate_to", "quiet_ride", "send_sos", "share_location", "squad_status", "start_navigation", "stop_navigation", "where_am_i"]);
+    assert.deepEqual(Object.keys(S.ACTIONS).sort(), ["find_nearby", "how_far", "music", "navigate_to", "quiet_ride", "road_ahead", "send_sos", "share_location", "squad_status", "start_navigation", "stop_navigation", "where_am_i"]);
     // through the whole pipeline
     let reply = ANSWER("Chal bhai, Araku ka rasta nikalta hoon.", { action: { name: "navigate_to", place: "Araku Valley" } });
     const { fetchImpl, seen } = world({ gemini: () => geminiText(reply)() });

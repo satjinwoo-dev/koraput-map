@@ -262,6 +262,9 @@ test("RoadSense: a pothole verified only by other riders (sync) is warned on thi
     assert.equal(reported.length, 1, "warned before the phone ever felt it");
     assert.equal(reported[0].data.riders, 2);
     assert.equal(e.reports.filter((r) => r.kind === "road.bump-ahead").length, 0, "not 'where you hit one before'");
-    assert.ok(e.said.some((s) => /riders ne report kiya|doosre riders/.test(s.text)));
-    assert.ok(e.islands.some((i) => i.title === "Bump reported ahead"));
+    // the evidence, said and shown: who and when out loud; sensors and confidence on screen
+    assert.ok(e.said.some((s) => /2 riders ne bataya, 22 ghante pehle\./.test(s.text)), e.said.map((s) => s.text).join(" | "));
+    const isl = e.islands.find((i) => i.title === "Bump reported ahead");
+    assert.ok(isl, "on screen");
+    assert.match(isl.sub, /^In \d+ m · 2 riders · motion sensor · 22 hours ago · \d+%$/);
 });

@@ -117,6 +117,7 @@
     toDom("state.answer", "mu:master-answer");
     toDom("state.poi", "mu:master-poi");
     toDom("state.destination", "mu:master-destination");
+    toDom("state.truth", "mu:master-truth");                 // the Route Truth Card (js/master/roadsense/truth-card.js)
 
     /** Words for a kind right now, without the queue (a reply to the rider's own question). @param {string} kind @param {any} data @param {"advice"|"warning"} [severity] */
     const words = (kind, data, severity = "advice") => persona.phrase({ kind, key: kind, severity, data }, brain.world);
@@ -154,6 +155,16 @@
             const w = p ? words("poi.nearest", { place: p.name, distanceM: Math.max(100, p.distanceM), category: cw.desi, screen: { category: cw.plain } })
                 : words("poi.none", { category: cw.desi, screen: { category: cw.plain } });
             return { ok: Boolean(p), text: w.text, display: w.display, place: p, alternatives: r.ok ? r.result.slice(1) : [] };
+        },
+        /**
+         * "Aage sadak kaisi hai?": what the RoadSense log knows about the road ahead (or around the rider), said
+         * through fixed phrases with its evidence. No language model decides what the road is like.
+         */
+        async roadTruth() {
+            const r = await brain.delegate("road-truth", {}, { timeoutMs: 3000 });
+            if (!r.ok || !r.result) { const w = words("road.truth-unknown", { where: "aage ke raaste", screen: { where: "the road ahead" } }); return { ok: false, text: w.text, display: w.display, card: null }; }
+            const w = words(r.result.kind, r.result.data);
+            return { ok: true, text: w.text, display: w.display, card: r.result.card, sources: r.result.sources };
         },
         /** @param {"medical"|"breakdown"} kind */
         async emergency(kind = "medical") {

@@ -142,11 +142,32 @@
                 { say: "Dhyan se {{name}}, aage {{distanceM|round}} metre pe gaddha ya breaker hai." }
             ]
         },
-        // RoadSense: verified by other riders' reports, never felt by this phone
+        // RoadSense: verified by other riders' reports, never felt by this phone. {{evidence}}: who and when (roadsense/truth.js)
         "road.bump-reported": {
             warning: [
-                { say: "{{name}}, {{distanceM|round}} metre aage gaddha ya breaker hai, {{riders}} riders ne report kiya hai. Dheere kar." },
-                { say: "Dhyan se {{name}}, aage {{distanceM|round}} metre pe jhatka hai, doosre riders ne bataya hai." }
+                { say: "{{name}}, {{distanceM|round}} metre aage gaddha ya breaker, {{evidence}}. Dheere kar." },
+                { say: "Dhyan se {{name}}, aage {{distanceM|round}} metre pe jhatka, {{evidence}}." }
+            ]
+        },
+        // Route Truth: the rider asked "aage sadak kaisi hai?" (task.road-truth). Every value comes from the RoadSense log.
+        "road.truth": {
+            advice: [
+                { say: "{{name}}, {{where}} pe {{verified}} pakki report hai: {{kinds}}. Pehli {{distanceM|km}} aage, {{hazard}}: {{evidence}}, {{confidence}}. Baaki sadak ki haalat pata nahi." }
+            ]
+        },
+        "road.truth-unconfirmed": {
+            advice: [
+                { say: "{{name}}, {{where}} pe koi pakki report nahi, sirf {{candidates}} kachchi report hai. Pehli {{distanceM|km}} aage, {{hazard}}: {{evidence}}. Haalat pata nahi, dhyan se chalao." }
+            ]
+        },
+        "road.truth-unknown": {
+            advice: [
+                { say: "{{name}}, {{where}} ki koi report nahi hai, na sensor se na riders se. Haalat pata nahi, dhyan se chalao." }
+            ]
+        },
+        "road.route-truth": {
+            advice: [
+                { say: "{{name}}, is raaste pe {{verified}} pakki report hai: {{kinds}}. Har ek se pehle bataunga, baaki sadak ki haalat pata nahi." }
             ]
         },
 
@@ -227,8 +248,12 @@
         "ride.braking-pattern": { advice: [{ say: "You braked hard {{count}} times in {{minutes}} minutes. Leave a bigger gap to the vehicle ahead.", title: "Hard braking", sub: "{{count}} times in {{minutes}} min" }] },
         "ride.hard-brake-check": { advice: [{ say: "That was a very hard stop. All good? Take a minute before you ride on.", title: "Very hard braking", sub: "Take a short break" }] },
         "road.rough-stretch": { advice: [{ say: "The road is rough here. Keep your speed down.", title: "Rough road", sub: "Ease off for a while" }] },
-        "road.bump-ahead": { warning: [{ say: "Bump or pothole in {{distanceM|round}} metres, where you hit one before. Slow down.", title: "Bump ahead", sub: "In {{distanceM|round}} m" }] },
-        "road.bump-reported": { warning: [{ say: "Bump or pothole reported by {{riders}} riders in {{distanceM|round}} metres. Slow down.", title: "Bump reported ahead", sub: "In {{distanceM|round}} m · {{riders}} riders" }] },
+        "road.bump-ahead": { warning: [{ say: "Bump or pothole in {{distanceM|round}} metres, where you hit one before. Slow down.", title: "Bump ahead", sub: "In {{distanceM|round}} m · {{detail}}" }] },
+        "road.bump-reported": { warning: [{ say: "Bump or pothole in {{distanceM|round}} metres, {{evidence}}. Slow down.", title: "Bump reported ahead", sub: "In {{distanceM|round}} m · {{detail}}" }] },
+        "road.truth": { advice: [{ say: "Confirmed reports on {{where}}: {{verified}}, {{kinds}}. The first, in {{distanceM|km}}: {{hazard}}, {{evidence}}, {{confidence}}. Everywhere else, the condition is unknown.", title: "Road reports: {{verified}} confirmed", sub: "First: {{hazard}} in {{distanceM|km}} · {{evidence}}" }] },
+        "road.truth-unconfirmed": { advice: [{ say: "No confirmed reports on {{where}}, only {{candidates}} unconfirmed. The first, in {{distanceM|km}}: {{hazard}}, {{evidence}}. Condition unknown, ride with care.", title: "Road reports: none confirmed", sub: "{{candidates}} unconfirmed · condition unknown" }] },
+        "road.truth-unknown": { advice: [{ say: "No reports for {{where}}, from sensors or riders. Condition unknown, ride with care.", title: "Condition unknown", sub: "No sensor or rider reports" }] },
+        "road.route-truth": { advice: [{ say: "Confirmed reports on this route: {{verified}}, {{kinds}}. I'll warn you before each one. Everywhere else, the condition is unknown.", title: "Road reports on this route", sub: "{{verified}} confirmed · the rest unknown" }] },
         "weather.ahead": {
             warning: [{ say: "{{condition}} in {{distanceM|km}}. Slow down and keep a longer gap.", title: "{{condition}} ahead", sub: "In {{distanceM|km}}" }],
             advice: [{ say: "{{condition}} is likely ahead. Keep your rain gear handy.", title: "Weather changing", sub: "{{condition}} ahead" }]

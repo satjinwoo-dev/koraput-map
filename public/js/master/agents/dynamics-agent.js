@@ -44,6 +44,14 @@
 
     const M_PER_DEG = 111320;
 
+    function truthLib() {
+        const g = /** @type {any} */ (globalThis);
+        if (g.MUMaster && g.MUMaster.roadTruth) return g.MUMaster.roadTruth;
+        // @ts-ignore: node (tests) only
+        if (typeof module === "object" && typeof require === "function") return require("../roadsense/truth.js");
+        return null;
+    }
+
     function roadsenseLib() {
         const g = /** @type {any} */ (globalThis);
         if (g.MUMaster && g.MUMaster.roadsense) return g.MUMaster.roadsense;
@@ -90,6 +98,7 @@
             const cfg = ctx.config;
             const P = ctx.caps.get("dynamics");
             const RS = roadsenseLib();
+            const TR = truthLib();
             const shared = ctx.caps.has("roadsense") ? ctx.caps.get("roadsense") : null;
             const log = shared || RS.createLog({ store: ctx.store });
             if (!shared) log.load();
@@ -176,12 +185,17 @@
                     if (f.t - (bumpSaidAt.get(c.id) ?? -Infinity) < cfg.bumpCooldownMs) continue;
                     bumpSaidAt.set(c.id, f.t);
                     stats.bumpsWarned++;
-                    // felt here before → "where you hit one before"; only other riders' reports → say so
+                    // felt here before → "where you hit one before"; only other riders' reports → say so. The evidence
+                    // (who, when) is said in a short clause; the screen adds the sensors and the confidence.
+                    const row = { ...c, ageS: Math.max(0, Math.round((f.t - c.lastSeen) / 1000)) };
+                    const w = TR.evidence(row);
                     ctx.report(c.felt ? "road.bump-ahead" : "road.bump-reported", {
                         severity: "warning", key: `road.bump.${c.id}`, category: "road", ridingOnly: true, ttlMs: 4000, confidence: c.confidence,
                         data: {
                             distanceM: Math.max(10, Math.round(along / 10) * 10), passes: c.passes, riders: c.riders, peakMs2: c.peakMs2 === null ? null : Math.round(c.peakMs2),
-                            kind: c.type, sources: c.sources, lastSeenAgoS: Math.round((f.t - c.lastSeen) / 1000), roadsenseId: c.id
+                            kind: c.type, sources: c.sources, lastSeenAgoS: row.ageS, confidence: c.confidence, roadsenseId: c.id,
+                            evidence: w.shortDesi, detail: TR.screenEvidence(row),
+                            screen: { evidence: w.shortPlain }
                         }
                     });
                 }
