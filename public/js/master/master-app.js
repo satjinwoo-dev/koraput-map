@@ -93,6 +93,29 @@
             RS: M.roadsense, log: caps.get("roadsense"), cover: caps.get("roadsense-cover"), store: caps.get("store").namespace("roadsense-sync"), api: caps.get("master-api")
         }));
     }
+    // RoadPulse: the published hazards the sync keeps offline, with what riders said (warnings, the Truth Card)
+    if (caps.get("roadsense-sync") && M.roadAgreement) {
+        const sync = caps.get("roadsense-sync");
+        caps.provide("roadsense-community", {
+            available: () => true,
+            list: () => sync.hazards(),
+            /** @param {number} lat @param {number} lng @param {number} radiusM */
+            near: (lat, lng, radiusM) => sync.hazards().filter((/** @type {any} */ h) => M.roadAgreement.distM(lat, lng, h.lat, h.lng) <= radiusM)
+        });
+    }
+    // the next turn of the route being navigated (js/navigation.js navState): hazard alerts wait until after a turn
+    caps.provide("nav-turn", {
+        available: () => true,
+        nextTurnM: () => {
+            try {
+                // navState is a top-level const of js/voice.js (a global binding, not a window property)
+                // @ts-ignore: declared by another classic script
+                const n = typeof navState !== "undefined" ? navState : null;
+                return n && n.active && Number.isFinite(n.nextManeuverM) ? n.nextManeuverM : null;
+            }
+            catch (e) { return null; }
+        }
+    });
     if (M.providers) {
         caps.provide("app-context", M.providers.createAppContextProvider(W, W.document));
         if (W.MUTrip && W.MUTrip.elevation && typeof W.MUTrip.elevation.createElevation === "function") caps.provide("terrain", M.providers.createTerrainProvider(W.MUTrip.elevation.createElevation()));

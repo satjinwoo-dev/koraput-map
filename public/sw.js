@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-17.3";           // 18+ Rowdy voice tone
+const VERSION = "mu-2026-10-17.4";           // RoadPulse: detector v2, reviewed publishing, agreement, speed-aware alerts
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
@@ -169,6 +169,8 @@ const BIKE_SCRIPTS = [
     "/js/master/perception/dynamics.js",
     "/js/master/roadsense/roadsense.js",
     "/js/master/roadsense/sync.js",
+    "/js/master/roadsense/agreement.js",
+    "/js/master/roadsense/alerts.js",
     "/js/master/roadsense/roadsense-ui.js",
     "/js/master/roadsense/truth.js",
     "/js/master/roadsense/truth-card.js",

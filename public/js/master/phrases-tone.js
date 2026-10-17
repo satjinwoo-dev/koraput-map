@@ -55,6 +55,12 @@
         "road.rough-stretch": {
             advice: [{ say: "Aage sadak kharab hai. Kripya speed kam rakhein." }]
         },
+        "road.hazards-ahead": {
+            warning: [{ say: "Agle {{spanM|round}} metre mein {{count}} road hazards report hue hain. Kripya dheere-dheere speed kam karein aur sadak par dhyaan rakhein." }]
+        },
+        "road.hazards-stretch": {
+            warning: [{ say: "Is stretch par road hazards report hue hain. Kripya dheere chalayein aur sadak par dhyaan rakhein." }]
+        },
         "road.truth": {
             advice: [{ say: "{{where}} pe {{verified}} pakki report hai: {{kinds}}. Pehli {{distanceM|km}} aage, {{hazard}}: {{evidence}}, {{confidence}}." }]
         },
@@ -106,6 +112,12 @@
         },
         "road.rough-stretch": {
             advice: [{ say: "Sadak ki band baji padi hai {{name}}, speed kam kar warna kamar tod degi." }]
+        },
+        "road.hazards-ahead": {
+            warning: [{ say: "Abe {{name}}, agle {{spanM|round}} metre mein {{count}} gaddhe ya breaker report hue hain. Dheere kar, aankhein sadak pe!" }]
+        },
+        "road.hazards-stretch": {
+            warning: [{ say: "{{name}}, is stretch pe hazards report hue hain, GPS kamzor hai. Dheere chala, aankhein sadak pe." }]
         },
         "road.truth": {
             advice: [{ say: "Sun {{name}}, {{where}} pe {{verified}} pakki report hai: {{kinds}}. Pehli {{distanceM|km}} aage, {{hazard}}: {{evidenceTu}}. Aankhein khuli rakh." }]

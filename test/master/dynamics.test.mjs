@@ -103,7 +103,7 @@ function fakeWindow() {
     return { localStorage: { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k), key: (i) => [...m.keys()][i] ?? null, get length() { return m.size; } } };
 }
 
-async function ride(list, store = fakeWindow(), roadsense = null) {
+async function ride(list, store = fakeWindow(), roadsense = null, more = {}) {
     const clock = fakeClock(list[0].t - 500);
     const bus = B.createBus({ now: clock.now, timers: clock.timers });
     const caps = CAPS.createCapabilities();
@@ -114,6 +114,7 @@ async function ride(list, store = fakeWindow(), roadsense = null) {
     caps.provide("drive", { available: () => true, current: () => drive, onChange: drives.on });
     caps.provide("dynamics", DY.createDynamicsProvider({ replay: list, timers: clock.timers }));
     if (roadsense) caps.provide("roadsense", roadsense);
+    for (const [id, cap] of Object.entries(more)) caps.provide(id, cap);
     const said = [], islands = [];
     const persona = PH.install(P.createPersona({ style: "desi", rng: () => 0 }));
     const output = O.createOutput({ window: {}, voice: (text, o) => { said.push({ text, at: clock.now(), ...o }); return true; }, island: (s) => { islands.push({ ...s, at: clock.now() }); return true; }, busy: () => false, emit: () => {} });
@@ -237,6 +238,36 @@ test("dynamics agent: minor jolts stay out of the log and warnings; the ride's d
     const breaker = log.query({ lat: 18.5204, lng: LNG0 + 440 / M_PER_DEG_LNG, radiusM: 8, now: end, group: "shock" });
     assert.equal(breaker.length, 1);
     assert.equal(breaker[0].type, "speed_breaker");
+});
+
+test("RoadPulse: a published hazard is warned with its rider counts, in its direction only, and asked about after the ride", async () => {
+    const list = frames();
+    const store = fakeWindow();
+    const at = (x) => ({ lat: 18.5204, lng: LNG0 + x / M_PER_DEG_LNG });
+    const hazards = [
+        // 3 of 4 reviewing riders found it, eastbound, last confirmed the day before
+        { id: "h00000000000000a1", type: "pothole", ptype: "impact", ...at(150), heading: 90, bothWays: false, severity: 3, status: "active", found: 3, notFound: 1, unsure: 0, reviewers: 4, agreementPct: 75, lastFoundAt: list[0].t - 86400000, recentDisagree: false, alertable: true },
+        // disputed: never warned
+        { id: "h00000000000000b2", type: "pothole", ptype: "impact", ...at(400), heading: 90, bothWays: false, severity: 3, status: "disputed", found: 1, notFound: 3, unsure: 0, reviewers: 4, agreementPct: 25, lastFoundAt: list[0].t - 86400000, recentDisagree: true, alertable: false }
+    ];
+    const community = { available: () => true, list: () => hazards, near: () => hazards };
+    const e = await ride(list, store, null, { "roadsense-community": community });
+    // leg 1 (east): warned on its own; leg 2 (west): not its direction; leg 3 (east): it and the pothole at 300 m
+    // (by then verified on this phone) are within 300 m of each other, so one line for both
+    const warned = e.reports.filter((r) => r.kind === "road.bump-reported" && r.data.community);
+    assert.equal(warned.length, 1);
+    assert.equal(warned[0].data.roadsenseId, "h00000000000000a1");
+    assert.ok(warned[0].data.distanceM >= 50 && warned[0].data.distanceM <= 100, `${warned[0].data.distanceM} m`);
+    const grouped = e.reports.filter((r) => r.kind === "road.hazards-ahead");
+    assert.equal(grouped.length, 1);
+    assert.equal(grouped[0].data.count, 2);
+    assert.ok(e.said.some((s) => /agle \d+ metre mein 2 road hazards/.test(s.text)));
+    assert.ok(e.said.some((s) => /4 mein se 3 riders ne confirm kiya/.test(s.text)), e.said.map((s) => s.text).join(" | "));
+    assert.ok(e.islands.some((i) => /3 of 4 reviewing riders found it · 75% rider agreement/.test(i.sub)), "the screen: counts, never a probability");
+    assert.ok(!e.reports.some((r) => r.data && r.data.roadsenseId === "h00000000000000b2"), "disputed: not warned");
+    // after the ride: "did you find it?" for the hazard it was warned about
+    const rev = JSON.parse(store.localStorage.getItem("mu.master.dynamics.review.ride"));
+    assert.deepEqual(rev.warned.map((w) => [w.roadsenseId, w.community]), [["h00000000000000a1", true]]);
 });
 
 test("dynamics agent: a known pothole is warned on the first pass of the next ride (memory on the phone)", async () => {

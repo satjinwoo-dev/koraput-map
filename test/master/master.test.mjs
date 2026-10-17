@@ -337,7 +337,7 @@ test("persona: templates, filters, rotation and fallbacks", () => {
 });
 
 test("phrase packs: every line renders with sample data, critical lines are short", () => {
-    const sample = { distanceM: 1200, ridingSec: 5400, condition: "baarish", place: "Sharma chai tapri", speedKmh: 60, rttMs: 2000, navigating: true, goneSec: 90, detail: "aankh 1.2 second tak band rahi", score: 62, level: "high", hazard: "gaddha", vehicle: "truck", ttcS: 3.1, count: 3, minutes: 8, riders: 2,
+    const sample = { distanceM: 1200, ridingSec: 5400, condition: "baarish", place: "Sharma chai tapri", speedKmh: 60, rttMs: 2000, navigating: true, goneSec: 90, detail: "aankh 1.2 second tak band rahi", score: 62, level: "high", hazard: "gaddha", vehicle: "truck", ttcS: 3.1, count: 3, spanM: 400, minutes: 8, riders: 2,
         evidence: "2 riders ne bataya, kal", detail: "2 riders · motion sensor · yesterday · 82%", where: "aage ke raaste", kinds: "2 gaddha", verified: 2, candidates: 1, confidence: "bharosa zyada",
         clearM: 3200, clearRiders: 3, clearAgo: "2 ghante pehle", riddenAgo: "kal", officialKind: "sadak ka kaam", officialRefs: "MoRTH", officialM: 2400,
         predictedKind: "paani bhara hua", predictedM: 1800, predictedBy: "IMD nowcast + Bhuvan DEM" };

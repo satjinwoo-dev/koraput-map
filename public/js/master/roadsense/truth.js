@@ -113,6 +113,41 @@
         return parts.join(" · ");
     }
 
+    /**
+     * What riders said about a published hazard (agreement.js summary fields, as /area sends them), in words:
+     * counts of riders who reviewed it, never a probability.
+     *   1 report            "1 rider reported this · yesterday"
+     *   fewer than 3        "found by 2 riders, 1 didn't find it"
+     *   3+ reviewers        "8 of 10 reviewing riders found it · 80% rider agreement"
+     *   + "last confirmed 3 hours ago"; "recent riders disagree · condition may have changed"; "2 not sure"
+     * short*: inside a warning (who and when only); screen: one line for a card row.
+     * @param {any} h @param {number} now
+     */
+    function communityEvidence(h, now) {
+        const last = Number.isFinite(h.lastFoundAt) ? ago(Math.max(0, (now - h.lastFoundAt) / 1000)) : null;
+        const rd = (/** @type {number} */ n) => `${n} rider${n === 1 ? "" : "s"}`;
+        let desi, plain, shortDesi, shortPlain;
+        if (h.found <= 1 && h.notFound === 0) {
+            desi = shortDesi = `1 rider ne report kiya${last ? `, ${last.desi}` : ""}`;
+            plain = shortPlain = `1 rider reported this${last ? ` ${last.plain}` : ""}`;
+        } else if (h.agreementPct === null || h.agreementPct === undefined) {
+            desi = `${h.found} riders ko mila${h.notFound ? `, ${h.notFound} ko nahi` : ""}`;
+            plain = `found by ${rd(h.found)}${h.notFound ? `, ${h.notFound} didn't find it` : ""}`;
+            shortDesi = `${h.found} riders ne confirm kiya${last ? `, ${last.desi}` : ""}`;
+            shortPlain = `confirmed by ${rd(h.found)}${last ? `, last ${last.plain}` : ""}`;
+        } else {
+            desi = `${h.reviewers} mein se ${h.found} riders ko mila`;
+            plain = `${h.found} of ${h.reviewers} reviewing riders found it · ${h.agreementPct}% rider agreement`;
+            shortDesi = `${h.reviewers} mein se ${h.found} riders ne confirm kiya`;
+            shortPlain = `${h.found} of ${h.reviewers} riders confirmed it`;
+        }
+        if (last && !(h.found <= 1 && h.notFound === 0)) { desi += `, aakhri baar ${last.desi}`; plain += ` · last confirmed ${last.plain}`; }
+        if (h.recentDisagree) { desi += ", par haal ke riders ko nahi mila, shayad badal gaya ho"; plain += " · recent riders disagree, condition may have changed"; }
+        if (h.unsure) plain += ` · ${h.unsure} not sure`;
+        const screen = plain.charAt(0).toUpperCase() + plain.slice(1);
+        return { desi, plain, shortDesi, shortPlain, screen };
+    }
+
     /** metres between two points (equirectangular: fine at route-step scale) */
     function dist(/** @type {number} */ lat, /** @type {number} */ lng, /** @type {number} */ lat2, /** @type {number} */ lng2) {
         const n = (lat2 - lat) * M_PER_DEG, e = (lng2 - lng) * M_PER_DEG * Math.cos(lat * Math.PI / 180);
@@ -335,5 +370,5 @@
         return out;
     }
 
-    return { DEFAULTS, KIND_WORDS, ago, confidenceWords, evidence, screenEvidence, resample, project, buildTruth, buildNear, phraseData, phraseKind, phraseExtras };
+    return { DEFAULTS, KIND_WORDS, ago, confidenceWords, evidence, screenEvidence, communityEvidence, resample, project, buildTruth, buildNear, phraseData, phraseKind, phraseExtras };
 });

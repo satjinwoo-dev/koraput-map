@@ -14,9 +14,16 @@
                                     also only when stopped
      road.rough-stretch    advice   60 m+ of rough road while riding (once per 10 min)
      road.bump-ahead       warning  a strong jolt this phone has felt at the same
-                                    spot on 2 separate passes is ahead, 2–8 s away
-     road.bump-reported    warning  the same, verified by other riders' reports
-                                    (RoadSense sync) where this phone felt nothing yet
+                                    spot on 2 separate passes is ahead
+     road.bump-reported    warning  a hazard other riders published (RoadPulse,
+                                    with how many confirmed it), or verified by
+                                    their synced evidence, where this phone felt nothing
+     road.hazards-ahead    warning  several of them within 300 m: one line
+     road.hazards-stretch  warning  hazards ahead but the fix is poor: no distance
+   WHEN (roadsense/alerts.js): earlier the faster the rider goes (≈ 50 m at
+   20 km/h, 135 m at 60), on the rider's line and direction only, never beyond
+   the next turn of the route, once per hazard, 15 s apart at least, and never
+   "brake": "slow down gradually and watch the road".
 
    Why braking is never said while riding: the rider is busy braking, and a
    voice then is a distraction. It's useful afterwards, when stopped.
@@ -64,6 +71,14 @@
         return null;
     }
 
+    function alertsLib() {
+        const g = /** @type {any} */ (globalThis);
+        if (g.MUMaster && g.MUMaster.roadAlerts) return g.MUMaster.roadAlerts;
+        // @ts-ignore: node (tests) only
+        if (typeof module === "object" && typeof require === "function") return require("../roadsense/alerts.js");
+        return null;
+    }
+
     function roadsenseLib() {
         const g = /** @type {any} */ (globalThis);
         if (g.MUMaster && g.MUMaster.roadsense) return g.MUMaster.roadsense;
@@ -74,11 +89,11 @@
 
     return {
         id: "dynamics",
-        version: "1.1.0",
+        version: "1.2.0",
         apiVersion: 1,
         description: "Hard braking, road shocks and roughness from the phone's motion sensors and GPS, only while riding.",
         requires: ["dynamics"],
-        optional: ["roadsense", "roadsense-cover"],
+        optional: ["roadsense", "roadsense-cover", "roadsense-community", "nav-turn"],
         depends: ["ride"],
         runWhen: { topic: "state.ride", test: (/** @type {any} */ r) => Boolean(r && r.active) },
         defaults: {
@@ -92,9 +107,7 @@
             roughMinSpeedMs: 5,
             strongJoltMs2: 9,            // only strong jolts make a bump worth a warning (speed-scaled peakRef, detector v2)
             reviewMaxItems: 200,         // a ride's detections kept for the post-ride review
-            leadMinS: 2, leadMaxS: 8,
-            halfWidthM: 12,              // |lateral| within this = on our line
-            bumpCooldownMs: 60000,       // per spot: no repeat within one approach; every new approach is warned
+            dupM: 15,                    // a published hazard this close to one of the phone's own is the same one
             // "rode over it, no jolt": counted only when the phone could have felt it
             cleanMinSpeedMs: 3,          // DynamicsCore reports jolts only from 3 m/s
             cleanWidthM: 5,              // the bike's track passed this close to the spot (GNSS ≈ 5 m)
@@ -112,6 +125,10 @@
             const P = ctx.caps.get("dynamics");
             const RS = roadsenseLib();
             const TR = truthLib();
+            const AL = alertsLib();
+            const planner = AL.createPlanner();
+            const community = ctx.caps.has("roadsense-community") ? ctx.caps.get("roadsense-community") : null;
+            const navTurn = ctx.caps.has("nav-turn") ? ctx.caps.get("nav-turn") : null;
             const shared = ctx.caps.has("roadsense") ? ctx.caps.get("roadsense") : null;
             const log = shared || RS.createLog({ store: ctx.store });
             if (!shared) log.load();
@@ -128,7 +145,6 @@
             let stillSince = /** @type {number|null} */ (null);
             let roughRun = 0, lastRoughAt = -Infinity, lastSaveAt = -Infinity, lastPruneAt = -Infinity;
             let logStats = log.stats(ctx.now());                 // refreshed on each save (it assesses every event)
-            /** @type {Map<string, number>} */ const bumpSaidAt = new Map();
             /** bumps the bike just rode over: id → when; a jolt there around then cancels it, else it becomes a clean pass */
             /** @type {Map<string, { t: number, lat: number, lng: number, type: string }>} */ const overBump = new Map();
             /** @type {Map<string, number>} */ const feltAt = new Map();      // bump id → last jolt felt there
@@ -214,36 +230,73 @@
 
             const strong = (/** @type {any} */ ev) => ev.status === "verified" && (ev.peakMs2 === null || ev.peakMs2 >= cfg.strongJoltMs2);
 
+            /** The hazards that may be warned about: the phone's own verified strong bumps, and the published ones riders still confirm. */
+            function candidates(/** @type {any} */ f) {
+                const e = f.ego;
+                const own = log.query({ lat: e.lat, lng: e.lng, radiusM: 700, now: f.t, group: "shock" }).filter(strong)
+                    .map((/** @type {any} */ c) => ({ id: c.id, lat: c.lat, lng: c.lng, heading: null, bothWays: true, severity: Number.isFinite(c.peakMs2) && c.peakMs2 >= 14 ? 3 : 2, alertable: true, ptype: "impact", source: "log", ev: c }));
+                const pub = community ? community.near(e.lat, e.lng, 700).filter((/** @type {any} */ h) => h.alertable)
+                    .filter((/** @type {any} */ h) => !own.some((o) => Math.hypot((o.lat - h.lat) * M_PER_DEG, (o.lng - h.lng) * M_PER_DEG * Math.cos(h.lat * Math.PI / 180)) <= cfg.dupM))
+                    .map((/** @type {any} */ h) => ({ ...h, source: "community" })) : [];
+                return [...own, ...pub];
+            }
+
             function lookAhead(/** @type {any} */ f) {
                 const e = f.ego;
-                if (!Number.isFinite(e.lat) || !Number.isFinite(e.lng) || !Number.isFinite(e.headingDeg) || e.speedMs < 3) return;
-                const th = e.headingDeg * Math.PI / 180;
-                for (const c of log.query({ lat: e.lat, lng: e.lng, radiusM: 200, now: f.t, group: "shock" })) {
-                    if (!strong(c)) continue;
-                    const o = offset(e.lat, e.lng, c);
-                    const along = o.north * Math.cos(th) + o.east * Math.sin(th);
-                    const lateral = -o.north * Math.sin(th) + o.east * Math.cos(th);
-                    const lead = along / e.speedMs;
-                    if (lead < cfg.leadMinS || lead > cfg.leadMaxS || Math.abs(lateral) > cfg.halfWidthM) continue;
-                    if (f.t - (bumpSaidAt.get(c.id) ?? -Infinity) < cfg.bumpCooldownMs) continue;
-                    bumpSaidAt.set(c.id, f.t);
-                    stats.bumpsWarned++;
+                if (!Number.isFinite(e.lat) || !Number.isFinite(e.lng) || !Number.isFinite(e.headingDeg)) return;
+                const nextTurnM = navTurn ? navTurn.nextTurnM() : null;
+                const a = planner.plan({ lat: e.lat, lng: e.lng, headingDeg: e.headingDeg, speedMs: e.speedMs, posSigmaM: e.posSigmaM, nextTurnM }, candidates(f), f.t);
+                if (!a) return;
+                stats.bumpsWarned++;
+                for (const h of a.hazards) {
                     // "did you find it?" after the ride: only hazards other riders reported (the rider's own are already theirs)
-                    if (!c.felt && !ride.warned.some((w) => w.roadsenseId === c.id)) ride.warned.push({ roadsenseId: c.id, t: f.t, lat: c.lat, lng: c.lng, kind: c.type });
-                    // felt here before → "where you hit one before"; only other riders' reports → say so. The evidence
-                    // (who, when) is said in a short clause; the screen adds the sensors and the confidence.
-                    const row = { ...c, ageS: Math.max(0, Math.round((f.t - c.lastSeen) / 1000)) };
-                    const w = TR.evidence(row);
-                    ctx.report(c.felt ? "road.bump-ahead" : "road.bump-reported", {
-                        severity: "warning", key: `road.bump.${c.id}`, category: "road", ridingOnly: true, ttlMs: 4000, confidence: c.confidence,
+                    const theirs = h.source === "community" ? !h.mine : !h.ev.felt;
+                    if (theirs && !ride.warned.some((w) => w.roadsenseId === h.id)) ride.warned.push({ roadsenseId: h.id, t: f.t, lat: h.lat, lng: h.lng, kind: h.source === "community" ? h.type : h.ev.type, community: h.source === "community" });
+                }
+                const key = `road.bump.${a.first.id}`;
+                if (a.kind === "generic") {
+                    ctx.report("road.hazards-stretch", { severity: "warning", key: "road.hazards-stretch", category: "road", ridingOnly: true, ttlMs: 4000, confidence: 0.7, data: { count: a.count } });
+                    return;
+                }
+                if (a.kind === "cluster") {
+                    const words = a.hazards.map((/** @type {any} */ h) => (h.source === "community" ? TR.communityEvidence(h, f.t).shortPlain : TR.screenEvidence({ ...h.ev, ageS: Math.max(0, Math.round((f.t - h.ev.lastSeen) / 1000)) })));
+                    ctx.report("road.hazards-ahead", {
+                        severity: "warning", key, category: "road", ridingOnly: true, ttlMs: 4000, confidence: 0.75,
+                        data: { count: a.count, spanM: a.spanM, distanceM: a.distanceM, detail: words[0], screen: { detail: `first in ${a.distanceM} m` } }
+                    });
+                    return;
+                }
+                const h = a.first;
+                if (h.source === "community") {
+                    const w = TR.communityEvidence(h, f.t);
+                    if (h.ptype === "rough") {
+                        ctx.report("road.rough-stretch", { severity: "advice", key, category: "road", ridingOnly: true, ttlMs: 8000, confidence: 0.75, data: { distanceM: a.distanceM, evidence: w.shortDesi, screen: { evidence: w.shortPlain } } });
+                        return;
+                    }
+                    ctx.report("road.bump-reported", {
+                        severity: "warning", key, category: "road", ridingOnly: true, ttlMs: 4000, confidence: 0.75,
                         data: {
-                            distanceM: Math.max(10, Math.round(along / 10) * 10), passes: c.passes, riders: c.riders, peakMs2: c.peakMs2 === null ? null : Math.round(c.peakMs2),
-                            kind: c.type, sources: c.sources, lastSeenAgoS: row.ageS, confidence: c.confidence, roadsenseId: c.id,
-                            evidence: w.shortDesi, detail: TR.screenEvidence(row),
+                            distanceM: a.distanceM, riders: h.found, kind: h.type, severity: h.severity, roadsenseId: h.id, community: true,
+                            agreementPct: h.agreementPct, found: h.found, notFound: h.notFound,
+                            evidence: w.shortDesi, evidenceTu: w.shortDesi, detail: w.screen,
                             screen: { evidence: w.shortPlain }
                         }
                     });
+                    return;
                 }
+                // the phone's own log: felt here before → "where you hit one before"; only other riders' synced evidence → say so
+                const c = h.ev;
+                const row = { ...c, ageS: Math.max(0, Math.round((f.t - c.lastSeen) / 1000)) };
+                const w = TR.evidence(row);
+                ctx.report(c.felt ? "road.bump-ahead" : "road.bump-reported", {
+                    severity: "warning", key, category: "road", ridingOnly: true, ttlMs: 4000, confidence: c.confidence,
+                    data: {
+                        distanceM: a.distanceM, passes: c.passes, riders: c.riders, peakMs2: c.peakMs2 === null ? null : Math.round(c.peakMs2),
+                        kind: c.type, sources: c.sources, lastSeenAgoS: row.ageS, confidence: c.confidence, roadsenseId: c.id,
+                        evidence: w.shortDesi, detail: TR.screenEvidence(row),
+                        screen: { evidence: w.shortPlain }
+                    }
+                });
             }
 
             function deliverWhenStopped(/** @type {number} */ t) {

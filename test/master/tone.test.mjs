@@ -20,7 +20,7 @@ const SAMPLE = {
     distanceM: 80, riders: 3, evidence: "2 riders ne bataya, kal", evidenceTu: "tu aur 2 aur riders ne feel kiya, aakhri baar kal", where: "aage ke raaste",
     kinds: "2 gaddha ya breaker", verified: 2, candidates: 1, hazard: "gaddha ya breaker", confidence: "bharosa zyada", clearM: 3200, clearRiders: 3,
     clearAgo: "2 ghante pehle", riddenAgo: "kal", officialKind: "sadak ka kaam", officialRefs: "Example list", officialM: 2400,
-    predictedKind: "paani bhara hua", predictedM: 1800, predictedBy: "IMD nowcast + Bhuvan DEM", detail: "3 riders · motion sensor · yesterday · 82%",
+    predictedKind: "paani bhara hua", predictedM: 1800, count: 3, spanM: 400, predictedBy: "IMD nowcast + Bhuvan DEM", detail: "3 riders · motion sensor · yesterday · 82%",
     screen: { where: "the road ahead", evidence: "reported by 2 riders yesterday" }
 };
 const lines = (pack) => Object.entries(pack).flatMap(([kind, bySev]) => Object.entries(bySev).flatMap(([sev, list]) => list.map((l) => ({ kind, sev, say: l.say, when: l.when }))));
@@ -68,7 +68,7 @@ test("the tone changes the words, never the facts: the same numbers and sources 
         "road.truth-unconfirmed": ["candidates", "distanceM", "hazard", "evidence"], "road.truth-clear": ["clearRiders", "clearAgo"],
         "road.truth-partly-clear": ["clearM", "clearRiders"], "road.truth-ridden": ["riddenAgo"], "road.truth-also-clear": ["clearM", "clearRiders"],
         "road.truth-official": ["officialM", "officialKind", "officialRefs"], "road.truth-predicted": ["predictedM", "predictedKind", "predictedBy"],
-        "road.route-truth": ["verified", "kinds"], "road.hazard": ["distanceM"]
+        "road.route-truth": ["verified", "kinds"], "road.hazard": ["distanceM"], "road.hazards-ahead": ["count", "spanM"]
     };
     for (const t of TONE.TONES) for (const l of lines(TONE[t])) for (const f of MUST[l.kind] || []) assert.ok(facts(l.say).includes(f), `${t} ${l.kind}: says ${f}`);
     // a bump reported by other riders always says by how many (Family through the evidence clause, Rowdy as a count)

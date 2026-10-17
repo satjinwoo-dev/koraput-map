@@ -66,7 +66,7 @@
         doosre: "दूसरे", doosra: "दूसरा",
         // the voice tones (js/master/phrases-tone.js)
         aankhein: "आँखें", abe: "अबे", andha: "अंधा", apne: "अपने", baji: "बजी", ban: "बन", banda: "बंदा", bhool: "भूल", chalayein: "चलाएँ", degi: "देगी", dhyaan: "ध्यान", dikhti: "दिखती", ekdum: "एकदम", guzre: "गुज़रे", hilegi: "हिलेगी", hisaab: "हिसाब", jahan: "जहाँ", jayega: "जाएगा", khaya: "खाया", khuli: "खुली", kripya: "कृपया", maan: "मान", makhan: "मक्खन", mehsoos: "महसूस", nikle: "निकले", oye: "ओए", padi: "पड़ी", rakhein: "रखें", rasta: "रास्ता", sarkar: "सरकार", tod: "तोड़", udd: "उड़", uske: "उसके", usko: "उसको", wahi: "वही", warna: "वरना", yaad: "याद", yeh: "यह", aakhri: "आख़िरी", anumaan: "अनुमान", dekha: "देखा", guzra: "गुज़रा", jaankari: "जानकारी", mutaabik: "मुताबिक़",
-        pakka: "पक्का", sarkari: "सरकारी",
+        pakka: "पक्का", sarkari: "सरकारी", hue: "हुए", nazar: "नज़र",
         // 18+ Rowdy (phrases-tone.js rowdy18): the reels' street words, so the Hindi voice says them right
         chomu: "चोमू", gaand: "गांड", gaandu: "गांडू", jayegi: "जाएगी", arey: "अरे", kisne: "किसने", hag: "हग", andar: "अंदर", nikal: "निकल", uchhla: "उछला", marwane: "मरवाने", shauk: "शौक़", tujhe: "तुझे", zindagi: "ज़िंदगी", jee: "जी", marwa: "मरवा", chalaiyo: "चलाइयो", mujhe: "मुझे", jhaant: "झांट", aisi: "ऐसी", bakchodi: "बकचोदी", karne: "करने", chhod: "छोड़", isse: "इससे", naya: "नया",
         sadak: "सड़क", raasta: "रास्ता", raste: "रास्ते", raaste: "रास्ते", haalat: "हालत", pata: "पता", pakki: "पक्की", kachchi: "कच्ची", bataunga: "बताऊँगा", gaddha: "गड्ढा", gaddhe: "गड्ढे", jhatka: "झटका", jhatke: "झटके",
@@ -95,7 +95,7 @@
         "phone", "raincoat", "ride", "route", "rumble", "safe", "save", "screen", "side", "signal", "speed", "spot", "start", "strip", "sync",
         "tempo", "tension", "time", "tractor", "traffic", "truck", "try", "tyre", "up", "update", "view", "visor", "weak", "gps", "helmet",
         "tip", "app", "battery", "charge", "map", "location", "selfie", "mode", "please", "sorry", "thanks", "rickshaw", "e",
-        "report", "riders", "rider", "sensor", "feel", "hero", "limit", "line", "free", "clear"
+        "report", "riders", "rider", "sensor", "feel", "hero", "limit", "line", "free", "clear", "road", "hazards", "stretch"
     ]));
 
     /** Words that are Hindi in our lines but also English (or too short) to prove a line is Hinglish on their own. */

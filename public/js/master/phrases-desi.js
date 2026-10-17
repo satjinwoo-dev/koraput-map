@@ -146,8 +146,15 @@
         "road.bump-reported": {
             warning: [
                 { say: "{{name}}, {{distanceM|round}} metre aage gaddha ya breaker, {{evidence}}. Dheere kar." },
-                { say: "Dhyan se {{name}}, aage {{distanceM|round}} metre pe jhatka, {{evidence}}." }
+                { say: "Dhyan se {{name}}, aage {{distanceM|round}} metre pe jhatka, {{evidence}}. Dheere-dheere speed kam kar." }
             ]
+        },
+        // RoadPulse alerts (roadsense/alerts.js): several hazards close together → one line; a poor fix → no distance
+        "road.hazards-ahead": {
+            warning: [{ say: "{{name}}, agle {{spanM|round}} metre mein {{count}} road hazards report hue hain. Dheere-dheere speed kam kar aur sadak pe nazar rakh." }]
+        },
+        "road.hazards-stretch": {
+            warning: [{ say: "{{name}}, is stretch pe road hazards report hue hain. Dheere chala aur sadak pe nazar rakh." }]
         },
         // Route Truth: the rider asked "aage sadak kaisi hai?" (task.road-truth). Every value comes from the RoadSense log.
         "road.truth": {
@@ -278,8 +285,10 @@
         "ride.braking-pattern": { advice: [{ say: "You braked hard {{count}} times in {{minutes}} minutes. Leave a bigger gap to the vehicle ahead.", title: "Hard braking", sub: "{{count}} times in {{minutes}} min" }] },
         "ride.hard-brake-check": { advice: [{ say: "That was a very hard stop. All good? Take a minute before you ride on.", title: "Very hard braking", sub: "Take a short break" }] },
         "road.rough-stretch": { advice: [{ say: "The road is rough here. Keep your speed down.", title: "Rough road", sub: "Ease off for a while" }] },
-        "road.bump-ahead": { warning: [{ say: "Bump or pothole in {{distanceM|round}} metres, where you hit one before. Slow down.", title: "Bump ahead", sub: "In {{distanceM|round}} m · {{detail}}" }] },
-        "road.bump-reported": { warning: [{ say: "Bump or pothole in {{distanceM|round}} metres, {{evidence}}. Slow down.", title: "Bump reported ahead", sub: "In {{distanceM|round}} m · {{detail}}" }] },
+        "road.bump-ahead": { warning: [{ say: "Road hazard in {{distanceM|round}} metres, where you hit one before. Slow down gradually and watch the road.", title: "Bump ahead", sub: "In {{distanceM|round}} m · {{detail}}" }] },
+        "road.bump-reported": { warning: [{ say: "Reported road hazard in {{distanceM|round}} metres, {{evidence}}. Slow down gradually and watch the road.", title: "Bump reported ahead", sub: "In {{distanceM|round}} m · {{detail}}" }] },
+        "road.hazards-ahead": { warning: [{ say: "{{count}} reported road hazards in the next {{spanM|round}} metres. Slow down gradually and watch the road.", title: "{{count}} hazards ahead", sub: "Next {{spanM|round}} m · {{detail}}" }] },
+        "road.hazards-stretch": { warning: [{ say: "Road hazards have been reported on this stretch. Slow down gradually and watch the road.", title: "Hazards reported here", sub: "Weak GPS: distance unknown" }] },
         "road.truth": { advice: [{ say: "Confirmed reports on {{where}}: {{verified}}, {{kinds}}. The first, in {{distanceM|km}}: {{hazard}}, {{evidence}}, {{confidence}}.", title: "Road reports: {{verified}} confirmed", sub: "First: {{hazard}} in {{distanceM|km}} · {{evidence}}" }] },
         "road.truth-unconfirmed": { advice: [{ say: "No confirmed reports on {{where}}, only {{candidates}} unconfirmed. The first, in {{distanceM|km}}: {{hazard}}, {{evidence}}. Ride with care.", title: "Road reports: none confirmed", sub: "{{candidates}} unconfirmed" }] },
         "road.truth-clear": { advice: [{ say: "{{where}} is clear: no bumps felt by {{clearRiders}} riders, last {{clearAgo}}. A phone can't feel water or gravel, so stay alert.", title: "Clear · verified by {{clearRiders}} riders", sub: "No bumps felt · last {{clearAgo}}" }] },
