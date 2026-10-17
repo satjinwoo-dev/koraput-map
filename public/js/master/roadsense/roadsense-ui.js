@@ -6,19 +6,27 @@
    #roadsense-status         what's waiting, sent, received and cached
    #roadsense-forget-btn     asks the server to delete everything this phone sent
    #voice-tone-toggle        the voice's tone: Family (off, default) or Rowdy (MUMaster.live.setTone)
+   #voice-18-toggle          18+ Rowdy (gaaliyan), off by default, on only after an "are you 18+?" confirm
    Loaded after master-app.js, which provides the "roadsense-sync" capability.
    ============================================================================ */
 (function () {
     "use strict";
     const W = /** @type {any} */ (window);
     const live = W.MUMaster && W.MUMaster.live;
-    // the voice tone switch (Family / Rowdy): independent of sharing, so it works even where sync isn't available
+    // the voice tone switches (Family / Rowdy / 18+ Rowdy): independent of sharing, so they work even where sync isn't available.
+    // 18+ is on top of Rowdy: turning it on turns Rowdy on, turning Rowdy off turns both off.
     const tone = /** @type {HTMLInputElement|null} */ (document.getElementById("voice-tone-toggle"));
+    const adult = /** @type {HTMLInputElement|null} */ (document.getElementById("voice-18-toggle"));
     if (tone) {
-        if (!live || typeof live.setTone !== "function") tone.disabled = true;
+        if (!live || typeof live.setTone !== "function") { tone.disabled = true; if (adult) adult.disabled = true; }
         else {
-            tone.checked = live.persona && live.persona.tone === "rowdy";
-            tone.addEventListener("change", () => { tone.checked = live.setTone(tone.checked ? "rowdy" : "family") === "rowdy"; });
+            const show = (/** @type {string} */ t) => { tone.checked = t !== "family"; if (adult) adult.checked = t === "rowdy18"; };
+            show(live.persona ? live.persona.tone : "family");
+            tone.addEventListener("change", () => show(live.setTone(tone.checked ? (adult && adult.checked ? "rowdy18" : "rowdy") : "family")));
+            if (adult) adult.addEventListener("change", () => {
+                if (adult.checked && !W.confirm("18+ Rowdy uses strong gaaliyan (profanity), spoken out loud. Turn it on only if you are 18 or older. Are you 18+?")) { adult.checked = false; return; }
+                show(live.setTone(adult.checked ? "rowdy18" : tone.checked ? "rowdy" : "family"));
+            });
         }
     }
     const sync = live && live.caps ? live.caps.get("roadsense-sync") : null;

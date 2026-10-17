@@ -1,13 +1,18 @@
 // @ts-check
 /* ============================================================================
-   MapUnite Master AI — voice tones for the Hinglish voice: Family and Rowdy
+   MapUnite Master AI — voice tones for the Hinglish voice: Family, Rowdy, 18+
    ==============================================================================
-   Settings → Community road reports → "Rowdy voice" (off by default).
+   Settings → Community road reports → "Rowdy voice" (off by default), and
+   under it "18+ Rowdy (gaaliyan)" (off by default, asks "are you 18+?" first).
 
      family  DEFAULT. Polite "aap" Hinglish: "Aage gaddhe ki report hai, kripya
              dhyaan se chalayein."
      rowdy   Opt-in street banter: "tu", "abe", "bhai", mild roasting
              ("andha hai kya?"). For fun, and for sharing.
+     rowdy18 Opt-in, 18+ only: Rowdy with street gaaliyan, in the words of the
+             Grok-prank reels the founder picked. Kinds it doesn't cover keep
+             their Rowdy line. Lines can be picked by what was seen (when:
+             { cls }: a camera pothole, speed breaker or waterlogging).
 
    Covered so far: the RoadPulse lines (bump warnings, rough road, the Route
    Truth answers). Every other kind keeps its desi line (phrases-desi.js) in
@@ -21,8 +26,10 @@
        "full speed", "bhaga"). A "clear" road only means no bumps were felt,
        so even the happy line keeps "limit mein rakh" and what a phone can't feel;
      - no slurs and no abuse of anyone's family, caste, religion or gender:
-       roasting the rider's riding, never the rider's identity.
-   test/master/tone.test.mjs checks all three.
+       roasting the rider's riding, never the rider's identity. 18+ swears,
+       but at the road and the riding: no maa-behen gaali, in any tone.
+   test/master/tone.test.mjs checks all three. The screen stays English, so
+   no gaali is ever written on screen.
    ============================================================================ */
 (function (root, factory) {
     if (typeof module === "object" && module.exports) module.exports = factory();
@@ -35,7 +42,7 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
     "use strict";
 
-    const TONES = Object.freeze(["family", "rowdy"]);
+    const TONES = Object.freeze(["family", "rowdy", "rowdy18"]);
 
     /** Family: polite, "aap", "kripya". No {{name}}: a formal voice doesn't call the rider "bhai". */
     const family = {
@@ -135,12 +142,56 @@
         }
     };
 
+    /**
+     * 18+ Rowdy: the reels' lines, with the facts the sensors give (distance, riders, when) added in.
+     * Still slow down in every warning, never speed up, and no gaali about family, caste, religion or gender.
+     */
+    const POTHOLE = "bada gaddha hai", BREAKER = ["speed_breaker", "speed_breaker_marked", "speed_breaker_unmarked"];
+    const rowdy18 = {
+        // seen by the camera (road-agent.js): data.cls
+        "road.hazard": {
+            warning: [
+                { when: { cls: ["pothole"] }, say: `Abe chomu, {{distanceM|round}} metre aage ${POTHOLE}! Dheere kar le warna gaand ke beech ek aur line ban jayegi!` },
+                { when: { cls: BREAKER }, say: "Abe gaandu, {{distanceM|round}} metre aage breaker hai. Dheere kar le warna hawa mein udd jayega!" },
+                { when: { cls: ["waterlogging"] }, say: "Arey bhai, {{distanceM|round}} metre aage paani bhara hai, pata nahi kisne hag diya hai andar. Dheere nikal le." }
+            ]
+        },
+        // from the RoadSense log (dynamics-agent.js): data.kind; a plain "bump" (pothole or breaker, the sensor
+        // can't tell) keeps its Rowdy line
+        "road.bump-ahead": {
+            warning: [
+                { when: { kind: ["pothole"] }, say: `Abe chomu, {{distanceM|round}} metre aage wahi ${POTHOLE} jahan pichhli baar jhatka khaya tha! Dheere kar le warna gaand ke beech ek aur line ban jayegi!` },
+                { when: { kind: BREAKER }, say: "Abe gaandu, {{distanceM|round}} metre aage wahi breaker hai jahan pichhli baar uchhla tha. Dheere kar le warna hawa mein udd jayega!" }
+            ]
+        },
+        "road.bump-reported": {
+            warning: [
+                { when: { kind: ["pothole"] }, say: `Abe chomu, {{distanceM|round}} metre aage ${POTHOLE}, {{riders}} riders ne bataya! Dheere kar le warna gaand ke beech ek aur line ban jayegi!` },
+                { when: { kind: BREAKER }, say: "Abe gaandu, {{distanceM|round}} metre aage breaker hai, {{riders}} riders ne bataya. Dheere kar le warna hawa mein udd jayega!" }
+            ]
+        },
+        "road.rough-stretch": {
+            advice: [{ say: "Bhai aage sadak ki band baji padi hai. Aaram se nikal le, ya free mein marwane ka shauk hai tujhe?" }]
+        },
+        "road.truth-clear": {
+            advice: [{ say: "Bhai zindagi toh tu jee raha hai, baaki toh bas marwa rahe hain. Rasta clear hai, {{clearRiders}} riders bina jhatke nikle, aakhri baar {{clearAgo}}. Par limit mein chalaiyo, paani ya bajri mujhe nahi dikhti." }]
+        },
+        "road.truth-unknown": {
+            advice: [{ say: "Arey bhai, aage ka mujhe jhaant kuch nahi dikh raha yaar. Apna khud dekh ke chala le." }]
+        },
+        // navigation.js, after an off-route reroute (persona.toneLine): only this tone has one; others keep the English line
+        "nav.reroute": {
+            any: [{ say: "Haan, mujhe pata tha tu aisi hi koi bakchodi karne wala hai. Chhod de bhai, isse achha paidal chala jaata tu. Dheere chal, naya rasta nikal raha hoon." }]
+        }
+    };
+
     /** @param {{ addPhrases: (style: any, pack: any) => void }} persona */
     function install(persona) {
         persona.addPhrases("desi.family", family);
         persona.addPhrases("desi.rowdy", rowdy);
+        persona.addPhrases("desi.rowdy18", rowdy18);
         return persona;
     }
 
-    return { TONES, family, rowdy, install };
+    return { TONES, family, rowdy, rowdy18, install };
 });

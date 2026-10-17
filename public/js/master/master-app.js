@@ -15,6 +15,7 @@
      MUMaster.live.status()                   every agent and its state
      MUMaster.live.enable("network") / disable("network")
      MUMaster.live.setStyle("plain" | "desi") / setName("Rahul")
+     MUMaster.live.setTone("family" | "rowdy" | "rowdy18")   the Hinglish voice's tone (18+: Settings asks first)
      MUMaster.live.delegate("deep-search", { query })
      MUMaster.live.delegate("fatigue-check")  the camera check now (only while stopped)
      MUMaster.live.tell({ kind: "master.reply", severity: "advice", text: "…" })
@@ -38,10 +39,10 @@
     if (M.live) return;                                                  // booted already
 
     const KEY = "mu.master.v1";
-    /** @returns {{ style: "desi"|"plain", tone: "family"|"rowdy", name: string, agents: Record<string, any> }} */
+    /** @returns {{ style: "desi"|"plain", tone: "family"|"rowdy"|"rowdy18", name: string, agents: Record<string, any> }} */
     function load() {
-        // tone: "family" (polite, the default) or "rowdy" (opt-in street banter; js/master/phrases-tone.js)
-        const d = { style: /** @type {"desi"|"plain"} */ ("desi"), tone: /** @type {"family"|"rowdy"} */ ("family"), name: "", agents: {} };
+        // tone: "family" (polite, the default), "rowdy" (opt-in street banter) or "rowdy18" (18+ gaaliyan; js/master/phrases-tone.js)
+        const d = { style: /** @type {"desi"|"plain"} */ ("desi"), tone: /** @type {"family"|"rowdy"|"rowdy18"} */ ("family"), name: "", agents: {} };
         try { const v = JSON.parse(W.localStorage.getItem(KEY) || "null"); if (v && typeof v === "object") return { ...d, ...v, agents: { ...(v.agents || {}) } }; } catch (e) { /* first run / private mode */ }
         return d;
     }
@@ -194,8 +195,10 @@
         /** @param {string} id */ disable: (id) => kernel.disable(id),
         /** @param {"desi"|"plain"} s */ setStyle(s) { persona.setStyle(s); config.style = persona.style; save(); sharePersona(); },
         /** @param {string} n */ setName(n) { persona.setName(n); config.name = persona.name; save(); sharePersona(); },
-        /** Voice tone (Hinglish): "family" (default) or "rowdy". @param {"family"|"rowdy"} t */
+        /** Voice tone (Hinglish): "family" (default), "rowdy" or "rowdy18" (18+, Settings asks first). @param {"family"|"rowdy"|"rowdy18"} t */
         setTone(t) { persona.setTone(t); config.tone = persona.tone; save(); sharePersona(); return persona.tone; },
+        /** The tone's own line for speech outside the Master (navigation's reroute), else null. @param {string} kind @param {any} [data] */
+        toneLine: (kind, data) => persona.toneLine(kind, data),
         /** @param {string} task @param {any} [payload] @param {any} [o] */ delegate: (task, payload, o) => brain.delegate(task, payload, o),
         /** @param {any} report */ tell: (report) => brain.tell(report),
         transcript: () => brain.transcript(),

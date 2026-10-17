@@ -16,6 +16,9 @@
          advice:  [ … ],
          any:     [ … ]                    // used when no list for that severity
      } }
+   A line may carry  when: { cls: ["pothole"] }  : it is used only when each
+   named value (report.data first) is one of the listed ones, so a camera-seen
+   pothole and a speed breaker can have different lines in the same kind.
    Templates use {{name}}, {{data.field}} or {{field}} (report.data first,
    then world values), with optional filters: {{distanceM|km}},
    {{ridingSec|min}}, {{value|round}}. A line whose placeholders can't all be
@@ -67,15 +70,22 @@
         round: (/** @type {any} */ v) => (Number.isFinite(Number(v)) ? String(Math.round(Number(v))) : null)
     };
 
+    /** @typedef {"family"|"rowdy"|"rowdy18"} Tone */
+    /** The books a tone reads, first match wins (before "desi" and "plain"). */
+    const TONE_BOOKS = Object.freeze({ family: ["desi.family"], rowdy: ["desi.rowdy"], rowdy18: ["desi.rowdy18", "desi.rowdy"] });
+    /** @param {any} t @returns {Tone} unknown values fall back to Family */
+    const toneOf = (t) => (t === "rowdy" || t === "rowdy18" ? t : "family");
+
     /**
-     * @param {{ style?: "desi"|"plain", tone?: "family"|"rowdy", name?: string, rng?: () => number }} [opts]
-     *   tone (Hinglish only): "family" (default, polite "aap") or "rowdy" (opt-in street "tu/abe" banter).
-     *   A tone's lines (books "desi.family" / "desi.rowdy", phrases-tone.js) win over the plain desi lines
-     *   for the kinds they cover; every other kind keeps its desi line. English (plain) has no tones.
+     * @param {{ style?: "desi"|"plain", tone?: Tone, name?: string, rng?: () => number }} [opts]
+     *   tone (Hinglish only): "family" (default, polite "aap"), "rowdy" (opt-in street "tu/abe" banter) or
+     *   "rowdy18" (opt-in, 18+ only: Rowdy with gaaliyan). A tone's lines (books "desi.family" / "desi.rowdy" /
+     *   "desi.rowdy18", phrases-tone.js) win over the plain desi lines for the kinds they cover; 18+ falls back
+     *   to Rowdy, then desi, for the kinds it doesn't cover. English (plain) has no tones.
      */
     function createPersona(opts = {}) {
         let style = opts.style === "plain" ? "plain" : "desi";
-        let tone = opts.tone === "rowdy" ? "rowdy" : "family";
+        let tone = toneOf(opts.tone);
         let name = typeof opts.name === "string" ? opts.name.trim() : "";
         const rng = opts.rng || Math.random;
         /** @type {Record<string, Record<string, Record<string, any[]>>>} */
@@ -124,6 +134,7 @@
             /** @type {any} */ let fallback = null;
             for (let i = 0; i < list.length; i++) {
                 const e = list[(start + i) % list.length];
+                if (e.when && !Object.entries(e.when).every(([k, ok]) => ok.includes(vars.data && k in vars.data ? vars.data[k] : vars[k]))) continue;
                 const say = render(e.say, vars, st);
                 if (say === null) continue;
                 const line = { say, title: e.title ? render(e.title, vars, st) : null, sub: e.sub ? render(e.sub, vars, st) : null, icon: e.icon || null, entry: e };
@@ -161,7 +172,7 @@
             /** @type {any} */ let spoken = null;
             let source = /** @type {"agent"|"pack"|"generic"|"none"} */ ("none"), spokenStyle = style;
             if (report.text) { spoken = { say: report.text }; source = "agent"; }
-            const order = style === "plain" ? ["plain"] : [`desi.${tone}`, "desi", "plain"];
+            const order = style === "plain" ? ["plain"] : [...TONE_BOOKS[tone], "desi", "plain"];
             for (const st of order) {
                 if (spoken) break;
                 const entry = books[st] && books[st][report.kind];
@@ -203,12 +214,22 @@
             addPhrases, phrase, render,
             /** @param {"desi"|"plain"} s */ setStyle(s) { style = s === "plain" ? "plain" : "desi"; },
             /** @param {string} n */ setName(n) { name = typeof n === "string" ? n.trim().slice(0, 30) : ""; },
-            /** @param {"family"|"rowdy"} t */ setTone(t) { tone = t === "rowdy" ? "rowdy" : "family"; },
+            /** @param {Tone} t */ setTone(t) { tone = toneOf(t); },
+            /**
+             * The current tone's OWN line for a kind, or null: for speech outside the Master (navigation's
+             * reroute) that keeps its English line unless the chosen tone has one of its own.
+             * @param {string} kind @param {Record<string, any>} [data]
+             */
+            toneLine(kind, data = {}) {
+                const entry = style === "plain" ? null : books[`desi.${tone}`] && books[`desi.${tone}`][kind];
+                const line = entry && pick(entry.any || entry.advice, `desi.${tone}:${kind}`, { name: name || "bhai", ...data, data }, "desi");
+                return line ? line.say : null;
+            },
             get style() { return style; },
             get tone() { return tone; },
             get name() { return name; },
             /** Kinds that have lines, per style (for tooling and tests). */
-            kinds() { return { desi: Object.keys(books.desi), plain: Object.keys(books.plain), family: Object.keys(books["desi.family"] || {}), rowdy: Object.keys(books["desi.rowdy"] || {}) }; }
+            kinds() { return { desi: Object.keys(books.desi), plain: Object.keys(books.plain), family: Object.keys(books["desi.family"] || {}), rowdy: Object.keys(books["desi.rowdy"] || {}), rowdy18: Object.keys(books["desi.rowdy18"] || {}) }; }
         };
     }
 
