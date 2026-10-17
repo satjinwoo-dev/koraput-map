@@ -40,7 +40,7 @@ test("what the rider is asked: detections, minor ones apart, and 'did you find i
 
 test("private by default: no answers → nothing published, nothing changed", () => {
     const out = RV.toPublish(RV.buildReview(ride, { hazards }), {});
-    assert.deepEqual(out, { reports: [], votes: [], local: [], cover: null });
+    assert.deepEqual(out, { reports: [], votes: [], thanks: [], local: [], cover: null });
 });
 
 test("only what the rider confirmed and kept public is published; corrected spots and severities go as the rider set them", () => {
@@ -54,6 +54,7 @@ test("only what the rider confirmed and kept public is published; corrected spot
             "u7.4": { verdict: "not_found" }                                           // an unknown one: nothing
         },
         asks: { h00000000000000a1: "not_found" },
+        thanks: { h00000000000000a1: true },                                           // thanks only go with a "found"
         added: [{ type: "pothole", severity: 3, lat: 18.9, lng: 82.8 }, { type: "dragon", lat: 1, lng: 1 }],
         shareClear: true
     });
@@ -65,6 +66,8 @@ test("only what the rider confirmed and kept public is published; corrected spot
     assert.equal(out.reports[2].sigmaM, 15, "a hand-placed spot is less exact");
     assert.deepEqual(out.votes, [{ hazard: "h00000000000000a1", verdict: "not_found", t: T0 + 50 * MIN, passage: { passed: true, quality: "good", felt: false } }], "the vote carries its passage evidence, no coordinates");
     assert.deepEqual(out.cover, { from: T0, to: T0 + 60 * MIN });
+    assert.deepEqual(out.thanks, [], "no thanks with a 'not found'");
+    assert.deepEqual(RV.toPublish(rv, { asks: { h00000000000000a1: "found" }, thanks: { h00000000000000a1: true } }).thanks, ["h00000000000000a1"]);
     // the phone's own log: confirmed ones present (incl. the private one), the wrong one absent
     assert.deepEqual(out.local.map((x) => [x.type, x.present]), [["pothole", true], ["speed_breaker", false], ["rough", true], ["bump", false], ["bump", true], ["pothole", true]]);
     // nothing of the route: only the spots, no ride path, start or end

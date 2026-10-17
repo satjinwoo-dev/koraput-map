@@ -65,8 +65,9 @@
         badges.hidden = false;
         const names = r.badges.map((/** @type {any} */ b) => `${b.name} (${b.en})`).join(", ");
         const next = r.next && r.next.needConfirmed > 0 ? ` ${r.next.needConfirmed} more confirmed for ${r.next.name}.` : "";
-        badges.textContent = r.reports
-            ? `Your reports: ${r.confirmed} confirmed by other riders, ${r.pending} waiting · accuracy ${Math.round(r.accuracy * 100)}%${names ? ` · ${names}` : ""}.${next}`
+        const extra = [r.reviewsValidated ? `${r.reviewsValidated} of your answers borne out by later riders` : "", r.thanksReceived ? `${r.thanksReceived} thank-you${r.thanksReceived === 1 ? "" : "s"} from riders` : ""].filter(Boolean).join(" · ");
+        badges.textContent = r.reports || r.reviewsValidated
+            ? `Your reports: ${r.confirmed} confirmed by other riders, ${r.pending} waiting · accuracy ${Math.round(r.accuracy * 100)}%${names ? ` · ${names}` : ""}${extra ? ` · ${extra}` : ""}.${next}`
             : "Publish road reports after your rides. Badges come when other riders confirm them, not from how much you ride.";
     }
     showBadges();

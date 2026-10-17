@@ -172,7 +172,7 @@
         let coverLabelSet = new Set(coverLabels);
         /** @type {{ from: number, to: number }[]} */ let coverApproved = store.get("coverApproved", []) || [];
         // RoadPulse: what the rider published (waiting), who they are to the server, and the hazards they know
-        /** @type {{ kind: "report"|"vote", item: any, notBefore: number }[]} */ let pubOutbox = store.get("pubOutbox", []) || [];
+        /** @type {{ kind: "report"|"vote"|"thanks", item: any, notBefore: number }[]} */ let pubOutbox = store.get("pubOutbox", []) || [];
         /** @type {{ contributor: string, device: string, anon?: string }|null} */ let ident = store.get("identity", null);
         /** @type {string[]} */ let myHazards = store.get("myHazards", []) || [];
         /** @type {Record<string, any>} */ let hazardsCache = store.get("hazards", {}) || {};
@@ -247,11 +247,12 @@
             if (!due.length) return 0;
             const reports = due.filter((x) => x.kind === "report").slice(0, cfg.publishReportsMax);
             const votes = due.filter((x) => x.kind === "vote").slice(0, cfg.publishVotesMax);
+            const thanks = due.filter((x) => x.kind === "thanks").slice(0, cfg.publishVotesMax);
             const id = identity();
             const anonVotes = voteMode === "anonymous" ? votes : [], acctVotes = voteMode === "anonymous" ? [] : votes;
             /** @type {any} */ let r = { ok: true, status: 200, data: { results: [], rejected: [] } };
-            if (reports.length || acctVotes.length) {
-                r = await a.post("/roadsense/publish", { v: 1, contributor: id.contributor, device: id.device, reports: reports.map((x) => x.item), votes: acctVotes.map((x) => x.item) }, { timeoutMs: cfg.timeoutMs });
+            if (reports.length || acctVotes.length || thanks.length) {
+                r = await a.post("/roadsense/publish", { v: 1, contributor: id.contributor, device: id.device, reports: reports.map((x) => x.item), votes: acctVotes.map((x) => x.item), thanks: thanks.map((x) => x.item) }, { timeoutMs: cfg.timeoutMs });
                 if (!(r.ok || r.status === 400)) { fail(r.reason || `http ${r.status}`); changed(); return 0; }
             }
             if (anonVotes.length) {
@@ -263,7 +264,7 @@
                 if (!(ra.ok || ra.status === 400)) { fail(ra.reason || `http ${ra.status}`); changed(); return 0; }
                 if (ra.data) r = { ...r, data: { results: [...((r.data && r.data.results) || []), ...(ra.data.results || [])], rejected: [...((r.data && r.data.rejected) || []), ...(ra.data.rejected || [])] } };
             }
-            const done = new Set([...reports, ...votes]);
+            const done = new Set([...reports, ...votes, ...thanks]);
             pubOutbox = pubOutbox.filter((x) => !done.has(x));
             savePub();
             if (r.ok && r.data) {
@@ -454,7 +455,7 @@
             /**
              * RoadPulse: what the rider reviewed and chose to publish (review.js). Each item waits a random
              * 0..publishDelayMaxMs, then goes up with the next flush. Nothing is queued while sharing is off.
-             * @param {{ reports?: any[], votes?: any[] }} p
+             * @param {{ reports?: any[], votes?: any[], thanks?: string[] }} p
              */
             publish(p) {
                 if (!consent.on) return { ok: false, reason: "sharing-off", queued: 0 };
@@ -462,6 +463,8 @@
                 let queued = 0;
                 for (const item of (p && p.reports) || []) { pubOutbox.push({ kind: "report", item, notBefore: delay() }); queued++; }
                 for (const item of (p && p.votes) || []) { pubOutbox.push({ kind: "vote", item, notBefore: delay() }); queued++; }
+                // thanks go under the contributor (they'd tie an anonymous rider to a place): not sent when answering anonymously
+                if (voteMode !== "anonymous") for (const item of (p && p.thanks) || []) { if (typeof item === "string") { pubOutbox.push({ kind: "thanks", item, notBefore: delay() }); queued++; } }
                 if (pubOutbox.length > cfg.publishOutboxMax) pubOutbox.splice(0, pubOutbox.length - cfg.publishOutboxMax);
                 savePub();
                 changed();

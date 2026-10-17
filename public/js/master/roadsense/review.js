@@ -10,6 +10,8 @@
      drag the marker                its place (a confirmed one)
      + Missed one                   add one the sensor missed: tap the map
      Mila / Nahi mila / Pata nahi   hazards it was WARNED about ("did you find it?")
+     🙏 Thanks                      after "Mila": thank the riders who reported it (never
+                                    part of accuracy; not sent when answering anonymously)
      Not sure what this was         unknown ones (strong, one wheel only), unreviewed by default
      Small bumps (hidden)           minor ones, collapsed, unreviewed by default
      ☐ share "ridden, nothing felt" for this ride (anonymous cells)
@@ -71,13 +73,14 @@
      * The rider's decisions → what goes to the server (sync.publish) and to the phone's own log. Pure.
      *   decisions.items[key] = { verdict: "found"|"not_found", severity?, lat?, lng?, publish?: boolean }   (key = item id)
      *   decisions.asks[hazard] = "found"|"not_found"|"unsure"
+     *   decisions.thanks[hazard] = true                                                                 (community thanks)
      *   decisions.added = [{ type, severity, lat, lng }]                                                    (missed ones)
      *   decisions.shareClear = true → the ride's smooth passes may go up
      * @param {any} review @param {any} decisions
      */
     function toPublish(review, decisions) {
         const d = decisions || {};
-        const reports = [], votes = [], local = [];
+        const reports = [], votes = [], local = [], thanks = [];
         const idOf = (/** @type {string} */ key) => `r${review.startedAt}.${String(key).replace(/[^A-Za-z0-9_.-]/g, "")}`.slice(0, 64);
         for (const it of [...review.items, ...(review.unknown || []), ...review.minor]) {
             const x = d.items && d.items[it.id];
@@ -103,8 +106,9 @@
         for (const q of review.asks) {
             const v = d.asks && d.asks[q.hazard];
             if (v === "found" || v === "not_found" || v === "unsure") votes.push({ hazard: q.hazard, verdict: v, t: q.t, passage: q.passage });
+            if (v === "found" && d.thanks && d.thanks[q.hazard]) thanks.push(q.hazard);
         }
-        return { reports, votes, local, cover: d.shareClear && review.endedAt ? { from: review.startedAt, to: review.endedAt } : null };
+        return { reports, votes, thanks, local, cover: d.shareClear && review.endedAt ? { from: review.startedAt, to: review.endedAt } : null };
     }
 
     // ------------------------------------------------------------------ the sheet
@@ -144,7 +148,7 @@
             const rv = pending();
             if (!rv) { refreshChip(); return; }
             close();
-            /** @type {any} */ const dec = { items: {}, asks: {}, added: [], shareClear: true };
+            /** @type {any} */ const dec = { items: {}, asks: {}, added: [], thanks: {}, shareClear: true };
             sheet = h("div", "rp-sheet");
             sheet.id = "rp-review";
             sheet.setAttribute("role", "dialog"); sheet.setAttribute("aria-modal", "true"); sheet.setAttribute("aria-labelledby", "rp-title");
@@ -242,6 +246,12 @@
                         const row = h("div", "rp-row");
                         for (const [val, label] of [["found", "Mila"], ["not_found", "Nahi mila"], ["unsure", "Pata nahi"]]) row.append(choice(label, v === val, () => { dec.asks[q.hazard] = val; render(); }));
                         c.append(row);
+                        const syncCap = capOf("roadsense-sync");
+                        if (v === "found" && !(syncCap && syncCap.voteMode && syncCap.voteMode() === "anonymous")) {
+                            const th = h("div", "rp-row");
+                            th.append(choice("🙏 Thanks to who reported it", Boolean(dec.thanks[q.hazard]), () => { dec.thanks[q.hazard] = !dec.thanks[q.hazard]; render(); }, "rp-chipbtn"));
+                            c.append(th);
+                        }
                         list.append(c);
                     }
                 }
@@ -281,7 +291,7 @@
                     if (log) { for (const x of out.local) { try { log.add({ ...x, source: "rider", rider: "self", conf: 0.8 }); } catch (e) { /* bad point */ } } try { log.save(); } catch (e) { /* storage */ } }
                     const sync = capOf("roadsense-sync");
                     if (sync && sync.consent()) {
-                        if (out.reports.length || out.votes.length) sync.publish({ reports: out.reports, votes: out.votes });
+                        if (out.reports.length || out.votes.length || out.thanks.length) sync.publish({ reports: out.reports, votes: out.votes, thanks: out.thanks });
                         if (out.cover) sync.approveCover(out.cover.from, out.cover.to);
                     }
                 }
