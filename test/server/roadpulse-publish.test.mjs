@@ -22,10 +22,10 @@ const tok = (c) => `contributor-${c}`.padEnd(24, c);
 let n = 0;
 const report = (o = {}) => ({ id: `report-${++n}`, type: "pothole", severity: 2, lat: LAT, lng: LNG + (o.east || 0) * M_LNG, sigmaM: 4, heading: 90, t: T0, source: "sensor", ...o });
 
-function setup() {
+function setup(limits = { lowTrafficRiders: 0 }) {       // these tests are about agreement: the low-traffic privacy rules have their own
     const { db } = openServerDatabase(":memory:");
     let t = T0 + H;
-    const rs = createRoadsense({ db: () => db, secret: () => "test-secret", now: () => t });
+    const rs = createRoadsense({ db: () => db, secret: () => "test-secret", now: () => t, limits });
     const tile = RS.tileOf(LAT, LNG);
     const area = async () => (await rs.area({ v: 1, tiles: [tile] })).json.hazards;
     return { db, rs, area, at: (v) => { t = v; } };
@@ -209,4 +209,50 @@ test("sensor evidence apart from testimony: felt by sensors on N rides, passed c
     const [h] = await area();
     assert.deepEqual([h.sensorFelt, h.sensorClean], [2, 1], "felt on 2 rides; 1 clean pass with a good fix (the fair one isn't enough)");
     assert.deepEqual([h.found, h.notFound, h.unsure], [2, 1, 1], "the agreement is the riders' answers only");
+});
+
+test("route privacy: public times are days and buckets, never hours; hours become days after a month", async () => {
+    const { db, rs, area, at } = setup();
+    const IST = 5.5 * H;
+    const id = (await rs.publish({ v: 1, contributor: tok("a"), reports: [report({ t: T0 + 17 * 60000 })] })).json.results[0].hazard;
+    let [h] = await area();
+    assert.equal(h.lastFoundBucket, "today");
+    assert.equal((h.lastFoundAt + IST) % D, 0, "the start of the day (India time), not the hour");
+    at(T0 + D + H);
+    [h] = await area();
+    assert.equal(h.lastFoundBucket, "yesterday");
+    at(T0 + 4 * D);
+    assert.equal((await area())[0].lastFoundBucket, "this_week");
+    at(T0 + 9 * D);
+    assert.equal((await area())[0].lastFoundBucket, "earlier");
+    // a month later the stored hour itself is rounded down to the day (the purge runs with the next request)
+    at(T0 + 31 * D + 2 * H);
+    await rs.area({ v: 1, tiles: [RS.tileOf(LAT, LNG)] });
+    assert.equal(db.prepare("SELECT t FROM roadsense_report").get().t % D, 0);
+    assert.equal(db.prepare("SELECT t FROM roadsense_vote WHERE hazard_id = ?").get(id).t % D, 0);
+});
+
+test("low-traffic roads: one rider's report waits for a second rider or 48 h; few riders are shown as 'a few'", async () => {
+    const { rs, area, at } = setup({});                          // the real rules
+    const id = (await rs.publish({ v: 1, contributor: tok("a"), reports: [report()] })).json.results[0].hazard;
+    assert.equal((await area()).length, 0, "held: on a quiet road one report can point at one person");
+    // a second rider confirms it the next day: shown, with counts as "a few riders"
+    at(T0 + D);
+    await rs.publish({ v: 1, contributor: tok("b"), votes: [{ hazard: id, verdict: "found", t: T0 + D - H, passage: PASSED }] });
+    let [h] = await area();
+    assert.equal(h.lowTraffic, true);
+    assert.equal(h.fewRiders, true);
+    assert.equal(h.found, null, "no exact count");
+    // another one-rider report: shown after 48 h even without a second rider
+    const lone = (await rs.publish({ v: 1, contributor: tok("c"), reports: [report({ east: 800, t: T0 + D - H })] })).json.results[0].hazard;
+    assert.ok(!(await area()).some((x) => x.id === lone));
+    at(T0 + 3 * D + H);
+    assert.ok((await area()).some((x) => x.id === lone));
+    // a busy road (5+ riders in 30 days): normal counts, no hold
+    for (const c of ["d", "e", "f"]) await rs.publish({ v: 1, contributor: tok(c), votes: [{ hazard: id, verdict: "found", t: T0 + 3 * D, passage: PASSED }] });
+    const busy = (await area()).find((x) => x.id === id);
+    assert.equal(busy.lowTraffic, false);
+    assert.equal(busy.found, 5);
+    const fresh = (await rs.publish({ v: 1, contributor: tok("g"), reports: [report({ east: 1600, t: T0 + 3 * D })] })).json.results[0].hazard;
+    assert.ok((await area()).some((x) => x.id === fresh), "no hold on a busy road");
 });

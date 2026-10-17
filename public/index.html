@@ -1117,6 +1117,8 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
         <input type="checkbox" id="roadsense-anon-toggle" class="switch">
       </div>
       <p class="field-hint">Anonymous answers can't be linked to you or to each other, so they earn no badges and can't be deleted later. Reporting a new hazard still uses your contributor ID (never your name).</p>
+      <p class="field-hint" id="roadsense-private">Private places: nothing within 500 m of where your rides start or end, or where you stop for 10 minutes or more, is ever shared.</p>
+      <button id="roadsense-private-clear" type="button" class="btn-secondary-nav btn-block">Forget my private places on this phone</button>
       <button id="roadsense-forget-btn" type="button" class="btn-secondary-nav btn-block">Delete my road reports from the server</button>
       <div class="modal-row">
         <label for="voice-tone-toggle">Rowdy voice (bhaigiri mode)</label>
@@ -1771,10 +1773,10 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="js/master/agents/road-agent.js?v=20261011-master"></script>
 <script src="js/master/perception/dynamics.js?v=20261017-rp3"></script>
 <script src="js/master/roadsense/roadsense.js?v=20261017-rs5"></script>
-<script src="js/master/roadsense/sync.js?v=20261017-rp4"></script>
+<script src="js/master/roadsense/sync.js?v=20261017-rp5"></script>
 <script src="js/master/roadsense/agreement.js?v=20261017-rp4"></script>
 <script src="js/master/roadsense/alerts.js?v=20261017-rp3"></script>
-<script src="js/master/roadsense/truth.js?v=20261017-rp4"></script>
+<script src="js/master/roadsense/truth.js?v=20261017-rp5"></script>
 <script src="js/master/agents/dynamics-agent.js?v=20261017-rp4"></script>
 <!-- Master AI cognitive engines: the 2 km radar (corridor → weather, traffic, topology, blackspot), link, vetted places,
      Deep Search, destination safety, music mood, rider context; learning/affect/fusion policies. Every third-party call goes
@@ -1796,10 +1798,10 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="js/master/agents/mood-agent.js?v=20261011-cog1"></script>
 <script src="js/master/agents/destination-agent.js?v=20261011-cog1"></script>
 <script src="js/master/agents/context-agent.js?v=20261011-cog1"></script>
-<script src="js/master/agents/roadsense-agent.js?v=20261015-rs3"></script>
+<script src="js/master/agents/roadsense-agent.js?v=20261017-rp5"></script>
 <script src="js/master/agents/truth-agent.js?v=20261017-rp1"></script>
 <script src="js/master/master-app.js?v=20261017-rp3"></script>
-<script src="js/master/roadsense/roadsense-ui.js?v=20261017-rp4"></script>
+<script src="js/master/roadsense/roadsense-ui.js?v=20261017-rp5"></script>
 <script src="js/master/roadsense/truth-card.js?v=20261017-rp3"></script>
 <script src="js/master/roadsense/review.js?v=20261017-rp4"></script>
 <!-- Master AI avatar: the state rules, then the module that draws the face (Three.js via the import map in <head>) -->

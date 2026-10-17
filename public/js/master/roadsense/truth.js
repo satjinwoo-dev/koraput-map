@@ -127,7 +127,15 @@
      * @param {any} h @param {number} now
      */
     function communityEvidence(h, now) {
-        const last = Number.isFinite(h.lastFoundAt) ? ago(Math.max(0, (now - h.lastFoundAt) / 1000)) : null;
+        // the server sends days and buckets only (route privacy); an exact time only in older data
+        const BUCKET = { today: { desi: "aaj", plain: "today" }, yesterday: { desi: "kal", plain: "yesterday" }, this_week: { desi: "is hafte", plain: "this week" }, earlier: { desi: "kuch din pehle", plain: "earlier" } };
+        const last = h.lastFoundBucket && /** @type {any} */ (BUCKET)[h.lastFoundBucket] ? /** @type {any} */ (BUCKET)[h.lastFoundBucket]
+            : Number.isFinite(h.lastFoundAt) ? ago(Math.max(0, (now - h.lastFoundAt) / 1000)) : null;
+        if (h.fewRiders) {
+            // a low-traffic road: no exact counts (one report there can point at one person)
+            const desi = `kuch riders ne report kiya${last ? `, ${last.desi}` : ""}`, plain = `reported by a few riders${last ? `, last ${last.plain}` : ""}`;
+            return { desi, plain, shortDesi: desi, shortPlain: plain, screen: plain.charAt(0).toUpperCase() + plain.slice(1) };
+        }
         const rd = (/** @type {number} */ n) => `${n} rider${n === 1 ? "" : "s"}`;
         let desi, plain, shortDesi, shortPlain;
         if (h.found <= 1 && h.notFound === 0) {

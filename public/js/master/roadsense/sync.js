@@ -66,7 +66,7 @@
     const M_PER_DEG = 111320;
     const DEFAULTS = Object.freeze({
         minAgeMs: 10 * 60000,          // uploaded only once this old: never live tracking
-        privateRadiusM: 250,           // nothing uploaded this close to where a ride started or ended
+        privateRadiusM: 500,           // nothing uploaded this close to where a ride started or ended, a long stop, or a place the rider marked
         privateZonesMax: 20,
         outboxMax: 2000,               // own observations waiting (oldest dropped first)
         batchMax: 200,                 // per upload (the server's limit)
@@ -438,6 +438,10 @@
             },
             consent: () => consent.on,
             /** A ride started or ended here: nothing within privateRadiusM is ever uploaded. @param {number} lat @param {number} lng */
+            /** The private places (on this phone only). */
+            privateZones: () => zones.map((z) => ({ ...z })),
+            /** Forget all private places (they'll be re-learnt from the next rides' starts, ends and long stops). */
+            clearPrivate() { zones = []; store.set("private", zones); changed(); },
             markPrivate(lat, lng) {
                 if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
                 if (zones.some((z) => distM(z.lat, z.lng, lat, lng) <= cfg.privateRadiusM / 2)) return;

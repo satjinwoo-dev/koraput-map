@@ -7,6 +7,7 @@
    #roadsense-forget-btn     asks the server to delete everything this phone sent
    #roadsense-badges         RoadPulse: the rider's reports other riders confirmed, accuracy, badges
    #roadsense-anon-toggle    RoadPulse: answer "did you find it?" anonymously (sync.setVoteMode)
+   #roadsense-private(-clear) the private places kept on this phone (500 m: ride starts, ends, long stops)
    #voice-tone-toggle        the voice's tone: Family (off, default) or Rowdy (MUMaster.live.setTone)
    #voice-18-toggle          18+ Rowdy (gaaliyan), off by default, on only after an "are you 18+?" confirm
    Loaded after master-app.js, which provides the "roadsense-sync" capability.
@@ -69,6 +70,18 @@
             : "Publish road reports after your rides. Badges come when other riders confirm them, not from how much you ride.";
     }
     showBadges();
+    const priv = document.getElementById("roadsense-private"), privClear = /** @type {HTMLButtonElement|null} */ (document.getElementById("roadsense-private-clear"));
+    const showPrivate = () => {
+        if (!priv || typeof sync.privateZones !== "function") return;
+        const n = sync.privateZones().length;
+        priv.textContent = `Private places: ${n} kept on this phone. Nothing within 500 m of where your rides start or end, or where you stop for 10 minutes or more, is ever shared.`;
+    };
+    showPrivate();
+    sync.onChange(showPrivate);
+    if (privClear) privClear.addEventListener("click", () => {
+        if (!W.confirm("Forget your private places on this phone? New ones are learnt again from your next rides' starts, ends and long stops.")) return;
+        sync.clearPrivate();
+    });
     const anon = /** @type {HTMLInputElement|null} */ (document.getElementById("roadsense-anon-toggle"));
     if (anon) {
         if (typeof sync.setVoteMode !== "function") anon.disabled = true;

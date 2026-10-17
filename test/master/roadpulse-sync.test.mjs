@@ -20,7 +20,7 @@ const tile = RS.tileOf(LAT, LNG);
 function world() {
     let t = T0;
     const { db } = openServerDatabase(":memory:");
-    const server = createRoadsense({ db: () => db, secret: () => "server-secret", now: () => t });
+    const server = createRoadsense({ db: () => db, secret: () => "server-secret", now: () => t, limits: { lowTrafficRiders: 0 } });   // privacy rules: their own test
     const calls = [];
     function phone(name) {
         const api = {
@@ -193,4 +193,19 @@ test("anonymous answers: votes go without the contributor, each with its own per
     assert.equal(after[h1.id].found, 2);
     assert.equal(after[h1.id].status, "reviewed_report", "anonymous alone doesn't confirm");
     assert.equal(after[h2.id].notFound, 1);
+});
+
+test("private places: 500 m, kept on the phone, can be forgotten", async () => {
+    const w = world();
+    const a = w.phone("A");
+    a.sync.setConsent(true);
+    a.sync.markPrivate(LAT, LNG);
+    a.sync.publish({ reports: [report({ east: 450 }), report({ east: 700 })] });
+    w.at(T0 + 3 * H);
+    await a.sync.flush();
+    const sent = w.calls.filter((c) => c.path === "/roadsense/publish").flatMap((c) => c.body.reports);
+    assert.deepEqual(sent.map((r) => Math.round((r.lng - LNG) / M_LNG)), [700], "450 m from home is inside the 500 m zone");
+    assert.equal(a.sync.privateZones().length, 1);
+    a.sync.clearPrivate();
+    assert.equal(a.sync.privateZones().length, 0);
 });

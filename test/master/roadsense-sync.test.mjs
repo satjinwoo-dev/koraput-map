@@ -290,3 +290,31 @@ test("wiring: scripts in order, offline precache, capabilities, the settings sec
     for (const f of ["roadsense/sync.js", "roadsense/roadsense-ui.js", "agents/roadsense-agent.js"]) assert.ok(ts.includes(`public/js/master/${f}`), f);
     assert.ok(JSON.parse(read("tsconfig.master-server.json")).files.includes("lib/master/roadsense.js"));
 });
+
+test("agent: a long stop (10 min within 60 m) becomes a private place too", async () => {
+    const w = world();
+    const clock = fakeClock(T0);
+    const p = w.phone("A");
+    p.sync.setConsent(true);
+    const bus = B.createBus({ now: clock.now, timers: clock.timers });
+    const caps = CAPS.createCapabilities();
+    const fixes = emitter();
+    caps.provide("roadsense-sync", p.sync);
+    caps.provide("location", { available: () => true, current: () => null, onFix: fixes.on });
+    const kernel = K.createKernel({ bus, caps, contracts: C, now: clock.now, timers: clock.timers, log: { info() {}, warn() {}, error() {} } });
+    kernel.define(AGENT); kernel.start();
+    await flushAsync();
+    fixes.emit({ lat: LAT, lng: LNG });                              // the app opens: private
+    assert.equal(p.sync.status().privateZones, 1);
+    // ride 5 km away, then wait 9 minutes at a tea stall: not yet
+    const stall = { lat: LAT, lng: LNG + 5000 * M_LNG };
+    fixes.emit(stall);
+    for (let m = 1; m <= 9; m++) { clock.advance(MIN); fixes.emit({ lat: stall.lat + 10 / 111320, lng: stall.lng }); }
+    assert.equal(p.sync.status().privateZones, 1);
+    clock.advance(2 * MIN); fixes.emit(stall);
+    assert.equal(p.sync.status().privateZones, 2, "10 minutes there: private");
+    // moving on doesn't add more
+    clock.advance(MIN); fixes.emit({ lat: LAT, lng: LNG + 6000 * M_LNG });
+    assert.equal(p.sync.status().privateZones, 2);
+
+});
