@@ -135,7 +135,8 @@ class SensorHub(private val ctx: Context) {
             if (loc.hasBearing() && loc.hasSpeed() && loc.speed > 2f) headingDeg = loc.bearing.toDouble()
             sink?.onGnss(t, loc)
             dynamics?.onGnss(t, if (loc.hasSpeed()) loc.speed.toDouble() else null, loc.latitude, loc.longitude,
-                if (loc.hasBearing() && loc.hasSpeed() && loc.speed > 2f) loc.bearing.toDouble() else null)
+                if (loc.hasBearing() && loc.hasSpeed() && loc.speed > 2f) loc.bearing.toDouble() else null,
+                if (loc.hasAccuracy()) loc.accuracy.toDouble() else null)
         }
         override fun onProviderEnabled(provider: String) {}
         override fun onProviderDisabled(provider: String) {}

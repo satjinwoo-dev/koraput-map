@@ -35,6 +35,14 @@
    when the bike rode over a known bump WITHOUT a jolt, which is how a repaired
    pothole stops being warned about. (Before RoadSense, jolts lived in the
    agent's own store "dynamics.cells"; that key is removed on start.)
+
+   Detector v2 jolts (DynamicsCore: speed-scaled, contrast, rear-wheel double hit,
+   placed at the hit's onset) carry hazard (pothole / speed_breaker / bump),
+   severity and minor. Minor ones (small unevenness) never reach the log or a
+   warning: they are kept only for the rider's post-ride review, collapsed.
+   Every ride's own detections, and the hazards it was warned about, are kept in
+   the store "review.ride" for that review (js/master/roadsense/review.js): the
+   phone's own detections are private until the rider publishes them.
    ============================================================================ */
 (function (root, factory) {
     const def = factory();
@@ -82,7 +90,8 @@
             roughRunSegments: 3,         // 3 × 20 m rough/very rough in a row
             roughCooldownMs: 600000,
             roughMinSpeedMs: 5,
-            strongJoltMs2: 12,           // only strong jolts make a bump worth a warning
+            strongJoltMs2: 9,            // only strong jolts make a bump worth a warning (speed-scaled peakRef, detector v2)
+            reviewMaxItems: 200,         // a ride's detections kept for the post-ride review
             leadMinS: 2, leadMaxS: 8,
             halfWidthM: 12,              // |lateral| within this = on our line
             bumpCooldownMs: 60000,       // per spot: no repeat within one approach; every new approach is warned
@@ -124,6 +133,11 @@
             /** @type {Map<string, { t: number, lat: number, lng: number, type: string }>} */ const overBump = new Map();
             /** @type {Map<string, number>} */ const feltAt = new Map();      // bump id → last jolt felt there
             /** @type {any} */ let prevEgo = null;
+            // the post-ride review: this ride's own detections and the hazards it was warned about (private, on the phone)
+            /** @type {{ startedAt: number, endedAt: number|null, items: any[], warned: any[] }} */
+            const ride = { startedAt: ctx.now(), endedAt: null, items: [], warned: [] };
+            /** @type {any} */ let roughOpen = null;
+            const keepReview = () => ctx.store.set("review.ride", ride);
 
             const fmt = (/** @type {number} */ v, d = 1) => (Math.round(v * 10 ** d) / 10 ** d).toFixed(d);
             /** metres from (lat, lng) to a point, as north / east */
@@ -142,15 +156,33 @@
                 logStats = log.stats(t);
             }
 
+            const reviewItem = (/** @type {any} */ x) => { if (ride.items.length < cfg.reviewMaxItems) ride.items.push(x); };
+
             function addJolt(/** @type {any} */ e) {
                 if (!hasPos(e)) return;
-                const r = log.add({ type: "bump", t: e.t, lat: e.lat, lng: e.lng, source: "imu", rider: "self", present: true, conf: e.conf, peakMs2: e.peakMs2 });
+                const v2 = typeof e.hazard === "string";
+                const sev = v2 ? e.severity : 2;
+                const posSigmaM = Number.isFinite(e.posSigmaM) ? e.posSigmaM : null;
+                if (v2 && e.minor) {               // small unevenness: the rider's review only, collapsed; never warned
+                    reviewItem({ id: `m${e.id}.${e.t}`, kind: "impact", hazard: e.hazard, severity: 1, minor: true, t: e.t, lat: e.lat, lng: e.lng, posSigmaM });
+                    return;
+                }
+                const type = v2 && (e.hazard === "pothole" || e.hazard === "speed_breaker") ? e.hazard : "bump";
+                const peak = v2 && Number.isFinite(e.peakRefMs2) ? e.peakRefMs2 : e.peakMs2;
+                const r = log.add({ type, t: e.t, lat: e.lat, lng: e.lng, source: "imu", rider: "self", present: true, conf: e.conf, peakMs2: peak });
                 if (r.id) feltAt.set(r.id, e.t);      // it was felt: this pass isn't a clean one
+                reviewItem({ id: `j${e.id}.${e.t}`, kind: "impact", hazard: type, severity: sev, minor: false, t: e.t, lat: e.lat, lng: e.lng, posSigmaM, logId: r.id || null });
             }
 
             function markRough(/** @type {any} */ s) {
                 if (!hasPos(s)) return;
                 log.add({ type: "rough", t: s.t, lat: s.lat, lng: s.lng, source: "imu", rider: "self", present: true, conf: cfg.roughSegmentConf });
+                // consecutive rough 20 m segments make one rough section for the review (a line, not a point)
+                if (roughOpen && s.t - roughOpen.tEnd <= 5000) { roughOpen.points.push([s.lat, s.lng]); roughOpen.tEnd = s.t; roughOpen.lengthM += s.distM; }
+                else {
+                    roughOpen = { id: `r${s.t}`, kind: "rough", hazard: "rough", severity: s.cls === "very_rough" ? 3 : 2, minor: false, t: s.t, tEnd: s.t, lat: s.lat, lng: s.lng, points: [[s.lat, s.lng]], lengthM: s.distM };
+                    reviewItem(roughOpen);
+                }
             }
 
             /** Known bumps this frame's track (previous fix → this fix) passed within cleanWidthM of, at a speed the IMU feels. */
@@ -196,6 +228,8 @@
                     if (f.t - (bumpSaidAt.get(c.id) ?? -Infinity) < cfg.bumpCooldownMs) continue;
                     bumpSaidAt.set(c.id, f.t);
                     stats.bumpsWarned++;
+                    // "did you find it?" after the ride: only hazards other riders reported (the rider's own are already theirs)
+                    if (!c.felt && !ride.warned.some((w) => w.roadsenseId === c.id)) ride.warned.push({ roadsenseId: c.id, t: f.t, lat: c.lat, lng: c.lng, kind: c.type });
                     // felt here before → "where you hit one before"; only other riders' reports → say so. The evidence
                     // (who, when) is said in a short clause; the screen adds the sensors and the confidence.
                     const row = { ...c, ageS: Math.max(0, Math.round((f.t - c.lastSeen) / 1000)) };
@@ -283,7 +317,7 @@
                 noteRideOver(f);
                 settleRideOvers(f.t);
                 noteSmooth(f);
-                if (f.events.length || f.segments.length) save(f.t);
+                if (f.events.length || f.segments.length) { save(f.t); keepReview(); }
 
                 // stopped long enough? (speed known to ±3 m/s)
                 const still = speed < cfg.stillSpeedMs && f.ego.speedSigma <= 3;
@@ -300,7 +334,7 @@
 
             const off = P.onFrame(ctx.wrap(onFrame));
             // unsettled ride-overs are dropped on stop: a late jolt may never arrive
-            ctx.onStop(() => { off(); overBump.clear(); inCell.clear(); save(ctx.now(), true); P.stop().catch(() => {}); });
+            ctx.onStop(() => { off(); overBump.clear(); inCell.clear(); save(ctx.now(), true); ride.endedAt = ctx.now(); keepReview(); P.stop().catch(() => {}); });
             return P.start();
         }
     };

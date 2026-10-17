@@ -74,7 +74,7 @@ every ride. The camera can start and stop independently.
 | --- | --- |
 | `hard_brake` | ≤ −3.5 m/s² for ≥ 0.5 s; GNSS speed must fall ≥ 2 m/s (else IMU Δv ≤ −2 m/s); ≤ −6 m/s² = very hard |
 | `hard_accel` | ≥ 3 m/s² for ≥ 0.7 s, GNSS speed rising ≥ 2 m/s |
-| `jolt` | vertical shock ≥ 7 m/s² while ≥ 3 m/s, placed at the GNSS position of the hit |
+| `jolt` | detector v2: triggered at 4 m/s² (≥ 3 m/s), then judged on its speed-scaled peak (`peakRefMs2`), its contrast with the road around it, and the rear wheel's second hit one wheelbase later (`doubleHit`). Small unevenness is ignored or `minor` (post-ride review only); impacts get `hazard` (pothole / speed_breaker / bump) and `severity`, placed at the onset of the front-wheel hit, interpolated between the GNSS fixes around it (`posSigmaM`). Thresholds are priors to fit on labelled rides |
 | roughness | RMS vertical per 20 m, scaled to 10 m/s: smooth < 1, fair < 2, rough < 3.5, very rough ≥ 3.5 m/s² |
 
 - **Output:** one DynamicsFrame per second (`"dynamics"` event). During a recording,

@@ -235,7 +235,7 @@ class PerceptionEngine(
     fun dynamicsStatus(): JSONObject = JSONObject()
         .put("running", dynamicsCore != null).put("owners", JSONArray(dynamicsOwners.toList()))
         .put("thresholds", JSONObject().put("hardBrakeMs2", DynamicsCore.Config().brakeOnMs2).put("veryHardBrakeMs2", DynamicsCore.Config().veryHardMs2)
-            .put("hardAccelMs2", DynamicsCore.Config().accelOnMs2).put("joltMs2", DynamicsCore.Config().joltMs2))
+            .put("hardAccelMs2", DynamicsCore.Config().accelOnMs2).put("joltTriggerMs2", DynamicsCore.Config().triggerMs2).put("impactMs2", DynamicsCore.Config().impactMs2))
 
     // ======================================================================= camera thread
 

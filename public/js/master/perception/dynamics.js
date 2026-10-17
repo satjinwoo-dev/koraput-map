@@ -9,7 +9,9 @@
        ego: { speedMs, speedSigma, headingDeg, lat?, lng?, posSigmaM? },
        longMs2, longMinMs2, longMaxMs2, vertRmsMs2, braking, imuHz,
        events:   [{ id, type: "hard_brake"|"hard_accel"|"jolt", t, durS, peakMs2,
-                    speedFromMs, speedToMs, dvImuMs, lat, lng, headingDeg, conf, source }],
+                    speedFromMs, speedToMs, dvImuMs, lat, lng, headingDeg, conf, source,
+                    jolts (detector v2) also: hazard: "pothole"|"speed_breaker"|"bump", severity 1..3,
+                    minor (review only, never warned), peakRefMs2, contrast, doubleHit, posSigmaM }],
        segments: [{ t, distM, rmsMs2, refRmsMs2, cls: "smooth"|"fair"|"rough"|"very_rough",
                     speedMs, lat, lng, headingDeg }] }
 
@@ -27,6 +29,7 @@
     const VERSION = 1;
     const EVENTS = Object.freeze(["hard_brake", "hard_accel", "jolt"]);
     const ROUGHNESS = Object.freeze(["smooth", "fair", "rough", "very_rough"]);
+    const HAZARDS = Object.freeze(["pothole", "speed_breaker", "bump"]);
 
     const fin = (/** @type {any} */ v) => typeof v === "number" && Number.isFinite(v);
     const finOrNull = (/** @type {any} */ v) => v === null || v === undefined || fin(v);
@@ -56,6 +59,11 @@
             if (!fin(e.t) || !fin(e.peakMs2) || !fin(e.durS)) return "t, peakMs2, durS required";
             if (!fin(e.conf) || e.conf < 0 || e.conf > 1) return "conf must be 0..1";
             if (!finOrNull(e.lat) || !finOrNull(e.lng) || !finOrNull(e.speedFromMs) || !finOrNull(e.speedToMs)) return "bad number";
+            if (e.hazard !== undefined) {
+                if (!HAZARDS.includes(e.hazard)) return `unknown hazard "${e.hazard}"`;
+                if (![1, 2, 3].includes(e.severity) || typeof e.minor !== "boolean") return "severity 1..3 and minor required with hazard";
+                if (!finOrNull(e.posSigmaM) || !finOrNull(e.peakRefMs2) || !finOrNull(e.contrast)) return "bad number";
+            }
             return null;
         }, "event");
         const segments = keep(f.segments, (s) => {
@@ -142,5 +150,5 @@
         };
     }
 
-    return { VERSION, EVENTS, ROUGHNESS, validateDynamics, createDynamicsProvider };
+    return { VERSION, EVENTS, ROUGHNESS, HAZARDS, validateDynamics, createDynamicsProvider };
 });

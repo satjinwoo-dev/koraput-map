@@ -1,9 +1,10 @@
 // Phase 2, component 1: bike dynamics. DynamicsFrame contract, provider, and the
 // dynamics agent riding fixtures/kotlin-dynamics-ride.jsonl, written by the real
 // Kotlin DynamicsCore from a simulated 100 Hz ride (perception-jvmtest/GenDynamics.kt):
-//   leg 1 east: rough stretch 100–200 m, pothole at 300 m, stop 20 s
+//   leg 1 east: rough stretch 100–200 m, small patch at 250 m, pothole at 300 m, stop 20 s
 //   leg 2 west: hard brake 5 m/s² at 350 m, very hard 7 m/s² at 200 m, pothole again, stop 20 s
-//   leg 3 east: pothole ahead (now known from 2 passes), hard brake 4.5 m/s² at 420 m, stop 25 s
+//   leg 3 east: pothole ahead (now known from 2 passes), hard brake 4.5 m/s² at 420 m, speed breaker at 440 m, stop 25 s
+// Road features hit both wheels (the rear 1.3 m after the front), as on a real bike.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -174,8 +175,68 @@ test("Kotlin ride → dynamics agent → Master AI: tips only when stopped, roug
     assert.equal(st.hardBrakes, 3);
     assert.equal(st.veryHardBrakes, 1);
     assert.ok(st.verifiedEvents >= 1, "the pothole is a verified RoadSense event");
-    assert.ok(st.cleanPasses >= 1, "one-off jolts on the rough stretch weren't felt again on the next pass");
+    assert.equal(st.cleanPasses, 0, "detector v2: no false jolts on the rough stretch, so nothing to clear");
     assert.ok(st.roughM >= 60);
+});
+
+test("detector v2 (Kotlin): no jolt from a rough road, the small patch only minor, impacts placed where the wheel hit", () => {
+    const jolts = frames().flatMap((f) => f.events.filter((e) => e.type === "jolt"));
+    // every jolt carries the v2 analysis
+    for (const j of jolts) {
+        assert.ok(DY.HAZARDS.includes(j.hazard), j.hazard);
+        assert.ok([1, 2, 3].includes(j.severity) && typeof j.minor === "boolean" && typeof j.doubleHit === "boolean");
+        assert.ok(j.posSigmaM > 0 && j.posSigmaM < 10, `posSigmaM ${j.posSigmaM}`);
+    }
+    // the rough stretch (100–200 m): rough segments, but no jolt (random vibration doesn't stand out of itself)
+    assert.deepEqual(jolts.filter((j) => xOf(j.lng) > 95 && xOf(j.lng) < 205).map((j) => Math.round(xOf(j.lng))), []);
+    // the small patch at 250 m: above the old fixed 7 m/s² threshold, now only minor (the rider's review, never warned)
+    const patch = jolts.filter((j) => Math.abs(xOf(j.lng) - 250) < 5);
+    assert.equal(patch.length, 1);
+    assert.equal(patch[0].minor, true);
+    assert.equal(patch[0].severity, 1);
+    // the pothole at 300 m: 3 passes, each an impact hit by both wheels, within 2 m of the hole (not where the bike was later)
+    const pot = jolts.filter((j) => Math.abs(xOf(j.lng) - 300) < 10);
+    assert.equal(pot.length, 3);
+    for (const j of pot) {
+        assert.equal(j.minor, false);
+        assert.equal(j.doubleHit, true);
+        assert.ok(j.severity >= 2);
+        assert.ok(Math.abs(xOf(j.lng) - 300) <= 2, `placed at ${xOf(j.lng).toFixed(1)} m`);
+        assert.ok(j.hazard === "pothole" || j.hazard === "bump", "never called a speed breaker");
+    }
+    // the speed breaker at 440 m (leg 3, after slowing down): recognised as one
+    const hump = jolts.filter((j) => Math.abs(xOf(j.lng) - 440) < 10);
+    assert.equal(hump.length, 1);
+    assert.equal(hump[0].hazard, "speed_breaker");
+    assert.equal(hump[0].minor, false);
+    assert.ok(Math.abs(xOf(hump[0].lng) - 440) <= 2);
+    assert.equal(jolts.length, 5, "nothing else: patch, 3 × pothole, breaker");
+});
+
+test("dynamics agent: minor jolts stay out of the log and warnings; the ride's detections are kept for the post-ride review", async () => {
+    const list = frames();
+    const store = fakeWindow();
+    const e = await ride(list, store);
+    const rev = JSON.parse(store.localStorage.getItem("mu.master.dynamics.review.ride"));
+    assert.ok(rev.endedAt > rev.startedAt);
+    const impacts = rev.items.filter((i) => i.kind === "impact");
+    assert.equal(impacts.filter((i) => i.minor).length, 1, "the small patch, for review only");
+    assert.equal(impacts.filter((i) => !i.minor).length, 4, "3 × pothole + breaker");
+    assert.ok(impacts.filter((i) => !i.minor).every((i) => i.logId), "impacts are in the log");
+    assert.ok(impacts.some((i) => i.hazard === "speed_breaker"));
+    const rough = rev.items.filter((i) => i.kind === "rough");
+    assert.ok(rough.length >= 1 && rough.every((r) => r.points.length >= 1 && r.lengthM >= 20), "rough stretches as lines");
+    // warned only about the pothole (the breaker has one pass, the small patch is never a road event)
+    assert.ok(e.reports.filter((r) => r.kind.startsWith("road.bump")).every((r) => r.data.kind !== "speed_breaker"));
+    const saved = JSON.parse(store.localStorage.getItem("mu.master.dynamics.events"));
+    const RS = require("../../public/js/master/roadsense/roadsense.js");
+    const log = RS.createLog({ store: { get: (k, f) => (k === "events" ? saved : f), set() {} } });
+    log.load();
+    const end = list[list.length - 1].t;
+    assert.equal(log.query({ lat: 18.5204, lng: LNG0 + 250 / M_PER_DEG_LNG, radiusM: 8, now: end, group: "shock" }).length, 0, "the small patch isn't a road event");
+    const breaker = log.query({ lat: 18.5204, lng: LNG0 + 440 / M_PER_DEG_LNG, radiusM: 8, now: end, group: "shock" });
+    assert.equal(breaker.length, 1);
+    assert.equal(breaker[0].type, "speed_breaker");
 });
 
 test("dynamics agent: a known pothole is warned on the first pass of the next ride (memory on the phone)", async () => {
