@@ -27,6 +27,7 @@ The Master never has a voice of its own. It goes through the same `voiceAnnounce
 | `kernel.js` | The agent registry and lifecycle: dependencies, `runWhen`, crash back-off, watchdog, hot-swap, lazy loading, enable/disable. |
 | `brain.js` | The Master: pluggable policies, a priority queue, superseding, cooldowns, delegation (`task.*`), transcript. |
 | `persona.js` | Report → words: the spoken line in the voice's style (desi Hinglish or plain), and screen title + subtitle **always in English** (from the plain pack; `data.screen` overrides values on screen only). Templates, filters (`km`, `min`), line rotation, short critical lines. |
+| `phrases-tone.js` | Voice tones for the Hinglish voice: **Family** (default, polite "aap": "kripya dhyaan se chalayein") and **Rowdy** (opt-in in Settings → Community road reports: "tu, abe, bhai", light roasting). They cover the RoadPulse lines so far; other kinds keep their desi line. A tone changes the words only: the same facts, every warning still says slow down, nothing ever says speed up, no abuse of anyone's identity (`test/master/tone.test.mjs`). `MUMaster.live.setTone("family"|"rowdy")`. |
 | `phrases-desi.js` | The words. `desi`: spoken only. `plain`: English, spoken in plain style and always the screen's title and sub. No logic. |
 | `output.js` | Voice through `voiceAnnounce()` (and so the gate), the status island, the `mu:master-say` event. |
 | `master-app.js` | Boot: wires everything, exposes `MUMaster.live`. Load last. |

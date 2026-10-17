@@ -80,20 +80,22 @@
         if (row.status === "predicted") {
             const by = ((row.predicted && row.predicted.refs) || []).join(", ");
             desi = `sirf anumaan, ${by} se, kisi ne dekha nahi`; plain = `a prediction from ${by}, not seen by anyone`;
-            return { desi, plain, shortDesi: desi, shortPlain: plain };
+            return { desi, plain, shortDesi: desi, shortPlain: plain, tu: desi };
         }
         if (official && others <= 0 && !row.felt) { desi = `sarkari jaankari, ${refs}`; plain = `official: ${refs}`; }
         else if (official) { desi = `sarkari jaankari (${refs}) aur ${row.riders} riders`; plain = `official (${refs}) and ${row.riders} rider${row.riders === 1 ? "" : "s"}`; }
         else if (row.felt && others <= 0) { desi = `aapne khud feel kiya tha, ${when.desi}`; plain = `you felt it yourself, ${when.plain}`; }
         else if (row.felt) { desi = `aap aur ${others} aur riders ne feel kiya, aakhri baar ${when.desi}`; plain = `felt by you and ${others} other rider${others === 1 ? "" : "s"}, last ${when.plain}`; }
         else { desi = `${others} riders ne report kiya, aakhri baar ${when.desi}`; plain = `reported by ${others} rider${others === 1 ? "" : "s"}, last ${when.plain}`; }
-        if (row.status !== "verified") { desi += ", abhi pakka nahi"; plain += ", not confirmed"; }
+        // the same, in "tu" (the rowdy tone, phrases-tone.js): only the words that address the rider change
+        let tu = desi.replace(/^aapne khud/, "tune khud").replace(/^aap aur /, "tu aur ");
+        if (row.status !== "verified") { desi += ", abhi pakka nahi"; plain += ", not confirmed"; tu += ", abhi pakka nahi"; }
         // inside a warning said 2–8 s before the spot, only who and when (confidence is on screen)
         let shortDesi, shortPlain;
         if (official) { shortDesi = `sarkari jaankari, ${refs}`; shortPlain = `official, ${refs}`; }
         else if (row.felt && others <= 0) { shortDesi = `aapko ${when.desi} yahin laga tha`; shortPlain = `you hit it here ${when.plain}`; }
         else { const n = others + (row.felt ? 1 : 0); shortDesi = `${n} riders ne bataya, ${when.desi}`; shortPlain = `reported by ${n} riders ${when.plain}`; }
-        return { desi, plain, shortDesi, shortPlain };
+        return { desi, plain, shortDesi, shortPlain, tu };
     }
 
     /** One line for a screen row: "2 riders · 3 h ago · 82%". @param {any} row */
@@ -286,7 +288,7 @@
         return {
             scope, count: active.length, verified: card.verified, candidates: card.candidates, predicted: card.predicted || 0,
             where: where.desi, kinds: list("desi"),
-            hazard: first ? first.kind.desi : "", distanceM: first ? Math.max(10, first.aheadM) : 0, evidence: first ? first.words.desi : "",
+            hazard: first ? first.kind.desi : "", distanceM: first ? Math.max(10, first.aheadM) : 0, evidence: first ? first.words.desi : "", evidenceTu: first ? first.words.tu : "",
             confidence: first ? confidenceWords(first.confidence).desi : "",
             clearM: cov.clearM || 0, clearRiders: cov.clearRiders || 0, clearAgo: clearAgo ? clearAgo.desi : "",
             unknownM: cov.unknownM || 0, riddenAgo: riddenAgo ? riddenAgo.desi : "",

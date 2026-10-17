@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-17.1";           // RoadSense Live: smooth passes ("ridden, nothing found") + official/prediction feeds
+const VERSION = "mu-2026-10-17.2";           // Voice tones: Family (default) and Rowdy
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
@@ -180,6 +180,7 @@ const BIKE_SCRIPTS = [
     "/js/master/remote.js",
     "/js/master/providers.js",
     "/js/master/phrases-radar.js",
+    "/js/master/phrases-tone.js",
     "/js/master/cognition.js",
     "/js/master/agents/corridor-agent.js",
     "/js/master/agents/link-agent.js",

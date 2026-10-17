@@ -68,10 +68,14 @@
     };
 
     /**
-     * @param {{ style?: "desi"|"plain", name?: string, rng?: () => number }} [opts]
+     * @param {{ style?: "desi"|"plain", tone?: "family"|"rowdy", name?: string, rng?: () => number }} [opts]
+     *   tone (Hinglish only): "family" (default, polite "aap") or "rowdy" (opt-in street "tu/abe" banter).
+     *   A tone's lines (books "desi.family" / "desi.rowdy", phrases-tone.js) win over the plain desi lines
+     *   for the kinds they cover; every other kind keeps its desi line. English (plain) has no tones.
      */
     function createPersona(opts = {}) {
         let style = opts.style === "plain" ? "plain" : "desi";
+        let tone = opts.tone === "rowdy" ? "rowdy" : "family";
         let name = typeof opts.name === "string" ? opts.name.trim() : "";
         const rng = opts.rng || Math.random;
         /** @type {Record<string, Record<string, Record<string, any[]>>>} */
@@ -81,7 +85,7 @@
 
         /**
          * Add or extend lines. Lists are appended, so packs from several agents merge.
-         * @param {"desi"|"plain"} styleName
+         * @param {"desi"|"plain"|"desi.family"|"desi.rowdy"} styleName
          * @param {Record<string, Record<string, any[]>>} pack
          */
         function addPhrases(styleName, pack) {
@@ -157,19 +161,21 @@
             /** @type {any} */ let spoken = null;
             let source = /** @type {"agent"|"pack"|"generic"|"none"} */ ("none"), spokenStyle = style;
             if (report.text) { spoken = { say: report.text }; source = "agent"; }
-            const order = style === "plain" ? ["plain"] : ["desi", "plain"];
+            const order = style === "plain" ? ["plain"] : [`desi.${tone}`, "desi", "plain"];
             for (const st of order) {
                 if (spoken) break;
                 const entry = books[st] && books[st][report.kind];
                 if (!entry) continue;
-                const line = pick(entry[sev], `${st}:${report.key}:${sev}`, varsFor(st), st) || pick(entry.any, `${st}:${report.key}:any`, varsFor(st), st);
-                if (line) { spoken = line; source = "pack"; spokenStyle = st; }
+                const base = st.split(".")[0];                   // a tone's lines are Hinglish: desi filters and names
+                const line = pick(entry[sev], `${st}:${report.key}:${sev}`, varsFor(base), base) || pick(entry.any, `${st}:${report.key}:any`, varsFor(base), base);
+                if (line) { spoken = line; source = "pack"; spokenStyle = base; }
             }
             for (const st of order) {
                 if (spoken) break;
                 const generic = books[st] && books[st]["*"];
-                const line = generic && pick(generic[sev], `${st}:*:${sev}`, varsFor(st), st);
-                if (line) { spoken = line; source = "generic"; spokenStyle = st; }
+                const base = st.split(".")[0];
+                const line = generic && pick(generic[sev], `${st}:*:${sev}`, varsFor(base), base);
+                if (line) { spoken = line; source = "generic"; spokenStyle = base; }
             }
 
             // ---- screen (English): the spoken line itself when it was English, else the plain pack
@@ -197,10 +203,12 @@
             addPhrases, phrase, render,
             /** @param {"desi"|"plain"} s */ setStyle(s) { style = s === "plain" ? "plain" : "desi"; },
             /** @param {string} n */ setName(n) { name = typeof n === "string" ? n.trim().slice(0, 30) : ""; },
+            /** @param {"family"|"rowdy"} t */ setTone(t) { tone = t === "rowdy" ? "rowdy" : "family"; },
             get style() { return style; },
+            get tone() { return tone; },
             get name() { return name; },
             /** Kinds that have lines, per style (for tooling and tests). */
-            kinds() { return { desi: Object.keys(books.desi), plain: Object.keys(books.plain) }; }
+            kinds() { return { desi: Object.keys(books.desi), plain: Object.keys(books.plain), family: Object.keys(books["desi.family"] || {}), rowdy: Object.keys(books["desi.rowdy"] || {}) }; }
         };
     }
 

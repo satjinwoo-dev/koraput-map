@@ -72,7 +72,8 @@ test("the evidence in words: who, when, confirmed or not; a short form for warni
     const base = { status: "verified", confidence: 0.9, sources: { imu: 2 }, ageS: 3 * 3600 };
     assert.deepEqual(TR.evidence({ ...base, riders: 1, felt: true }), {
         desi: "aapne khud feel kiya tha, 3 ghante pehle", plain: "you felt it yourself, 3 hours ago",
-        shortDesi: "aapko 3 ghante pehle yahin laga tha", shortPlain: "you hit it here 3 hours ago"
+        shortDesi: "aapko 3 ghante pehle yahin laga tha", shortPlain: "you hit it here 3 hours ago",
+        tu: "tune khud feel kiya tha, 3 ghante pehle"
     });
     const both = TR.evidence({ ...base, riders: 3, felt: true });
     assert.equal(both.desi, "aap aur 2 aur riders ne feel kiya, aakhri baar 3 ghante pehle");

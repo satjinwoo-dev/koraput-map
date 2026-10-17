@@ -38,9 +38,10 @@
     if (M.live) return;                                                  // booted already
 
     const KEY = "mu.master.v1";
-    /** @returns {{ style: "desi"|"plain", name: string, agents: Record<string, any> }} */
+    /** @returns {{ style: "desi"|"plain", tone: "family"|"rowdy", name: string, agents: Record<string, any> }} */
     function load() {
-        const d = { style: /** @type {"desi"|"plain"} */ ("desi"), name: "", agents: {} };
+        // tone: "family" (polite, the default) or "rowdy" (opt-in street banter; js/master/phrases-tone.js)
+        const d = { style: /** @type {"desi"|"plain"} */ ("desi"), tone: /** @type {"family"|"rowdy"} */ ("family"), name: "", agents: {} };
         try { const v = JSON.parse(W.localStorage.getItem(KEY) || "null"); if (v && typeof v === "object") return { ...d, ...v, agents: { ...(v.agents || {}) } }; } catch (e) { /* first run / private mode */ }
         return d;
     }
@@ -99,7 +100,7 @@
         const media = M.providers.plugin(W, "MapUniteMedia");
         if (media) caps.provide("media", M.providers.createMediaProvider(media));
     }
-    const persona = M.phrases.install(M.persona.createPersona({ style: config.style, name: config.name }));
+    const persona = M.phrases.install(M.persona.createPersona({ style: config.style, tone: config.tone, name: config.name }));
     for (const pack of Array.isArray(M.phrasePacks) ? M.phrasePacks : []) { try { pack.install(persona); } catch (e) { console.warn("[master] phrase pack failed:", e); } }
     const output = M.output.createOutput({ window: W });
     const brain = M.brain.createBrain({ bus, contracts: M.contracts, persona, output });
@@ -107,7 +108,7 @@
     // learning, affect and reasoning policies (js/master/cognition.js)
     const cognition = M.cognition ? M.cognition.install({ brain, bus, store: caps.get("store").namespace("cognition") }) : null;
     // agents that put words on screen themselves (the fatigue check) read the voice's style from here
-    const sharePersona = () => bus.publish("state.persona", { style: persona.style, name: persona.name }, { source: "master", sticky: true });
+    const sharePersona = () => bus.publish("state.persona", { style: persona.style, tone: persona.tone, name: persona.name }, { source: "master", sticky: true });
     sharePersona();
 
     // agent files that loaded before this one queued their definitions; from now on define() goes straight in
@@ -193,6 +194,8 @@
         /** @param {string} id */ disable: (id) => kernel.disable(id),
         /** @param {"desi"|"plain"} s */ setStyle(s) { persona.setStyle(s); config.style = persona.style; save(); sharePersona(); },
         /** @param {string} n */ setName(n) { persona.setName(n); config.name = persona.name; save(); sharePersona(); },
+        /** Voice tone (Hinglish): "family" (default) or "rowdy". @param {"family"|"rowdy"} t */
+        setTone(t) { persona.setTone(t); config.tone = persona.tone; save(); sharePersona(); return persona.tone; },
         /** @param {string} task @param {any} [payload] @param {any} [o] */ delegate: (task, payload, o) => brain.delegate(task, payload, o),
         /** @param {any} report */ tell: (report) => brain.tell(report),
         transcript: () => brain.transcript(),

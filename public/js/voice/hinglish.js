@@ -63,7 +63,9 @@
         // nouns
         baat: "बात", baar: "बार", aankh: "आँख", aankhen: "आँखें", aankhon: "आँखों", chehra: "चेहरा", chehre: "चेहरे", muh: "मुँह", sir: "सिर",
         haath: "हाथ", kamar: "कमर", saans: "साँस", neend: "नींद", jhapki: "झपकी", thakaan: "थकान", palkein: "पलकें", ubaasi: "उबासी",
-        doosre: "दूसरे", doosra: "दूसरा", aakhri: "आख़िरी", anumaan: "अनुमान", dekha: "देखा", guzra: "गुज़रा", jaankari: "जानकारी", mutaabik: "मुताबिक़",
+        doosre: "दूसरे", doosra: "दूसरा",
+        // the voice tones (js/master/phrases-tone.js)
+        aankhein: "आँखें", abe: "अबे", andha: "अंधा", apne: "अपने", baji: "बजी", ban: "बन", banda: "बंदा", bhool: "भूल", chalayein: "चलाएँ", degi: "देगी", dhyaan: "ध्यान", dikhti: "दिखती", ekdum: "एकदम", guzre: "गुज़रे", hilegi: "हिलेगी", hisaab: "हिसाब", jahan: "जहाँ", jayega: "जाएगा", khaya: "खाया", khuli: "खुली", kripya: "कृपया", maan: "मान", makhan: "मक्खन", mehsoos: "महसूस", nikle: "निकले", oye: "ओए", padi: "पड़ी", rakhein: "रखें", rasta: "रास्ता", sarkar: "सरकार", tod: "तोड़", udd: "उड़", uske: "उसके", usko: "उसको", wahi: "वही", warna: "वरना", yaad: "याद", yeh: "यह", aakhri: "आख़िरी", anumaan: "अनुमान", dekha: "देखा", guzra: "गुज़रा", jaankari: "जानकारी", mutaabik: "मुताबिक़",
         pakka: "पक्का", sarkari: "सरकारी",
         sadak: "सड़क", raasta: "रास्ता", raste: "रास्ते", raaste: "रास्ते", haalat: "हालत", pata: "पता", pakki: "पक्की", kachchi: "कच्ची", bataunga: "बताऊँगा", gaddha: "गड्ढा", gaddhe: "गड्ढे", jhatka: "झटका", jhatke: "झटके",
         gaadi: "गाड़ी", paani: "पानी", chai: "चाय", tapri: "टपरी", dhaba: "ढाबा", ghar: "घर", jagah: "जगह", taraf: "तरफ़", beech: "बीच",
@@ -91,11 +93,11 @@
         "phone", "raincoat", "ride", "route", "rumble", "safe", "save", "screen", "side", "signal", "speed", "spot", "start", "strip", "sync",
         "tempo", "tension", "time", "tractor", "traffic", "truck", "try", "tyre", "up", "update", "view", "visor", "weak", "gps", "helmet",
         "tip", "app", "battery", "charge", "map", "location", "selfie", "mode", "please", "sorry", "thanks", "rickshaw", "e",
-        "report", "riders", "rider", "sensor", "feel"
+        "report", "riders", "rider", "sensor", "feel", "hero", "limit"
     ]));
 
     /** Words that are Hindi in our lines but also English (or too short) to prove a line is Hinglish on their own. */
-    const AMBIGUOUS = Object.freeze(new Set(["do", "main", "sir", "is", "har", "band", "pi", "ho", "to", "sun", "na", "ya", "hi", "de", "le", "lo", "pe", "se",
+    const AMBIGUOUS = Object.freeze(new Set(["do", "main", "sir", "is", "har", "ban", "band", "pi", "ho", "to", "sun", "na", "ya", "hi", "de", "le", "lo", "pe", "se",
         "sa", "si", "ja", "aa", "door", "the", "tab", "ret", "tel", "bas", "par", "mat", "kam", "metre", "metres", "meter", "meters", "km",
         "minute", "minutes", "second", "seconds"]));
 

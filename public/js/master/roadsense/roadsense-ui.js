@@ -5,12 +5,23 @@
    #roadsense-share-toggle   on/off for sharing AND receiving (off by default)
    #roadsense-status         what's waiting, sent, received and cached
    #roadsense-forget-btn     asks the server to delete everything this phone sent
+   #voice-tone-toggle        the voice's tone: Family (off, default) or Rowdy (MUMaster.live.setTone)
    Loaded after master-app.js, which provides the "roadsense-sync" capability.
    ============================================================================ */
 (function () {
     "use strict";
     const W = /** @type {any} */ (window);
-    const sync = W.MUMaster && W.MUMaster.live && W.MUMaster.live.caps ? W.MUMaster.live.caps.get("roadsense-sync") : null;
+    const live = W.MUMaster && W.MUMaster.live;
+    // the voice tone switch (Family / Rowdy): independent of sharing, so it works even where sync isn't available
+    const tone = /** @type {HTMLInputElement|null} */ (document.getElementById("voice-tone-toggle"));
+    if (tone) {
+        if (!live || typeof live.setTone !== "function") tone.disabled = true;
+        else {
+            tone.checked = live.persona && live.persona.tone === "rowdy";
+            tone.addEventListener("change", () => { tone.checked = live.setTone(tone.checked ? "rowdy" : "family") === "rowdy"; });
+        }
+    }
+    const sync = live && live.caps ? live.caps.get("roadsense-sync") : null;
     const toggle = /** @type {HTMLInputElement|null} */ (document.getElementById("roadsense-share-toggle"));
     const status = document.getElementById("roadsense-status");
     const forget = /** @type {HTMLButtonElement|null} */ (document.getElementById("roadsense-forget-btn"));
