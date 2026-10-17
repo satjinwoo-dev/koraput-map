@@ -4,7 +4,8 @@
    ==============================================================================
    While a route is being driven the map behaves like a car navigator:
      - heading-up: the direction of travel always points up the screen;
-     - pitched: the road ahead recedes into the distance (a CSS 3D tilt);
+     - pitched: the road ahead recedes into the distance (a CSS 3D tilt), and
+       the map fills the screen to its top edge, with no horizon or sky;
      - the rider sits in the lower third of the VISIBLE map (between the turn
        banner and the drive panel), so most of the screen shows the road ahead.
 
@@ -21,8 +22,10 @@
                   0.6 s, never more than 90°/s), the short way round.
    zoomForSpeed() closer in town, further out at speed, with hysteresis so it
                   doesn't pump at a band edge.
-   geometry()     where the rider sits on screen, and how far the drawn map must
-                  reach ahead, behind and to the sides for the tilted view.
+   geometry()     where the rider sits on screen, the tilt (lowered on a tall
+                  screen so the map still reaches the top edge, see fitPitch),
+                  and how far the drawn map must reach ahead, behind and to the
+                  sides for the tilted view.
    box()          the drawn rectangle for the current heading: only what the camera
                   sees, turned into the map's north-up frame and widened to cover a
                   15° band of headings, so it's re-measured only when the heading
@@ -42,13 +45,13 @@
     const RAD = Math.PI / 180;
 
     const DEFAULTS = Object.freeze({
-        pitchDeg: 50,            // the tilt; asked for 45–60°
-        perspective: 1.1,        // camera distance, × viewport height: smaller = stronger 3D
+        pitchDeg: 50,            // the tilt; asked for 45–60°. Lowered (not below minPitchDeg) when the screen is tall
+        minPitchDeg: 30,         // enough that the map must reach further than maxAheadPx to fill it to the top edge
+        perspective: 1.2,        // camera distance, × viewport height: smaller = stronger 3D
         anchorFrac: 2 / 3,       // the rider, from the top of the visible map: the bottom third
-        maxAheadPx: 1100,        // never draw further ahead than this (map px); beyond it the sky shows
-        underBannerPx: 40,       // the map reaches this far up under the (glass) turn banner; above, the sky band.
-                                 // Drawing all the way to the screen's top edge needs ~1.75× the tiles for a strip
-                                 // the banner covers anyway (measured in Chromium: 132–163 tiles vs ~70).
+        maxAheadPx: 1500,        // never draw further ahead than this (map px): far road costs tiles fast. The map
+                                 // always reaches the screen's top edge (the turn banner is glass), like Google Maps'
+                                 // navigation: no horizon, no sky band, unless even minPitchDeg can't (never on a phone)
         marginPx: 64,            // slack round the edge, so a fast turn never shows a corner
         gpsMinSpeedMs: 2.5,      // below this a phone's GPS course is too noisy to steer the map
         moveMinM: 8,             // movement needed to take a course from two fixes
@@ -159,23 +162,43 @@
     }
 
     /**
+     * The steepest tilt, up to the one asked for, at which the map reaching maxAheadPx ahead still fills the
+     * screen up to `up` px above the rider: up·P / (P cosθ − up sinθ) ≤ A  ⇔  P cosθ − up sinθ ≥ up·P / A.
+     * Never below minPitchDeg (then the horizon shows and navcam.js fades it into a sky band).
+     * @param {number} askedDeg @param {number} up @param {number} P @param {typeof DEFAULTS} o
+     */
+    function fitPitch(askedDeg, up, P, o) {
+        if (!(askedDeg > 0)) return 0;
+        const A = o.maxAheadPx;
+        // P cosθ − up sinθ = R cos(θ + φ)
+        const R = Math.hypot(P, up), phi = Math.atan2(up, P), need = (up * P) / A;
+        const fit = need >= R ? 0 : (Math.acos(need / R) - phi) / RAD;
+        const lo = Math.min(askedDeg, Number.isFinite(o.minPitchDeg) ? o.minPitchDeg : askedDeg);
+        return Math.max(lo, Math.min(askedDeg, Math.floor(fit * 2) / 2));
+    }
+
+    /**
      * Where the rider sits and how big the drawn square must be.
      * @param {{ vw: number, vh: number, top?: number, bottom?: number, pitchDeg?: number, flat?: boolean }} v
-     *   top/bottom: the visible map between the turn banner and the drive panel (px from the top)
+     *   top/bottom: the visible map between the turn banner and the drive panel (px from the top); the rider sits in
+     *   it, but the drawn map reaches the screen's top edge under the (glass) banner
      * @param {typeof DEFAULTS} [o]
      * @returns {{ ax: number, ay: number, radius: number, perspective: number, pitchDeg: number, horizonY: number, aheadPx: number, region: { hw: number, ahead: number, behind: number } }}
      */
     function geometry(v, o = DEFAULTS) {
+        o = { ...DEFAULTS, ...o };
         const vw = Math.max(1, v.vw), vh = Math.max(1, v.vh);
         const top = Number.isFinite(v.top) ? Math.max(0, Math.min(vh, /** @type {number} */ (v.top))) : 0;
         let bottom = Number.isFinite(v.bottom) ? Math.max(0, Math.min(vh, /** @type {number} */ (v.bottom))) : vh;
         if (bottom - top < 120) bottom = Math.min(vh, top + 120);       // a cramped layout still leaves the rider on screen
         const ax = vw / 2;
         const ay = Math.round(top + o.anchorFrac * (bottom - top));
-        const pitchDeg = v.flat ? 0 : (Number.isFinite(v.pitchDeg) ? /** @type {number} */ (v.pitchDeg) : o.pitchDeg);
-        const th = pitchDeg * RAD, P = Math.round(o.perspective * vh);
-        // how far up the map must reach on screen: to just under the turn banner, or the whole screen when flat
-        const up = v.flat ? ay : Math.max(1, ay - Math.max(0, top - o.underBannerPx)), down = vh - ay;
+        // how far up the map must reach on screen: always the screen's top edge
+        const up = ay, down = vh - ay;
+        const P = Math.round(o.perspective * vh);
+        const asked = v.flat ? 0 : (Number.isFinite(v.pitchDeg) ? /** @type {number} */ (v.pitchDeg) : o.pitchDeg);
+        const pitchDeg = v.flat ? 0 : fitPitch(asked, up, P, o);
+        const th = pitchDeg * RAD;
         // plane distance (map px) that lands on the screen's top edge; ∞ when the horizon is below the top
         const denom = P * Math.cos(th) - up * Math.sin(th);
         const aheadPx = Math.min(o.maxAheadPx, denom > 0 ? (up * P) / denom : Infinity, v.flat ? up : Infinity);
@@ -219,5 +242,5 @@
         return g.pitchDeg > 0 ? `perspective(${g.perspective}px) rotateX(${g.pitchDeg}deg) rotateZ(${-b}deg)` : `rotateZ(${-b}deg)`;
     }
 
-    return { DEFAULTS, angleDiff, bearing, metres, routeBearing, courseFrom, stepBearing, shouldRetarget, zoomForSpeed, geometry, box, cssTransform };
+    return { DEFAULTS, angleDiff, fitPitch, bearing, metres, routeBearing, courseFrom, stepBearing, shouldRetarget, zoomForSpeed, geometry, box, cssTransform };
 });

@@ -25,7 +25,7 @@
 <link rel="stylesheet" href="js/master/vision/vision.css?v=20261011-master"><!-- Master AI: break-time fatigue check (camera only while stopped) -->
 <link rel="stylesheet" href="js/ai/avatar.css?v=20261011-avatar">
 <link rel="stylesheet" href="js/master/roadsense/roadsense.css?v=20261017-rp1"><!-- RoadSense Live: the Route Truth Card -->
-<link rel="stylesheet" href="js/navcam/navcam.css?v=20261015-horizon"><!-- navigation camera: heading-up, 3D tilt (js/navcam/) --><!-- Master AI avatar: the particle face (corner view + full screen) -->
+<link rel="stylesheet" href="js/navcam/navcam.css?v=20261017-fulltop"><!-- navigation camera: heading-up, 3D tilt (js/navcam/) --><!-- Master AI avatar: the particle face (corner view + full screen) -->
 <!-- Three.js for the Master AI avatar (js/ai/). Must come before any module script. The CSP allows this inline
      block by its SHA-256, which server.js computes from this file at start-up (lib/csp-inline.js; test/ai checks it). -->
 <script type="importmap">
@@ -322,6 +322,28 @@ body:has(#premium-nav-ui[style*="block"]) #toast-container { bottom: calc(250px 
   background: var(--glass-strong); border-top: 1px solid var(--line-strong); box-shadow: var(--inner), 0 -12px 48px rgba(0,0,0,.5);
   -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); }
 .nav-bottom-sheet::before { content: ""; align-self: center; width: 38px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.2); margin-top: -6px; }
+/* Named places on the map (js/mapdetail.js): an icon and the name, like Google Maps, readable on imagery. */
+.mu-place-icon { width: 0 !important; height: 0 !important; background: none; border: 0; }
+.mu-place { position: absolute; left: -10px; top: -10px; display: flex; align-items: center; gap: 4px; white-space: nowrap; font: 700 12px/1.15 var(--font-ui, system-ui, sans-serif); cursor: pointer; }
+.mu-place i { flex: none; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-style: normal; font-size: 11px; line-height: 1; color: #fff;
+  box-shadow: 0 0 0 2px rgba(255,255,255,.95), 0 1px 4px rgba(0,0,0,.55); }
+.mu-place b { max-width: 170px; overflow: hidden; text-overflow: ellipsis; filter: brightness(1.35); text-shadow: 0 0 2px #000, 0 0 3px #000, 0 1px 3px rgba(0,0,0,.9); }
+.mu-place.area { left: 0; top: 0; transform: translate(-50%, -50%); color: #fff; font-size: 13px; font-weight: 600; letter-spacing: .03em; cursor: default; pointer-events: none;
+  text-shadow: 0 0 2px #000, 0 0 4px #000, 0 1px 3px rgba(0,0,0,.9); }
+.mu-google-logo { position: fixed; left: 12px; bottom: calc(6px + var(--safe-b, 0px)); z-index: 900; pointer-events: none; font: 600 16px/1 "Product Sans", Arial, sans-serif; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.8); }
+.mu-google-logo[hidden] { display: none; }
+/* While driving (js/navsheet.js): one compact row of trip numbers + Stop; swipe up or tap for the rest. */
+.nav-sheet-handle { align-self: center; width: 64px; height: 22px; margin: -10px 0 -8px; padding: 0; border: 0; background: none; cursor: pointer; display: grid; place-items: center; touch-action: none; }
+.nav-sheet-handle::before { content: ""; width: 38px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.32); }
+.nav-sheet-handle[hidden] { display: none; }
+.nav-bottom-sheet.has-handle:has(> .nav-sheet-handle:not([hidden]))::before { display: none; }
+.nav-bottom-sheet.is-collapsed { gap: 10px; padding-top: 12px; overflow: hidden; touch-action: none; }
+.nav-bottom-sheet.is-collapsed > :not(.nav-sheet-handle):not(.nav-stats):not(.controls-row) { display: none !important; }
+.nav-bottom-sheet.is-collapsed .nav-stats { cursor: pointer; }
+.nav-bottom-sheet.is-expanded { z-index: calc(var(--z-nav) + 2); }   /* opened mid-drive: above the SmartDrive HUD strip */
+.nav-bottom-sheet.is-collapsed .n-stat:last-child { display: none; }
+.nav-bottom-sheet.is-collapsed .controls-row button { height: 44px; }
+.nav-bottom-sheet.is-collapsed .btn-icon-nav { width: 44px; }
 .nav-stats { display: flex; justify-content: space-between; align-items: flex-end; gap: 6px; }
 .n-stat { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .n-stat .l { font-size: 10.5px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
@@ -1684,14 +1706,16 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyASbmXgn0T-B4AQdCe1sp7dfJbDXKgDw5c&libraries=places&loading=async"></script>
 <script src="/shell.js"></script>
 <!-- App scripts, split by concern (Batch 2). Order matters: core first, boot last. -->
-<script src="js/core.js?v=20261004-step10"></script>
+<script src="js/core.js?v=20261017-labels"></script>
+<script src="js/mapdetail.js?v=20261017-places"></script><!-- named places on the map (OSM) + optional Google map style -->
 <script src="js/voice/hinglish.js?v=20261017-rp1"></script>
 <script src="js/voice/engine.js?v=20261011-voice"></script>
 <script src="js/voice.js?v=20261016-rs4"></script>
 <script src="js/gps.js?v=20261003-step7"></script>
-<script src="js/navcam/navcam-core.js?v=20261015-horizon"></script>
-<script src="js/navcam/navcam.js?v=20261015-horizon"></script>
-<script src="js/navigation.js?v=20261017-18plus"></script>
+<script src="js/navcam/navcam-core.js?v=20261017-fulltop"></script>
+<script src="js/navcam/navcam.js?v=20261017-labels"></script>
+<script src="js/navsheet.js?v=20261017-sheet"></script><!-- the drive sheet collapses while driving; swipe up for more -->
+<script src="js/navigation.js?v=20261017-sheet"></script>
 <script src="js/garage/fuel-baseline.js?v=20261003-step8"></script>
 <script src="js/smartdrive.js?v=20261004-ui"></script>
 <script src="js/groupnav.js?v=20261004-step8"></script>
@@ -1699,7 +1723,7 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="js/analytics.js?v=20261003-step7"></script>
 <script src="js/deadreckoning.js?v=20261003-step7"></script>
 <script src="js/presence.js?v=20261003-step7"></script>
-<script src="js/controls.js?v=20261003-step7"></script>
+<script src="js/controls.js?v=20261017-places"></script>
 <script src="js/chat.js?v=20261003-step7"></script>
 <script src="js/memories.js?v=20261003-step7"></script>
 <script src="js/calls.js?v=20261003-step7"></script>

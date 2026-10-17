@@ -85,9 +85,9 @@ test("geometry: the rider sits in the lower third of the visible map, and the dr
     assert.equal(g.ax, 195);
     assert.equal(g.ay, Math.round(140 + (2 / 3) * (562 - 140)));
     assert.ok(g.pitchDeg >= 45 && g.pitchDeg <= 60, "tilt asked for: 45–60°");
-    assert.ok(g.horizonY < 140, `the sky stays under the banner (${g.horizonY})`);
-    // every visible screen point (below banner − 40 px) maps inside the drawn disc, whatever the bearing
-    for (const [sx, sy] of [[0, 100], [390, 100], [0, 844], [390, 844], [195, 100]]) {
+    assert.equal(g.horizonY, 0, "no horizon: the map reaches the screen's top edge, like Google Maps' navigation");
+    // every screen point, up to the top edge under the glass banner, maps inside the drawn disc, whatever the bearing
+    for (const [sx, sy] of [[0, 0], [390, 0], [0, 844], [390, 844], [195, 0]]) {
         const p = screenToPlane(g, sx, sy);
         assert.ok(Math.hypot(p.x, p.y) <= g.radius, `screen (${sx}, ${sy}) → ${Math.round(Math.hypot(p.x, p.y))} px > radius ${g.radius}`);
     }
@@ -99,6 +99,34 @@ test("geometry: the rider sits in the lower third of the visible map, and the dr
     // a cramped layout still leaves the rider on screen
     const c = C.geometry({ vw: 390, vh: 600, top: 500, bottom: 520 });
     assert.ok(c.ay > 500 && c.ay < 600);
+});
+
+test("tilt fitted to the screen: the map always reaches the top edge, never further ahead than maxAheadPx, never flatter than minPitchDeg", () => {
+    const D = C.DEFAULTS;
+    // a phone with the drive panel up, a full-height screen, a tall phone, landscape, a tablet
+    for (const v of [{ vw: 390, vh: 844, top: 140, bottom: 562 }, { vw: 390, vh: 844, top: 0, bottom: 844 }, { vw: 412, vh: 915, top: 120, bottom: 915 },
+        { vw: 844, vh: 390, top: 90, bottom: 390 }, { vw: 820, vh: 1180, top: 140, bottom: 1180 }]) {
+        const g = C.geometry(v);
+        const label = `${v.vw}×${v.vh} ${v.top}–${v.bottom}: pitch ${g.pitchDeg}, ahead ${g.aheadPx}`;
+        assert.ok(g.pitchDeg >= D.minPitchDeg && g.pitchDeg <= D.pitchDeg, label);
+        assert.equal(g.horizonY, 0, label);
+        assert.ok(g.aheadPx <= D.maxAheadPx, label);
+        const top = screenToPlane(g, v.vw / 2, 0);
+        assert.ok(top.y < 0 && -top.y <= D.maxAheadPx + 1, `${label}: the top edge is ${Math.round(-top.y)} px ahead`);
+        // the steepest that fits: half a degree more would need more than maxAheadPx
+        if (g.pitchDeg < D.pitchDeg) {
+            const th = (g.pitchDeg + 0.5) * Math.PI / 180, P = g.perspective, up = g.ay;
+            const den = P * Math.cos(th) - up * Math.sin(th);
+            assert.ok(den <= 0 || up * P / den > D.maxAheadPx, label);
+        }
+    }
+    // short screens keep the full tilt asked for
+    assert.equal(C.geometry({ vw: 390, vh: 844, top: 140, bottom: 562 }).pitchDeg, D.pitchDeg);
+    // only if even minPitchDeg can't fill the screen does the horizon (and the sky fallback) show
+    const low = C.geometry({ vw: 390, vh: 844, top: 0, bottom: 844 }, { ...D, maxAheadPx: 300 });
+    assert.equal(low.pitchDeg, D.minPitchDeg);
+    assert.ok(low.horizonY > 0);
+    assert.equal(C.fitPitch(0, 500, 1000, D), 0);
 });
 
 test("the CSS transform: perspective, tilt, then the map turned against the course", () => {
@@ -125,7 +153,7 @@ test("wiring: scripts load in order, offline precache, navigation hands its fixe
 test("box: the drawn rectangle covers every visible screen point at every heading in its 15° band, and is far smaller than a square for every heading", () => {
     const g = C.geometry({ vw: 390, vh: 844, top: 140, bottom: 562 });
     const pts = [];
-    for (let sy = 100; sy <= 844; sy += 37) for (let sx = 0; sx <= 390; sx += 39) pts.push(screenToPlane(g, sx, sy));
+    for (let sy = 0; sy <= 844; sy += 37) for (let sx = 0; sx <= 390; sx += 39) pts.push(screenToPlane(g, sx, sy));
     let maxArea = 0, sumArea = 0, n = 0;
     for (let b = 0; b < 360; b += 3) {
         const bx = C.box(g, b);

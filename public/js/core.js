@@ -210,13 +210,28 @@ const map = L.map("map", {
 // rate-limit or kill without notice (roadmap Section 20). Swapped for two
 // properly licensed free sources; street/dark were already fine and are
 // unchanged.
-const satelliteLayer = L.tileLayer(
+const satelliteImagery = L.tileLayer(
     "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
     // Imagery is Esri's; the roads, routes, place names and speed limits
     // drawn over it come from OpenStreetMap (OSRM, Nominatim, Overpass), so
     // the OSM credit belongs on this layer too (ODbL attribution).
     { maxZoom: 19, attribution: 'Imagery &copy; Esri, Maxar, Earthstar Geographics | Map data &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors' }
 );
+// Bare imagery has no names on it. Like Google's satellite ("hybrid") view, two
+// transparent label layers sit on top: roads with their names, and places
+// (towns, villages, areas) with boundaries. Their own pane keeps them above the
+// imagery and under the route line (the roads layer draws road lines too, which
+// would hide the route); they never take a tap. muOverlay tells the
+// navigation camera these aren't the base map (js/navcam/navcam.js).
+map.createPane("mu-labels");
+map.getPane("mu-labels").style.zIndex = "250";     // tilePane 200 < labels < overlayPane 400 (routes)
+map.getPane("mu-labels").style.pointerEvents = "none";
+const ESRI_REFERENCE = "https://server.arcgisonline.com/ArcGIS/rest/services/Reference";
+const satelliteLabels = ["World_Transportation", "World_Boundaries_and_Places"].map((svc) => L.tileLayer(
+    `${ESRI_REFERENCE}/${svc}/MapServer/tile/{z}/{y}/{x}`,
+    { maxZoom: 19, pane: "mu-labels", muOverlay: true, attribution: "Labels &copy; Esri and its data providers" }
+));
+const satelliteLayer = L.layerGroup([satelliteImagery, ...satelliteLabels]);
 const OSM_CREDIT = '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors';
 const streetLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: OSM_CREDIT });
 const darkLayer = L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", { maxZoom: 20, attribution: `${OSM_CREDIT} &copy; <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>` });

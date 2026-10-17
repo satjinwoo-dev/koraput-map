@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-17.5";           // RoadPulse: unknown class, mount-moved rejection, lifecycle, attestation, privacy
+const VERSION = "mu-2026-10-17.9";           // named places on the map (OSM), optional Google map style
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
@@ -53,12 +53,14 @@ const REQUIRED_PRECACHE = [SHELL_INDEX];       // install FAILS (and retries) wi
 // which the server generates (routing server, transports).
 const APP_SCRIPTS = [
     "/js/core.js",
+    "/js/mapdetail.js",
     "/js/voice/hinglish.js",
     "/js/voice/engine.js",
     "/js/voice.js",
     "/js/gps.js",
     "/js/navcam/navcam-core.js",
     "/js/navcam/navcam.js",
+    "/js/navsheet.js",
     "/js/navigation.js",
     "/js/garage/fuel-baseline.js",
     "/js/smartdrive.js",

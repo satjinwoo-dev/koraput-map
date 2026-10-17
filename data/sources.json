@@ -5,7 +5,7 @@
     {
       "id": "osm-data", "name": "OpenStreetMap data (via Nominatim, Overpass, OSRM, road extracts)",
       "hosts": ["www.openstreetmap.org", "nominatim.openstreetmap.org", "overpass-api.de"],
-      "use": "place search, POIs and speed limits (Overpass), the road index for hazard merging (data/roads)",
+      "use": "place search, POIs and speed limits (Overpass), named places drawn on the map (/api/map/places, lib/map-detail.js), the road index for hazard merging (data/roads)",
       "licence": "ODbL", "licence_version": "1.0", "attribution": "© OpenStreetMap contributors",
       "commercial_use": "yes", "access_method": "public APIs at request time; offline extract for data/roads",
       "fetched_at": null, "source_version": null, "legal_review": "pending",
@@ -34,10 +34,10 @@
     },
     {
       "id": "esri-imagery", "name": "Esri World Imagery", "hosts": ["server.arcgisonline.com"],
-      "use": "the satellite base layer (default), and the post-ride review map", "licence": "Esri terms of use", "licence_version": null,
+      "use": "the satellite base layer (default), its road and place-name label layers (Reference/World_Transportation, Reference/World_Boundaries_and_Places), and the post-ride review map", "licence": "Esri terms of use", "licence_version": null,
       "attribution": "Imagery © Esri, Maxar, Earthstar Geographics", "commercial_use": "unclear", "access_method": "XYZ tiles at request time",
       "fetched_at": null, "source_version": null, "legal_review": "pending",
-      "notes": "Check Esri's current terms for use in a commercial app (account or licence may be needed)."
+      "notes": "Check Esri's current terms for use in a commercial app (account or licence may be needed). The label layers' exact credit line (Esri's data providers) must be copied from each service's copyright text before launch."
     },
     {
       "id": "carto-basemaps", "name": "CARTO dark basemap", "hosts": ["basemaps.cartocdn.com", "carto.com"],
@@ -54,11 +54,11 @@
       "notes": "Commercial use needs an Open-Meteo subscription, or self-hosting the open-source Open-Meteo with openly licensed model data (NOAA GFS, ECMWF open data). IMD data needs its own agreement."
     },
     {
-      "id": "google-maps-platform", "name": "Google Maps Platform (Places, Maps)", "hosts": ["places.googleapis.com", "maps.googleapis.com", "maps.gstatic.com", "www.google.com", "google.com"],
-      "use": "the Maps script tag and place lookups (server-side keys)", "licence": "Google Maps Platform Terms of Service", "licence_version": null,
+      "id": "google-maps-platform", "name": "Google Maps Platform (Places, Maps)", "hosts": ["places.googleapis.com", "maps.googleapis.com", "maps.gstatic.com", "www.google.com", "google.com", "tile.googleapis.com"],
+      "use": "the Maps script tag, place lookups (server-side keys), and the optional Google map style (Map Tiles API, proxied by lib/map-detail.js, off unless GOOGLE_MAP_TILES_KEY is set)", "licence": "Google Maps Platform Terms of Service", "licence_version": null,
       "attribution": "Google", "commercial_use": "by_agreement", "access_method": "paid API with a server-side key",
       "fetched_at": null, "source_version": null, "legal_review": "pending",
-      "notes": "Paid, under Google's terms (no caching or scraping beyond them). RoadPulse data must never be mixed with Google content."
+      "notes": "Paid, under Google's terms (no caching or scraping beyond them). RoadPulse data must never be mixed with Google content. Map Tiles: the server passes tiles through with Google's cache headers and stores none; Google's logo and the viewport copyright line must show while the Google style is on (the app shows a text logo: replace with Google's official logo asset before launch). Check whether a server-side tile proxy is allowed under the current Map Tiles terms."
     },
     {
       "id": "google-cloud-tts", "name": "Google Cloud Text-to-Speech", "hosts": ["texttospeech.googleapis.com"],

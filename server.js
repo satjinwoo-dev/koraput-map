@@ -79,6 +79,9 @@
      OPEN_METEO_API_KEY       only with a commercial Open-Meteo plan (weather is keyless otherwise)
      PLACES_CACHE_SECONDS     server memory cache for Google Places answers, default 900 (see lib/master/poi.js)
      MASTER_POI_GOOGLE        "0" = the Master's places use OSM only (no Places cost; the search box keeps Google)
+     GOOGLE_MAP_TILES_KEY     optional: Google's map as a map style (Map Tiles API + billing on that key);
+                              or MAP_TILES_GOOGLE=1 to use GOOGLE_MAPS_SERVER_KEY. Proxied, never sent to the phone
+     MAP_TILES_RATE_LIMIT_MAX Google tile requests per IP per minute (default 1500)
      MASTER_BLACKSPOTS_DIR    official blackspot datasets, default ./data/master/blackspots
      HTTP_RATE_LIMIT_MAX      default 300 per 15 min per IP
      MAX_SOCKETS_PER_IP       default 20
@@ -129,6 +132,7 @@ const { createMasterApi } = require("./lib/master/http-api");
 const { createRoadsense } = require("./lib/master/roadsense");
 const { loadFeedDir: loadRoadsenseFeeds } = require("./lib/master/roadsense-feeds");
 const { loadRoadDir } = require("./lib/master/roadpulse-roads");
+const { createMapDetail } = require("./lib/map-detail");
 const { cleanSettings: cleanBikeSettings } = require("./public/js/garage/store.js");
 
 // ==========================================================================
@@ -232,6 +236,7 @@ function publicConfig() {
         socketTransports: REDIS_URL && !STICKY_SESSIONS ? ["websocket"] : ["websocket", "polling"],
         cluster: Boolean(REDIS_URL),
         placesProxy: Boolean(GOOGLE_KEY),
+        googleTiles: mapDetail.googleEnabled,     // Google's map as a style (GOOGLE_MAP_TILES_KEY), served through /api/map/gtile
         approxGridKm: APPROX_GRID_KM,
         tripRetentionDays: TRIP_RETENTION_DAYS,
         chatRetentionDays: CHAT_RETENTION_DAYS,
@@ -329,6 +334,15 @@ app.head("/media/:dir/:file", mediaLimiter, media.handler());
 const ttsLimiter = rateLimit({ windowMs: 60 * 1000, max: Number(process.env.TTS_RATE_LIMIT_MAX) || 60, standardHeaders: true, legacyHeaders: false });
 const ttsAllowOrigin = (/** @type {string} */ origin) => CORS_ORIGIN === "*" || (Array.isArray(CORS_ORIGIN) && CORS_ORIGIN.includes(origin));
 app.get("/api/tts", ttsLimiter, tts.handler({ allowOrigin: ttsAllowOrigin }));
+
+// Map detail (lib/map-detail.js): OSM place names for the map, and Google's map tiles when a key is set.
+// Mounted before the general limiter: one map view asks for many tiles.
+const mapDetail = createMapDetail();
+const mapPlacesLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false });
+const mapTilesLimiter = rateLimit({ windowMs: 60 * 1000, max: Number(process.env.MAP_TILES_RATE_LIMIT_MAX) || 1500, standardHeaders: true, legacyHeaders: false });
+app.get("/api/map/places", mapPlacesLimiter, mapDetail.placesHandler);
+app.get("/api/map/gtile/:type/:z/:x/:y", mapTilesLimiter, mapDetail.googleTileHandler);
+app.get("/api/map/gattr", mapPlacesLimiter, mapDetail.googleAttributionHandler);
 
 // The bike catalogue's built files are gitignored, so a fresh checkout has none, and without
 // public/bikedb/catalog.json the app's bike list can't load ("The bike list isn't on this phone
