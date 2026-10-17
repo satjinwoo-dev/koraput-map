@@ -4,12 +4,18 @@
    ==============================================================================
    When to warn a rider about a hazard ahead, calmly and once:
 
-     d_alert = v·t_r + max(0, v² − v_t²) / (2·a_c) + max(10 m, 2σ_GNSS),  clamped 50 … 300 m
-       t_r  2.5 s       the voice line plus reacting to it
-       a_c  1.5 m/s²    gentle slowing, far below the 3.5 m/s² "hard brake" of DynamicsCore
-       v_t  the speed to be down to at the hazard: 20 km/h (severity 3), 30 km/h (severity 2)
+     d_alert = v·(t_speech + t_react) + max(0, v² − v_t²) / (2·a_c) + max(10 m, 2σ_GNSS),  clamped 50 … 300 m
+       t_speech  how long the warning line takes to say (the voice's own line, measured by
+                 master-app from its length: an 18+ line is longer than a Family one); 2 s default
+       t_react   1 s        reacting once it's said
+       a_c       1.5 m/s²   gentle slowing, far below the 3.5 m/s² "hard brake" of DynamicsCore
+       v_t       the speed to be down to at the hazard: 20 km/h (severity 3), 30 km/h (severity 2)
 
-     → about 50 m at 20 km/h, 70 m at 40, 135 m at 60, 220 m at 80 (severity 3).
+     → about 50 m at 20 km/h, 75 m at 40, 140 m at 60, 230 m at 80 (severity 3, a 2 s line).
+     NOT FINAL: every constant here is a design prior until the pilot's field tests.
+   Turn instructions come first: hazard lines are spoken at a lower priority (68) than
+   navigation's turn prompts (70–72), so a queued turn prompt is never pushed back or cut
+   off, and a hazard line that waited too long is dropped (the warning max age).
 
    A hazard is warned only when:
      - it's alertable (reported or active; never disputed, maybe fixed, fixed, expired);
@@ -34,7 +40,7 @@
 
     const KMH = 1 / 3.6;
     const POLICY = Object.freeze({
-        reactS: 2.5, comfortMs2: 1.5,
+        speechS: 2.0, reactS: 1.0, comfortMs2: 1.5,
         targetMs: Object.freeze({ 3: 20 * KMH, 2: 30 * KMH, 1: 30 * KMH }),
         minM: 50, maxM: 300, gpsFloorM: 10,
         halfWidthM: 25, headingTolDeg: 45, maxPosSigmaM: 30,
@@ -43,12 +49,13 @@
     });
     const M_PER_DEG = 111320;
 
-    /** @param {{ speedMs: number, severity?: number, posSigmaM?: number|null }} o @param {typeof POLICY} [P] */
+    /** @param {{ speedMs: number, severity?: number, posSigmaM?: number|null, speechS?: number|null }} o @param {typeof POLICY} [P] */
     function alertDistanceM(o, P = POLICY) {
         const v = Math.max(0, o.speedMs || 0);
         const vt = /** @type {any} */ (P.targetMs)[o.severity || 2] ?? P.targetMs[2];
         const gps = Math.max(P.gpsFloorM, 2 * (Number.isFinite(o.posSigmaM) ? /** @type {number} */ (o.posSigmaM) : 0));
-        const d = v * P.reactS + Math.max(0, v * v - vt * vt) / (2 * P.comfortMs2) + gps;
+        const speech = Number.isFinite(o.speechS) && /** @type {number} */ (o.speechS) > 0 ? /** @type {number} */ (o.speechS) : P.speechS;
+        const d = v * (speech + P.reactS) + Math.max(0, v * v - vt * vt) / (2 * P.comfortMs2) + gps;
         return Math.round(Math.min(P.maxM, Math.max(P.minM, d)));
     }
 
@@ -75,7 +82,7 @@
         let lastAlertAt = -Infinity, genericAt = -Infinity;
 
         /**
-         * @param {{ lat: number, lng: number, headingDeg: number, speedMs: number, posSigmaM?: number|null, nextTurnM?: number|null }} ego
+         * @param {{ lat: number, lng: number, headingDeg: number, speedMs: number, posSigmaM?: number|null, nextTurnM?: number|null, speechS?: number|null }} ego
          * @param {{ id: string, lat: number, lng: number, heading?: number|null, bothWays?: boolean, severity?: number, alertable?: boolean, ptype?: string }[]} hazards
          * @param {number} now
          * @returns {null | { kind: "single"|"cluster"|"generic", first: any, distanceM: number, count: number, spanM: number, hazards: any[], alertM: number }}
@@ -109,7 +116,7 @@
             const fresh = ahead.filter((x) => now - (saidAt.get(x.h.id) ?? -Infinity) >= P.repeatMs);
             if (!fresh.length) return null;
             const first = fresh[0];
-            const alertM = alertDistanceM({ speedMs: ego.speedMs, severity: Math.max(...fresh.filter((x) => x.along - first.along <= P.clusterM).map((x) => x.h.severity || 2)), posSigmaM: ego.posSigmaM }, P);
+            const alertM = alertDistanceM({ speedMs: ego.speedMs, severity: Math.max(...fresh.filter((x) => x.along - first.along <= P.clusterM).map((x) => x.h.severity || 2)), posSigmaM: ego.posSigmaM, speechS: ego.speechS }, P);
             if (first.along > alertM) return null;
             if (first.along < ego.speedMs * P.tooCloseS) { saidAt.set(first.h.id, now); return null; }      // too late to help: stay quiet
             const group = fresh.filter((x) => x.along - first.along <= P.clusterM);
@@ -123,5 +130,10 @@
         return { plan, POLICY: P, forget: () => { saidAt.clear(); lastAlertAt = -Infinity; genericAt = -Infinity; } };
     }
 
-    return { POLICY, alertDistanceM, createPlanner, relative, headingDiff };
+    /** How long a line takes to say: ≈ 14 characters a second (Hinglish or English TTS at normal rate). @param {string} text */
+    const speechSeconds = (text) => Math.max(1.5, Math.round((String(text || "").length / 14) * 10) / 10);
+    /** The voice priority of a hazard line: below navigation's turn prompts (70–72). */
+    const PRIORITY = 68;
+
+    return { POLICY, PRIORITY, alertDistanceM, createPlanner, relative, headingDiff, speechSeconds };
 });

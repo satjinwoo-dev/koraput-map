@@ -40,7 +40,7 @@ test("publish: a reviewed report becomes a hazard; stored with the hour only, a 
     assert.equal(db.prepare("SELECT t FROM roadsense_report").get().t % H, 0, "the hour only");
     assert.equal(db.prepare("SELECT contributor FROM roadsense_report").get().contributor, rs.contributorOf(tok("a")));
     const [h] = await area();
-    assert.equal(h.status, "reported");
+    assert.equal(h.status, "reviewed_report");
     assert.equal(h.found, 1);
     assert.equal(h.agreementPct, null);
     assert.equal(h.ptype, "impact");
@@ -56,7 +56,7 @@ test("duplicates and independence: a report 8 m away is a vote, not a second haz
     let hz = await area();
     assert.equal(hz.length, 1);
     assert.equal(hz[0].found, 1);
-    assert.equal(hz[0].status, "reported");
+    assert.equal(hz[0].status, "reviewed_report");
     // another rider, 8 m off (their GPS), a day later: the same hazard, now confirmed
     at(T0 + 2 * D + H);
     const r = await rs.publish({ v: 1, contributor: tok("b"), device: tok("y"), reports: [report({ t: T0 + 2 * D, east: 8, type: "bump" })] });
@@ -64,7 +64,7 @@ test("duplicates and independence: a report 8 m away is a vote, not a second haz
     hz = await area();
     assert.equal(hz.length, 1, "still one hazard");
     assert.equal(hz[0].found, 2);
-    assert.equal(hz[0].status, "active");
+    assert.equal(hz[0].status, "community_confirmed");
     assert.equal(hz[0].independent, true);
     // the marker moved between the reports
     const x = (hz[0].lng - LNG) / M_LNG;
@@ -83,12 +83,12 @@ test("votes: 8 of 10 reviewing riders; unsure outside; maybe fixed after 3 not-f
     for (const c of ["i", "j"]) await rs.publish({ v: 1, contributor: tok(c), device: tok(`dev${c}`), votes: [{ hazard: id, verdict: "not_found", t: T0 + 2 * D + H }] });
     await rs.publish({ v: 1, contributor: tok("k"), device: tok("devk"), votes: [{ hazard: id, verdict: "unsure", t: T0 + 2 * D + H }] });
     let [h] = await area();
-    assert.deepEqual([h.found, h.notFound, h.unsure, h.reviewers, h.agreementPct, h.status], [8, 2, 1, 10, 80, "active"]);
+    assert.deepEqual([h.found, h.notFound, h.unsure, h.reviewers, h.agreementPct, h.status], [8, 2, 1, 10, 80, "community_confirmed"]);
     // later riders don't find it: 3 more not-found over 2 days → maybe fixed, not warned
     at(T0 + 6 * D);
     for (const [c, day] of [["l", 4], ["m", 4], ["o", 5]]) await rs.publish({ v: 1, contributor: tok(c), device: tok(`dev${c}`), votes: [{ hazard: id, verdict: "not_found", t: T0 + day * D }] });
     [h] = await area();
-    assert.equal(h.status, "maybe_fixed");
+    assert.equal(h.status, "possibly_repaired");
     assert.equal(h.recentDisagree, true);
     assert.equal(h.alertable, false);
     // a week later it's fixed (not served any more); a fresh report there opens a new epoch on the same hazard
@@ -97,7 +97,7 @@ test("votes: 8 of 10 reviewing riders; unsure outside; maybe fixed after 3 not-f
     const again = await rs.publish({ v: 1, contributor: tok("p"), device: tok("devp"), reports: [report({ t: T0 + 13 * D - H })] });
     assert.equal(again.json.results[0].hazard, id);
     [h] = await area();
-    assert.equal(h.status, "reported");
+    assert.equal(h.status, "reviewed_report");
     assert.equal(h.found, 1);
     assert.equal(h.notFound, 0, "the old votes are the old pothole's");
 });

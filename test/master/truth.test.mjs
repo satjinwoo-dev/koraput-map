@@ -291,16 +291,16 @@ test("wiring: scripts in order, styles, offline precache, the DOM event, type-ch
 });
 
 // ---------------------------------------------------------------- RoadPulse: published hazards on the card
-test("published hazards on the card: rider counts, never a percentage of probability; disputed and maybe-fixed shown apart", () => {
+test("published hazards on the card: rider counts, never a percentage of probability; disputed and possibly-repaired shown apart", () => {
     const log = RS.createLog();
     log.addAll([ob(3000), ob(3000, { t: T0 + 2 * H, rider: "r1aaaaaaaaaaaaaa" })]);           // the phone's own verified bump at 3 km
-    const hz = (id, east, o) => ({ id, type: "pothole", ...at(east), heading: 90, severity: 3, found: 1, notFound: 0, unsure: 0, reviewers: 1, agreementPct: null, lastFoundAt: T0 - D, recentDisagree: false, alertable: true, status: "reported", ...o });
+    const hz = (id, east, o) => ({ id, type: "pothole", ...at(east), heading: 90, severity: 3, found: 1, notFound: 0, unsure: 0, reviewers: 1, agreementPct: null, lastFoundAt: T0 - D, recentDisagree: false, alertable: true, status: "reviewed_report", ...o });
     const community = [
-        hz("h1", 1000, { status: "active", found: 8, notFound: 2, unsure: 1, reviewers: 10, agreementPct: 80, lastFoundAt: T0 - 3 * H }),
+        hz("h1", 1000, { status: "community_confirmed", found: 8, notFound: 2, unsure: 1, reviewers: 10, agreementPct: 80, lastFoundAt: T0 - 3 * H }),
         hz("h2", 1500, {}),
         hz("h3", 2500, { status: "disputed", found: 1, notFound: 3, reviewers: 4, agreementPct: 25, alertable: false }),
-        hz("h4", 3005, { status: "active", found: 3, notFound: 0, reviewers: 3, agreementPct: 100 }),     // the same as the phone's own at 3 km
-        hz("h5", 4000, { status: "maybe_fixed", found: 2, notFound: 3, reviewers: 5, agreementPct: 40, recentDisagree: true, alertable: false }),
+        hz("h4", 3005, { status: "community_confirmed", found: 3, notFound: 0, reviewers: 3, agreementPct: 100 }),     // the same as the phone's own at 3 km
+        hz("h5", 4000, { status: "possibly_repaired", found: 2, notFound: 3, reviewers: 5, agreementPct: 40, recentDisagree: true, alertable: false }),
         hz("far", 1000, { ...at(1000, 300) })                                                       // 300 m off the route
     ];
     const card = TR.buildTruth({ log, community, path: ROUTE, now: T0 + 3 * H });
@@ -309,13 +309,13 @@ test("published hazards on the card: rider counts, never a percentage of probabi
     assert.equal(card.candidates, 1, "h2: one rider's report");
     const vm = CARD.viewModel({ hasRoute: true, card, sources: { community: true, lastFetch: T0 + 2 * H } }, T0 + 3 * H, { expanded: true });
     const row = (i) => vm.rows[i];
-    assert.equal(row(0).badge, "Confirmed");
+    assert.equal(row(0).badge, "Community confirmed");
     assert.equal(row(0).evidence, "8 of 10 reviewing riders found it · 80% rider agreement · last confirmed 6 hours ago · 1 not sure");
-    assert.equal(row(1).badge, "1 report");
+    assert.equal(row(1).badge, "Rider report", "one rider's report is never called confirmed");
     assert.equal(row(1).evidence, "1 rider reported this yesterday");
     assert.equal(row(2).badge, "Riders disagree");
     assert.match(row(3).evidence, /^You \+ 1 rider · motion sensor · 1 hour ago · 3 of 3 reviewing riders found it/, "merged with the phone's own: one row");
-    assert.equal(row(4).badge, "Maybe fixed");
+    assert.equal(row(4).badge, "Possibly repaired");
     assert.match(row(4).evidence, /recent riders disagree, condition may have changed/);
     for (const r of vm.rows) assert.doesNotMatch(r.evidence.replace(/\d+% rider agreement/, ""), /\d+%/, "the only percentage is rider agreement");
     // said: the first confirmed hazard with its counts

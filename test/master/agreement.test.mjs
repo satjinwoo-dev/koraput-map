@@ -15,7 +15,7 @@ const reportVote = vote("rep", "found", T0, { device: "dRep" });
 
 test("one report: 'reported', warned, no percentage", () => {
     const s = A.summarize(hz(), [reportVote], T0 + H);
-    assert.equal(s.status, "reported");
+    assert.equal(s.status, "reviewed_report");
     assert.equal(s.found, 1);
     assert.equal(s.reviewers, 1);
     assert.equal(s.agreement, null, "1 of 1 is never shown as 100%");
@@ -25,14 +25,14 @@ test("one report: 'reported', warned, no percentage", () => {
 
 test("independent confirmation: another rider, another device, 2 h later", () => {
     // the same rider again: still one rider, still 'reported'
-    assert.equal(A.summarize(hz(), [reportVote, vote("rep", "found", T0 + 5 * H, { device: "dRep" })], T0 + 6 * H).status, "reported");
+    assert.equal(A.summarize(hz(), [reportVote, vote("rep", "found", T0 + 5 * H, { device: "dRep" })], T0 + 6 * H).status, "reviewed_report");
     // a second account on the reporter's phone: not independent
-    assert.equal(A.summarize(hz(), [reportVote, vote("alt", "found", T0 + 5 * H, { device: "dRep" })], T0 + 6 * H).status, "reported");
+    assert.equal(A.summarize(hz(), [reportVote, vote("alt", "found", T0 + 5 * H, { device: "dRep" })], T0 + 6 * H).status, "reviewed_report");
     // another rider 10 minutes later (riding together): not yet independent
-    assert.equal(A.summarize(hz(), [reportVote, vote("b", "found", T0 + 10 * 60000)], T0 + H).status, "reported");
+    assert.equal(A.summarize(hz(), [reportVote, vote("b", "found", T0 + 10 * 60000)], T0 + H).status, "reviewed_report");
     // another rider the next day: active
     const s = A.summarize(hz(), [reportVote, vote("b", "found", T0 + D)], T0 + D + H);
-    assert.equal(s.status, "active");
+    assert.equal(s.status, "community_confirmed");
     assert.equal(s.found, 2);
 });
 
@@ -44,7 +44,7 @@ test("agreement = found / (found + not found); unsure kept but outside; non-revi
     assert.equal(s.unsure, 2);
     assert.equal(s.reviewers, 10);
     assert.equal(s.agreementPct, 80, "8 of 10 reviewing riders");
-    assert.equal(s.status, "active");
+    assert.equal(s.status, "community_confirmed");
     // 2 reviewers only: counts, no percentage
     assert.equal(A.summarize(hz(), [reportVote, vote("x", "not_found", T0 + D)], T0 + D + H).agreement, null);
 });
@@ -61,24 +61,24 @@ test("recent riders disagree → 'condition may have changed'; 3 on 2 days → m
     const two = [...base, vote("x", "not_found", T0 + 2 * D), vote("y", "not_found", T0 + 2 * D + H)];
     const s2 = A.summarize(hz(), two, T0 + 2 * D + 2 * H);
     assert.equal(s2.recentDisagree, true);
-    assert.equal(s2.status, "active", "2 riders aren't enough to call it fixed");
+    assert.equal(s2.status, "community_confirmed", "2 riders aren't enough to call it fixed");
     // 3 not found but all on one day: not yet
     const sameDay = [...two, vote("z", "not_found", T0 + 2 * D + 2 * H)];
-    assert.equal(A.summarize(hz(), sameDay, T0 + 2 * D + 3 * H).status, "active");
+    assert.equal(A.summarize(hz(), sameDay, T0 + 2 * D + 3 * H).status, "community_confirmed");
     // the third on another day: maybe fixed, not warned
     const three = [...two, vote("z", "not_found", T0 + 3 * D)];
     const s3 = A.summarize(hz(), three, T0 + 3 * D + H);
-    assert.equal(s3.status, "maybe_fixed");
+    assert.equal(s3.status, "possibly_repaired");
     assert.equal(s3.alertable, false);
-    assert.equal(A.summarize(hz(), three, T0 + 10 * D + H).status, "fixed");
+    assert.equal(A.summarize(hz(), three, T0 + 10 * D + H).status, "archived");
     // official repair data: fixed at once
-    assert.equal(A.summarize(hz({ fixedAt: T0 + D }), base, T0 + D + H).status, "fixed");
+    assert.equal(A.summarize(hz({ fixedAt: T0 + D }), base, T0 + D + H).status, "archived");
     // a "found" on a fixed hazard opens a new epoch, and the old votes don't count in it
     const fixed = A.summarize(hz(), three, T0 + 10 * D + H);
     assert.equal(A.epochFor(hz(), fixed, "found"), 1);
     assert.equal(A.epochFor(hz(), fixed, "not_found"), 0);
     const reborn = A.summarize(hz({ epoch: 1, firstReportedAt: T0 + 11 * D, reporter: "n" }), [...three, vote("n", "found", T0 + 11 * D, { epoch: 1 })], T0 + 11 * D + H);
-    assert.equal(reborn.status, "reported");
+    assert.equal(reborn.status, "reviewed_report");
     assert.equal(reborn.found, 1);
     assert.equal(reborn.notFound, 0);
 });
@@ -93,11 +93,11 @@ test("disputed: 3+ reviewers and under 40% agreement — on the map, never warne
 });
 
 test("old reports expire by kind: a pothole after 30 days, a speed breaker after a year", () => {
-    assert.equal(A.summarize(hz(), [reportVote], T0 + 31 * D).status, "expired");
-    assert.equal(A.summarize(hz({ type: "speed_breaker" }), [reportVote], T0 + 31 * D).status, "reported");
-    assert.equal(A.summarize(hz({ type: "speed_breaker" }), [reportVote], T0 + 366 * D).status, "expired");
+    assert.equal(A.summarize(hz(), [reportVote], T0 + 31 * D).status, "archived");
+    assert.equal(A.summarize(hz({ type: "speed_breaker" }), [reportVote], T0 + 31 * D).status, "reviewed_report");
+    assert.equal(A.summarize(hz({ type: "speed_breaker" }), [reportVote], T0 + 366 * D).status, "archived");
     // a fresh "found" keeps it alive
-    assert.equal(A.summarize(hz(), [reportVote, vote("b", "found", T0 + 25 * D)], T0 + 40 * D).status, "active");
+    assert.equal(A.summarize(hz(), [reportVote, vote("b", "found", T0 + 25 * D)], T0 + 40 * D).status, "community_confirmed");
 });
 
 test("duplicates: same type group, within 15 m (or 2σ), same direction; opposite directions stay separate", () => {
@@ -120,4 +120,18 @@ test("the marker from many reports: accuracy-weighted, one bad fix can't drag it
     assert.ok(Math.abs(x - 1) < 0.5, `marker at ${x.toFixed(2)} m`);
     assert.equal(m.used, 3);
     assert.ok(m.sigmaM < 3, "more reports, a tighter marker");
+});
+
+test("voice only for what deserves it: a mild single report, or an old one, stays on the map, unspoken", () => {
+    assert.equal(A.summarize(hz({ severity: 1 }), [reportVote], T0 + H).alertable, false, "one rider, severity 1");
+    assert.equal(A.summarize(hz({ severity: 2 }), [reportVote], T0 + H).alertable, true, "one rider, severity 2: calmly");
+    // a pothole (30-day life) last found 16 days ago: old → shown, not spoken
+    const old = A.summarize(hz(), [reportVote, vote("b", "found", T0 + D)], T0 + 17 * D + H);
+    assert.equal(old.status, "community_confirmed");
+    assert.equal(old.stale, true);
+    assert.equal(old.alertable, false);
+    // archived says why
+    assert.equal(A.summarize(hz(), [reportVote], T0 + 31 * D).archivedReason, "expired");
+    assert.equal(A.summarize(hz({ fixedAt: T0 + D }), [reportVote], T0 + D + H).archivedReason, "repaired");
+    assert.deepEqual([...A.STATES], ["reviewed_report", "community_confirmed", "disputed", "possibly_repaired", "archived"]);
 });

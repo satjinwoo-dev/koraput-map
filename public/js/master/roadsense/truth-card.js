@@ -113,9 +113,10 @@
         const coverage = bar.length && (cov.clearM > 0 || cov.riddenM > 0) ? parts.join(" · ") : "";
         const limit = o.expanded ? Infinity : state.navigating ? ROWS_COMPACT : ROWS_FULL;
         const badgeOf = (/** @type {any} */ r) => r.status === "predicted" ? ["Predicted", "info"] : r.status === "verified" && r.refs && r.refs.length && !r.felt && r.riders === 0 ? ["Official", "warn"]
-            : r.status === "disputed" ? ["Riders disagree", "muted"] : r.status === "maybe_fixed" ? ["Maybe fixed", "muted"]
+            : r.status === "disputed" ? ["Riders disagree", "muted"] : r.status === "possibly_repaired" ? ["Possibly repaired", "muted"]
             : r.community && r.community.recentDisagree ? ["May have changed", "muted"]
-            : r.status === "verified" ? ["Confirmed", "warn"] : r.community ? ["1 report", "muted"] : ["Unconfirmed", "muted"];
+            : r.community && r.community.stale ? ["Old report", "muted"]
+            : r.status === "verified" ? [r.community ? "Community confirmed" : "Confirmed", "warn"] : r.community ? ["Rider report", "muted"] : ["Unconfirmed", "muted"];
         const rows = c.rows.slice(0, limit).map((/** @type {any} */ r) => ({
             id: r.id,
             distance: distance(state.navigating ? r.aheadM : r.alongM),

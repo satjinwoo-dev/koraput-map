@@ -249,7 +249,10 @@
                 const e = f.ego;
                 if (!Number.isFinite(e.lat) || !Number.isFinite(e.lng) || !Number.isFinite(e.headingDeg)) return;
                 const nextTurnM = navTurn ? navTurn.nextTurnM() : null;
-                const a = planner.plan({ lat: e.lat, lng: e.lng, headingDeg: e.headingDeg, speedMs: e.speedMs, posSigmaM: e.posSigmaM, nextTurnM }, candidates(f), f.t);
+                // how long the voice's warning line takes (master-app measures it per style and tone)
+                const persona = ctx.bus && typeof ctx.bus.last === "function" ? ctx.bus.last("state.persona") : null;
+                const speechS = persona && Number.isFinite(persona.warnSpeechS) ? persona.warnSpeechS : null;
+                const a = planner.plan({ lat: e.lat, lng: e.lng, headingDeg: e.headingDeg, speedMs: e.speedMs, posSigmaM: e.posSigmaM, nextTurnM, speechS }, candidates(f), f.t);
                 if (!a) return;
                 stats.bumpsWarned++;
                 for (const h of a.hazards) {
@@ -259,13 +262,13 @@
                 }
                 const key = `road.bump.${a.first.id}`;
                 if (a.kind === "generic") {
-                    ctx.report("road.hazards-stretch", { severity: "warning", key: "road.hazards-stretch", category: "road", ridingOnly: true, ttlMs: 4000, confidence: 0.7, data: { count: a.count } });
+                    ctx.report("road.hazards-stretch", { severity: "warning", priority: AL.PRIORITY, key: "road.hazards-stretch", category: "road", ridingOnly: true, ttlMs: 4000, confidence: 0.7, data: { count: a.count } });
                     return;
                 }
                 if (a.kind === "cluster") {
                     const words = a.hazards.map((/** @type {any} */ h) => (h.source === "community" ? TR.communityEvidence(h, f.t).shortPlain : TR.screenEvidence({ ...h.ev, ageS: Math.max(0, Math.round((f.t - h.ev.lastSeen) / 1000)) })));
                     ctx.report("road.hazards-ahead", {
-                        severity: "warning", key, category: "road", ridingOnly: true, ttlMs: 4000, confidence: 0.75,
+                        severity: "warning", priority: AL.PRIORITY, key, category: "road", ridingOnly: true, ttlMs: 4000, confidence: 0.75,
                         data: { count: a.count, spanM: a.spanM, distanceM: a.distanceM, detail: words[0], screen: { detail: `first in ${a.distanceM} m` } }
                     });
                     return;
@@ -278,7 +281,7 @@
                         return;
                     }
                     ctx.report("road.bump-reported", {
-                        severity: "warning", key, category: "road", ridingOnly: true, ttlMs: 4000, confidence: 0.75,
+                        severity: "warning", priority: AL.PRIORITY, key, category: "road", ridingOnly: true, ttlMs: 4000, confidence: 0.75,
                         data: {
                             distanceM: a.distanceM, riders: h.found, kind: h.type, severity: h.severity, roadsenseId: h.id, community: true,
                             agreementPct: h.agreementPct, found: h.found, notFound: h.notFound,
@@ -293,7 +296,7 @@
                 const row = { ...c, ageS: Math.max(0, Math.round((f.t - c.lastSeen) / 1000)) };
                 const w = TR.evidence(row);
                 ctx.report(c.felt ? "road.bump-ahead" : "road.bump-reported", {
-                    severity: "warning", key, category: "road", ridingOnly: true, ttlMs: 4000, confidence: c.confidence,
+                    severity: "warning", priority: AL.PRIORITY, key, category: "road", ridingOnly: true, ttlMs: 4000, confidence: c.confidence,
                     data: {
                         distanceM: a.distanceM, passes: c.passes, riders: c.riders, peakMs2: c.peakMs2 === null ? null : Math.round(c.peakMs2),
                         kind: c.type, sources: c.sources, lastSeenAgoS: row.ageS, confidence: c.confidence, roadsenseId: c.id,

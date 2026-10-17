@@ -212,10 +212,11 @@
 
     /** A card row from a published hazard (RoadPulse, agreement.js summary as /area sends it). @param {any} h @param {number} now @param {number} alongM @param {number} aheadM @param {number} offsetM */
     function communityRow(h, now, alongM, aheadM, offsetM) {
-        const status = h.status === "active" ? "verified" : h.status === "reported" ? "candidate" : h.status;      // disputed, maybe_fixed: shown, never counted
+        // community_confirmed counts as confirmed, a single reviewed report as unconfirmed; disputed / possibly repaired: shown, never counted
+        const status = h.status === "community_confirmed" ? "verified" : h.status === "reviewed_report" ? "candidate" : h.status;
         const w = communityEvidence(h, now);
         return {
-            id: h.id, type: h.type, status, community: { status: h.status, found: h.found, notFound: h.notFound, unsure: h.unsure, reviewers: h.reviewers, agreementPct: h.agreementPct, recentDisagree: Boolean(h.recentDisagree) },
+            id: h.id, type: h.type, status, community: { status: h.status, found: h.found, notFound: h.notFound, unsure: h.unsure, reviewers: h.reviewers, agreementPct: h.agreementPct, recentDisagree: Boolean(h.recentDisagree), stale: Boolean(h.stale) },
             confidence: null, alongM: Math.round(alongM), aheadM: Math.round(aheadM), offsetM: Math.round(offsetM * 10) / 10,
             sources: { rider: h.found }, riders: h.found, felt: false, lastSeen: h.lastFoundAt ?? null,
             ageS: Number.isFinite(h.lastFoundAt) ? Math.max(0, Math.round((now - h.lastFoundAt) / 1000)) : 0, peakMs2: null, refs: [], predicted: null,

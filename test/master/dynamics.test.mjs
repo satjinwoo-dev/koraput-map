@@ -261,7 +261,7 @@ test("RoadPulse: a published hazard is warned with its rider counts, in its dire
     const at = (x) => ({ lat: 18.5204, lng: LNG0 + x / M_PER_DEG_LNG });
     const hazards = [
         // 3 of 4 reviewing riders found it, eastbound, last confirmed the day before
-        { id: "h00000000000000a1", type: "pothole", ptype: "impact", ...at(150), heading: 90, bothWays: false, severity: 3, status: "active", found: 3, notFound: 1, unsure: 0, reviewers: 4, agreementPct: 75, lastFoundAt: list[0].t - 86400000, recentDisagree: false, alertable: true },
+        { id: "h00000000000000a1", type: "pothole", ptype: "impact", ...at(150), heading: 90, bothWays: false, severity: 3, status: "community_confirmed", found: 3, notFound: 1, unsure: 0, reviewers: 4, agreementPct: 75, lastFoundAt: list[0].t - 86400000, recentDisagree: false, alertable: true },
         // disputed: never warned
         { id: "h00000000000000b2", type: "pothole", ptype: "impact", ...at(400), heading: 90, bothWays: false, severity: 3, status: "disputed", found: 1, notFound: 3, unsure: 0, reviewers: 4, agreementPct: 25, lastFoundAt: list[0].t - 86400000, recentDisagree: true, alertable: false }
     ];

@@ -132,7 +132,18 @@
     // learning, affect and reasoning policies (js/master/cognition.js)
     const cognition = M.cognition ? M.cognition.install({ brain, bus, store: caps.get("store").namespace("cognition") }) : null;
     // agents that put words on screen themselves (the fatigue check) read the voice's style from here
-    const sharePersona = () => bus.publish("state.persona", { style: persona.style, tone: persona.tone, name: persona.name }, { source: "master", sticky: true });
+    // warnSpeechS: how long the voice's hazard warning takes to say in this style and tone (the longest of its
+    // lines with typical values), so hazard alerts start that much earlier (roadsense/alerts.js)
+    const warnSpeechS = () => {
+        if (!M.roadAlerts) return null;
+        const data = { distanceM: 150, riders: 3, evidence: "3 riders ne confirm kiya, kal", evidenceTu: "3 riders ne confirm kiya, kal", count: 3, spanM: 400, kind: "pothole", hazard: "gaddha", cls: "pothole", screen: {} };
+        let longest = 0;
+        for (const kind of ["road.bump-reported", "road.bump-ahead", "road.hazards-ahead", "road.hazard"]) {
+            try { const w = persona.phrase({ kind, key: `probe.${kind}`, severity: "warning", data }); if (w && w.text) longest = Math.max(longest, M.roadAlerts.speechSeconds(w.text)); } catch (e) { /* no line */ }
+        }
+        return longest || null;
+    };
+    const sharePersona = () => bus.publish("state.persona", { style: persona.style, tone: persona.tone, name: persona.name, warnSpeechS: warnSpeechS() }, { source: "master", sticky: true });
     sharePersona();
 
     // agent files that loaded before this one queued their definitions; from now on define() goes straight in

@@ -12,12 +12,17 @@ const LAT = 18.81, LNG = 82.71, M_LNG = 1 / (111320 * Math.cos(LAT * Math.PI / 1
 const hz = (id, east, o = {}) => ({ id, lat: LAT, lng: LNG + east * M_LNG, heading: 90, severity: 3, alertable: true, ...o });
 const ego = (east, kmh, o = {}) => ({ lat: LAT, lng: LNG + east * M_LNG, headingDeg: 90, speedMs: kmh * KMH, posSigmaM: 4, ...o });
 
-test("alert distance grows with speed: ≈ 50 m at 20 km/h, 70 at 40, 135 at 60, 220 at 80 (severity 3); 50–300 m", () => {
-    const d = (kmh, severity = 3, posSigmaM = 4) => AL.alertDistanceM({ speedMs: kmh * KMH, severity, posSigmaM });
+test("alert distance grows with speed: ≈ 50 m at 20 km/h, 75 at 40, 140 at 60, 230 at 80 (severity 3, a 2 s line + 1 s); 50–300 m", () => {
+    const d = (kmh, severity = 3, posSigmaM = 4, speechS) => AL.alertDistanceM({ speedMs: kmh * KMH, severity, posSigmaM, speechS });
     assert.equal(d(20), 50);
-    assert.ok(Math.abs(d(40) - 69) <= 2, `${d(40)}`);
-    assert.ok(Math.abs(d(60) - 134) <= 2, `${d(60)}`);
-    assert.ok(Math.abs(d(80) - 220) <= 2, `${d(80)}`);
+    assert.ok(Math.abs(d(40) - 74) <= 2, `${d(40)}`);
+    assert.ok(Math.abs(d(60) - 142) <= 2, `${d(60)}`);
+    assert.ok(Math.abs(d(80) - 231) <= 2, `${d(80)}`);
+    // a longer warning line (an 18+ one takes ~6 s) starts that much earlier: 4 s more at 60 km/h ≈ 67 m
+    assert.ok(Math.abs(d(60, 3, 4, 6) - d(60, 3, 4, 2) - 67) <= 2);
+    assert.equal(AL.speechSeconds("x".repeat(84)), 6);
+    assert.equal(AL.speechSeconds("short"), 1.5);
+    assert.ok(AL.PRIORITY < 70, "below navigation's turn prompts (70–72): a turn instruction is never pushed back");
     assert.ok(d(60, 2) < d(60, 3), "a milder hazard needs less slowing");
     assert.ok(d(60, 3, 20) > d(60, 3, 4), "a poorer fix warns earlier");
     assert.equal(d(140), 300, "never more than 300 m ahead");
@@ -45,7 +50,7 @@ test("slow riders get a close, gentle alert; faster ones an early one", () => {
     const at = (pl, kmh) => { for (let x = 0; x < 500; x += 5) { const a = pl.plan(ego(x, kmh), [hz("a", 500)], x * 100); if (a) return 500 - x; } return null; };
     const s = at(slow, 20), f = at(fast, 60);
     assert.ok(s <= 50 && s >= 40, `20 km/h: warned ${s} m before`);
-    assert.ok(f >= 125 && f <= 135, `60 km/h: warned ${f} m before`);
+    assert.ok(f >= 135 && f <= 145, `60 km/h: warned ${f} m before`);
 });
 
 test("no spam: hazards within 300 m become one alert; 15 s between alerts; nothing below 8 km/h", () => {

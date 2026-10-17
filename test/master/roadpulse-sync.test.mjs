@@ -73,7 +73,7 @@ test("published after review: waits a random 0–2 h, then lands as a hazard; ot
     // B fetches the tile: the hazard, as "1 rider reported"
     await b.sync.fetchTiles([tile]);
     const [h] = b.sync.hazards();
-    assert.equal(h.status, "reported");
+    assert.equal(h.status, "reviewed_report");
     assert.equal(h.found, 1);
     assert.equal(h.agreementPct, null);
     assert.equal(h.mine, false);
@@ -88,7 +88,7 @@ test("published after review: waits a random 0–2 h, then lands as a hazard; ot
     w.at(T0 + D + 3 * H);                                    // the tile is fetched again after 15 min
     await b.sync.fetchTiles([tile]);
     const [h2] = b.sync.hazards();
-    assert.equal(h2.status, "active");
+    assert.equal(h2.status, "community_confirmed");
     assert.equal(h2.found, 2);
 });
 

@@ -25,17 +25,23 @@
        still one rider); two accounts on one device count once;
      - "unsure" is kept and shown ("2 not sure"), never in the denominator.
 
-   STATUS (first that applies)
-     fixed        official repair data, or "maybe fixed" for 7 days with no new "found"
-     maybe_fixed  after the last "found", 3+ riders didn't find it, on 2+ different days
-     expired      the last "found" is older than the kind's lifetime (pothole 30 d,
-                  rough 90 d, speed breaker 365 d: humps are built to stay)
-     disputed     3+ reviewers and under 40% agreement: on the map, never warned
-     active       an INDEPENDENT rider found it: another contributor, another device,
-                  at least 2 hours after the first report
-     reported     one rider's report so far: warned (calmly), shown as "1 rider reported"
+   LIFECYCLE (the public states; first that applies). A "sensor candidate" exists
+   only on the phone (never here): it becomes public only as a rider-reviewed report.
+     archived             (archivedReason) "repaired": official repair data, or possibly
+                          repaired for 7 days with no new "found"; "expired": the last
+                          "found" is older than the kind's lifetime (pothole 30 d, rough
+                          90 d, speed breaker 365 d: humps are built to stay)
+     possibly_repaired    after the last "found", 3+ riders didn't find it, on 2+ days
+     disputed             3+ reviewers and under 40% agreement: on the map, never warned
+     community_confirmed  an INDEPENDENT rider found it: another contributor, another
+                          device, at least 2 hours after the first report
+     reviewed_report      one rider's reviewed report so far: on the map as "1 rider
+                          reported", never called confirmed
+   VOICE (alertable): community_confirmed, or a reviewed_report of severity 2+; never
+   disputed, possibly repaired, archived, or OLD (stale: no "found" for half its
+   lifetime: shown on the map, not spoken)
 
-   A later "found" on a fixed hazard opens a new EPOCH: potholes come back, and
+   A later "found" on an archived hazard opens a new EPOCH: potholes come back, and
    the old votes say nothing about the new hole.
 
    DIRECTION  Reports carry the rider's heading. A report matches a hazard only
@@ -147,7 +153,7 @@
 
     /**
      * Everything a card, a warning and the server need about one hazard.
-     * @param {{ type: string, epoch?: number, firstReportedAt?: number, reporter?: string, reporterDevice?: string|null, fixedAt?: number|null }} h
+     * @param {{ type: string, severity?: number, epoch?: number, firstReportedAt?: number, reporter?: string, reporterDevice?: string|null, fixedAt?: number|null }} h
      * @param {any[]} votes @param {number} now @param {typeof POLICY} [P]
      */
     function summarize(h, votes, now, P = POLICY) {
@@ -176,26 +182,30 @@
         const reviewers = F + N;
         const agreement = reviewers >= P.minReviewersForPct ? F / reviewers : null;
         let status;
-        if (fin(h.fixedAt) || (maybeFixedSince !== null && now - maybeFixedSince >= P.fixedAfterMs)) status = "fixed";
-        else if (maybeFixedSince !== null) status = "maybe_fixed";
-        else if (now > expiresAt) status = "expired";
+        /** @type {string|null} */ let archivedReason = null;
+        if (fin(h.fixedAt) || (maybeFixedSince !== null && now - maybeFixedSince >= P.fixedAfterMs)) { status = "archived"; archivedReason = "repaired"; }
+        else if (maybeFixedSince !== null) status = "possibly_repaired";
+        else if (now > expiresAt) { status = "archived"; archivedReason = "expired"; }
         else if (agreement !== null && agreement < P.disputedBelow) status = "disputed";
-        else if (independent) status = "active";
-        else if (F > 0) status = "reported";
+        else if (independent) status = "community_confirmed";
+        else if (F > 0) status = "reviewed_report";
         else status = "disputed";              // nobody (any more) says it's there
+        const stale = now - (lastFoundAt ?? firstAt) > lifetime / 2;
+        const severity = fin(/** @type {any} */ (h).severity) ? /** @type {any} */ (h).severity : 2;
         return {
-            epoch, status, found: F, notFound: N, unsure: unsure.length, reviewers, agreement,
+            epoch, status, archivedReason, found: F, notFound: N, unsure: unsure.length, reviewers, agreement,
             agreementPct: agreement === null ? null : Math.round(agreement * 100),
-            firstReportedAt: firstAt, lastFoundAt, lastReviewedAt, independent, recentDisagree, maybeFixedSince, expiresAt,
-            alertable: status === "reported" || status === "active"
+            firstReportedAt: firstAt, lastFoundAt, lastReviewedAt, independent, recentDisagree, maybeFixedSince, expiresAt, stale,
+            alertable: !stale && (status === "community_confirmed" || (status === "reviewed_report" && severity >= 2))
         };
     }
 
-    /** The epoch a new vote belongs to: a "found" on a fixed hazard is a new pothole. @param {any} h @param {any} summary @param {string} verdict */
+    /** The epoch a new vote belongs to: a "found" on an archived hazard is a new pothole. @param {any} h @param {any} summary @param {string} verdict */
     function epochFor(h, summary, verdict) {
         const e = h.epoch || 0;
-        return summary && summary.status === "fixed" && verdict === "found" ? e + 1 : e;
+        return summary && summary.status === "archived" && verdict === "found" ? e + 1 : e;
     }
 
-    return { KINDS, VERDICTS, POLICY, publicType, canMatch, findMatch, mergePosition, latestVotes, summarize, epochFor, headingDiff, distM };
+    const STATES = Object.freeze(["reviewed_report", "community_confirmed", "disputed", "possibly_repaired", "archived"]);
+    return { KINDS, VERDICTS, POLICY, STATES, publicType, canMatch, findMatch, mergePosition, latestVotes, summarize, epochFor, headingDiff, distM };
 });
