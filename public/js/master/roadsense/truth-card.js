@@ -7,13 +7,17 @@
 
      ROAD TRUTH                                   [2 confirmed]  [🔊]
      2 confirmed, 1 unconfirmed on this route: 2 bumps or potholes.
-     2.4 km  Pothole      Confirmed    You + 2 riders · motion sensor · 3 hours ago · 82%   until 30 Oct
-     5.1 km  Rough road   Unconfirmed  1 rider · motion sensor · yesterday · 41%
+     2.4 km  Pothole      Confirmed    8 of 10 reviewing riders found it · 80% rider agreement · last confirmed 3 hours ago
+     5.1 km  Rough road   1 report     1 rider reported this yesterday
+     6.0 km  Pothole      Confirmed    You + 1 rider · motion sensor · 2 hours ago   until 30 Oct
+   No probabilities: published hazards show how many riders who reviewed them
+   found them; the phone's own evidence shows who and which sensor.
      This phone's sensors and other riders' reports, updated 5 min ago.
      No report doesn't mean the road is clear.
 
-   Ridden by 2+ riders with nothing felt (smooth passes) → "Clear · verified by N
-   riders", with what that can't cover (water, gravel, animals); one rider →
+   Ridden by 2+ riders with nothing felt (smooth passes, a SENSOR signal, not a
+   review) → "Clear · no bumps felt by N riders", with what that can't cover
+   (water, gravel, animals); one rider →
    "ridden once"; nothing at all → "Condition unknown", never "clear". Official
    items show their list's name; predictions are badged "Predicted". 🔊 says the same
    card through the Master's fixed phrases (MUMaster.live.roadTruth).
@@ -84,9 +88,9 @@
             pill = { text: `${c.candidates} unconfirmed`, tone: "muted" };
             summary = `Nothing confirmed on ${where}, ${plural(c.candidates, "unconfirmed report", "unconfirmed reports")}. Ride with care.`;
         } else if (cov.clearM > 0 && cov.clearM >= 0.9 * span) {
-            // "ridden, nothing found" by 2+ riders: the founder's "Clear (verified by X riders)", said with what it means
-            pill = { text: `Clear · verified by ${cov.clearRiders} riders`, tone: "clear" };
-            summary = `No bumps or rough road felt on ${where} by ${cov.clearRiders} riders${cov.clearLastSeen ? `, last ${since(now - cov.clearLastSeen)}` : ""}.`;
+            // "ridden, nothing found" by 2+ riders' phones: a sensor signal, said as such (not a review: nobody said "no hazard")
+            pill = { text: `Clear · no bumps felt by ${cov.clearRiders} riders`, tone: "clear" };
+            summary = `No bumps or rough road felt on ${where} by ${cov.clearRiders} riders' phone sensors${cov.clearLastSeen ? `, last ${since(now - cov.clearLastSeen)}` : ""}.`;
         } else if (cov.clearM > 0) {
             pill = { text: `Partly clear · ${cov.clearRiders} riders`, tone: "clear" };
             summary = `Nothing reported on ${where}. ${distance(cov.clearM)} ridden by ${cov.clearRiders}+ riders with no bumps felt; the rest is unknown.`;
@@ -109,7 +113,10 @@
         const coverage = bar.length && (cov.clearM > 0 || cov.riddenM > 0) ? parts.join(" · ") : "";
         const limit = o.expanded ? Infinity : state.navigating ? ROWS_COMPACT : ROWS_FULL;
         const badgeOf = (/** @type {any} */ r) => r.status === "predicted" ? ["Predicted", "info"] : r.status === "verified" && r.refs && r.refs.length && !r.felt && r.riders === 0 ? ["Official", "warn"]
-            : r.status === "verified" ? ["Confirmed", "warn"] : ["Unconfirmed", "muted"];
+            : r.status === "disputed" ? ["Riders disagree", "muted"] : r.status === "possibly_repaired" ? ["Possibly repaired", "muted"]
+            : r.community && r.community.recentDisagree ? ["May have changed", "muted"]
+            : r.community && r.community.stale ? ["Old report", "muted"]
+            : r.status === "verified" ? [r.community ? "Community confirmed" : "Confirmed", "warn"] : r.community ? ["Rider report", "muted"] : ["Unconfirmed", "muted"];
         const rows = c.rows.slice(0, limit).map((/** @type {any} */ r) => ({
             id: r.id,
             distance: distance(state.navigating ? r.aheadM : r.alongM),

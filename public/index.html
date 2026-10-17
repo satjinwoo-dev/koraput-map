@@ -24,7 +24,7 @@
 <link rel="stylesheet" href="js/advice/advice.css?v=20261011-ask"><!-- Roadmap Step 8: the road-conditions badge (shows during a ride) -->
 <link rel="stylesheet" href="js/master/vision/vision.css?v=20261011-master"><!-- Master AI: break-time fatigue check (camera only while stopped) -->
 <link rel="stylesheet" href="js/ai/avatar.css?v=20261011-avatar">
-<link rel="stylesheet" href="js/master/roadsense/roadsense.css?v=20261017-rs5"><!-- RoadSense Live: the Route Truth Card -->
+<link rel="stylesheet" href="js/master/roadsense/roadsense.css?v=20261017-rp1"><!-- RoadSense Live: the Route Truth Card -->
 <link rel="stylesheet" href="js/navcam/navcam.css?v=20261015-horizon"><!-- navigation camera: heading-up, 3D tilt (js/navcam/) --><!-- Master AI avatar: the particle face (corner view + full screen) -->
 <!-- Three.js for the Master AI avatar (js/ai/). Must come before any module script. The CSP allows this inline
      block by its SHA-256, which server.js computes from this file at start-up (lib/csp-inline.js; test/ai checks it). -->
@@ -1106,12 +1106,30 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
     <div class="form-section" id="roadsense-section">
       <h3><svg class="i sm" style="width:13px;height:13px;vertical-align:-2px;"><use href="#i-shield"/></svg> Community road reports</h3>
       <div class="modal-row">
-        <label for="roadsense-share-toggle">Share &amp; receive road reports (anonymous)</label>
+        <label for="roadsense-share-toggle">Share &amp; receive road reports (pseudonymous)</label>
         <input type="checkbox" id="roadsense-share-toggle" class="switch">
       </div>
-      <p class="field-hint">When on, the bumps, rough road and repaired spots your phone feels are shared without your name, account or route: only single spots, sent at least 10 minutes later, never near where your rides start or end, under an ID that changes every day. In return the phone downloads other riders' reports along your route and keeps them, so warnings work with no signal.</p>
+      <p class="field-hint">Nothing your phone detects is shared on its own. After a ride you review what it found, and only the reports you choose to publish are shared: the spot, the road direction, the kind, how bad and the hour, never your name, route, home or ride history. Published reports go up 0–2 hours later, never near where your rides start or end, under a random contributor ID (not your name) so one rider counts as one vote. In return the phone downloads other riders' reports along your route, with how many riders confirmed each one, and keeps them so warnings work with no signal.</p>
       <p class="field-hint" id="roadsense-status" aria-live="polite">Off.</p>
+      <p class="field-hint" id="roadsense-badges" hidden></p>
+      <div class="modal-row">
+        <label for="roadsense-anon-toggle">Answer "did you find it?" anonymously</label>
+        <input type="checkbox" id="roadsense-anon-toggle" class="switch">
+      </div>
+      <p class="field-hint">Anonymous answers can't be linked to you or to each other, so they earn no badges and can't be deleted later. Reporting a new hazard still uses your contributor ID (never your name).</p>
+      <p class="field-hint" id="roadsense-private">Private places: nothing within 500 m of where your rides start or end, or where you stop for 10 minutes or more, is ever shared.</p>
+      <button id="roadsense-private-clear" type="button" class="btn-secondary-nav btn-block">Forget my private places on this phone</button>
       <button id="roadsense-forget-btn" type="button" class="btn-secondary-nav btn-block">Delete my road reports from the server</button>
+      <div class="modal-row">
+        <label for="voice-tone-toggle">Rowdy voice (bhaigiri mode)</label>
+        <input type="checkbox" id="voice-tone-toggle" class="switch">
+      </div>
+      <p class="field-hint" id="voice-tone-hint">Off: Family mode, polite Hinglish ("kripya dhyaan se chalayein"). On: street-style "tu, abe, bhai" with light roasting. Road warnings and their facts stay the same, and it never tells you to speed up.</p>
+      <div class="modal-row">
+        <label for="voice-18-toggle">18+ Rowdy (gaaliyan)</label>
+        <input type="checkbox" id="voice-18-toggle" class="switch">
+      </div>
+      <p class="field-hint" id="voice-18-hint">18+ only. Rowdy with street gaaliyan, spoken out loud (never shown on screen). Every warning still tells you to slow down, and it never abuses anyone's family, caste, religion or gender. Asks you to confirm your age first.</p>
     </div>
 
     <!-- Roadmap Step 8: ride advice & its safety gate (js/advice/advice-app.js; this section: js/advice/advice-ui.js) -->
@@ -1667,13 +1685,13 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="/shell.js"></script>
 <!-- App scripts, split by concern (Batch 2). Order matters: core first, boot last. -->
 <script src="js/core.js?v=20261004-step10"></script>
-<script src="js/voice/hinglish.js?v=20261017-rs5"></script>
+<script src="js/voice/hinglish.js?v=20261017-rp1"></script>
 <script src="js/voice/engine.js?v=20261011-voice"></script>
 <script src="js/voice.js?v=20261016-rs4"></script>
 <script src="js/gps.js?v=20261003-step7"></script>
 <script src="js/navcam/navcam-core.js?v=20261015-horizon"></script>
 <script src="js/navcam/navcam.js?v=20261015-horizon"></script>
-<script src="js/navigation.js?v=20261013-cam"></script>
+<script src="js/navigation.js?v=20261017-18plus"></script>
 <script src="js/garage/fuel-baseline.js?v=20261003-step8"></script>
 <script src="js/smartdrive.js?v=20261004-ui"></script>
 <script src="js/groupnav.js?v=20261004-step8"></script>
@@ -1739,8 +1757,8 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="js/master/bus.js?v=20261011-master"></script>
 <script src="js/master/capabilities.js?v=20261011-master"></script>
 <script src="js/master/kernel.js?v=20261011-master"></script>
-<script src="js/master/persona.js?v=20261011-master"></script>
-<script src="js/master/phrases-desi.js?v=20261017-rs5"></script>
+<script src="js/master/persona.js?v=20261017-18plus"></script>
+<script src="js/master/phrases-desi.js?v=20261017-rp1"></script>
 <script src="js/master/output.js?v=20261011-master"></script>
 <script src="js/master/brain.js?v=20261011-master"></script>
 <script src="js/master/agents/ride-agent.js?v=20261011-master"></script>
@@ -1753,11 +1771,13 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="js/master/perception/confirm.js?v=20261011-master"></script>
 <script src="js/master/perception/provider.js?v=20261011-master"></script>
 <script src="js/master/agents/road-agent.js?v=20261011-master"></script>
-<script src="js/master/perception/dynamics.js?v=20261011-d1"></script>
+<script src="js/master/perception/dynamics.js?v=20261017-rp3"></script>
 <script src="js/master/roadsense/roadsense.js?v=20261017-rs5"></script>
-<script src="js/master/roadsense/sync.js?v=20261017-rs5"></script>
-<script src="js/master/roadsense/truth.js?v=20261017-rs5"></script>
-<script src="js/master/agents/dynamics-agent.js?v=20261017-rs5"></script>
+<script src="js/master/roadsense/sync.js?v=20261017-rp6"></script>
+<script src="js/master/roadsense/agreement.js?v=20261017-rp4"></script>
+<script src="js/master/roadsense/alerts.js?v=20261017-rp3"></script>
+<script src="js/master/roadsense/truth.js?v=20261017-rp5"></script>
+<script src="js/master/agents/dynamics-agent.js?v=20261017-rp4"></script>
 <!-- Master AI cognitive engines: the 2 km radar (corridor → weather, traffic, topology, blackspot), link, vetted places,
      Deep Search, destination safety, music mood, rider context; learning/affect/fusion policies. Every third-party call goes
      through our server's /api/master (keys stay on the server). -->
@@ -1765,6 +1785,7 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="js/master/remote.js?v=20261011-cog1"></script>
 <script src="js/master/providers.js?v=20261011-cog1"></script>
 <script src="js/master/phrases-radar.js?v=20261013-valley"></script>
+<script src="js/master/phrases-tone.js?v=20261017-rp1"></script>
 <script src="js/master/cognition.js?v=20261013-valley"></script>
 <script src="js/master/agents/corridor-agent.js?v=20261011-cog1"></script>
 <script src="js/master/agents/link-agent.js?v=20261011-cog1"></script>
@@ -1777,11 +1798,12 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="js/master/agents/mood-agent.js?v=20261011-cog1"></script>
 <script src="js/master/agents/destination-agent.js?v=20261011-cog1"></script>
 <script src="js/master/agents/context-agent.js?v=20261011-cog1"></script>
-<script src="js/master/agents/roadsense-agent.js?v=20261015-rs3"></script>
-<script src="js/master/agents/truth-agent.js?v=20261017-rs5"></script>
-<script src="js/master/master-app.js?v=20261017-rs5"></script>
-<script src="js/master/roadsense/roadsense-ui.js?v=20261015-rs3"></script>
-<script src="js/master/roadsense/truth-card.js?v=20261017-rs5"></script>
+<script src="js/master/agents/roadsense-agent.js?v=20261017-rp5"></script>
+<script src="js/master/agents/truth-agent.js?v=20261017-rp1"></script>
+<script src="js/master/master-app.js?v=20261017-rp3"></script>
+<script src="js/master/roadsense/roadsense-ui.js?v=20261017-rp6"></script>
+<script src="js/master/roadsense/truth-card.js?v=20261017-rp3"></script>
+<script src="js/master/roadsense/review.js?v=20261017-rp6"></script>
 <!-- Master AI avatar: the state rules, then the module that draws the face (Three.js via the import map in <head>) -->
 <script src="js/ai/avatar-state.js?v=20261011-avatar"></script>
 <script type="module" src="js/ai/avatar-app.js?v=20261011-avatar"></script>

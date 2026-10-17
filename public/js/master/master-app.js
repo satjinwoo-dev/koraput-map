@@ -15,6 +15,7 @@
      MUMaster.live.status()                   every agent and its state
      MUMaster.live.enable("network") / disable("network")
      MUMaster.live.setStyle("plain" | "desi") / setName("Rahul")
+     MUMaster.live.setTone("family" | "rowdy" | "rowdy18")   the Hinglish voice's tone (18+: Settings asks first)
      MUMaster.live.delegate("deep-search", { query })
      MUMaster.live.delegate("fatigue-check")  the camera check now (only while stopped)
      MUMaster.live.tell({ kind: "master.reply", severity: "advice", text: "…" })
@@ -38,9 +39,10 @@
     if (M.live) return;                                                  // booted already
 
     const KEY = "mu.master.v1";
-    /** @returns {{ style: "desi"|"plain", name: string, agents: Record<string, any> }} */
+    /** @returns {{ style: "desi"|"plain", tone: "family"|"rowdy"|"rowdy18", name: string, agents: Record<string, any> }} */
     function load() {
-        const d = { style: /** @type {"desi"|"plain"} */ ("desi"), name: "", agents: {} };
+        // tone: "family" (polite, the default), "rowdy" (opt-in street banter) or "rowdy18" (18+ gaaliyan; js/master/phrases-tone.js)
+        const d = { style: /** @type {"desi"|"plain"} */ ("desi"), tone: /** @type {"family"|"rowdy"|"rowdy18"} */ ("family"), name: "", agents: {} };
         try { const v = JSON.parse(W.localStorage.getItem(KEY) || "null"); if (v && typeof v === "object") return { ...d, ...v, agents: { ...(v.agents || {}) } }; } catch (e) { /* first run / private mode */ }
         return d;
     }
@@ -91,6 +93,29 @@
             RS: M.roadsense, log: caps.get("roadsense"), cover: caps.get("roadsense-cover"), store: caps.get("store").namespace("roadsense-sync"), api: caps.get("master-api")
         }));
     }
+    // RoadPulse: the published hazards the sync keeps offline, with what riders said (warnings, the Truth Card)
+    if (caps.get("roadsense-sync") && M.roadAgreement) {
+        const sync = caps.get("roadsense-sync");
+        caps.provide("roadsense-community", {
+            available: () => true,
+            list: () => sync.hazards(),
+            /** @param {number} lat @param {number} lng @param {number} radiusM */
+            near: (lat, lng, radiusM) => sync.hazards().filter((/** @type {any} */ h) => M.roadAgreement.distM(lat, lng, h.lat, h.lng) <= radiusM)
+        });
+    }
+    // the next turn of the route being navigated (js/navigation.js navState): hazard alerts wait until after a turn
+    caps.provide("nav-turn", {
+        available: () => true,
+        nextTurnM: () => {
+            try {
+                // navState is a top-level const of js/voice.js (a global binding, not a window property)
+                // @ts-ignore: declared by another classic script
+                const n = typeof navState !== "undefined" ? navState : null;
+                return n && n.active && Number.isFinite(n.nextManeuverM) ? n.nextManeuverM : null;
+            }
+            catch (e) { return null; }
+        }
+    });
     if (M.providers) {
         caps.provide("app-context", M.providers.createAppContextProvider(W, W.document));
         if (W.MUTrip && W.MUTrip.elevation && typeof W.MUTrip.elevation.createElevation === "function") caps.provide("terrain", M.providers.createTerrainProvider(W.MUTrip.elevation.createElevation()));
@@ -99,7 +124,7 @@
         const media = M.providers.plugin(W, "MapUniteMedia");
         if (media) caps.provide("media", M.providers.createMediaProvider(media));
     }
-    const persona = M.phrases.install(M.persona.createPersona({ style: config.style, name: config.name }));
+    const persona = M.phrases.install(M.persona.createPersona({ style: config.style, tone: config.tone, name: config.name }));
     for (const pack of Array.isArray(M.phrasePacks) ? M.phrasePacks : []) { try { pack.install(persona); } catch (e) { console.warn("[master] phrase pack failed:", e); } }
     const output = M.output.createOutput({ window: W });
     const brain = M.brain.createBrain({ bus, contracts: M.contracts, persona, output });
@@ -107,7 +132,18 @@
     // learning, affect and reasoning policies (js/master/cognition.js)
     const cognition = M.cognition ? M.cognition.install({ brain, bus, store: caps.get("store").namespace("cognition") }) : null;
     // agents that put words on screen themselves (the fatigue check) read the voice's style from here
-    const sharePersona = () => bus.publish("state.persona", { style: persona.style, name: persona.name }, { source: "master", sticky: true });
+    // warnSpeechS: how long the voice's hazard warning takes to say in this style and tone (the longest of its
+    // lines with typical values), so hazard alerts start that much earlier (roadsense/alerts.js)
+    const warnSpeechS = () => {
+        if (!M.roadAlerts) return null;
+        const data = { distanceM: 150, riders: 3, evidence: "3 riders ne confirm kiya, kal", evidenceTu: "3 riders ne confirm kiya, kal", count: 3, spanM: 400, kind: "pothole", hazard: "gaddha", cls: "pothole", screen: {} };
+        let longest = 0;
+        for (const kind of ["road.bump-reported", "road.bump-ahead", "road.hazards-ahead", "road.hazard"]) {
+            try { const w = persona.phrase({ kind, key: `probe.${kind}`, severity: "warning", data }); if (w && w.text) longest = Math.max(longest, M.roadAlerts.speechSeconds(w.text)); } catch (e) { /* no line */ }
+        }
+        return longest || null;
+    };
+    const sharePersona = () => bus.publish("state.persona", { style: persona.style, tone: persona.tone, name: persona.name, warnSpeechS: warnSpeechS() }, { source: "master", sticky: true });
     sharePersona();
 
     // agent files that loaded before this one queued their definitions; from now on define() goes straight in
@@ -122,6 +158,7 @@
     toDom("state.poi", "mu:master-poi");
     toDom("state.destination", "mu:master-destination");
     toDom("state.truth", "mu:master-truth");                 // the Route Truth Card (js/master/roadsense/truth-card.js)
+    toDom("state.ride", "mu:master-ride");                   // ride started / ended: the post-ride review (js/master/roadsense/review.js)
 
     /** Words for a kind right now, without the queue (a reply to the rider's own question). @param {string} kind @param {any} data @param {"advice"|"warning"} [severity] */
     const words = (kind, data, severity = "advice") => persona.phrase({ kind, key: kind, severity, data }, brain.world);
@@ -193,6 +230,10 @@
         /** @param {string} id */ disable: (id) => kernel.disable(id),
         /** @param {"desi"|"plain"} s */ setStyle(s) { persona.setStyle(s); config.style = persona.style; save(); sharePersona(); },
         /** @param {string} n */ setName(n) { persona.setName(n); config.name = persona.name; save(); sharePersona(); },
+        /** Voice tone (Hinglish): "family" (default), "rowdy" or "rowdy18" (18+, Settings asks first). @param {"family"|"rowdy"|"rowdy18"} t */
+        setTone(t) { persona.setTone(t); config.tone = persona.tone; save(); sharePersona(); return persona.tone; },
+        /** The tone's own line for speech outside the Master (navigation's reroute), else null. @param {string} kind @param {any} [data] */
+        toneLine: (kind, data) => persona.toneLine(kind, data),
         /** @param {string} task @param {any} [payload] @param {any} [o] */ delegate: (task, payload, o) => brain.delegate(task, payload, o),
         /** @param {any} report */ tell: (report) => brain.tell(report),
         transcript: () => brain.transcript(),

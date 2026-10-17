@@ -34,14 +34,16 @@ function world() {
             async post(path, body) {
                 calls.push({ phone: name, path, body: JSON.parse(JSON.stringify(body)) });
                 if (!online) return { ok: false, status: 0, data: null, reason: "offline" };
-                const fn = { "/roadsense/upload": server.upload, "/roadsense/area": server.area, "/roadsense/forget": server.forget }[path];
+                const fn = { "/roadsense/upload": server.upload, "/roadsense/area": server.area, "/roadsense/forget": server.forget, "/roadsense/publish": server.publish }[path];
                 const r = await fn(JSON.parse(JSON.stringify(body)));
                 return { ok: r.status === 200 && r.json.ok !== false, status: r.status, data: JSON.parse(JSON.stringify(r.json)), reason: r.json.reason };
             }
         };
         const logStore = memStore(), syncStore = memStore();
         const log = RS.createLog({ store: logStore });
-        const sync = SY.createSync({ RS, log, store: syncStore, api, now: () => t });
+        // these tests run the raw-observation path (research datasets: shareRawObservations); the app itself
+        // publishes reviewed reports only (test/master/roadpulse-sync.test.mjs)
+        const sync = SY.createSync({ RS, log, store: syncStore, api, now: () => t, settings: { shareRawObservations: true } });
         /** this phone feels something `east` metres along the road */
         const feel = (o = {}) => log.add({ type: "bump", t, lat: LAT, lng: LNG + (o.east || 0) * M_LNG, source: "imu", rider: "self", present: true, conf: 0.7, peakMs2: 14, ...o });
         return { name, log, sync, api, logStore, syncStore, feel, offline: (v = true) => { online = !v; } };
@@ -282,9 +284,37 @@ test("wiring: scripts in order, offline precache, capabilities, the settings sec
     for (const f of ["roadsense/roadsense.js", "roadsense/sync.js", "roadsense/roadsense-ui.js", "agents/roadsense-agent.js"]) assert.ok(sw.includes(`"/js/master/${f}"`), f);
     assert.match(read("public/js/master/master-app.js"), /caps\.provide\("roadsense-sync"/);
     const server = read("server.js");
-    assert.match(server, /createRoadsense\(\{ db: \(\) => db, secret: \(\) => SERVER_SECRET \}\)/);
+    assert.match(server, /createRoadsense\(\{ db: \(\) => db, secret: \(\) => SERVER_SECRET, roads: \(\) => roadIndex \}\)/);
     assert.match(server, /createMasterApi\(\{\s*express, rateLimit, roadsense,/);
     const ts = JSON.parse(read("tsconfig.master.json")).files;
     for (const f of ["roadsense/sync.js", "roadsense/roadsense-ui.js", "agents/roadsense-agent.js"]) assert.ok(ts.includes(`public/js/master/${f}`), f);
     assert.ok(JSON.parse(read("tsconfig.master-server.json")).files.includes("lib/master/roadsense.js"));
+});
+
+test("agent: a long stop (10 min within 60 m) becomes a private place too", async () => {
+    const w = world();
+    const clock = fakeClock(T0);
+    const p = w.phone("A");
+    p.sync.setConsent(true);
+    const bus = B.createBus({ now: clock.now, timers: clock.timers });
+    const caps = CAPS.createCapabilities();
+    const fixes = emitter();
+    caps.provide("roadsense-sync", p.sync);
+    caps.provide("location", { available: () => true, current: () => null, onFix: fixes.on });
+    const kernel = K.createKernel({ bus, caps, contracts: C, now: clock.now, timers: clock.timers, log: { info() {}, warn() {}, error() {} } });
+    kernel.define(AGENT); kernel.start();
+    await flushAsync();
+    fixes.emit({ lat: LAT, lng: LNG });                              // the app opens: private
+    assert.equal(p.sync.status().privateZones, 1);
+    // ride 5 km away, then wait 9 minutes at a tea stall: not yet
+    const stall = { lat: LAT, lng: LNG + 5000 * M_LNG };
+    fixes.emit(stall);
+    for (let m = 1; m <= 9; m++) { clock.advance(MIN); fixes.emit({ lat: stall.lat + 10 / 111320, lng: stall.lng }); }
+    assert.equal(p.sync.status().privateZones, 1);
+    clock.advance(2 * MIN); fixes.emit(stall);
+    assert.equal(p.sync.status().privateZones, 2, "10 minutes there: private");
+    // moving on doesn't add more
+    clock.advance(MIN); fixes.emit({ lat: LAT, lng: LNG + 6000 * M_LNG });
+    assert.equal(p.sync.status().privateZones, 2);
+
 });

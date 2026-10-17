@@ -49,7 +49,7 @@
         apiVersion: 1,
         description: "The Route Truth Card: road reports on the route with their source, age and confidence, or 'condition unknown'.",
         requires: ["roadsense"],
-        optional: ["route", "location", "drive", "roadsense-sync", "roadsense-cover"],
+        optional: ["route", "location", "drive", "roadsense-sync", "roadsense-cover", "roadsense-community"],
         defaults: {
             debounceMs: 5000,          // log changes → rebuilt at most this often
             moveStepM: 100,            // navigating: rebuilt every 100 m along the route
@@ -67,6 +67,8 @@
             const drive = ctx.caps.has("drive") ? ctx.caps.get("drive") : null;
             const sync = ctx.caps.has("roadsense-sync") ? ctx.caps.get("roadsense-sync") : null;
             const cover = ctx.caps.has("roadsense-cover") ? ctx.caps.get("roadsense-cover") : null;   // smooth passes: "ridden, nothing found"
+            const communityCap = ctx.caps.has("roadsense-community") ? ctx.caps.get("roadsense-community") : null;   // RoadPulse: published hazards
+            const community = () => (communityCap ? communityCap.list() : []);
 
             /** @type {number[][]|null} */ let path = null;
             /** @type {{ lat: number, lng: number, s: number }[]} */ let pts = [];
@@ -82,7 +84,7 @@
             function rebuild() {
                 pending = null;
                 const t = ctx.now();
-                card = path ? T.buildTruth({ log, cover, path, now: t, fromM: navigating ? fromM : 0 }) : null;
+                card = path ? T.buildTruth({ log, cover, community: community(), path, now: t, fromM: navigating ? fromM : 0 }) : null;
                 builtFromM = fromM;
                 ctx.setState("truth", { at: t, hasRoute: Boolean(path), navigating, card, sources: sources() });
                 ctx.heartbeat();
@@ -138,11 +140,11 @@
             ctx.bus.handle("task.road-truth", () => {
                 const t = ctx.now();
                 let c, scope;
-                if (path) { c = T.buildTruth({ log, cover, path, now: t, fromM }); scope = fromM > 0 ? "ahead" : "route"; }
+                if (path) { c = T.buildTruth({ log, cover, community: community(), path, now: t, fromM }); scope = fromM > 0 ? "ahead" : "route"; }
                 else {
                     const here = location && location.current();
                     if (!here || !Number.isFinite(here.lat) || !Number.isFinite(here.lng)) return { kind: "road.truth-unknown", extras: [], data: { ...T.phraseData({ rows: [], verified: 0, candidates: 0, predicted: 0, byKind: {}, coverage: {} }, "near") }, card: null, sources: sources() };
-                    c = T.buildNear({ log, lat: here.lat, lng: here.lng, now: t, radiusM: cfg.nearRadiusM });
+                    c = T.buildNear({ log, community: community(), lat: here.lat, lng: here.lng, now: t, radiusM: cfg.nearRadiusM });
                     scope = "near";
                 }
                 return { kind: T.phraseKind(c), extras: T.phraseExtras(c), data: T.phraseData(c, scope), card: c, sources: sources() };

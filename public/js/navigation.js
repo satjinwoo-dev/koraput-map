@@ -511,6 +511,15 @@ function speak(text, opts = {}) {
     return voiceAnnounce(text, { priority: 65, category: "nav", drivingOnly: false, ...opts });
 }
 
+// The Master voice tone's own reroute line (js/master/phrases-tone.js "nav.reroute"), or null: only
+// 18+ Rowdy has one, every other tone keeps the English cue. Optional: navigation never needs the Master.
+function rerouteToneLine() {
+    try {
+        const live = window.MUMaster && window.MUMaster.live;
+        return live && typeof live.toneLine === "function" ? live.toneLine("nav.reroute") : null;
+    } catch (e) { return null; }
+}
+
 // Short on-screen distance ("350 m", "1.2 km").
 function formatDistanceShort(meters) {
     if (!Number.isFinite(meters)) return "";
@@ -767,12 +776,14 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
                                 lastRerouteTime = Date.now();
                                 offRouteStreak = 0;
 
+                                // the voice tone's own reroute line when it has one (18+ Rowdy), else the English cue
+                                const toneSay = rerouteToneLine();
                                 if (shouldReroute(currentEstimate, candidate, 0)) {
                                     showToast("🔄 Faster route found — recalculating.", 4000);
-                                    speak("Recalculating a faster route.", { priority: 66, key: "reroute", cooldownMs: 20000 });
+                                    speak(toneSay || "Recalculating a faster route.", { priority: 66, key: "reroute", cooldownMs: 20000 });
                                 } else {
                                     showToast("🔄 Back on track — route updated.", 3000);
-                                    speak("Route updated.", { priority: 66, key: "reroute", cooldownMs: 20000 });
+                                    speak(toneSay || "Route updated.", { priority: 66, key: "reroute", cooldownMs: 20000 });
                                 }
                                 islandShow({ id: "reroute", kind: "info", title: "Rerouting", sub: "Path updated to your position", ttl: 4000 });
                             }

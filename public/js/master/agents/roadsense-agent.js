@@ -37,6 +37,7 @@
         optional: ["route", "location"],
         defaults: {
             flushEveryMs: 60000,
+            longStopMs: 10 * 60000, stopRadiusM: 60,
             aroundEveryMs: 300000,       // while riding: refresh the tiles around the rider
             aroundMarginM: 6000          // ≈ one tile each way
         },
@@ -88,10 +89,17 @@
                 // the first fix after the app opens is private too: if the phone died mid-ride, the ride's end
                 // (often home) was never marked, and its last observations would otherwise go up
                 let first = true;
+                // a long stop (10 min within 60 m: a shop, a friend's place, an office) is private too
+                /** @type {{ lat: number, lng: number, t: number, marked: boolean }|null} */ let stop = null;
+                const M = 111320;
                 const offFix = location.onFix(ctx.wrap((/** @type {any} */ f) => {
                     if (!f || !Number.isFinite(f.lat) || !Number.isFinite(f.lng)) return;
                     lastFix = f;
                     if (first) { first = false; sync.markPrivate(f.lat, f.lng); }
+                    const t = Number.isFinite(f.t) ? f.t : ctx.now();
+                    const away = stop ? Math.hypot((f.lat - stop.lat) * M, (f.lng - stop.lng) * M * Math.cos(f.lat * Math.PI / 180)) : Infinity;
+                    if (!stop || away > cfg.stopRadiusM) stop = { lat: f.lat, lng: f.lng, t, marked: false };
+                    else if (!stop.marked && t - stop.t >= cfg.longStopMs) { stop.marked = true; sync.markPrivate(stop.lat, stop.lng); }
                 }));
                 ctx.onStop(offFix);
             }

@@ -128,6 +128,7 @@ const { createAdminApi } = require("./lib/bikedb/admin-api");
 const { createMasterApi } = require("./lib/master/http-api");
 const { createRoadsense } = require("./lib/master/roadsense");
 const { loadFeedDir: loadRoadsenseFeeds } = require("./lib/master/roadsense-feeds");
+const { loadRoadDir } = require("./lib/master/roadpulse-roads");
 const { cleanSettings: cleanBikeSettings } = require("./public/js/garage/store.js");
 
 // ==========================================================================
@@ -367,7 +368,10 @@ app.use("/api/bikes", bikeApi.router);
 // agents send, with a convoy behind one carrier IP), so mounted before the global ones.
 // RoadSense Live: anonymous road observations in this server's database, rider labels keyed by
 // SERVER_SECRET (lib/master/roadsense.js). Both are defined further down and only read per request.
-const roadsense = createRoadsense({ db: () => db, secret: () => SERVER_SECRET });
+// RoadPulse: the pilot district's roads (OSM extract as GeoJSON in ROADSENSE_ROADS_DIR, default data/roads; see its
+// README) make hazard merging road-aware; without them hazards merge by distance and direction.
+let roadIndex = loadRoadDir(process.env.ROADSENSE_ROADS_DIR || path.join(__dirname, "data", "roads"));
+const roadsense = createRoadsense({ db: () => db, secret: () => SERVER_SECRET, roads: () => roadIndex });
 const masterApi = createMasterApi({
     express, rateLimit, roadsense,
     allowOrigin: (origin) => CORS_ORIGIN === "*" || (Array.isArray(CORS_ORIGIN) && CORS_ORIGIN.includes(origin))
@@ -832,6 +836,13 @@ const SERVER_SECRET = (() => {
     const feeds = loadRoadsenseFeeds(process.env.ROADSENSE_FEEDS_DIR || path.join(__dirname, "data", "roadsense", "feeds"));
     if (feeds.items.length) console.log(`[roadsense] ${roadsense.ingest(feeds.items)} official/predicted item(s) from ${feeds.files} file(s)`);
     for (const e of feeds.errors.slice(0, 10)) console.warn(`[roadsense] feed: ${e}`);
+    // the road index: re-snap every hazard now (the road data may have changed since the last start) and daily
+    if (roadIndex) {
+        console.log(`[roadsense] road index: ${roadIndex.size()} ways${roadIndex.skipped() ? ` (${roadIndex.skipped()} skipped)` : ""}`);
+        const upkeep = () => { try { const m = roadsense.maintain(); console.log(`[roadsense] road upkeep: ${JSON.stringify(m)}`); } catch (e) { console.warn(`[roadsense] road upkeep failed: ${e && e.message}`); } };
+        upkeep();
+        setInterval(upkeep, 24 * 3600000).unref();
+    }
 }
 
 const ownerKeyFor = (deviceId) => deviceId

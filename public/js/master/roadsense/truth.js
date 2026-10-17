@@ -80,25 +80,31 @@
         if (row.status === "predicted") {
             const by = ((row.predicted && row.predicted.refs) || []).join(", ");
             desi = `sirf anumaan, ${by} se, kisi ne dekha nahi`; plain = `a prediction from ${by}, not seen by anyone`;
-            return { desi, plain, shortDesi: desi, shortPlain: plain };
+            return { desi, plain, shortDesi: desi, shortPlain: plain, tu: desi };
         }
         if (official && others <= 0 && !row.felt) { desi = `sarkari jaankari, ${refs}`; plain = `official: ${refs}`; }
         else if (official) { desi = `sarkari jaankari (${refs}) aur ${row.riders} riders`; plain = `official (${refs}) and ${row.riders} rider${row.riders === 1 ? "" : "s"}`; }
         else if (row.felt && others <= 0) { desi = `aapne khud feel kiya tha, ${when.desi}`; plain = `you felt it yourself, ${when.plain}`; }
         else if (row.felt) { desi = `aap aur ${others} aur riders ne feel kiya, aakhri baar ${when.desi}`; plain = `felt by you and ${others} other rider${others === 1 ? "" : "s"}, last ${when.plain}`; }
         else { desi = `${others} riders ne report kiya, aakhri baar ${when.desi}`; plain = `reported by ${others} rider${others === 1 ? "" : "s"}, last ${when.plain}`; }
-        if (row.status !== "verified") { desi += ", abhi pakka nahi"; plain += ", not confirmed"; }
+        // the same, in "tu" (the rowdy tone, phrases-tone.js): only the words that address the rider change
+        let tu = desi.replace(/^aapne khud/, "tune khud").replace(/^aap aur /, "tu aur ");
+        if (row.status !== "verified") { desi += ", abhi pakka nahi"; plain += ", not confirmed"; tu += ", abhi pakka nahi"; }
         // inside a warning said 2–8 s before the spot, only who and when (confidence is on screen)
         let shortDesi, shortPlain;
         if (official) { shortDesi = `sarkari jaankari, ${refs}`; shortPlain = `official, ${refs}`; }
         else if (row.felt && others <= 0) { shortDesi = `aapko ${when.desi} yahin laga tha`; shortPlain = `you hit it here ${when.plain}`; }
         else { const n = others + (row.felt ? 1 : 0); shortDesi = `${n} riders ne bataya, ${when.desi}`; shortPlain = `reported by ${n} riders ${when.plain}`; }
-        return { desi, plain, shortDesi, shortPlain };
+        return { desi, plain, shortDesi, shortPlain, tu };
     }
 
-    /** One line for a screen row: "2 riders · 3 h ago · 82%". @param {any} row */
+    /**
+     * One line for a screen row: "You + 2 riders · motion sensor · 3 hours ago". No percentage: the log's confidence
+     * gates warnings internally; shown as a number it would read as a probability (Confirmed Decision 3).
+     * @param {any} row
+     */
     function screenEvidence(row) {
-        if (row.status === "predicted") return `AI prediction · ${((row.predicted && row.predicted.refs) || []).join(", ")} · not seen by anyone · ${Math.round(row.confidence * 100)}%`;
+        if (row.status === "predicted") return `AI prediction · ${((row.predicted && row.predicted.refs) || []).join(", ")} · not seen by anyone`;
         const parts = [];
         const others = row.riders - (row.felt ? 1 : 0);
         if (row.sources && row.sources.official) parts.push(`Official: ${(row.refs || []).join(", ") || "official list"}`);
@@ -107,8 +113,52 @@
         const how = Object.entries(row.sources || {}).filter(([s]) => s !== "official").map(([s]) => (s === "imu" ? "motion sensor" : s === "camera" ? "camera" : "rider report")).join(" + ");
         if (how) parts.push(how);
         parts.push(ago(row.ageS).plain);
-        parts.push(`${Math.round(row.confidence * 100)}%`);
         return parts.join(" · ");
+    }
+
+    /**
+     * What riders said about a published hazard (agreement.js summary fields, as /area sends them), in words:
+     * counts of riders who reviewed it, never a probability.
+     *   1 report            "1 rider reported this · yesterday"
+     *   fewer than 3        "found by 2 riders, 1 didn't find it"
+     *   3+ reviewers        "8 of 10 reviewing riders found it · 80% rider agreement"
+     *   + "last confirmed 3 hours ago"; "recent riders disagree · condition may have changed"; "2 not sure"
+     * short*: inside a warning (who and when only); screen: one line for a card row.
+     * @param {any} h @param {number} now
+     */
+    function communityEvidence(h, now) {
+        // the server sends days and buckets only (route privacy); an exact time only in older data
+        const BUCKET = { today: { desi: "aaj", plain: "today" }, yesterday: { desi: "kal", plain: "yesterday" }, this_week: { desi: "is hafte", plain: "this week" }, earlier: { desi: "kuch din pehle", plain: "earlier" } };
+        const last = h.lastFoundBucket && /** @type {any} */ (BUCKET)[h.lastFoundBucket] ? /** @type {any} */ (BUCKET)[h.lastFoundBucket]
+            : Number.isFinite(h.lastFoundAt) ? ago(Math.max(0, (now - h.lastFoundAt) / 1000)) : null;
+        if (h.fewRiders) {
+            // a low-traffic road: no exact counts (one report there can point at one person)
+            const desi = `kuch riders ne report kiya${last ? `, ${last.desi}` : ""}`, plain = `reported by a few riders${last ? `, last ${last.plain}` : ""}`;
+            return { desi, plain, shortDesi: desi, shortPlain: plain, screen: plain.charAt(0).toUpperCase() + plain.slice(1) };
+        }
+        const rd = (/** @type {number} */ n) => `${n} rider${n === 1 ? "" : "s"}`;
+        let desi, plain, shortDesi, shortPlain;
+        if (h.found <= 1 && h.notFound === 0) {
+            desi = shortDesi = `1 rider ne report kiya${last ? `, ${last.desi}` : ""}`;
+            plain = shortPlain = `1 rider reported this${last ? ` ${last.plain}` : ""}`;
+        } else if (h.agreementPct === null || h.agreementPct === undefined) {
+            desi = `${h.found} riders ko mila${h.notFound ? `, ${h.notFound} ko nahi` : ""}`;
+            plain = `found by ${rd(h.found)}${h.notFound ? `, ${h.notFound} didn't find it` : ""}`;
+            shortDesi = `${h.found} riders ne confirm kiya${last ? `, ${last.desi}` : ""}`;
+            shortPlain = `confirmed by ${rd(h.found)}${last ? `, last ${last.plain}` : ""}`;
+        } else {
+            desi = `${h.reviewers} mein se ${h.found} riders ko mila`;
+            plain = `${h.found} of ${h.reviewers} reviewing riders found it · ${h.agreementPct}% rider agreement`;
+            shortDesi = `${h.reviewers} mein se ${h.found} riders ne confirm kiya`;
+            shortPlain = `${h.found} of ${h.reviewers} riders confirmed it`;
+        }
+        if (last && !(h.found <= 1 && h.notFound === 0)) { desi += `, aakhri baar ${last.desi}`; plain += ` · last confirmed ${last.plain}`; }
+        if (h.recentDisagree) { desi += ", par haal ke riders ko nahi mila, shayad badal gaya ho"; plain += " · recent riders disagree, condition may have changed"; }
+        if (h.unsure) plain += ` · ${h.unsure} not sure`;
+        // sensor evidence, said apart from what riders answered (never part of the agreement)
+        if (h.sensorFelt > 0) plain += ` · felt by sensors on ${h.sensorFelt} ride${h.sensorFelt === 1 ? "" : "s"}`;
+        const screen = plain.charAt(0).toUpperCase() + plain.slice(1);
+        return { desi, plain, shortDesi, shortPlain, screen };
     }
 
     /** metres between two points (equirectangular: fine at route-step scale) */
@@ -170,6 +220,40 @@
         return { ...row, words: evidence(row), screen: screenEvidence(row), kind: KIND_WORDS[/** @type {keyof typeof KIND_WORDS} */ (ev.type)] || { desi: ev.type, plain: ev.type, many: ev.type, one: ev.type } };
     }
 
+    /** A card row from a published hazard (RoadPulse, agreement.js summary as /area sends it). @param {any} h @param {number} now @param {number} alongM @param {number} aheadM @param {number} offsetM */
+    function communityRow(h, now, alongM, aheadM, offsetM) {
+        // community_confirmed counts as confirmed, a single reviewed report as unconfirmed; disputed / possibly repaired: shown, never counted
+        const status = h.status === "community_confirmed" ? "verified" : h.status === "reviewed_report" ? "candidate" : h.status;
+        const w = communityEvidence(h, now);
+        return {
+            id: h.id, type: h.type, status, community: { status: h.status, found: h.found, notFound: h.notFound, unsure: h.unsure, reviewers: h.reviewers, agreementPct: h.agreementPct, recentDisagree: Boolean(h.recentDisagree), stale: Boolean(h.stale) },
+            confidence: null, alongM: Math.round(alongM), aheadM: Math.round(aheadM), offsetM: Math.round(offsetM * 10) / 10,
+            sources: { rider: h.found }, riders: h.found, felt: false, lastSeen: h.lastFoundAt ?? null,
+            ageS: Number.isFinite(h.lastFoundAt) ? Math.max(0, Math.round((now - h.lastFoundAt) / 1000)) : 0, peakMs2: null, refs: [], predicted: null,
+            expiresAt: h.expiresAt ?? null,
+            words: { desi: w.desi, plain: w.plain, shortDesi: w.shortDesi, shortPlain: w.shortPlain, tu: w.desi }, screen: w.screen,
+            kind: KIND_WORDS[/** @type {keyof typeof KIND_WORDS} */ (h.type)] || { desi: h.type, plain: h.type, many: h.type, one: h.type }
+        };
+    }
+
+    /**
+     * Adds the published hazards along the route as rows; one within 15 m of a row the phone already has is the same
+     * hazard: its rider counts are added to that row's screen line instead.
+     * @param {any[]} rows @param {any[]} community @param {(lat: number, lng: number) => { alongM: number, offsetM: number }|null} place @param {number} fromM @param {number} now
+     */
+    function withCommunity(rows, community, place, fromM, now) {
+        const out = [...rows];
+        for (const h of community || []) {
+            if (!h || !Number.isFinite(h.lat) || !Number.isFinite(h.lng)) continue;
+            const pr = place(h.lat, h.lng);
+            if (!pr || pr.alongM < fromM) continue;
+            const same = out.find((r) => !r.community && Math.abs(r.alongM - pr.alongM) <= 15);
+            if (same) { same.screen = `${same.screen} · ${communityEvidence(h, now).screen}`; continue; }
+            out.push(communityRow(h, now, pr.alongM, pr.alongM - fromM, pr.offsetM));
+        }
+        return out.sort((a, b) => a.alongM - b.alongM);
+    }
+
     /** Counts of a card's rows. @param {any[]} rows */
     function tally(rows) {
         /** @type {Record<string, number>} */ const byKind = {};
@@ -218,9 +302,10 @@
 
     /**
      * The Truth Card for a route.
-     * @param {{ log: any, path: number[][], now: number, fromM?: number, cover?: any, corridorM?: number, stepM?: number, maxRows?: number }} o
+     * @param {{ log: any, path: number[][], now: number, fromM?: number, cover?: any, community?: any[], corridorM?: number, stepM?: number, maxRows?: number }} o
      *   fromM: the rider's distance along the route (rows behind them are left out; aheadM counts from here)
      *   cover: the smooth-pass coverage (roadsense.js createCoverage); without it every unreported stretch is "unknown"
+     *   community: published hazards (RoadPulse) with what riders said; shown with their counts
      */
     function buildTruth(o) {
         const cfg = { ...DEFAULTS, ...o };
@@ -238,8 +323,9 @@
                 found.set(ev.id, { ev, ...pr });
             }
         }
-        const rows = [...found.values()].sort((a, b) => a.alongM - b.alongM).slice(0, cfg.maxRows)
+        const own = [...found.values()].sort((a, b) => a.alongM - b.alongM).slice(0, cfg.maxRows)
             .map(({ ev, alongM, offsetM }) => rowOf(ev, o.log, o.now, alongM, alongM - fromM, offsetM));
+        const rows = withCommunity(own, o.community || [], (lat, lng) => { const pr = project(pts, lat, lng); return pr.offsetM <= cfg.corridorM ? pr : null; }, fromM, o.now).slice(0, cfg.maxRows);
         const t = tally(rows);
         const cov = stretchesOf(pts, fromM, rows, o.cover || null, o.now);
         const active = t.verified + t.candidates;
@@ -252,11 +338,13 @@
 
     /**
      * Without a route: the events within radiusM of the rider, nearest first (straight-line distance as aheadM).
-     * @param {{ log: any, lat: number, lng: number, now: number, radiusM?: number, maxRows?: number }} o
+     * @param {{ log: any, lat: number, lng: number, now: number, radiusM?: number, maxRows?: number, community?: any[] }} o
      */
     function buildNear(o) {
-        const found = o.log.query({ lat: o.lat, lng: o.lng, radiusM: o.radiusM || 2000, now: o.now }).slice(0, o.maxRows || DEFAULTS.maxRows);
-        const rows = found.map((/** @type {any} */ ev) => rowOf(ev, o.log, o.now, ev.distanceM, ev.distanceM, 0));
+        const radiusM = o.radiusM || 2000;
+        const found = o.log.query({ lat: o.lat, lng: o.lng, radiusM, now: o.now }).slice(0, o.maxRows || DEFAULTS.maxRows);
+        const own = found.map((/** @type {any} */ ev) => rowOf(ev, o.log, o.now, ev.distanceM, ev.distanceM, 0));
+        const rows = withCommunity(own, o.community || [], (lat, lng) => { const d = dist(o.lat, o.lng, lat, lng); return d <= radiusM ? { alongM: d, offsetM: 0 } : null; }, 0, o.now).slice(0, o.maxRows || DEFAULTS.maxRows);
         const t = tally(rows);
         return {
             at: o.now, lengthM: 0, fromM: 0, rows, ...t, stretches: [],
@@ -286,15 +374,16 @@
         return {
             scope, count: active.length, verified: card.verified, candidates: card.candidates, predicted: card.predicted || 0,
             where: where.desi, kinds: list("desi"),
-            hazard: first ? first.kind.desi : "", distanceM: first ? Math.max(10, first.aheadM) : 0, evidence: first ? first.words.desi : "",
-            confidence: first ? confidenceWords(first.confidence).desi : "",
+            hazard: first ? first.kind.desi : "", distanceM: first ? Math.max(10, first.aheadM) : 0, evidence: first ? first.words.desi : "", evidenceTu: first ? first.words.tu : "",
+            // a published hazard's evidence already says how many riders confirmed it: no extra "bharosa" words
+            confidence: first && first.confidence !== null ? confidenceWords(first.confidence).desi : "riders ke review ke hisaab se",
             clearM: cov.clearM || 0, clearRiders: cov.clearRiders || 0, clearAgo: clearAgo ? clearAgo.desi : "",
             unknownM: cov.unknownM || 0, riddenAgo: riddenAgo ? riddenAgo.desi : "",
             officialKind: off ? off.kind.desi : "", officialRefs: off ? off.refs.join(", ") : "", officialM: off ? Math.max(10, off.aheadM) : 0,
             predictedKind: pred ? pred.kind.desi : "", predictedM: pred ? Math.max(10, pred.aheadM) : 0, predictedBy: predBy,
             screen: {
                 where: where.plain, kinds: list("plain"), hazard: first ? first.kind.plain : "", evidence: first ? first.words.plain : "",
-                confidence: first ? `${confidenceWords(first.confidence).plain} (${Math.round(first.confidence * 100)}%)` : "",
+                confidence: first && first.confidence !== null ? confidenceWords(first.confidence).plain : "",
                 clearAgo: clearAgo ? clearAgo.plain : "", riddenAgo: riddenAgo ? riddenAgo.plain : "",
                 officialKind: off ? off.kind.plain : "", predictedKind: pred ? pred.kind.plain : ""
             }
@@ -333,5 +422,5 @@
         return out;
     }
 
-    return { DEFAULTS, KIND_WORDS, ago, confidenceWords, evidence, screenEvidence, resample, project, buildTruth, buildNear, phraseData, phraseKind, phraseExtras };
+    return { DEFAULTS, KIND_WORDS, ago, confidenceWords, evidence, screenEvidence, communityEvidence, resample, project, buildTruth, buildNear, phraseData, phraseKind, phraseExtras };
 });

@@ -1,9 +1,13 @@
 // Phase 2, component 1: bike dynamics. DynamicsFrame contract, provider, and the
 // dynamics agent riding fixtures/kotlin-dynamics-ride.jsonl, written by the real
 // Kotlin DynamicsCore from a simulated 100 Hz ride (perception-jvmtest/GenDynamics.kt):
-//   leg 1 east: rough stretch 100–200 m, pothole at 300 m, stop 20 s
-//   leg 2 west: hard brake 5 m/s² at 350 m, very hard 7 m/s² at 200 m, pothole again, stop 20 s
-//   leg 3 east: pothole ahead (now known from 2 passes), hard brake 4.5 m/s² at 420 m, stop 25 s
+//   leg 1 east: rough stretch 100–200 m, small patch at 250 m, pothole at 300 m, a one-wheel hit at 400 m, stop 20 s
+//   leg 2 west: hard brake 5 m/s² at 350 m, very hard 7 m/s² at 200 m, pothole again, the phone slips on its mount
+//               at 60 m (a 30 m/s² knock), stop 20 s
+//   leg 3 east: pothole ahead (now known from 2 passes), ridden leaning up to 35° through a bend,
+//               hard brake 4.5 m/s² at 420 m, speed breaker at 440 m, stop 25 s
+// The phone (GNSS) sits 0.4 m behind the front axle.
+// Road features hit both wheels (the rear 1.3 m after the front), as on a real bike.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -102,7 +106,7 @@ function fakeWindow() {
     return { localStorage: { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k), key: (i) => [...m.keys()][i] ?? null, get length() { return m.size; } } };
 }
 
-async function ride(list, store = fakeWindow(), roadsense = null) {
+async function ride(list, store = fakeWindow(), roadsense = null, more = {}) {
     const clock = fakeClock(list[0].t - 500);
     const bus = B.createBus({ now: clock.now, timers: clock.timers });
     const caps = CAPS.createCapabilities();
@@ -113,6 +117,7 @@ async function ride(list, store = fakeWindow(), roadsense = null) {
     caps.provide("drive", { available: () => true, current: () => drive, onChange: drives.on });
     caps.provide("dynamics", DY.createDynamicsProvider({ replay: list, timers: clock.timers }));
     if (roadsense) caps.provide("roadsense", roadsense);
+    for (const [id, cap] of Object.entries(more)) caps.provide(id, cap);
     const said = [], islands = [];
     const persona = PH.install(P.createPersona({ style: "desi", rng: () => 0 }));
     const output = O.createOutput({ window: {}, voice: (text, o) => { said.push({ text, at: clock.now(), ...o }); return true; }, island: (s) => { islands.push({ ...s, at: clock.now() }); return true; }, busy: () => false, emit: () => {} });
@@ -174,8 +179,126 @@ test("Kotlin ride → dynamics agent → Master AI: tips only when stopped, roug
     assert.equal(st.hardBrakes, 3);
     assert.equal(st.veryHardBrakes, 1);
     assert.ok(st.verifiedEvents >= 1, "the pothole is a verified RoadSense event");
-    assert.ok(st.cleanPasses >= 1, "one-off jolts on the rough stretch weren't felt again on the next pass");
+    assert.equal(st.cleanPasses, 0, "detector v2: no false jolts on the rough stretch, so nothing to clear");
     assert.ok(st.roughM >= 60);
+});
+
+test("detector v2 (Kotlin): no jolt from a rough road, the small patch only minor, impacts placed where the wheel hit", () => {
+    const jolts = frames().flatMap((f) => f.events.filter((e) => e.type === "jolt"));
+    // every jolt carries the v2 analysis
+    for (const j of jolts) {
+        assert.ok(DY.HAZARDS.includes(j.hazard), j.hazard);
+        assert.ok([1, 2, 3].includes(j.severity) && typeof j.minor === "boolean" && typeof j.doubleHit === "boolean");
+        assert.ok(j.posSigmaM > 0 && j.posSigmaM < 10, `posSigmaM ${j.posSigmaM}`);
+    }
+    // the rough stretch (100–200 m): rough segments, but no jolt (random vibration doesn't stand out of itself)
+    assert.deepEqual(jolts.filter((j) => xOf(j.lng) > 95 && xOf(j.lng) < 205).map((j) => Math.round(xOf(j.lng))), []);
+    // the small patch at 250 m: above the old fixed 7 m/s² threshold, now only minor (the rider's review, never warned)
+    const patch = jolts.filter((j) => Math.abs(xOf(j.lng) - 250) < 5);
+    assert.equal(patch.length, 1);
+    assert.equal(patch[0].minor, true);
+    assert.equal(patch[0].severity, 1);
+    // the pothole at 300 m: 3 passes, each an impact hit by both wheels, within 2 m of the hole (not where the bike was later)
+    const pot = jolts.filter((j) => Math.abs(xOf(j.lng) - 300) < 10);
+    assert.equal(pot.length, 3);
+    for (const j of pot) {
+        assert.equal(j.minor, false);
+        assert.equal(j.doubleHit, true);
+        assert.ok(j.severity >= 2);
+        assert.ok(Math.abs(xOf(j.lng) - 300) <= 2, `placed at ${xOf(j.lng).toFixed(1)} m`);
+        assert.ok(j.hazard === "pothole" || j.hazard === "bump", "never called a speed breaker");
+    }
+    // the speed breaker at 440 m (leg 3, after slowing down): recognised as one
+    const hump = jolts.filter((j) => Math.abs(xOf(j.lng) - 440) < 10);
+    assert.equal(hump.length, 1);
+    assert.equal(hump[0].hazard, "speed_breaker");
+    assert.equal(hump[0].minor, false);
+    assert.ok(Math.abs(xOf(hump[0].lng) - 440) <= 2);
+    // the one-wheel hit at 400 m: strong, but only the front wheel → unknown (never warned or public on its own)
+    const one = jolts.filter((j) => Math.abs(xOf(j.lng) - 400) < 5);
+    assert.equal(one.length, 1);
+    assert.deepEqual([one[0].cls, one[0].minor, one[0].doubleHit], ["unknown", true, false]);
+    // the mount slip at 60 m (leg 2): its knock is discarded, not reported
+    assert.equal(jolts.filter((j) => Math.abs(xOf(j.lng) - 60) < 10).length, 0, "the mount moved: window discarded");
+    // the pothole on leg 3 was ridden leaning 35°: still reported (a lean isn't a mount move)
+    const list = frames(), leg3 = list[list.findIndex((f, i) => i > 150 && f.ego.speedMs > 3)].t;
+    assert.equal(jolts.filter((j) => Math.abs(xOf(j.lng) - 300) < 10 && j.t > leg3).length, 1);
+    for (const j of jolts) assert.equal(j.cls === "impact", !j.minor);
+    assert.equal(jolts.length, 6, "nothing else: patch, 3 × pothole, one-wheel hit, breaker");
+});
+
+test("dynamics agent: minor jolts stay out of the log and warnings; the ride's detections are kept for the post-ride review", async () => {
+    const list = frames();
+    const store = fakeWindow();
+    const e = await ride(list, store);
+    const rev = JSON.parse(store.localStorage.getItem("mu.master.dynamics.review.ride"));
+    assert.ok(rev.endedAt > rev.startedAt);
+    const impacts = rev.items.filter((i) => i.kind === "impact");
+    assert.equal(impacts.filter((i) => i.minor).length, 1, "the small patch, for review only");
+    assert.equal(impacts.filter((i) => i.unknown).length, 1, "the one-wheel hit, for review only");
+    assert.equal(impacts.filter((i) => !i.minor && !i.unknown).length, 4, "3 × pothole + breaker");
+    assert.ok(impacts.filter((i) => !i.minor && !i.unknown).every((i) => i.logId), "impacts are in the log");
+    assert.ok(impacts.filter((i) => i.minor || i.unknown).every((i) => !i.logId), "minor and unknown are not");
+    assert.ok(impacts.some((i) => i.hazard === "speed_breaker"));
+    const rough = rev.items.filter((i) => i.kind === "rough");
+    assert.ok(rough.length >= 1 && rough.every((r) => r.points.length >= 1 && r.lengthM >= 20), "rough stretches as lines");
+    // warned only about the pothole (the breaker has one pass, the small patch is never a road event)
+    assert.ok(e.reports.filter((r) => r.kind.startsWith("road.bump")).every((r) => r.data.kind !== "speed_breaker"));
+    const saved = JSON.parse(store.localStorage.getItem("mu.master.dynamics.events"));
+    const RS = require("../../public/js/master/roadsense/roadsense.js");
+    const log = RS.createLog({ store: { get: (k, f) => (k === "events" ? saved : f), set() {} } });
+    log.load();
+    const end = list[list.length - 1].t;
+    assert.equal(log.query({ lat: 18.5204, lng: LNG0 + 250 / M_PER_DEG_LNG, radiusM: 8, now: end, group: "shock" }).length, 0, "the small patch isn't a road event");
+    const breaker = log.query({ lat: 18.5204, lng: LNG0 + 440 / M_PER_DEG_LNG, radiusM: 8, now: end, group: "shock" });
+    assert.equal(breaker.length, 1);
+    assert.equal(breaker[0].type, "speed_breaker");
+});
+
+test("RoadPulse: a published hazard is warned with its rider counts, in its direction only, and asked about after the ride", async () => {
+    const list = frames();
+    const store = fakeWindow();
+    const at = (x) => ({ lat: 18.5204, lng: LNG0 + x / M_PER_DEG_LNG });
+    const hazards = [
+        // 3 of 4 reviewing riders found it, eastbound, last confirmed the day before
+        { id: "h00000000000000a1", type: "pothole", ptype: "impact", ...at(150), heading: 90, bothWays: false, severity: 3, status: "community_confirmed", found: 3, notFound: 1, unsure: 0, reviewers: 4, agreementPct: 75, lastFoundAt: list[0].t - 86400000, recentDisagree: false, alertable: true },
+        // disputed: never warned
+        { id: "h00000000000000b2", type: "pothole", ptype: "impact", ...at(400), heading: 90, bothWays: false, severity: 3, status: "disputed", found: 1, notFound: 3, unsure: 0, reviewers: 4, agreementPct: 25, lastFoundAt: list[0].t - 86400000, recentDisagree: true, alertable: false }
+    ];
+    const community = { available: () => true, list: () => hazards, near: () => hazards };
+    const e = await ride(list, store, null, { "roadsense-community": community });
+    // leg 1 (east): warned on its own; leg 2 (west): not its direction; leg 3 (east): it and the pothole at 300 m
+    // (by then verified on this phone) are within 300 m of each other, so one line for both
+    const warned = e.reports.filter((r) => r.kind === "road.bump-reported" && r.data.community);
+    assert.equal(warned.length, 1);
+    assert.equal(warned[0].data.roadsenseId, "h00000000000000a1");
+    assert.ok(warned[0].data.distanceM >= 50 && warned[0].data.distanceM <= 100, `${warned[0].data.distanceM} m`);
+    const grouped = e.reports.filter((r) => r.kind === "road.hazards-ahead");
+    assert.equal(grouped.length, 1);
+    assert.equal(grouped[0].data.count, 2);
+    assert.ok(e.said.some((s) => /agle \d+ metre mein 2 road hazards/.test(s.text)));
+    assert.ok(e.said.some((s) => /4 mein se 3 riders ne confirm kiya/.test(s.text)), e.said.map((s) => s.text).join(" | "));
+    assert.ok(e.islands.some((i) => /3 of 4 reviewing riders found it · 75% rider agreement/.test(i.sub)), "the screen: counts, never a probability");
+    assert.ok(!e.reports.some((r) => r.data && r.data.roadsenseId === "h00000000000000b2"), "disputed: not warned");
+    // after the ride: "did you find it?" for the hazard it was warned about
+    const rev = JSON.parse(store.localStorage.getItem("mu.master.dynamics.review.ride"));
+    const w = Object.fromEntries(rev.warned.map((x) => [x.roadsenseId, x]));
+    assert.ok(w.h00000000000000a1.community);
+    // the phone followed the pass: right spot, its direction, moving, a good fix; nothing felt (it isn't in the simulation)
+    assert.deepEqual(w.h00000000000000a1.passage, { passed: true, quality: "good", felt: false });
+    assert.equal(w.h00000000000000a1.track, undefined, "only the verdict is kept, not the track");
+});
+
+test("passage: a hazard warned about but never reached (the bike stopped short and turned back) isn't 'passed'", async () => {
+    const list = frames();
+    const store = fakeWindow();
+    const at = (x) => ({ lat: 18.5204, lng: LNG0 + x / M_PER_DEG_LNG });
+    // 20 m beyond where leg 1 stops and turns back
+    const hazards = [{ id: "h00000000000000c3", type: "pothole", ptype: "impact", ...at(520), heading: 90, bothWays: false, severity: 3, status: "community_confirmed", found: 3, notFound: 0, unsure: 0, reviewers: 3, agreementPct: 100, lastFoundAt: list[0].t - 86400000, recentDisagree: false, alertable: true }];
+    await ride(list, store, null, { "roadsense-community": { available: () => true, list: () => hazards, near: () => hazards } });
+    const rev = JSON.parse(store.localStorage.getItem("mu.master.dynamics.review.ride"));
+    assert.equal(rev.warned.length, 1, "warned on the way");
+    assert.equal(rev.warned[0].passage.passed, false, "but never passed: its 'not found' would be a guess");
 });
 
 test("dynamics agent: a known pothole is warned on the first pass of the next ride (memory on the phone)", async () => {
@@ -266,5 +389,5 @@ test("RoadSense: a pothole verified only by other riders (sync) is warned on thi
     assert.ok(e.said.some((s) => /2 riders ne bataya, 22 ghante pehle\./.test(s.text)), e.said.map((s) => s.text).join(" | "));
     const isl = e.islands.find((i) => i.title === "Bump reported ahead");
     assert.ok(isl, "on screen");
-    assert.match(isl.sub, /^In \d+ m · 2 riders · motion sensor · 22 hours ago · \d+%$/);
+    assert.match(isl.sub, /^In \d+ m · 2 riders · motion sensor · 22 hours ago$/, "no percentage on screen");
 });

@@ -7,7 +7,8 @@ package com.mapunite.app.perception
  *     ego: { speedMs, speedSigma, headingDeg, lat?, lng?, posSigmaM? },
  *     longMs2, longMinMs2, longMaxMs2,       longitudinal acceleration over the last second (2 Hz low-pass)
  *     vertRmsMs2, braking, imuHz,
- *     events:   [{ id, type: hard_brake|hard_accel|jolt, t, durS, peakMs2, speedFromMs, speedToMs, dvImuMs, lat, lng, headingDeg, conf, source }],
+ *     events:   [{ id, type: hard_brake|hard_accel|jolt, t, durS, peakMs2, speedFromMs, speedToMs, dvImuMs, lat, lng, headingDeg, conf, source,
+ *                  jolts also: hazard: pothole|speed_breaker|bump, cls: impact|unknown|minor, severity 1..3, minor, peakRefMs2, contrast, doubleHit, posSigmaM }],
  *     segments: [{ t, distM, rmsMs2, refRmsMs2, cls: smooth|fair|rough|very_rough, speedMs, lat, lng, headingDeg }] }
  *
  * Validated in JS by public/js/master/perception/dynamics.js.
@@ -36,7 +37,13 @@ object DynamicsJson {
                 .append(",\"speedFromMs\":").numOrNull(e.speedFromMs, 2).append(",\"speedToMs\":").numOrNull(e.speedToMs, 2)
                 .append(",\"dvImuMs\":").num(e.dvImuMs, 2)
                 .append(",\"lat\":").numOrNull(e.lat, 7).append(",\"lng\":").numOrNull(e.lng, 7).append(",\"headingDeg\":").numOrNull(e.headingDeg, 1)
-                .append(",\"conf\":").num(e.conf, 2).append(",\"source\":\"").append(e.source).append("\"}")
+                .append(",\"conf\":").num(e.conf, 2).append(",\"source\":\"").append(e.source).append('"')
+            e.impact?.let { m ->
+                sb.append(",\"hazard\":\"").append(m.hazard).append("\",\"cls\":\"").append(m.cls).append("\",\"severity\":").append(m.severity).append(",\"minor\":").append(m.minor)
+                    .append(",\"peakRefMs2\":").num(m.peakRefMs2, 2).append(",\"contrast\":").num(m.contrast, 1)
+                    .append(",\"doubleHit\":").append(m.doubleHit).append(",\"posSigmaM\":").numOrNull(m.posSigmaM, 1)
+            }
+            sb.append('}')
         }
         sb.append("],\"segments\":[")
         s.segments.forEachIndexed { i, g ->
