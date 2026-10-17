@@ -19,11 +19,15 @@
      summarize(hazard, votes, now)  counts, agreement, status, freshness, whether to warn
      epochFor(hazard, summary, verdict)  a "found" on a fixed hazard opens a new epoch
 
-   VOTES  { contributor, device?, verdict: "found"|"not_found"|"unsure", t, epoch }
+   VOTES  { contributor, device?, verdict: "found"|"not_found"|"unsure", t, epoch, counts?, anon? }
      - the first report is the reporter's "found" vote;
      - one vote per rider per epoch: their LATEST counts (crossing it 5 times is
        still one rider); two accounts on one device count once;
-     - "unsure" is kept and shown ("2 not sure"), never in the denominator.
+     - "unsure" is kept and shown ("2 not sure"), never in the denominator;
+     - counts: false → kept for the audit, outside the agreement: the phone had no
+       evidence the rider actually passed it (passage attestation, sync.js);
+     - anon: an anonymous vote (a per-hazard token, unlinkable): it counts, but
+       anonymous votes alone never make a hazard community_confirmed.
 
    LIFECYCLE (the public states; first that applies). A "sensor candidate" exists
    only on the phone (never here): it becomes public only as a rider-reviewed report.
@@ -133,7 +137,7 @@
     /** One vote per rider (their latest), two accounts on one device counted once. @param {any[]} votes @param {number} epoch */
     function latestVotes(votes, epoch) {
         /** @type {Map<string, any>} */ const byWho = new Map();
-        for (const v of (votes || []).filter((x) => x && (x.epoch || 0) === epoch && VERDICTS.includes(x.verdict) && fin(x.t)).sort((a, b) => a.t - b.t)) {
+        for (const v of (votes || []).filter((x) => x && (x.epoch || 0) === epoch && VERDICTS.includes(x.verdict) && fin(x.t) && x.counts !== false && x.counts !== 0).sort((a, b) => a.t - b.t)) {
             byWho.set(String(v.contributor), v);
         }
         /** @type {Map<string, any>} */ const byDevice = new Map();
@@ -165,7 +169,7 @@
         const lastFoundAt = F ? Math.max(...found.map((v) => v.t)) : null;
         const lastReviewedAt = vs.length ? Math.max(...vs.map((v) => v.t)) : null;
         // independent confirmation: someone else, on another device, well after the first report
-        const independent = found.some((v) => String(v.contributor) !== String(h.reporter) && (!v.device || v.device !== h.reporterDevice) && v.t >= firstAt + P.independentGapMs);
+        const independent = found.some((v) => !v.anon && String(v.contributor) !== String(h.reporter) && (!v.device || v.device !== h.reporterDevice) && v.t >= firstAt + P.independentGapMs);
         // after the last "found": who didn't find it, and on how many days
         const after = lastFoundAt === null ? vs : vs.filter((v) => v.t > lastFoundAt);
         const afterNo = after.filter((v) => v.verdict === "not_found");

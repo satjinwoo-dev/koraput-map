@@ -52,6 +52,10 @@
    Every ride's own detections, and the hazards it was warned about, are kept in
    the store "review.ride" for that review (js/master/roadsense/review.js): the
    phone's own detections are private until the rider publishes them.
+   PASSAGE: for each hazard it warned about, the agent follows the pass on the
+   phone (closest approach, direction, speed, fix, whether a jolt was felt there)
+   and keeps only { passed, quality, felt }: what makes the rider's later "found"
+   or "not found" count (sync.js publish); no coordinates or times leave with it.
    ============================================================================ */
 (function (root, factory) {
     const def = factory();
@@ -109,6 +113,9 @@
             roughMinSpeedMs: 5,
             strongJoltMs2: 9,            // only strong jolts make a bump worth a warning (speed-scaled peakRef, detector v2)
             reviewMaxItems: 200,         // a ride's detections kept for the post-ride review
+            passMinM: 12,                // passed = the closest approach within max(this, 2σ of the hazard) …
+            passHeadingDeg: 45,          // … in its direction …
+            passSettleM: 40,             // … settled once the bike is this much farther away again (or 2 min later)
             dupM: 15,                    // a published hazard this close to one of the phone's own is the same one
             // "rode over it, no jolt": counted only when the phone could have felt it
             cleanMinSpeedMs: 3,          // DynamicsCore reports jolts only from 3 m/s
@@ -155,6 +162,34 @@
             /** @type {{ startedAt: number, endedAt: number|null, items: any[], warned: any[] }} */
             const ride = { startedAt: ctx.now(), endedAt: null, items: [], warned: [] };
             /** @type {any} */ let roughOpen = null;
+            /** recent jolts (any class), for "was it felt on this pass?" */
+            /** @type {{ t: number, lat: number, lng: number }[]} */ let recentJolts = [];
+            const distTo = (/** @type {any} */ a, /** @type {any} */ b) => Math.hypot((b.lat - a.lat) * M_PER_DEG, (b.lng - a.lng) * M_PER_DEG * Math.cos(a.lat * Math.PI / 180));
+            const angle = (/** @type {number} */ a, /** @type {number} */ b) => { const d = Math.abs(((a - b) % 360 + 360) % 360); return d > 180 ? 360 - d : d; };
+            /** Follows each warned hazard's pass; settles it into { passed, quality, felt }. @param {any} f @param {boolean} [final] */
+            function trackPassages(f, final = false) {
+                const e = f.ego;
+                for (const w of ride.warned) {
+                    if (w.passage) continue;
+                    const tr = w.track || (w.track = { dmin: Infinity, at: 0, headingOk: false, speed: 0, sigma: Infinity, imuHz: 0 });
+                    if (!final && hasPos(e)) {
+                        const d = distTo(e, w);
+                        if (d < tr.dmin) {
+                            tr.dmin = d; tr.at = f.t; tr.speed = e.speedMs; tr.imuHz = f.imuHz || 0;
+                            tr.sigma = Number.isFinite(e.posSigmaM) ? e.posSigmaM : 15;
+                            tr.headingOk = w.bothWays || !Number.isFinite(w.heading) || (Number.isFinite(e.headingDeg) && angle(e.headingDeg, w.heading) <= cfg.passHeadingDeg);
+                        }
+                        if (!(d > tr.dmin + cfg.passSettleM) && f.t - w.t < 120000) continue;
+                    }
+                    const reach = Math.max(cfg.passMinM, 2 * (Number.isFinite(w.sigmaM) ? w.sigmaM : 5));
+                    const passed = tr.dmin <= reach && tr.headingOk && tr.speed >= cfg.cleanMinSpeedMs;
+                    const quality = tr.sigma <= 10 && tr.imuHz >= cfg.cleanMinImuHz ? "good" : tr.sigma <= 20 ? "fair" : "poor";
+                    const felt = passed ? recentJolts.some((j) => Math.abs(j.t - tr.at) <= 3000 && distTo(j, w) <= 15) : null;
+                    w.passage = { passed, quality, felt };
+                    delete w.track;
+                }
+                recentJolts = recentJolts.filter((j) => f.t - j.t <= 10000);
+            }
             const keepReview = () => ctx.store.set("review.ride", ride);
 
             const fmt = (/** @type {number} */ v, d = 1) => (Math.round(v * 10 ** d) / 10 ** d).toFixed(d);
@@ -178,6 +213,7 @@
 
             function addJolt(/** @type {any} */ e) {
                 if (!hasPos(e)) return;
+                recentJolts.push({ t: e.t, lat: e.lat, lng: e.lng });
                 const v2 = typeof e.hazard === "string";
                 const sev = v2 ? e.severity : 2;
                 const posSigmaM = Number.isFinite(e.posSigmaM) ? e.posSigmaM : null;
@@ -258,7 +294,10 @@
                 for (const h of a.hazards) {
                     // "did you find it?" after the ride: only hazards other riders reported (the rider's own are already theirs)
                     const theirs = h.source === "community" ? !h.mine : !h.ev.felt;
-                    if (theirs && !ride.warned.some((w) => w.roadsenseId === h.id)) ride.warned.push({ roadsenseId: h.id, t: f.t, lat: h.lat, lng: h.lng, kind: h.source === "community" ? h.type : h.ev.type, community: h.source === "community" });
+                    if (theirs && !ride.warned.some((w) => w.roadsenseId === h.id)) ride.warned.push({
+                        roadsenseId: h.id, t: f.t, lat: h.lat, lng: h.lng, kind: h.source === "community" ? h.type : h.ev.type, community: h.source === "community",
+                        heading: Number.isFinite(h.heading) ? h.heading : null, bothWays: Boolean(h.bothWays), sigmaM: Number.isFinite(h.sigmaM) ? h.sigmaM : null
+                    });
                 }
                 const key = `road.bump.${a.first.id}`;
                 if (a.kind === "generic") {
@@ -376,6 +415,7 @@
                 }
                 noteRideOver(f);
                 settleRideOvers(f.t);
+                trackPassages(f);
                 noteSmooth(f);
                 if (f.events.length || f.segments.length) { save(f.t); keepReview(); }
 
@@ -394,7 +434,7 @@
 
             const off = P.onFrame(ctx.wrap(onFrame));
             // unsettled ride-overs are dropped on stop: a late jolt may never arrive
-            ctx.onStop(() => { off(); overBump.clear(); inCell.clear(); save(ctx.now(), true); ride.endedAt = ctx.now(); keepReview(); P.stop().catch(() => {}); });
+            ctx.onStop(() => { off(); overBump.clear(); inCell.clear(); save(ctx.now(), true); ride.endedAt = ctx.now(); trackPassages({ t: ride.endedAt, ego: {} }, true); keepReview(); P.stop().catch(() => {}); });
             return P.start();
         }
     };

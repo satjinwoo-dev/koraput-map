@@ -6,6 +6,7 @@
    #roadsense-status         what's waiting, sent, received and cached
    #roadsense-forget-btn     asks the server to delete everything this phone sent
    #roadsense-badges         RoadPulse: the rider's reports other riders confirmed, accuracy, badges
+   #roadsense-anon-toggle    RoadPulse: answer "did you find it?" anonymously (sync.setVoteMode)
    #voice-tone-toggle        the voice's tone: Family (off, default) or Rowdy (MUMaster.live.setTone)
    #voice-18-toggle          18+ Rowdy (gaaliyan), off by default, on only after an "are you 18+?" confirm
    Loaded after master-app.js, which provides the "roadsense-sync" capability.
@@ -68,6 +69,11 @@
             : "Publish road reports after your rides. Badges come when other riders confirm them, not from how much you ride.";
     }
     showBadges();
+    const anon = /** @type {HTMLInputElement|null} */ (document.getElementById("roadsense-anon-toggle"));
+    if (anon) {
+        if (typeof sync.setVoteMode !== "function") anon.disabled = true;
+        else { anon.checked = sync.voteMode() === "anonymous"; anon.addEventListener("change", () => { anon.checked = sync.setVoteMode(anon.checked ? "anonymous" : "account") === "anonymous"; }); }
+    }
     toggle.addEventListener("change", () => show(sync.setConsent(toggle.checked)));
     forget.addEventListener("click", async () => {
         if (!W.confirm("Delete every road report this phone has shared from the server? Reports from other riders aren't affected.")) return;

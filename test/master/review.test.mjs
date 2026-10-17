@@ -20,19 +20,20 @@ const ride = {
         { id: "u7.4", kind: "impact", hazard: "bump", severity: 1, minor: false, unknown: true, t: T0 + 45 * MIN, lat: 18.845, lng: 82.745, posSigmaM: 4 }
     ],
     warned: [
-        { roadsenseId: "h00000000000000a1", t: T0 + 50 * MIN, lat: 18.85, lng: 82.75, kind: "pothole", community: true },
+        { roadsenseId: "h00000000000000a1", t: T0 + 50 * MIN, lat: 18.85, lng: 82.75, kind: "pothole", community: true, passage: { passed: true, quality: "good", felt: false } },
+        { roadsenseId: "h00000000000000c3", t: T0 + 50 * MIN, lat: 18.855, lng: 82.755, kind: "pothole", community: true, passage: { passed: false, quality: "good", felt: null } },   // warned, then turned off before it
         { roadsenseId: "h00000000000000b2", t: T0 + 51 * MIN, lat: 18.86, lng: 82.76, kind: "pothole", community: true },   // the rider's own report
         { roadsenseId: "e77", t: T0 + 52 * MIN, lat: 18.87, lng: 82.77, kind: "bump", community: false }                    // synced evidence: no vote possible
     ]
 };
-const hazards = [{ id: "h00000000000000a1", type: "pothole", mine: false }, { id: "h00000000000000b2", type: "pothole", mine: true }];
+const hazards = [{ id: "h00000000000000a1", type: "pothole", mine: false }, { id: "h00000000000000b2", type: "pothole", mine: true }, { id: "h00000000000000c3", type: "pothole", mine: false }];
 
 test("what the rider is asked: detections, minor ones apart, and 'did you find it?' only for other riders' published hazards", () => {
     const rv = RV.buildReview(ride, { hazards });
     assert.deepEqual(rv.items.map((x) => x.id), ["j3.1", "j5.2", "r9"]);
     assert.deepEqual(rv.minor.map((x) => x.id), ["m1.3"]);
     assert.deepEqual(rv.unknown.map((x) => x.id), ["u7.4"], "one-wheel hits: their own group, never published unless the rider confirms");
-    assert.deepEqual(rv.asks.map((x) => x.hazard), ["h00000000000000a1"]);
+    assert.deepEqual(rv.asks.map((x) => x.hazard), ["h00000000000000a1"], "not the rider's own, not one the phone didn't see them pass");
     assert.equal(rv.empty, false);
     assert.equal(RV.buildReview({ startedAt: T0, endedAt: T0 + 1, items: [], warned: [] }).empty, true);
 });
@@ -62,7 +63,7 @@ test("only what the rider confirmed and kept public is published; corrected spot
     assert.match(moved.id, /^r\d+\.j3\.1$/);
     for (const r of out.reports) assert.match(r.id, /^[A-Za-z0-9_.-]{6,64}$/, "ids the server accepts");
     assert.equal(out.reports[2].sigmaM, 15, "a hand-placed spot is less exact");
-    assert.deepEqual(out.votes, [{ hazard: "h00000000000000a1", verdict: "not_found", t: T0 + 50 * MIN }]);
+    assert.deepEqual(out.votes, [{ hazard: "h00000000000000a1", verdict: "not_found", t: T0 + 50 * MIN, passage: { passed: true, quality: "good", felt: false } }], "the vote carries its passage evidence, no coordinates");
     assert.deepEqual(out.cover, { from: T0, to: T0 + 60 * MIN });
     // the phone's own log: confirmed ones present (incl. the private one), the wrong one absent
     assert.deepEqual(out.local.map((x) => [x.type, x.present]), [["pothole", true], ["speed_breaker", false], ["rough", true], ["bump", false], ["bump", true], ["pothole", true]]);

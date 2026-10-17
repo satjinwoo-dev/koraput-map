@@ -147,6 +147,8 @@
         if (last && !(h.found <= 1 && h.notFound === 0)) { desi += `, aakhri baar ${last.desi}`; plain += ` · last confirmed ${last.plain}`; }
         if (h.recentDisagree) { desi += ", par haal ke riders ko nahi mila, shayad badal gaya ho"; plain += " · recent riders disagree, condition may have changed"; }
         if (h.unsure) plain += ` · ${h.unsure} not sure`;
+        // sensor evidence, said apart from what riders answered (never part of the agreement)
+        if (h.sensorFelt > 0) plain += ` · felt by sensors on ${h.sensorFelt} ride${h.sensorFelt === 1 ? "" : "s"}`;
         const screen = plain.charAt(0).toUpperCase() + plain.slice(1);
         return { desi, plain, shortDesi, shortPlain, screen };
     }

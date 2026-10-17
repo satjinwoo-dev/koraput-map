@@ -60,9 +60,10 @@
         const items = placed.filter((x) => !x.minor && !x.unknown);
         const unknown = placed.filter((x) => x.unknown);
         const minor = placed.filter((x) => x.minor && !x.unknown);
-        // "did you find it?" only for published hazards (they can take a vote), not the rider's own
-        const asks = (ride.warned || []).filter((w) => w.community && byId.has(w.roadsenseId) && !byId.get(w.roadsenseId).mine)
-            .map((w) => ({ hazard: w.roadsenseId, t: w.t, lat: w.lat, lng: w.lng, type: byId.get(w.roadsenseId).type }));
+        // "did you find it?" only for published hazards (they can take a vote), not the rider's own, and only where the
+        // phone saw the rider actually pass it in its direction (a "not found" without that would be a guess)
+        const asks = (ride.warned || []).filter((w) => w.community && byId.has(w.roadsenseId) && !byId.get(w.roadsenseId).mine && w.passage && w.passage.passed)
+            .map((w) => ({ hazard: w.roadsenseId, t: w.t, lat: w.lat, lng: w.lng, type: byId.get(w.roadsenseId).type, passage: w.passage }));
         return { startedAt: ride.startedAt, endedAt: ride.endedAt, items, unknown, minor, asks, empty: !items.length && !unknown.length && !minor.length && !asks.length };
     }
 
@@ -101,7 +102,7 @@
         });
         for (const q of review.asks) {
             const v = d.asks && d.asks[q.hazard];
-            if (v === "found" || v === "not_found" || v === "unsure") votes.push({ hazard: q.hazard, verdict: v, t: q.t });
+            if (v === "found" || v === "not_found" || v === "unsure") votes.push({ hazard: q.hazard, verdict: v, t: q.t, passage: q.passage });
         }
         return { reports, votes, local, cover: d.shareClear && review.endedAt ? { from: review.startedAt, to: review.endedAt } : null };
     }

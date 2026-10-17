@@ -12,6 +12,8 @@ const { createMasterApi } = require("../../lib/master/http-api.js");
 const RS = require("../../public/js/master/roadsense/roadsense.js");
 const rateLimit = require("express-rate-limit");
 
+// the phone confirmed the rider passed the spot, in its direction, with a good fix (passage attestation)
+const PASSED = { passed: true, quality: "good", felt: null };
 const H = 3600000, D = 24 * H;
 const T0 = Date.UTC(2026, 9, 15, 6, 0, 0);
 const LAT = 18.81, LNG = 82.71;
@@ -79,14 +81,14 @@ test("votes: 8 of 10 reviewing riders; unsure outside; maybe fixed after 3 not-f
     const r = await rs.publish({ v: 1, contributor: tok("a"), device: tok("x"), reports: [report()] });
     const id = r.json.results[0].hazard;
     at(T0 + 3 * D);
-    for (const c of ["b", "c", "d", "e", "f", "g", "h"]) await rs.publish({ v: 1, contributor: tok(c), device: tok(`dev${c}`), votes: [{ hazard: id, verdict: "found", t: T0 + 2 * D }] });
-    for (const c of ["i", "j"]) await rs.publish({ v: 1, contributor: tok(c), device: tok(`dev${c}`), votes: [{ hazard: id, verdict: "not_found", t: T0 + 2 * D + H }] });
-    await rs.publish({ v: 1, contributor: tok("k"), device: tok("devk"), votes: [{ hazard: id, verdict: "unsure", t: T0 + 2 * D + H }] });
+    for (const c of ["b", "c", "d", "e", "f", "g", "h"]) await rs.publish({ v: 1, contributor: tok(c), device: tok(`dev${c}`), votes: [{ hazard: id, verdict: "found", passage: PASSED, t: T0 + 2 * D }] });
+    for (const c of ["i", "j"]) await rs.publish({ v: 1, contributor: tok(c), device: tok(`dev${c}`), votes: [{ hazard: id, verdict: "not_found", passage: PASSED, t: T0 + 2 * D + H }] });
+    await rs.publish({ v: 1, contributor: tok("k"), device: tok("devk"), votes: [{ hazard: id, verdict: "unsure", passage: PASSED, t: T0 + 2 * D + H }] });
     let [h] = await area();
     assert.deepEqual([h.found, h.notFound, h.unsure, h.reviewers, h.agreementPct, h.status], [8, 2, 1, 10, 80, "community_confirmed"]);
     // later riders don't find it: 3 more not-found over 2 days → maybe fixed, not warned
     at(T0 + 6 * D);
-    for (const [c, day] of [["l", 4], ["m", 4], ["o", 5]]) await rs.publish({ v: 1, contributor: tok(c), device: tok(`dev${c}`), votes: [{ hazard: id, verdict: "not_found", t: T0 + day * D }] });
+    for (const [c, day] of [["l", 4], ["m", 4], ["o", 5]]) await rs.publish({ v: 1, contributor: tok(c), device: tok(`dev${c}`), votes: [{ hazard: id, verdict: "not_found", passage: PASSED, t: T0 + day * D }] });
     [h] = await area();
     assert.equal(h.status, "possibly_repaired");
     assert.equal(h.recentDisagree, true);
@@ -107,7 +109,7 @@ test("refusals: bad input, inaccurate new hazards, unknown hazards, daily limits
     for (const body of [null, { v: 1, contributor: "short", reports: [report()] }, { v: 1, contributor: tok("a") }, { v: 1, contributor: tok("a"), reports: Array.from({ length: 51 }, () => report()) }]) {
         assert.equal((await rs.publish(body)).status, 400);
     }
-    const r = await rs.publish({ v: 1, contributor: tok("a"), reports: [report({ type: "dragon" }), report({ severity: 5 }), report({ source: "official" }), report({ t: T0 - 40 * D }), report({ sigmaM: 45 })], votes: [{ hazard: "h0000000000000000", verdict: "found", t: T0 }, { hazard: "nope", verdict: "found", t: T0 }] });
+    const r = await rs.publish({ v: 1, contributor: tok("a"), reports: [report({ type: "dragon" }), report({ severity: 5 }), report({ source: "official" }), report({ t: T0 - 40 * D }), report({ sigmaM: 45 })], votes: [{ hazard: "h0000000000000000", verdict: "found", passage: PASSED, t: T0 }, { hazard: "nope", verdict: "found", passage: PASSED, t: T0 }] });
     assert.equal(r.status, 200);
     assert.deepEqual(r.json.rejected.map((x) => `${x.kind}${x.i}`), ["report0", "report1", "report2", "report3", "report4", "vote0", "vote1"]);
     assert.match(r.json.rejected[4].error, /inaccurate/);
@@ -122,7 +124,7 @@ test("forget: a contributor's reports and votes go; a hazard only they reported 
     const { rs, area, at } = setup();
     const a = await rs.publish({ v: 1, contributor: tok("a"), reports: [report(), report({ east: 500 })] });
     at(T0 + D);
-    await rs.publish({ v: 1, contributor: tok("b"), votes: [{ hazard: a.json.results[0].hazard, verdict: "found", t: T0 + D - H }] });
+    await rs.publish({ v: 1, contributor: tok("b"), votes: [{ hazard: a.json.results[0].hazard, verdict: "found", passage: PASSED, t: T0 + D - H }] });
     assert.equal((await area()).length, 2);
     const f = await rs.forget({ v: 1, riders: [], contributors: [tok("a")] });
     assert.equal(f.status, 200);
@@ -145,4 +147,66 @@ test("routes: /api/master/roadsense/publish is mounted", async () => {
         assert.equal(res.status, 200, JSON.stringify(j));
         assert.equal(j.results[0].created, true);
     } finally { await close(); }
+});
+
+test("a vote counts only with passage evidence; every answer stays in the audit history; the latest one counts", async () => {
+    const { db, rs, area, at } = setup();
+    const id = (await rs.publish({ v: 1, contributor: tok("a"), device: tok("x"), reports: [report()] })).json.results[0].hazard;
+    at(T0 + D);
+    // no passage: kept, outside the agreement
+    let r = await rs.publish({ v: 1, contributor: tok("b"), votes: [{ hazard: id, verdict: "not_found", t: T0 + D - H }] });
+    assert.equal(r.json.results[0].counts, false);
+    // the phone wasn't sure the rider passed it (poor fix): same
+    r = await rs.publish({ v: 1, contributor: tok("c"), votes: [{ hazard: id, verdict: "not_found", t: T0 + D - H, passage: { passed: true, quality: "poor", felt: false } }] });
+    assert.equal(r.json.results[0].counts, false);
+    let [h] = await area();
+    assert.deepEqual([h.found, h.notFound], [1, 0], "neither counts");
+    // b rides it again, with evidence, twice: one current row, two history rows for b
+    await rs.publish({ v: 1, contributor: tok("b"), votes: [{ hazard: id, verdict: "found", t: T0 + D - 30 * 60000, passage: PASSED }] });
+    at(T0 + 2 * D);
+    await rs.publish({ v: 1, contributor: tok("b"), votes: [{ hazard: id, verdict: "not_found", t: T0 + 2 * D - H, passage: PASSED }] });
+    [h] = await area();
+    assert.deepEqual([h.found, h.notFound], [1, 1], "b's latest only");
+    const b = rs.contributorOf(tok("b"));
+    assert.equal(db.prepare("SELECT COUNT(*) AS n FROM roadsense_vote WHERE contributor = ?").get(b).n, 1);
+    assert.deepEqual(db.prepare("SELECT verdict, counts FROM roadsense_vote_history WHERE contributor = ? ORDER BY id").all(b).map((x) => [x.verdict, x.counts]), [["not_found", 0], ["found", 1], ["not_found", 1]]);
+});
+
+test("anonymous votes: unlinkable per-hazard tokens, one vote each, never confirm alone, never create a hazard", async () => {
+    const { db, rs, area, at } = setup();
+    const ids = [];
+    for (const east of [0, 500]) ids.push((await rs.publish({ v: 1, contributor: tok("a"), reports: [report({ east })] })).json.results[0].hazard);
+    at(T0 + D);
+    const anon = (votes) => rs.publish({ v: 1, anonymous: true, votes }, { ip: "10.0.0.9" });
+    let r = await anon([{ hazard: ids[0], verdict: "found", t: T0 + D - H, token: "per-hazard-token-aaaaaaa1", passage: PASSED }, { hazard: ids[1], verdict: "found", t: T0 + D - H, token: "per-hazard-token-bbbbbbb2", passage: PASSED }]);
+    assert.equal(r.status, 200);
+    // the same token again on the same hazard: still one vote
+    await anon([{ hazard: ids[0], verdict: "found", t: T0 + D - 30 * 60000, token: "per-hazard-token-aaaaaaa1", passage: PASSED }]);
+    let hz = await area();
+    const first = hz.find((h) => h.id === ids[0]);
+    assert.equal(first.found, 2);
+    assert.equal(first.status, "reviewed_report", "anonymous votes alone never make it community-confirmed");
+    // the two anonymous votes can't be joined: different stored voters
+    const voters = db.prepare("SELECT contributor FROM roadsense_vote WHERE anon = 1").all().map((x) => x.contributor);
+    assert.equal(new Set(voters).size, 2);
+    // a new hazard needs a contributor; a token is required
+    assert.equal((await rs.publish({ v: 1, anonymous: true, reports: [report()] }, { ip: "x" })).status, 400);
+    r = await anon([{ hazard: ids[0], verdict: "found", t: T0 + D - H, passage: PASSED }]);
+    assert.match(r.json.rejected[0].error, /token/);
+    // an account rider confirming it does
+    await rs.publish({ v: 1, contributor: tok("c"), votes: [{ hazard: ids[0], verdict: "found", t: T0 + D - H, passage: PASSED }] });
+    hz = await area();
+    assert.equal(hz.find((h) => h.id === ids[0]).status, "community_confirmed");
+});
+
+test("sensor evidence apart from testimony: felt by sensors on N rides, passed clean N times; never in the agreement", async () => {
+    const { rs, area, at } = setup();
+    const id = (await rs.publish({ v: 1, contributor: tok("a"), reports: [report()] })).json.results[0].hazard;     // sensor-origin: felt 1
+    at(T0 + D);
+    await rs.publish({ v: 1, contributor: tok("b"), votes: [{ hazard: id, verdict: "found", t: T0 + D - H, passage: { passed: true, quality: "good", felt: true } }] });
+    await rs.publish({ v: 1, contributor: tok("c"), votes: [{ hazard: id, verdict: "unsure", t: T0 + D - H, passage: { passed: true, quality: "good", felt: false } }] });
+    await rs.publish({ v: 1, contributor: tok("d"), votes: [{ hazard: id, verdict: "not_found", t: T0 + D - H, passage: { passed: true, quality: "fair", felt: false } }] });
+    const [h] = await area();
+    assert.deepEqual([h.sensorFelt, h.sensorClean], [2, 1], "felt on 2 rides; 1 clean pass with a good fix (the fair one isn't enough)");
+    assert.deepEqual([h.found, h.notFound, h.unsure], [2, 1, 1], "the agreement is the riders' answers only");
 });

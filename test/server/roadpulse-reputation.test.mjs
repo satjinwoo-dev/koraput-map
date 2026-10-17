@@ -9,6 +9,8 @@ const { openServerDatabase } = require("../../lib/server-db.js");
 const { createRoadsense } = require("../../lib/master/roadsense.js");
 const REP = require("../../lib/master/roadpulse-reputation.js");
 
+// the phone confirmed the rider passed the spot, in its direction, with a good fix (passage attestation)
+const PASSED = { passed: true, quality: "good", felt: null };
 const H = 3600000, D = 24 * H;
 const T0 = Date.UTC(2026, 5, 1, 6);
 const tok = (c) => `contributor-${c}`.padEnd(24, c);
@@ -29,7 +31,7 @@ async function report(w, who, k, t, dev = `dev-${who}`) {
 }
 async function vote(w, who, hazard, verdict, t, dev = `dev-${who}`) {
     w.at(t + H);
-    await w.rs.publish({ v: 1, contributor: tok(who), device: tok(dev), votes: [{ hazard, verdict, t }] });
+    await w.rs.publish({ v: 1, contributor: tok(who), device: tok(dev), votes: [{ hazard, verdict, passage: PASSED, t }] });
 }
 const me = async (w, who) => (await w.rs.me({ v: 1, contributor: tok(who) })).json;
 
@@ -96,7 +98,7 @@ test("spam doesn't pay: the same pothole reported again counts once; more than 2
 
 test("the rules: Pakka Scout needs 3 months, Sadak Prahari 20 reviews given, Ilaake ka Ustaad one area over 3 months; no Ghat Guardian on a guess", () => {
     const mk = (count, monthsSpan, area = 0) => Array.from({ length: count }, (_, i) => ({ hazard_id: `h${area}-${i}`, epoch: 0, device: "d", t: T0 + Math.floor(i * monthsSpan * 30 / count) * D, received: T0 + Math.floor(i * monthsSpan * 30 / count) * D + i, lat: LAT + area, lng: LNG }));
-    const found = () => [{ contributor: "other", device: "o", verdict: "found", t: T0 + 400 * D, epoch: 0 }];
+    const found = () => [{ contributor: "other", device: "o", verdict: "found", passage: PASSED, t: T0 + 400 * D, epoch: 0 }];
     const rep = (reports, reviewsGiven = 0) => REP.reputationOf({ contributor: "me", reports, votesOf: found, reviewsGiven });
     assert.deepEqual(rep(mk(25, 1)).badges.map((b) => b.id), ["rasta_scout"], "25 in one month: not Pakka, not Ustaad yet");
     assert.ok(rep(mk(25, 3)).badges.some((b) => b.id === "pakka_scout"));

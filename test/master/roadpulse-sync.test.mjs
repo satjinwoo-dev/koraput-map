@@ -10,6 +10,8 @@ const SY = require("../../public/js/master/roadsense/sync.js");
 const { openServerDatabase } = require("../../lib/server-db.js");
 const { createRoadsense } = require("../../lib/master/roadsense.js");
 
+// the phone confirmed the rider passed the spot, in its direction, with a good fix (passage attestation)
+const PASSED = { passed: true, quality: "good", felt: null };
 const T0 = Date.UTC(2026, 9, 17, 6), MIN = 60000, H = 3600000, D = 24 * H;
 const LAT = 18.81, LNG = 82.71, M_LNG = 1 / (111320 * Math.cos(LAT * Math.PI / 180));
 const memStore = () => { const m = new Map(); return { get: (k, f = null) => (m.has(k) ? JSON.parse(m.get(k)) : f), set: (k, v) => m.set(k, JSON.stringify(v)) }; };
@@ -82,7 +84,7 @@ test("published after review: waits a random 0–2 h, then lands as a hazard; ot
     assert.equal(a.sync.hazards()[0].mine, true);
     // B rode past it the next day and found it: a vote → active
     w.at(T0 + D);
-    b.sync.publish({ votes: [{ hazard: h.id, verdict: "found", t: T0 + D - H }] });
+    b.sync.publish({ votes: [{ hazard: h.id, verdict: "found", passage: PASSED, t: T0 + D - H }] });
     w.at(T0 + D + 2 * H + MIN);
     await b.sync.flush();
     w.at(T0 + D + 3 * H);                                    // the tile is fetched again after 15 min
@@ -155,10 +157,40 @@ test("reputation: the rider's own reports, confirmed by others, from the server;
     let r = await a.sync.reputation();
     assert.deepEqual([r.reports, r.confirmed, r.pending, r.badges.length], [1, 0, 1, 0]);
     await b.sync.fetchTiles([tile]);
-    b.sync.publish({ votes: [{ hazard: b.sync.hazards()[0].id, verdict: "found", t: T0 + D }] });
+    b.sync.publish({ votes: [{ hazard: b.sync.hazards()[0].id, verdict: "found", passage: PASSED, t: T0 + D }] });
     w.at(T0 + D + 3 * H);
     await b.sync.flush();
     r = await a.sync.reputation();
     assert.equal(r.confirmed, 1);
     assert.equal(r.next.needConfirmed, 4);
+});
+
+test("anonymous answers: votes go without the contributor, each with its own per-hazard token; reports still under the contributor", async () => {
+    const w = world();
+    const a = w.phone("A"), b = w.phone("B");
+    a.sync.setConsent(true); b.sync.setConsent(true);
+    a.sync.publish({ reports: [report(), report({ east: 600 })] });
+    w.at(T0 + 3 * H);
+    await a.sync.flush();
+    await b.sync.fetchTiles([tile]);
+    assert.equal(b.sync.setVoteMode("anonymous"), "anonymous");
+    const [h1, h2] = b.sync.hazards();
+    b.sync.publish({ reports: [report({ east: 1500 })], votes: [{ hazard: h1.id, verdict: "found", t: T0 + D, passage: PASSED }, { hazard: h2.id, verdict: "not_found", t: T0 + D, passage: PASSED }] });
+    w.at(T0 + D + 3 * H);
+    await b.sync.flush();
+    const calls = w.calls.filter((c) => c.phone === "B" && c.path === "/roadsense/publish");
+    const anon = calls.find((c) => c.body.anonymous), acct = calls.find((c) => !c.body.anonymous);
+    assert.equal(anon.body.contributor, undefined);
+    assert.equal(anon.body.device, undefined);
+    assert.equal(anon.body.votes.length, 2);
+    assert.notEqual(anon.body.votes[0].token, anon.body.votes[1].token, "a different token per hazard: they can't be joined");
+    assert.ok(anon.body.votes.every((v) => !v.token.includes(acct.body.contributor)));
+    assert.equal(acct.body.reports.length, 1, "a new hazard goes under the contributor");
+    assert.equal(acct.body.votes.length, 0);
+    w.at(T0 + D + 4 * H);
+    await b.sync.fetchTiles([tile]);
+    const after = Object.fromEntries(b.sync.hazards().map((h) => [h.id, h]));
+    assert.equal(after[h1.id].found, 2);
+    assert.equal(after[h1.id].status, "reviewed_report", "anonymous alone doesn't confirm");
+    assert.equal(after[h2.id].notFound, 1);
 });

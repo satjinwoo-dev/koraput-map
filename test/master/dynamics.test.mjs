@@ -282,7 +282,23 @@ test("RoadPulse: a published hazard is warned with its rider counts, in its dire
     assert.ok(!e.reports.some((r) => r.data && r.data.roadsenseId === "h00000000000000b2"), "disputed: not warned");
     // after the ride: "did you find it?" for the hazard it was warned about
     const rev = JSON.parse(store.localStorage.getItem("mu.master.dynamics.review.ride"));
-    assert.deepEqual(rev.warned.map((w) => [w.roadsenseId, w.community]), [["h00000000000000a1", true]]);
+    const w = Object.fromEntries(rev.warned.map((x) => [x.roadsenseId, x]));
+    assert.ok(w.h00000000000000a1.community);
+    // the phone followed the pass: right spot, its direction, moving, a good fix; nothing felt (it isn't in the simulation)
+    assert.deepEqual(w.h00000000000000a1.passage, { passed: true, quality: "good", felt: false });
+    assert.equal(w.h00000000000000a1.track, undefined, "only the verdict is kept, not the track");
+});
+
+test("passage: a hazard warned about but never reached (the bike stopped short and turned back) isn't 'passed'", async () => {
+    const list = frames();
+    const store = fakeWindow();
+    const at = (x) => ({ lat: 18.5204, lng: LNG0 + x / M_PER_DEG_LNG });
+    // 20 m beyond where leg 1 stops and turns back
+    const hazards = [{ id: "h00000000000000c3", type: "pothole", ptype: "impact", ...at(520), heading: 90, bothWays: false, severity: 3, status: "community_confirmed", found: 3, notFound: 0, unsure: 0, reviewers: 3, agreementPct: 100, lastFoundAt: list[0].t - 86400000, recentDisagree: false, alertable: true }];
+    await ride(list, store, null, { "roadsense-community": { available: () => true, list: () => hazards, near: () => hazards } });
+    const rev = JSON.parse(store.localStorage.getItem("mu.master.dynamics.review.ride"));
+    assert.equal(rev.warned.length, 1, "warned on the way");
+    assert.equal(rev.warned[0].passage.passed, false, "but never passed: its 'not found' would be a guess");
 });
 
 test("dynamics agent: a known pothole is warned on the first pass of the next ride (memory on the phone)", async () => {

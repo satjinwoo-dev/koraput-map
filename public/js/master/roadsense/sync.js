@@ -18,6 +18,14 @@
           makes a new one.
           Smooth passes ("ridden, nothing felt") wait for the same review: only
           the cells of a ride the rider approved (approveCover) go up.
+          Each vote carries its PASSAGE ({ passed, quality, felt }, worked out by
+          the dynamics agent on the phone): without it the server keeps the vote
+          outside the agreement.
+          ANONYMOUS VOTES (setVoteMode("anonymous")): votes go up without the
+          contributor, each with a per-hazard token from a separate secret, so they
+          can't be joined to each other or to the rider's reports. They count, earn
+          no reputation, never confirm a hazard alone, and can't be deleted later
+          (nothing ties them to the rider). New hazards still need the contributor.
 
    RAW OBSERVATIONS (shareRawObservations, OFF by default and never turned on
           by the app: kept for research datasets only): every jolt and rough
@@ -165,9 +173,10 @@
         /** @type {{ from: number, to: number }[]} */ let coverApproved = store.get("coverApproved", []) || [];
         // RoadPulse: what the rider published (waiting), who they are to the server, and the hazards they know
         /** @type {{ kind: "report"|"vote", item: any, notBefore: number }[]} */ let pubOutbox = store.get("pubOutbox", []) || [];
-        /** @type {{ contributor: string, device: string }|null} */ let ident = store.get("identity", null);
+        /** @type {{ contributor: string, device: string, anon?: string }|null} */ let ident = store.get("identity", null);
         /** @type {string[]} */ let myHazards = store.get("myHazards", []) || [];
         /** @type {Record<string, any>} */ let hazardsCache = store.get("hazards", {}) || {};
+        /** @type {"account"|"anonymous"} */ let voteMode = store.get("voteMode", "account") === "anonymous" ? "anonymous" : "account";
         const st = { uploaded: 0, coverUploaded: 0, coverReceived: 0, privateDropped: 0, received: 0, lastUpload: null, lastFetch: null, backoffUntil: 0, failures: 0, lastError: "",
             published: 0, publishRejected: 0, hazardsReceived: 0 };
         /** This phone's contributor and device tokens, made the first time they're needed. */
@@ -239,8 +248,21 @@
             const reports = due.filter((x) => x.kind === "report").slice(0, cfg.publishReportsMax);
             const votes = due.filter((x) => x.kind === "vote").slice(0, cfg.publishVotesMax);
             const id = identity();
-            const r = await a.post("/roadsense/publish", { v: 1, contributor: id.contributor, device: id.device, reports: reports.map((x) => x.item), votes: votes.map((x) => x.item) }, { timeoutMs: cfg.timeoutMs });
-            if (!(r.ok || r.status === 400)) { fail(r.reason || `http ${r.status}`); changed(); return 0; }
+            const anonVotes = voteMode === "anonymous" ? votes : [], acctVotes = voteMode === "anonymous" ? [] : votes;
+            /** @type {any} */ let r = { ok: true, status: 200, data: { results: [], rejected: [] } };
+            if (reports.length || acctVotes.length) {
+                r = await a.post("/roadsense/publish", { v: 1, contributor: id.contributor, device: id.device, reports: reports.map((x) => x.item), votes: acctVotes.map((x) => x.item) }, { timeoutMs: cfg.timeoutMs });
+                if (!(r.ok || r.status === 400)) { fail(r.reason || `http ${r.status}`); changed(); return 0; }
+            }
+            if (anonVotes.length) {
+                if (!ident || !/** @type {any} */ (ident).anon) { ident = { ...id, anon: random() }; store.set("identity", ident); }
+                const secret = /** @type {any} */ (ident).anon;
+                const items = [];
+                for (const x of anonVotes) items.push({ ...x.item, token: (await sha256hex(`${secret}|${x.item.hazard}`)).slice(0, 40) });
+                const ra = await a.post("/roadsense/publish", { v: 1, anonymous: true, votes: items }, { timeoutMs: cfg.timeoutMs });
+                if (!(ra.ok || ra.status === 400)) { fail(ra.reason || `http ${ra.status}`); changed(); return 0; }
+                if (ra.data) r = { ...r, data: { results: [...((r.data && r.data.results) || []), ...(ra.data.results || [])], rejected: [...((r.data && r.data.rejected) || []), ...(ra.data.rejected || [])] } };
+            }
             const done = new Set([...reports, ...votes]);
             pubOutbox = pubOutbox.filter((x) => !done.has(x));
             savePub();
@@ -398,7 +420,7 @@
 
         function status() {
             return {
-                consent: consent.on, consentAt: consent.at, queued: outbox.length + pubOutbox.length, publishQueued: pubOutbox.length, coverQueued: coverOutbox.length,
+                consent: consent.on, consentAt: consent.at, queued: outbox.length + pubOutbox.length, publishQueued: pubOutbox.length, coverQueued: coverOutbox.length, voteMode,
                 pseudonyms: pseudonyms.length, privateZones: zones.length, hazards: Object.keys(hazardsCache).length,
                 tilesCached: Object.keys(tiles).length, ...st
             };
@@ -450,6 +472,9 @@
             /** The published hazards kept offline (other riders' and this phone's own, mine: true). */
             hazards: () => Object.values(hazardsCache),
             /** @param {string} id */ isMine: (id) => myHazards.includes(id),
+            /** Votes under the contributor ("account", badges) or anonymous per-hazard tokens ("anonymous"). @param {"account"|"anonymous"} m */
+            setVoteMode(m) { voteMode = m === "anonymous" ? "anonymous" : "account"; store.set("voteMode", voteMode); changed(); return voteMode; },
+            voteMode: () => voteMode,
             /** This rider's reputation and badges (server-computed from what other riders confirmed), or null. */
             async reputation() {
                 const a = api();
