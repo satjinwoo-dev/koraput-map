@@ -45,8 +45,10 @@
 
    Detector v2 jolts (DynamicsCore: speed-scaled, contrast, rear-wheel double hit,
    placed at the hit's onset) carry hazard (pothole / speed_breaker / bump),
-   severity and minor. Minor ones (small unevenness) never reach the log or a
-   warning: they are kept only for the rider's post-ride review, collapsed.
+   cls (impact / unknown / minor) and severity. Minor ones (small unevenness) and
+   unknown ones (strong but one wheel only: the sensor can't tell what it was)
+   never reach the log, a warning or the public: they are kept only for the
+   rider's post-ride review, where only the rider can confirm them.
    Every ride's own detections, and the hazards it was warned about, are kept in
    the store "review.ride" for that review (js/master/roadsense/review.js): the
    phone's own detections are private until the rider publishes them.
@@ -180,8 +182,9 @@
                 const sev = v2 ? e.severity : 2;
                 const posSigmaM = Number.isFinite(e.posSigmaM) ? e.posSigmaM : null;
                 const heading = Number.isFinite(e.headingDeg) ? e.headingDeg : null;
-                if (v2 && e.minor) {               // small unevenness: the rider's review only, collapsed; never warned
-                    reviewItem({ id: `m${e.id}.${e.t}`, kind: "impact", hazard: e.hazard, severity: 1, minor: true, t: e.t, lat: e.lat, lng: e.lng, posSigmaM, heading });
+                if (v2 && e.minor) {               // small unevenness or unknown: the rider's review only; never warned, never public on its own
+                    const unknown = e.cls === "unknown";
+                    reviewItem({ id: `${unknown ? "u" : "m"}${e.id}.${e.t}`, kind: "impact", hazard: e.hazard, severity: 1, minor: !unknown, unknown, t: e.t, lat: e.lat, lng: e.lng, posSigmaM, heading });
                     return;
                 }
                 const type = v2 && (e.hazard === "pothole" || e.hazard === "speed_breaker") ? e.hazard : "bump";

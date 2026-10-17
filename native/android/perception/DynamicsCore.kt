@@ -33,15 +33,28 @@ import kotlin.math.sqrt
  *                   (doubleHit: a real road feature hits both wheels; the rider's hand or
  *                   the mount doesn't), and the shape (a drop before the hit: pothole; a
  *                   long rise, often after slowing down: speed breaker)
- *                4. class: below minorMs2 or low contrast → ignored (the small unevenness
- *                   the old fixed 7 m/s² threshold reported); below impactMs2, or single-hit
- *                   below severeMs2 → minor (kept for the rider's review, never warned);
- *                   else an impact, severity 2, or 3 from severeMs2
+ *                4. class (cls):
+ *                     ignored  below minorMs2, or low contrast: normal vibration, a rough road,
+ *                              the small unevenness the old fixed 7 m/s² threshold reported
+ *                     minor    below impactMs2: a small bump (the rider's review, collapsed)
+ *                     unknown  strong but single-hit below severeMs2: something hit, but not
+ *                              both wheels (a stone, the rider's hand, a one-wheel edge?)
+ *                     impact   an actionable hazard, severity 2, or 3 from severeMs2
+ *                   minor and unknown never become road events, warnings or public reports on
+ *                   their own: only the rider's review can confirm them
+ *                   A window in which the MOUNT MOVED is discarded: the bike's forward
+ *                   direction in the phone's axes turned > 12° within a fraction of a second
+ *                   (a slip, a knock, a hand). "Forward" (not "up") because it stays put when
+ *                   the bike leans into a corner or turns; only pitching the phone moves it
+ *                   (slopes change it slowly, which the slow filter follows)
  *                5. time: the ONSET of the first (front-wheel) hit from the sensor
  *                   timestamps, never the time the analysis ran
  *                6. place: the GNSS fixes before and after that onset, interpolated
  *                   (cubic Hermite on their speeds and bearings), so the mark is where the
- *                   wheel met the hole, not where the bike was when it was detected
+ *                   wheel met the hole, not where the bike was when it was detected;
+ *                   moved forward by phoneBehindAxleM (the phone sits behind the front axle),
+ *                   and read fixLatencyMs later (a chipset whose fixes are stamped late:
+ *                   measured per phone on a calibration ride over a known marker; 0 until then)
  *                The thresholds are design priors (basis: prior), to be fitted on labelled
  *                rides (docs/MapUnite-RoadPulse-Blueprint.pdf, section 6)
  * Road roughness: RMS of the vertical band every 20 m ridden, scaled to a reference
@@ -62,6 +75,7 @@ class DynamicsCore(val cfg: Config = Config()) {
         val triggerMs2: Double = 4.0, val joltMinSpeedMs: Double = 3.0,
         val minorMs2: Double = 5.0, val impactMs2: Double = 9.0, val severeMs2: Double = 14.0, val minContrast: Double = 4.0,
         val wheelbaseM: Double = 1.3, val preS: Double = 1.6, val postS: Double = 1.0, val fixWaitS: Double = 2.5,
+        val phoneBehindAxleM: Double = 0.4, val fixLatencyMs: Double = 0.0, val mountMoveDeg: Double = 12.0,
         val segmentM: Double = 20.0, val refSpeedMs: Double = 10.0, val roughMinSpeedMs: Double = 3.0,
         val longCutHz: Double = 2.0, val vertLowHz: Double = 0.5, val vertHighHz: Double = 12.0
     )
@@ -75,12 +89,13 @@ class DynamicsCore(val cfg: Config = Config()) {
     )
 
     /**
-     * A jolt's analysis. hazard: "pothole" | "speed_breaker" | "bump" (can't tell); severity 1 minor (review
-     * only), 2, 3; posSigmaM: how far off the mark may be (the fixes' spread and the time between them).
+     * A jolt's analysis. hazard: "pothole" | "speed_breaker" | "bump" (can't tell); cls: "impact" | "unknown" |
+     * "minor"; severity 1 (not an impact), 2, 3; minor = cls != impact (review only); posSigmaM: how far off the
+     * mark may be (the fixes' spread and the time between them).
      */
     data class Impact(
         val hazard: String, val severity: Int, val minor: Boolean, val peakRefMs2: Double, val contrast: Double,
-        val doubleHit: Boolean, val posSigmaM: Double?
+        val doubleHit: Boolean, val posSigmaM: Double?, val cls: String = if (minor) "minor" else "impact"
     )
 
     data class Segment(
@@ -116,6 +131,13 @@ class DynamicsCore(val cfg: Config = Config()) {
     private var trigNs = 0L
     private var trigSpeed = 0.0
     private var quietUntilNs = Long.MIN_VALUE / 2
+    // the mount: the bike's forward direction in device axes, fast and slow; apart by > mountMoveDeg = the phone moved
+    private val fwdFast = doubleArrayOf(Double.NaN, 0.0, 0.0)
+    private val fwdSlow = doubleArrayOf(Double.NaN, 0.0, 0.0)
+    private var mountMovedNs = Long.MIN_VALUE / 2
+    /** windows discarded because the mount moved (for tuning) */
+    var mountRejected = 0
+        private set
     /** analysed jolts waiting for the GNSS fix after their onset (to interpolate their place) */
     private class Jolt(val onsetNs: Long, val durS: Double, val peak: Double, val speed: Double, val impact: Impact)
     private val joltsWaiting = ArrayList<Jolt>()
@@ -147,6 +169,9 @@ class DynamicsCore(val cfg: Config = Config()) {
         longF = ema(longF, long, cfg.longCutHz, dt)
         vertLp = ema(vertLp, vert, cfg.vertHighHz, dt)
         vertBase = ema(vertBase, vertLp, cfg.vertLowHz, dt)
+        val first = fwdFast[0].isNaN()
+        for (k in 0..2) { fwdFast[k] = if (first) fwd[k] else ema(fwdFast[k], fwd[k], 2.0, dt); fwdSlow[k] = if (first) fwd[k] else ema(fwdSlow[k], fwd[k], 0.2, dt) }
+        if (angleDeg(fwdFast, fwdSlow) > cfg.mountMoveDeg) mountMovedNs = tNs
         val hp = vertLp - vertBase
 
         sumLong += longF; sumVertSq += hp * hp; nSum++
@@ -296,6 +321,8 @@ class DynamicsCore(val cfg: Config = Config()) {
 
     /** One triggered window → a jolt to place, or null (ignored: too small, or just a rough road). */
     private fun analyse(trig: Long, speed: Double): Jolt? {
+        // the phone moved on its mount around this jolt: its axes (and maybe the jolt itself) aren't the road's
+        if (mountMovedNs >= trig - ((cfg.preS + 1.0) * 1e9).toLong() && mountMovedNs <= trig + (cfg.postS * 1e9).toLong()) { mountRejected++; return null }
         val (ts, vs) = window(trig - (cfg.preS * 1e9).toLong(), trig + (cfg.postS * 1e9).toLong())
         if (ts.size < 20) return null
         // the first peak: the strongest sample in the 150 ms after the trigger
@@ -323,7 +350,12 @@ class DynamicsCore(val cfg: Config = Config()) {
         val contrast = a1 / maxOf(bg, 0.3)
         val peakRef = a1 * sqrt(cfg.refSpeedMs / maxOf(speed, 4.0))
         if (peakRef < cfg.minorMs2 || contrast < cfg.minContrast) return null
-        val minor = peakRef < cfg.impactMs2 || (!doubleHit && peakRef < cfg.severeMs2)
+        val cls = when {
+            peakRef < cfg.impactMs2 -> "minor"
+            !doubleHit && peakRef < cfg.severeMs2 -> "unknown"
+            else -> "impact"
+        }
+        val minor = cls != "impact"
         val severity = if (minor) 1 else if (peakRef >= cfg.severeMs2) 3 else 2
         // shape: a drop just before a positive hit is a hole; a long first rise, or slowing down before it, a breaker
         var dip = 0.0
@@ -335,7 +367,7 @@ class DynamicsCore(val cfg: Config = Config()) {
             firstUp && (durS >= 0.12 || slowed) -> "speed_breaker"
             else -> "bump"
         }
-        return Jolt(onset, durS, p1, speed, Impact(hazard, severity, minor, peakRef, contrast, doubleHit, null))
+        return Jolt(onset, durS, p1, speed, Impact(hazard, severity, minor, peakRef, contrast, doubleHit, null, cls))
     }
 
     /** Places the analysed jolts once a fix after their onset exists (or gives up waiting and extrapolates). */
@@ -347,7 +379,8 @@ class DynamicsCore(val cfg: Config = Config()) {
             val haveAfter = fixes.any { f -> f.tNs > j.onsetNs }
             if (!haveAfter && nowNs - j.onsetNs < (cfg.fixWaitS * 1e9).toLong()) continue
             it.remove()
-            val p = interpolateAt(j.onsetNs)
+            // the fixes' clock may run late on this chipset; then the wheel is ahead of the phone
+            val p = interpolateAt(j.onsetNs + (cfg.fixLatencyMs * 1e6).toLong())?.let { ahead(it, cfg.phoneBehindAxleM) }
             val im = j.impact
             var conf = if (im.minor) 0.3 else 0.6
             if (!im.minor && im.doubleHit) conf += 0.15
@@ -358,6 +391,14 @@ class DynamicsCore(val cfg: Config = Config()) {
     }
 
     private class Place(val lat: Double, val lng: Double, val bearing: Double?, val sigmaM: Double?)
+
+    /** [p] moved [m] metres along its bearing (unchanged without one). */
+    private fun ahead(p: Place, m: Double): Place {
+        val b = p.bearing ?: return p
+        if (m == 0.0) return p
+        val th = b * PI / 180.0
+        return Place(p.lat + m * cos(th) / 111_320.0, p.lng + m * sin(th) / (111_320.0 * cos(p.lat * PI / 180.0)), b, p.sigmaM)
+    }
 
     /**
      * Where the bike was at [tNs]: between the fixes before and after it, a cubic Hermite curve through both
@@ -433,6 +474,14 @@ class DynamicsCore(val cfg: Config = Config()) {
             refRms < 2.0 -> "fair"
             refRms < 3.5 -> "rough"
             else -> "very_rough"
+        }
+        /** Angle between two (roughly unit) vectors, in degrees. */
+        fun angleDeg(a: DoubleArray, b: DoubleArray): Double {
+            if (a[0].isNaN() || b[0].isNaN()) return 0.0
+            val na = sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]); val nb = sqrt(b[0] * b[0] + b[1] * b[1] + b[2] * b[2])
+            if (na == 0.0 || nb == 0.0) return 0.0
+            val c = ((a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) / (na * nb)).coerceIn(-1.0, 1.0)
+            return Math.toDegrees(kotlin.math.acos(c))
         }
         /** First-order low-pass with cut-off [hz], for a sample dt seconds after the previous one. */
         fun ema(prev: Double, x: Double, hz: Double, dt: Double): Double {

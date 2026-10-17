@@ -10,6 +10,7 @@
      drag the marker                its place (a confirmed one)
      + Missed one                   add one the sensor missed: tap the map
      Mila / Nahi mila / Pata nahi   hazards it was WARNED about ("did you find it?")
+     Not sure what this was         unknown ones (strong, one wheel only), unreviewed by default
      Small bumps (hidden)           minor ones, collapsed, unreviewed by default
      ☐ share "ridden, nothing felt" for this ride (anonymous cells)
      [ Publish N reports ]  [ Skip ]
@@ -55,12 +56,14 @@
     function buildReview(ride, o = {}) {
         if (!ride || !Array.isArray(ride.items)) return null;
         const byId = new Map((o.hazards || []).map((h) => [h.id, h]));
-        const items = ride.items.filter((x) => !x.minor && Number.isFinite(x.lat) && Number.isFinite(x.lng));
-        const minor = ride.items.filter((x) => x.minor && Number.isFinite(x.lat) && Number.isFinite(x.lng));
+        const placed = ride.items.filter((x) => Number.isFinite(x.lat) && Number.isFinite(x.lng));
+        const items = placed.filter((x) => !x.minor && !x.unknown);
+        const unknown = placed.filter((x) => x.unknown);
+        const minor = placed.filter((x) => x.minor && !x.unknown);
         // "did you find it?" only for published hazards (they can take a vote), not the rider's own
         const asks = (ride.warned || []).filter((w) => w.community && byId.has(w.roadsenseId) && !byId.get(w.roadsenseId).mine)
             .map((w) => ({ hazard: w.roadsenseId, t: w.t, lat: w.lat, lng: w.lng, type: byId.get(w.roadsenseId).type }));
-        return { startedAt: ride.startedAt, endedAt: ride.endedAt, items, minor, asks, empty: !items.length && !minor.length && !asks.length };
+        return { startedAt: ride.startedAt, endedAt: ride.endedAt, items, unknown, minor, asks, empty: !items.length && !unknown.length && !minor.length && !asks.length };
     }
 
     /**
@@ -75,7 +78,7 @@
         const d = decisions || {};
         const reports = [], votes = [], local = [];
         const idOf = (/** @type {string} */ key) => `r${review.startedAt}.${String(key).replace(/[^A-Za-z0-9_.-]/g, "")}`.slice(0, 64);
-        for (const it of [...review.items, ...review.minor]) {
+        for (const it of [...review.items, ...(review.unknown || []), ...review.minor]) {
             const x = d.items && d.items[it.id];
             if (!x || (x.verdict !== "found" && x.verdict !== "not_found")) continue;
             const moved = Number.isFinite(x.lat) && Number.isFinite(x.lng);
@@ -129,7 +132,7 @@
         const chip = h("button", "rp-chip", "Review last ride");
         chip.type = "button"; chip.id = "rp-review-chip"; chip.hidden = true;
         doc.body.append(chip);
-        const refreshChip = () => { const rv = pending(); chip.hidden = !rv; if (rv) chip.textContent = `Review last ride · ${rv.items.length + rv.asks.length}`; };
+        const refreshChip = () => { const rv = pending(); chip.hidden = !rv; if (rv) chip.textContent = `Review last ride · ${rv.items.length + rv.unknown.length + rv.asks.length}`; };
 
         /** @type {HTMLElement|null} */ let sheet = null;
         /** @type {any} */ let lmap = null;
@@ -173,7 +176,7 @@
                     markers.set(it.id, m); pts.push([it.lat, it.lng]);
                 }
                 for (const q of rv.asks) { L.marker([q.lat, q.lng], { icon: dot("#4da3ff"), title: "Reported by other riders" }).addTo(lmap); pts.push([q.lat, q.lng]); }
-                for (const it of rv.minor) pts.push([it.lat, it.lng]);
+                for (const it of [...rv.unknown, ...rv.minor]) pts.push([it.lat, it.lng]);
                 if (pts.length) lmap.fitBounds(pts, { padding: [24, 24], maxZoom: 17 });
                 lmap.on("click", (/** @type {any} */ ev) => {
                     if (!addMode) return;
@@ -219,6 +222,10 @@
                 list.replaceChildren();
                 if (rv.items.length) list.append(h("h3", "rp-h3", `Detected on this ride · ${rv.items.length}`));
                 for (const it of rv.items) list.append(card(it));
+                if (rv.unknown.length) {
+                    list.append(h("h3", "rp-h3", "Not sure what these were (one wheel only). Was it a hazard?"));
+                    for (const it of rv.unknown) list.append(card(it));
+                }
                 if (rv.minor.length) {
                     const det = /** @type {HTMLDetailsElement} */ (h("details", "rp-minor"));
                     det.append(h("summary", "", `${rv.minor.length} small bump${rv.minor.length === 1 ? "" : "s"} (hidden: probably nothing)`));

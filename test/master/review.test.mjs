@@ -16,7 +16,8 @@ const ride = {
         { id: "j3.1", kind: "impact", hazard: "pothole", severity: 3, minor: false, t: T0 + 10 * MIN, lat: 18.81, lng: 82.71, posSigmaM: 4, heading: 92.4, logId: "e1" },
         { id: "j5.2", kind: "impact", hazard: "speed_breaker", severity: 2, minor: false, t: T0 + 20 * MIN, lat: 18.82, lng: 82.72, posSigmaM: 5, heading: 271 },
         { id: "r9", kind: "rough", hazard: "rough", severity: 2, minor: false, t: T0 + 30 * MIN, lat: 18.83, lng: 82.73, points: [[18.83, 82.73], [18.831, 82.731]], lengthM: 120, heading: 10 },
-        { id: "m1.3", kind: "impact", hazard: "bump", severity: 1, minor: true, t: T0 + 40 * MIN, lat: 18.84, lng: 82.74, posSigmaM: 4 }
+        { id: "m1.3", kind: "impact", hazard: "bump", severity: 1, minor: true, t: T0 + 40 * MIN, lat: 18.84, lng: 82.74, posSigmaM: 4 },
+        { id: "u7.4", kind: "impact", hazard: "bump", severity: 1, minor: false, unknown: true, t: T0 + 45 * MIN, lat: 18.845, lng: 82.745, posSigmaM: 4 }
     ],
     warned: [
         { roadsenseId: "h00000000000000a1", t: T0 + 50 * MIN, lat: 18.85, lng: 82.75, kind: "pothole", community: true },
@@ -30,6 +31,7 @@ test("what the rider is asked: detections, minor ones apart, and 'did you find i
     const rv = RV.buildReview(ride, { hazards });
     assert.deepEqual(rv.items.map((x) => x.id), ["j3.1", "j5.2", "r9"]);
     assert.deepEqual(rv.minor.map((x) => x.id), ["m1.3"]);
+    assert.deepEqual(rv.unknown.map((x) => x.id), ["u7.4"], "one-wheel hits: their own group, never published unless the rider confirms");
     assert.deepEqual(rv.asks.map((x) => x.hazard), ["h00000000000000a1"]);
     assert.equal(rv.empty, false);
     assert.equal(RV.buildReview({ startedAt: T0, endedAt: T0 + 1, items: [], warned: [] }).empty, true);
@@ -47,7 +49,8 @@ test("only what the rider confirmed and kept public is published; corrected spot
             "j3.1": { verdict: "found", severity: 2, lat: 18.8101, lng: 82.7102 },     // moved, milder than the sensor thought
             "j5.2": { verdict: "not_found" },                                          // a wrong detection
             "r9": { verdict: "found", publish: false },                                // true, but kept private
-            "m1.3": { verdict: "found" }                                               // a minor one the rider says was real
+            "m1.3": { verdict: "found" },                                              // a minor one the rider says was real
+            "u7.4": { verdict: "not_found" }                                           // an unknown one: nothing
         },
         asks: { h00000000000000a1: "not_found" },
         added: [{ type: "pothole", severity: 3, lat: 18.9, lng: 82.8 }, { type: "dragon", lat: 1, lng: 1 }],
@@ -62,7 +65,7 @@ test("only what the rider confirmed and kept public is published; corrected spot
     assert.deepEqual(out.votes, [{ hazard: "h00000000000000a1", verdict: "not_found", t: T0 + 50 * MIN }]);
     assert.deepEqual(out.cover, { from: T0, to: T0 + 60 * MIN });
     // the phone's own log: confirmed ones present (incl. the private one), the wrong one absent
-    assert.deepEqual(out.local.map((x) => [x.type, x.present]), [["pothole", true], ["speed_breaker", false], ["rough", true], ["bump", true], ["pothole", true]]);
+    assert.deepEqual(out.local.map((x) => [x.type, x.present]), [["pothole", true], ["speed_breaker", false], ["rough", true], ["bump", false], ["bump", true], ["pothole", true]]);
     // nothing of the route: only the spots, no ride path, start or end
     const sent = JSON.stringify({ reports: out.reports, votes: out.votes });
     assert.ok(!sent.includes("82.731") && !/startedAt|endedAt|points/.test(sent));

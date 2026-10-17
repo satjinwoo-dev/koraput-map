@@ -16,6 +16,11 @@
 //   pothole      drop (−8 m/s², 30 ms) then the edge (+25 m/s², 40 ms)
 //   small patch  one sharp +12 m/s² (40 ms), rear +6: above the old fixed 7 m/s² threshold, minor now
 //   breaker      a long rise (+9 m/s² over the hump's 0.35 m crest) then −5 as the wheel comes down
+//   one wheel    leg 1, 400 m: a strong +22 m/s² hit on the FRONT wheel only (a stone?): "unknown"
+//   mount slip   leg 2, 60 m: the phone turns 30° on the bars over 0.3 s with a 30 m/s² knock, and stays
+//                turned for the rest of the ride: that window is discarded, nothing reported
+//   lean         leg 3, 270–330 m: the bike leans up to 35° through a bend, over the pothole: the
+//                pothole is still reported (a lean isn't a mount move)
 // Always: single-cylinder engine vibration (35 Hz riding, 20 Hz idle), sensor noise,
 // GNSS at 1 Hz with speed noise. Deterministic (fixed seed).
 import com.mapunite.app.perception.*
@@ -28,6 +33,7 @@ import kotlin.math.sqrt
 
 private class Brake(val atX: Double, val decel: Double, val toV: Double)
 private const val WHEELBASE = 1.3
+private const val PHONE_BEHIND = 0.4
 private class Leg(val dir: Int, val fromX: Double, val toX: Double, val brakes: List<Brake>, val stopS: Double)
 
 fun main() {
@@ -53,6 +59,7 @@ fun main() {
     var lastFix: Triple<Double, Double, Double?>? = null
     var lastFixSpeed = 0.0
     var roughState = 0.0
+    var slipNs = 0L
 
     fun emitFrame() {
         val ego = if (lastFix == null) EgoState.UNKNOWN else EgoState(
@@ -108,12 +115,30 @@ fun main() {
                     // small patch at 250 m, leg 1 only
                     val ds = (wheelX - 250.0) * leg.dir
                     if (leg.dir > 0 && leg.fromX == 0.0 && legIdx == 0 && ds in 0.0..0.48) vert += (if (gain == 1.0) 12.0 else 6.0) * sin(PI * ds / 0.48)
+                    // one-wheel hit at 400 m, leg 1 only: the front wheel, nothing on the rear
+                    val dw = (wheelX - 400.0) * leg.dir
+                    if (legIdx == 0 && gain == 1.0 && dw in 0.0..0.48) vert += 22.0 * sin(PI * dw / 0.48)
                     // speed breaker at 440 m, leg 3 only (after its brake at 420 m)
                     val db = (wheelX - 440.0) * leg.dir
                     if (legIdx == 2 && db in 0.0..1.2) vert += gain * 9.0 * sin(PI * db / 1.2)
                     if (legIdx == 2 && db in 1.2..1.8) vert += gain * -5.0 * sin(PI * (db - 1.2) / 0.6)
                 }
             }
+            // the mount slip (leg 2, 60 m): the phone turns about its x axis and stays turned
+            if (legIdx == 1 && x <= 60.0 && slipNs == 0L) slipNs = tNs
+            if (slipNs != 0L && tNs - slipNs <= 300_000_000L) {
+                val f = (tNs - slipNs) / 300_000_000.0
+                val ang = 30.0 * PI / 180.0 * f
+                up[0] = 0.0; up[1] = cos(ang); up[2] = sin(ang)
+                fwd[0] = 0.0; fwd[1] = sin(ang); fwd[2] = -cos(ang)
+                if (tNs - slipNs <= 60_000_000L) vert += 30.0 * sin(PI * (tNs - slipNs) / 60_000_000.0)
+            }
+            // the lean (leg 3, 270–330 m): "up" turns about the forward axis; forward stays
+            val leanBase = if (slipNs != 0L) 30.0 * PI / 180.0 else 0.0
+            if (legIdx == 2 && x in 270.0..330.0) {
+                val phi = 35.0 * PI / 180.0 * sin(PI * (x - 270.0) / 60.0)
+                up[0] = sin(phi); up[1] = cos(phi) * cos(leanBase); up[2] = cos(phi) * sin(leanBase)
+            } else if (slipNs != 0L && tNs - slipNs > 300_000_000L) { up[0] = 0.0; up[1] = cos(leanBase); up[2] = sin(leanBase) }
             val long = a + rnd.nextGaussian() * 0.2 + 0.3 * engine
             // device axes: a = up*(g + vert) + fwd*long
             val ax = up[0] * (DynamicsCore.G + vert) + fwd[0] * long
@@ -123,7 +148,7 @@ fun main() {
 
             if (tNs >= nextFixNs) {
                 val lat = lat0
-                val lng = lng0 + x / mPerDegLng
+                val lng = lng0 + (x - leg.dir * PHONE_BEHIND) / mPerDegLng       // the phone (GNSS) sits behind the front axle
                 val sp = (v + rnd.nextGaussian() * 0.25).coerceAtLeast(0.0)
                 lastFix = Triple(lat, lng, if (moving) heading else lastFix?.third)
                 lastFixSpeed = sp

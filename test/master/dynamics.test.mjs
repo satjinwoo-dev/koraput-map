@@ -1,9 +1,12 @@
 // Phase 2, component 1: bike dynamics. DynamicsFrame contract, provider, and the
 // dynamics agent riding fixtures/kotlin-dynamics-ride.jsonl, written by the real
 // Kotlin DynamicsCore from a simulated 100 Hz ride (perception-jvmtest/GenDynamics.kt):
-//   leg 1 east: rough stretch 100–200 m, small patch at 250 m, pothole at 300 m, stop 20 s
-//   leg 2 west: hard brake 5 m/s² at 350 m, very hard 7 m/s² at 200 m, pothole again, stop 20 s
-//   leg 3 east: pothole ahead (now known from 2 passes), hard brake 4.5 m/s² at 420 m, speed breaker at 440 m, stop 25 s
+//   leg 1 east: rough stretch 100–200 m, small patch at 250 m, pothole at 300 m, a one-wheel hit at 400 m, stop 20 s
+//   leg 2 west: hard brake 5 m/s² at 350 m, very hard 7 m/s² at 200 m, pothole again, the phone slips on its mount
+//               at 60 m (a 30 m/s² knock), stop 20 s
+//   leg 3 east: pothole ahead (now known from 2 passes), ridden leaning up to 35° through a bend,
+//               hard brake 4.5 m/s² at 420 m, speed breaker at 440 m, stop 25 s
+// The phone (GNSS) sits 0.4 m behind the front axle.
 // Road features hit both wheels (the rear 1.3 m after the front), as on a real bike.
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -211,7 +214,17 @@ test("detector v2 (Kotlin): no jolt from a rough road, the small patch only mino
     assert.equal(hump[0].hazard, "speed_breaker");
     assert.equal(hump[0].minor, false);
     assert.ok(Math.abs(xOf(hump[0].lng) - 440) <= 2);
-    assert.equal(jolts.length, 5, "nothing else: patch, 3 × pothole, breaker");
+    // the one-wheel hit at 400 m: strong, but only the front wheel → unknown (never warned or public on its own)
+    const one = jolts.filter((j) => Math.abs(xOf(j.lng) - 400) < 5);
+    assert.equal(one.length, 1);
+    assert.deepEqual([one[0].cls, one[0].minor, one[0].doubleHit], ["unknown", true, false]);
+    // the mount slip at 60 m (leg 2): its knock is discarded, not reported
+    assert.equal(jolts.filter((j) => Math.abs(xOf(j.lng) - 60) < 10).length, 0, "the mount moved: window discarded");
+    // the pothole on leg 3 was ridden leaning 35°: still reported (a lean isn't a mount move)
+    const list = frames(), leg3 = list[list.findIndex((f, i) => i > 150 && f.ego.speedMs > 3)].t;
+    assert.equal(jolts.filter((j) => Math.abs(xOf(j.lng) - 300) < 10 && j.t > leg3).length, 1);
+    for (const j of jolts) assert.equal(j.cls === "impact", !j.minor);
+    assert.equal(jolts.length, 6, "nothing else: patch, 3 × pothole, one-wheel hit, breaker");
 });
 
 test("dynamics agent: minor jolts stay out of the log and warnings; the ride's detections are kept for the post-ride review", async () => {
@@ -222,8 +235,10 @@ test("dynamics agent: minor jolts stay out of the log and warnings; the ride's d
     assert.ok(rev.endedAt > rev.startedAt);
     const impacts = rev.items.filter((i) => i.kind === "impact");
     assert.equal(impacts.filter((i) => i.minor).length, 1, "the small patch, for review only");
-    assert.equal(impacts.filter((i) => !i.minor).length, 4, "3 × pothole + breaker");
-    assert.ok(impacts.filter((i) => !i.minor).every((i) => i.logId), "impacts are in the log");
+    assert.equal(impacts.filter((i) => i.unknown).length, 1, "the one-wheel hit, for review only");
+    assert.equal(impacts.filter((i) => !i.minor && !i.unknown).length, 4, "3 × pothole + breaker");
+    assert.ok(impacts.filter((i) => !i.minor && !i.unknown).every((i) => i.logId), "impacts are in the log");
+    assert.ok(impacts.filter((i) => i.minor || i.unknown).every((i) => !i.logId), "minor and unknown are not");
     assert.ok(impacts.some((i) => i.hazard === "speed_breaker"));
     const rough = rev.items.filter((i) => i.kind === "rough");
     assert.ok(rough.length >= 1 && rough.every((r) => r.points.length >= 1 && r.lengthM >= 20), "rough stretches as lines");
