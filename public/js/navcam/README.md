@@ -2,7 +2,7 @@
 
 When a drive starts, the map switches to a car-navigator view, like Google Maps' navigation:
 - **Heading-up:** the map turns so the direction of travel always points up the screen.
-- **3D tilt, close in:** the map is tilted 50° so the road ahead recedes into the distance. The zoom is 18 up to 30 km/h, 17 up to 60 km/h, and 16 above that.
+- **3D tilt, close in, map to the top edge:** the map is tilted up to 50° so the road ahead recedes into the distance, and it always fills the screen to its top edge, under the glass turn banner: no horizon, no dark sky. On a tall screen the tilt is lowered (not below 30°) so the map reaching 1500 map-px ahead still fills it (`fitPitch()` in `navcam-core.js`); drawing further would cost tiles fast. The zoom is 18 up to 30 km/h, 17 up to 60 km/h, and 16 above that.
 - **Rider in the lower third:** you sit two-thirds of the way down the *visible* map, between the turn banner and the speed dial, so most of the screen shows what's coming. On this app's drive layout that's the visible area; the bottom third of the whole screen would be under the drive panel.
 
 ## Controls
@@ -29,7 +29,7 @@ Leaflet only draws flat, north-up maps, so no plugin is used. While the camera i
 - **Underlay:** a low-resolution copy of the base map (zoom 15, scaled up) sits under the sharp tiles. 1–4 tiles cover the whole tilted view at once, so a gap is a slightly blurry patch for a moment, never black. In Chromium with sharp tiles slowed to 2.5–4 s, the map area was 0 % background 1.2 s after Start.
 - **Heading-fitted drawn area:** `#map` is only what the camera sees for the current heading, re-measured when the heading leaves its 15° band (`box()` in `navcam-core.js`). On a 390 × 844 phone that's 42 % of the old every-heading square heading N/S/E/W and 57 % on average; a drive loaded about half the sharp tiles. Its centre is ahead of the rider, so Leaflet loads the road ahead first.
 - **Wider tile ring:** the sharp layer keeps `keepBuffer` 4 while the camera is on, so turning doesn't throw away what's loaded. Both changes are undone on Stop.
-- **Beyond the horizon:** a sky band fades the far edge, and the map's own background is ground-coloured, not black.
+- **No horizon:** the map reaches the screen's top edge (the tilt is fitted to it), so the top of the screen is road, not a dark band. A sky band is kept only as a fallback if even a 30° tilt couldn't fill the screen; the map's own background is ground-coloured, not black.
 
 | File | What it does |
 |---|---|

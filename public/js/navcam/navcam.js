@@ -24,8 +24,11 @@
        the road ahead first;
      - the sharp layer keeps a wider ring of loaded tiles (keepBuffer 4) while the
        camera is on, so turning doesn't throw away what's loaded;
-     - what's left beyond the horizon fades into a sky band; the map's own
-       background is ground-coloured, not black.
+     - the map is drawn all the way to the screen's top edge, under the glass
+       turn banner, like Google Maps' navigation: the tilt is lowered a little on a
+       tall screen instead of letting the horizon (and a dark sky) show. The sky
+       band is only a fallback if even the lowest tilt can't fill the screen; the
+       map's own background is ground-coloured, not black.
 
    Markers stay readable: each marker's content is turned back by the same
    bearing and stretched by 1/cos(pitch), so it stands upright facing the
@@ -109,6 +112,7 @@ const NavCamera = (() => {
         els.compass.setAttribute("aria-label", headingUp ? "Heading up, 3D. Tap for north up." : "North up. Tap for heading up, 3D.");
         els.compass.classList.toggle("north", !headingUp);
         const tilted = on && !paused && geom && geom.pitchDeg > 0;
+        // a fallback only: geometry() fits the tilt so the map reaches the top edge (horizonY 0)
         els.sky.hidden = !tilted || !(geom.horizonY > 0);
         if (!els.sky.hidden) els.sky.style.height = `${geom.horizonY + 56}px`;
     }

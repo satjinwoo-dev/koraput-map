@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-17.5";           // RoadPulse: unknown class, mount-moved rejection, lifecycle, attestation, privacy
+const VERSION = "mu-2026-10-17.6";           // navigation camera: the map fills the screen to the top edge (no dark sky band)
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
