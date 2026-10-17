@@ -50,10 +50,12 @@ function setupBasicControlsSafe() {
         sm.onclick = e => {
             const b = e.target.closest("[data-style]"); if (!b) return;
             const s = b.dataset.style;
-            [satelliteLayer, streetLayer, darkLayer, terrainLayer].forEach(l => {
-                if (map.hasLayer(l)) map.removeLayer(l);
+            // "google" exists only when the server has a Google Map Tiles key (js/mapdetail.js)
+            const googleLayer = typeof MapDetail !== "undefined" ? MapDetail.googleLayer : null;
+            [satelliteLayer, streetLayer, darkLayer, terrainLayer, googleLayer].forEach(l => {
+                if (l && map.hasLayer(l)) map.removeLayer(l);
             });
-            const layers = { satellite: satelliteLayer, street: streetLayer, dark: darkLayer, terrain: terrainLayer };
+            const layers = { satellite: satelliteLayer, street: streetLayer, dark: darkLayer, terrain: terrainLayer, google: googleLayer };
             if (layers[s]) layers[s].addTo(map);
             // [data-style] only: the menu also holds the memory-heatmap checkbox item.
             document.querySelectorAll("#map-style-menu button[data-style]").forEach(x => { const active = x.dataset.style === s; x.classList.toggle("active", active); x.setAttribute("aria-checked", active ? "true" : "false"); });

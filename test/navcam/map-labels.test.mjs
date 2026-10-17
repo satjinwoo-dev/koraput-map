@@ -17,7 +17,7 @@ test("satellite = imagery + road names + place names, as one layer the style men
     assert.match(core, /getPane\("mu-labels"\)\.style\.pointerEvents = "none"/, "labels never take a tap");
     assert.match(core, /satelliteLayer\.addTo\(map\)/, "still the default");
     // the style menu removes and adds satelliteLayer as a whole
-    assert.match(read("public/js/controls.js"), /\[satelliteLayer, streetLayer, darkLayer, terrainLayer\]\.forEach/);
+    assert.match(read("public/js/controls.js"), /\[satelliteLayer, streetLayer, darkLayer, terrainLayer, googleLayer\]\.forEach/);
     // the labels' host is registered and cached offline like the imagery
     const reg = JSON.parse(read("data/sources.json"));
     assert.ok(reg.sources.find((s) => s.id === "esri-imagery").use.includes("World_Transportation"));
