@@ -212,6 +212,7 @@ function world() {
         const log = RS.createLog(), cover = RS.createCoverage();
         const sync = SY.createSync({ RS, log, cover, store: (() => { const m = new Map(); return { get: (k, f = null) => (m.has(k) ? JSON.parse(m.get(k)) : f), set: (k, v) => m.set(k, JSON.stringify(v)) }; })(), api, now: () => t });
         sync.setConsent(true);
+        sync.approveCover(T0 - D, T0 + D);         // the rider approved these rides' smooth passes in their review
         return { log, cover, sync };
     }
     return { db, server, phone, at: (v) => { t = v; } };

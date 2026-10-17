@@ -4,9 +4,24 @@
    ==============================================================================
    OFF until the rider turns on "Community road reports" (Settings). When on:
 
-   SHARE  This phone's own observations (jolts, rough stretches, clean passes;
-          rider "self") are queued as they're added to the log, and uploaded to
-          /api/master/roadsense/upload in batches:
+   PUBLISH (RoadPulse, Confirmed Decision 2): nothing this phone detects is
+          public until the rider reviews it after the ride (review.js) and taps
+          Publish. Then publish({ reports, votes }) queues exactly that:
+            reports  hazards the rider confirmed or added: kind, severity,
+                     position with its accuracy, heading, the hour;
+            votes    "found" / "not found" / "unsure" on hazards it warned about;
+          sent to /api/master/roadsense/publish after a random 0–2 h delay (the
+          time of a report must not pin the ride), never from a private zone,
+          under this phone's CONTRIBUTOR token: random, made here once, stored on
+          the server only as a keyed hash (one rider = one vote; badges follow
+          accuracy). "Delete my road reports" deletes everything under it and
+          makes a new one.
+          Smooth passes ("ridden, nothing felt") wait for the same review: only
+          the cells of a ride the rider approved (approveCover) go up.
+
+   RAW OBSERVATIONS (shareRawObservations, OFF by default and never turned on
+          by the app: kept for research datasets only): every jolt and rough
+          stretch as the log takes it, uploaded to /api/master/roadsense/upload:
             - only once they're ≥ 10 minutes old, so nothing is ever live tracking;
             - never within 250 m of where a ride started or ended (home, work:
               "private zones", kept on this phone only), dropped, not delayed;
@@ -23,6 +38,9 @@
           the SAME log on the phone (localStorage), so warnings work with no
           signal at all. Smooth passes ("ridden, nothing found") go up and come
           down the same way, per ≈ 220 m cell under an unlinkable per-cell token.
+          The same call returns the tiles' published HAZARDS with what riders
+          said (found / not found / unsure, agreement, status): kept here
+          offline (hazards()), for warnings and the Truth Card.
           Official lists and predictions come down with the evidence, each naming
           its source. Each observation keeps its id: one this phone uploaded
           comes back as a duplicate and is skipped, and another rider counts as
@@ -54,7 +72,14 @@
         coverBatchMax: 500,            // per /cover upload (the server's limit)
         coverLabelsMax: 5000,          // labels of this phone's own smooth passes (recognised when they come back; sent by "delete")
         backoffMinMs: 60000, backoffMaxMs: 30 * 60000,
-        timeoutMs: 15000
+        timeoutMs: 15000,
+        shareRawObservations: false,   // research datasets only: the app publishes reviewed reports, never raw detections
+        publishDelayMaxMs: 2 * 3600000,  // a published report waits a random 0..this before it goes up
+        publishOutboxMax: 500,
+        publishReportsMax: 50, publishVotesMax: 100,   // per /publish call (the server's limits)
+        myReportsMax: 2000,            // ids of hazards this phone reported (no "did you find it?" on its own)
+        coverApprovalMaxMs: 7 * 86400000,  // a smooth pass not approved in a review within this is dropped
+        hazardsMax: 5000               // published hazards kept offline
     });
     const PHONE_SOURCES = ["imu", "camera", "rider"];
 
@@ -137,7 +162,19 @@
         /** @type {{ cell: string, t: number }[]} */ let coverOutbox = store.get("coverOutbox", []) || [];
         /** @type {string[]} */ let coverLabels = store.get("coverLabels", []) || [];
         let coverLabelSet = new Set(coverLabels);
-        const st = { uploaded: 0, coverUploaded: 0, coverReceived: 0, privateDropped: 0, received: 0, lastUpload: null, lastFetch: null, backoffUntil: 0, failures: 0, lastError: "" };
+        /** @type {{ from: number, to: number }[]} */ let coverApproved = store.get("coverApproved", []) || [];
+        // RoadPulse: what the rider published (waiting), who they are to the server, and the hazards they know
+        /** @type {{ kind: "report"|"vote", item: any, notBefore: number }[]} */ let pubOutbox = store.get("pubOutbox", []) || [];
+        /** @type {{ contributor: string, device: string }|null} */ let ident = store.get("identity", null);
+        /** @type {string[]} */ let myHazards = store.get("myHazards", []) || [];
+        /** @type {Record<string, any>} */ let hazardsCache = store.get("hazards", {}) || {};
+        const st = { uploaded: 0, coverUploaded: 0, coverReceived: 0, privateDropped: 0, received: 0, lastUpload: null, lastFetch: null, backoffUntil: 0, failures: 0, lastError: "",
+            published: 0, publishRejected: 0, hazardsReceived: 0 };
+        /** This phone's contributor and device tokens, made the first time they're needed. */
+        const identity = () => {
+            if (!ident) { ident = { contributor: random(), device: random() }; store.set("identity", ident); }
+            return ident;
+        };
         /** @type {Set<(s: any) => void>} */ const watchers = new Set();
         const changed = () => { const s = status(); for (const fn of watchers) { try { fn(s); } catch (e) { /* independent */ } } };
 
@@ -154,9 +191,9 @@
             return id;
         }
 
-        // queue this phone's own observations as the log takes them
+        // research only (shareRawObservations): queue this phone's own observations as the log takes them
         const off = log.onAdd((/** @type {any} */ ob) => {
-            if (!consent.on || ob.rider !== RS.SELF || !PHONE_SOURCES.includes(ob.source)) return;
+            if (!cfg.shareRawObservations || !consent.on || ob.rider !== RS.SELF || !PHONE_SOURCES.includes(ob.source)) return;
             outbox.push({ id: ob.id, type: ob.type, t: ob.t, lat: ob.lat, lng: ob.lng, source: ob.source, present: ob.present, conf: ob.conf, ...(Number.isFinite(ob.peakMs2) ? { peakMs2: ob.peakMs2 } : {}) });
             if (outbox.length > cfg.outboxMax) outbox.splice(0, outbox.length - cfg.outboxMax);
             saveOutbox();
@@ -179,11 +216,44 @@
             st.backoffUntil = now() + Math.min(cfg.backoffMaxMs, cfg.backoffMinMs * 2 ** Math.min(10, st.failures - 1));
         }
 
-        /** Upload what's old enough: observations, then smooth passes. Returns how many observations went up. */
+        /** Upload what's due: published reports and votes, (research) observations, approved smooth passes. Returns how many items went up. */
         async function flush() {
-            const sent = await flushObs();
+            let sent = await flushPublish();
+            if (now() >= st.backoffUntil) sent += await flushObs();
             if (now() >= st.backoffUntil) await flushCover();
             return sent;
+        }
+
+        const savePub = () => store.set("pubOutbox", pubOutbox);
+
+        /** RoadPulse: the reviewed reports and votes whose random delay has passed. */
+        async function flushPublish() {
+            const a = api();
+            if (!consent.on || !a || !pubOutbox.length || now() < st.backoffUntil) return 0;
+            const before = pubOutbox.length;
+            pubOutbox = pubOutbox.filter((x) => !(x.kind === "report" && inPrivate(x.item)));
+            st.privateDropped += before - pubOutbox.length;
+            if (before !== pubOutbox.length) savePub();
+            const due = pubOutbox.filter((x) => now() >= x.notBefore);
+            if (!due.length) return 0;
+            const reports = due.filter((x) => x.kind === "report").slice(0, cfg.publishReportsMax);
+            const votes = due.filter((x) => x.kind === "vote").slice(0, cfg.publishVotesMax);
+            const id = identity();
+            const r = await a.post("/roadsense/publish", { v: 1, contributor: id.contributor, device: id.device, reports: reports.map((x) => x.item), votes: votes.map((x) => x.item) }, { timeoutMs: cfg.timeoutMs });
+            if (!(r.ok || r.status === 400)) { fail(r.reason || `http ${r.status}`); changed(); return 0; }
+            const done = new Set([...reports, ...votes]);
+            pubOutbox = pubOutbox.filter((x) => !done.has(x));
+            savePub();
+            if (r.ok && r.data) {
+                for (const x of r.data.results || []) if (x && typeof x.hazard === "string" && x.id) myHazards.push(x.hazard);
+                myHazards = [...new Set(myHazards)].slice(-cfg.myReportsMax);
+                store.set("myHazards", myHazards);
+                st.published += reports.length + votes.length - ((r.data.rejected || []).length);
+                st.publishRejected += (r.data.rejected || []).length;
+                st.lastUpload = now(); st.failures = 0; st.backoffUntil = 0;
+            } else st.lastError = "rejected";
+            changed();
+            return reports.length + votes.length;
         }
 
         async function flushObs() {
@@ -237,14 +307,18 @@
          * SHA-256(token) as the label, so it can count distinct riders per cell but can't join one rider's cells
          * into a route, and this phone can recognise its own passes when they come back.
          */
+        /** Was the ride at time t approved for smooth passes in its review? @param {number} t */
+        function approved(t) { return coverApproved.some((w) => t >= w.from && t <= w.to); }
+
         async function flushCover() {
             const a = api();
             if (!consent.on || !a || !cover || !coverOutbox.length) return 0;
             const t = now();
             const before = coverOutbox.length;
-            coverOutbox = coverOutbox.filter((x) => !inPrivate(cellMiddle(x.cell)));
+            // private zones, and passes the rider never approved in a review (after a week): dropped, never sent
+            coverOutbox = coverOutbox.filter((x) => !inPrivate(cellMiddle(x.cell)) && (approved(x.t) || t - x.t < cfg.coverApprovalMaxMs));
             st.privateDropped += before - coverOutbox.length;
-            const ready = coverOutbox.filter((x) => t - x.t >= cfg.minAgeMs).slice(0, cfg.coverBatchMax);
+            const ready = coverOutbox.filter((x) => t - x.t >= cfg.minAgeMs && approved(x.t)).slice(0, cfg.coverBatchMax);
             if (before !== coverOutbox.length) store.set("coverOutbox", coverOutbox);
             if (!ready.length) return 0;
             const items = [];
@@ -291,6 +365,19 @@
                 // never "self", never what this phone sent
                 const theirs = r.data.obs.filter((/** @type {any} */ ob) => ob && ob.rider !== RS.SELF && (PHONE_SOURCES.includes(ob.source) || RS.FEED_SOURCES.includes(ob.source)) && !sentSet.has(ob.id));
                 for (const x of log.addAll(theirs)) if (x.ok && !x.dup && x.obsId) res.added++;
+                // RoadPulse hazards in these tiles: replace what was cached for them
+                if (Array.isArray(r.data.hazards)) {
+                    const fetchedTiles = new Set(chunk);
+                    for (const [hid, h] of Object.entries(hazardsCache)) if (fetchedTiles.has(RS.tileOf(h.lat, h.lng))) delete hazardsCache[hid];
+                    for (const h of r.data.hazards) {
+                        if (!h || typeof h.id !== "string" || !Number.isFinite(h.lat) || !Number.isFinite(h.lng)) continue;
+                        hazardsCache[h.id] = { ...h, mine: myHazards.includes(h.id), fetchedAt: t };
+                        st.hazardsReceived++;
+                    }
+                    const ids = Object.keys(hazardsCache);
+                    if (ids.length > cfg.hazardsMax) for (const k of ids.sort((x, y) => hazardsCache[x].fetchedAt - hazardsCache[y].fetchedAt).slice(0, ids.length - cfg.hazardsMax)) delete hazardsCache[k];
+                    store.set("hazards", hazardsCache);
+                }
                 // other riders' smooth passes: [cell, label, hour (s)]; this phone's own come back as its own labels
                 if (cover && Array.isArray(r.data.cover)) for (const c of r.data.cover) {
                     if (!Array.isArray(c) || typeof c[1] !== "string" || coverLabelSet.has(c[1]) || !Number.isFinite(c[2])) continue;
@@ -311,7 +398,8 @@
 
         function status() {
             return {
-                consent: consent.on, consentAt: consent.at, queued: outbox.length, coverQueued: coverOutbox.length, pseudonyms: pseudonyms.length, privateZones: zones.length,
+                consent: consent.on, consentAt: consent.at, queued: outbox.length + pubOutbox.length, publishQueued: pubOutbox.length, coverQueued: coverOutbox.length,
+                pseudonyms: pseudonyms.length, privateZones: zones.length, hazards: Object.keys(hazardsCache).length,
                 tilesCached: Object.keys(tiles).length, ...st
             };
         }
@@ -322,7 +410,7 @@
             setConsent(on) {
                 consent = { on: Boolean(on), at: now() };
                 store.set("consent", consent);
-                if (!consent.on) { outbox = []; saveOutbox(); coverOutbox = []; store.set("coverOutbox", coverOutbox); }     // nothing waiting goes up after "off"
+                if (!consent.on) { outbox = []; saveOutbox(); coverOutbox = []; store.set("coverOutbox", coverOutbox); pubOutbox = []; savePub(); }     // nothing waiting goes up after "off"
                 changed();
                 return status();
             },
@@ -337,6 +425,31 @@
             },
             flush,
             fetchTiles,
+            /**
+             * RoadPulse: what the rider reviewed and chose to publish (review.js). Each item waits a random
+             * 0..publishDelayMaxMs, then goes up with the next flush. Nothing is queued while sharing is off.
+             * @param {{ reports?: any[], votes?: any[] }} p
+             */
+            publish(p) {
+                if (!consent.on) return { ok: false, reason: "sharing-off", queued: 0 };
+                const delay = () => now() + Math.floor(Math.random() * cfg.publishDelayMaxMs);
+                let queued = 0;
+                for (const item of (p && p.reports) || []) { pubOutbox.push({ kind: "report", item, notBefore: delay() }); queued++; }
+                for (const item of (p && p.votes) || []) { pubOutbox.push({ kind: "vote", item, notBefore: delay() }); queued++; }
+                if (pubOutbox.length > cfg.publishOutboxMax) pubOutbox.splice(0, pubOutbox.length - cfg.publishOutboxMax);
+                savePub();
+                changed();
+                return { ok: true, queued };
+            },
+            /** The smooth passes of a ride (its time window) were approved in its review: they may go up. @param {number} from @param {number} to */
+            approveCover(from, to) {
+                if (!Number.isFinite(from) || !Number.isFinite(to)) return;
+                coverApproved = [...coverApproved.filter((w) => now() - w.to < cfg.coverApprovalMaxMs), { from, to }];
+                store.set("coverApproved", coverApproved);
+            },
+            /** The published hazards kept offline (other riders' and this phone's own, mine: true). */
+            hazards: () => Object.values(hazardsCache),
+            /** @param {string} id */ isMine: (id) => myHazards.includes(id),
             /** @param {number[][]} points @param {number} [marginM] */
             tilesAlong: (points, marginM = 1000) => tilesAlong(RS, points, marginM, cfg.tilesMax),
             /** Ask the server to delete everything this phone uploaded; then forget the pseudonyms here. */
@@ -344,9 +457,10 @@
                 const a = api();
                 if (!a) return { ok: false, reason: "no-server", deleted: 0 };
                 let deleted = 0;
-                const rounds = Math.max(Math.ceil(pseudonyms.length / 800), Math.ceil(coverLabels.length / 5000));
+                const rounds = Math.max(1, Math.ceil(pseudonyms.length / 800), Math.ceil(coverLabels.length / 5000));
                 for (let i = 0; i < rounds; i++) {
-                    const body = { v: 1, riders: pseudonyms.slice(i * 800, (i + 1) * 800).map((p) => p.id), cover: coverLabels.slice(i * 5000, (i + 1) * 5000) };
+                    const body = { v: 1, riders: pseudonyms.slice(i * 800, (i + 1) * 800).map((p) => p.id), cover: coverLabels.slice(i * 5000, (i + 1) * 5000), ...(i === 0 && ident ? { contributors: [ident.contributor] } : {}) };
+                    if (!body.riders.length && !body.cover.length && !body.contributors) continue;
                     const r = await a.post("/roadsense/forget", body, { timeoutMs: cfg.timeoutMs });
                     if (!r.ok) return { ok: false, reason: r.reason || `http ${r.status}`, deleted };
                     deleted += Number(r.data && r.data.deleted) || 0;
@@ -354,6 +468,12 @@
                 pseudonyms = []; store.set("pseudonyms", pseudonyms);
                 coverLabels = []; coverLabelSet = new Set(); store.set("coverLabels", coverLabels);
                 outbox = []; saveOutbox(); coverOutbox = []; store.set("coverOutbox", coverOutbox);
+                // RoadPulse: a new contributor from now on; nothing waiting goes up; the hazards they reported aren't "mine" any more
+                ident = null; store.set("identity", null);
+                pubOutbox = []; savePub();
+                myHazards = []; store.set("myHazards", myHazards);
+                for (const h of Object.values(hazardsCache)) h.mine = false;
+                store.set("hazards", hazardsCache);
                 changed();
                 return { ok: true, deleted };
             },

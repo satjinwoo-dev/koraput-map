@@ -34,14 +34,16 @@ function world() {
             async post(path, body) {
                 calls.push({ phone: name, path, body: JSON.parse(JSON.stringify(body)) });
                 if (!online) return { ok: false, status: 0, data: null, reason: "offline" };
-                const fn = { "/roadsense/upload": server.upload, "/roadsense/area": server.area, "/roadsense/forget": server.forget }[path];
+                const fn = { "/roadsense/upload": server.upload, "/roadsense/area": server.area, "/roadsense/forget": server.forget, "/roadsense/publish": server.publish }[path];
                 const r = await fn(JSON.parse(JSON.stringify(body)));
                 return { ok: r.status === 200 && r.json.ok !== false, status: r.status, data: JSON.parse(JSON.stringify(r.json)), reason: r.json.reason };
             }
         };
         const logStore = memStore(), syncStore = memStore();
         const log = RS.createLog({ store: logStore });
-        const sync = SY.createSync({ RS, log, store: syncStore, api, now: () => t });
+        // these tests run the raw-observation path (research datasets: shareRawObservations); the app itself
+        // publishes reviewed reports only (test/master/roadpulse-sync.test.mjs)
+        const sync = SY.createSync({ RS, log, store: syncStore, api, now: () => t, settings: { shareRawObservations: true } });
         /** this phone feels something `east` metres along the road */
         const feel = (o = {}) => log.add({ type: "bump", t, lat: LAT, lng: LNG + (o.east || 0) * M_LNG, source: "imu", rider: "self", present: true, conf: 0.7, peakMs2: 14, ...o });
         return { name, log, sync, api, logStore, syncStore, feel, offline: (v = true) => { online = !v; } };
