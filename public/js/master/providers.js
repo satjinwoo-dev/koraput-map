@@ -32,8 +32,8 @@
                     snapshot() → { bike, group: { inTrip, size }, destination, place }
                     onEvent(fn) → fn({ type, detail, t })
 
-   "terrain"      heights for points (js/trip/elevation.js: Copernicus 90 m DEM via
-                  Open-Meteo, cached on the phone). heights([[lat, lng], …]) → number[] (NaN = unknown)
+   "terrain"      heights for points (js/trip/elevation.js: MapUnite's own 30 m terrain
+                  model, Copernicus GLO-30, pilot corridors only; cached on the phone). heights([[lat, lng], …]) → number[] (NaN = unknown)
    ============================================================================ */
 (function (root, factory) {
     if (typeof module === "object" && module.exports) module.exports = factory();

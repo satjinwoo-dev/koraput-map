@@ -11,7 +11,7 @@
      segmentSpeeds(edges, steps, opts)    each segment's average speed from the
                                           router's own step distances and durations
 
-   Why the cleaning matters: a 90 m DEM sampled along a road sees the valley floor
+   Why the cleaning matters: a 30–90 m DEM sampled along a road sees the valley floor
    under a flyover and the hillside beside a cutting. Raw, those become 40 % "grades"
    that would cost absurd fuel. So: fill gaps, clamp bridges and tunnels to a straight
    grade (Step 9, js/trip/structures.js: the ones OpenStreetMap knows, then the DEM's

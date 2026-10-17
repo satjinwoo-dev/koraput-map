@@ -28,6 +28,10 @@
                   on ghats (the Paderu ghat, Simhachalam, Ananthagiri / Araku), none below
                   150 m altitude. A 90 m DEM smooths cliffs, so it MISSES short sharp drops
                   rather than inventing them; it can't see crash barriers either.
+                  Since the 30 m model (GLO-30, pilot corridors only) the heights are
+                  sharper, so some short drops the 90 m model smoothed away will now be
+                  found. The thresholds above were NOT re-checked on GLO-30: validate them
+                  in the pilot before trusting the counts.
 
    WHEN each is said (distance ahead, speed-aware; once per feature per 30 min):
      breaker          4–10 s ahead, only at ≥ 8 m/s; at most one a minute (towns have dozens)

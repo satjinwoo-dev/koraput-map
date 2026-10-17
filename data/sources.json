@@ -47,11 +47,29 @@
       "notes": "Check CARTO's current limits for free vs commercial use."
     },
     {
-      "id": "open-meteo", "name": "Open-Meteo weather, air quality and elevation APIs", "hosts": ["api.open-meteo.com", "air-quality-api.open-meteo.com"],
+      "id": "open-meteo", "name": "Open-Meteo weather and air quality APIs", "hosts": ["api.open-meteo.com", "air-quality-api.open-meteo.com"],
       "use": "weather on the route, the advice gate's wet-road check, air quality", "licence": "data CC BY 4.0; API terms: the free API is for non-commercial use",
       "licence_version": "4.0", "attribution": "Weather data by Open-Meteo.com", "commercial_use": "by_agreement",
       "access_method": "HTTP API at request time", "fetched_at": null, "source_version": null, "legal_review": "pending",
       "notes": "Commercial use needs an Open-Meteo subscription, or self-hosting the open-source Open-Meteo with openly licensed model data (NOAA GFS, ECMWF open data). IMD data needs its own agreement."
+    },
+    {
+      "id": "copernicus-dem-glo30", "name": "Copernicus DEM GLO-30 (ESA / European Union)", "hosts": ["copernicus-dem-30m.s3.amazonaws.com"],
+      "use": "the self-hosted 30 m terrain model for the pilot corridors (lib/elevation/, scripts/elevation-ingest.mjs): route gradients, the gradient sheet, trip energy, valley-edge warnings",
+      "licence": "Copernicus DEM licence (GLO-30 public release): free of charge, worldwide, including commercial use and redistribution of derived products, with the credit below", "licence_version": null,
+      "attribution": "Copernicus DEM GLO-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018, provided under COPERNICUS by the European Union and ESA",
+      "commercial_use": "yes", "access_method": "downloaded once per corridor by scripts/elevation-ingest.mjs from the AWS Open Data bucket (public, no account); served from our own server; never fetched by the phone",
+      "fetched_at": null, "source_version": "GLO-30 (2021 release on AWS)", "legal_review": "pending",
+      "notes": "Each corridor's <id>.json records the files used and their SHA-256. The credit is sent with every elevation answer and shown in the gradient sheet. Copy the exact credit wording from the licence PDF on the Copernicus Data Space before launch (the line here follows the AWS registry's). Heights are a surface model (trees and roofs included), relative to the EGM2008 geoid."
+    },
+    {
+      "id": "nasadem", "name": "NASADEM (NASA JPL, 1 arc-second)", "hosts": [],
+      "use": "the alternative source for the 30 m terrain model (scripts/elevation-ingest.mjs --source nasadem --from <dir>)",
+      "licence": "NASA data: no restrictions on use (NASA Earthdata data use policy); downloading needs a free Earthdata login", "licence_version": null,
+      "attribution": "NASADEM courtesy of NASA JPL and the NASA EOSDIS Land Processes DAAC",
+      "commercial_use": "yes", "access_method": "downloaded by hand with an Earthdata login (the script never fetches it), served from our own server",
+      "fetched_at": null, "source_version": "NASADEM_HGT v001", "legal_review": "pending",
+      "notes": "Not used unless chosen: Copernicus is the default. NASA asks for a citation of the dataset in publications; the credit line is shown in the app like Copernicus's."
     },
     {
       "id": "google-maps-platform", "name": "Google Maps Platform (Places, Maps)", "hosts": ["places.googleapis.com", "maps.googleapis.com", "maps.gstatic.com", "www.google.com", "google.com", "tile.googleapis.com"],

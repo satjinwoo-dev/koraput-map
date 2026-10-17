@@ -79,7 +79,7 @@
         }
         const res = GR.core.analyze({ sample: rs, z: elev.z, distance: r.distanceM || rs.length, spans, profileLib: P, structuresLib: T.structures });
         const meta = {
-            elevation: { source: elev.source, fetched: elev.fetched || 0, missing: elev.missing || 0, total: rs.lat.length },
+            elevation: { source: elev.source, fetched: elev.fetched || 0, missing: elev.missing || 0, total: rs.lat.length, credit: elev.credit || "" },
             structureSource, offline: typeof navigator !== "undefined" && navigator.onLine === false,
             routeName: (nav() && nav().destName) || ""
         };

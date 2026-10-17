@@ -1,0 +1,7 @@
+{
+  "about": "Pilot corridors for the self-hosted 30 m terrain model. scripts/elevation-ingest.mjs cuts each bbox from Copernicus GLO-30 (default) or NASADEM tiles and writes <id>.json + <id>.f32 to data/elevation/grids/ (ELEVATION_DIR; not committed: ~35 MB). Bounding boxes are degrees, WGS84.",
+  "corridors": [
+    { "id": "koraput-araku", "name": "Koraput – Jeypore – Araku", "bbox": { "s": 18.20, "w": 82.40, "n": 19.00, "e": 83.10 } },
+    { "id": "rourkela", "name": "Rourkela", "bbox": { "s": 22.10, "w": 84.70, "n": 22.40, "e": 85.05 } }
+  ]
+}

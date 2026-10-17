@@ -3,7 +3,7 @@
    MapUnite gradient — grades from elevation, with bridges and tunnels fixed
    (roadmap step 9). Pure functions, strict SI (m, rise/run). No DOM, no network.
    ==============================================================================
-   Why: a terrain model (Copernicus 90 m DEM) gives the height of the GROUND. On a
+   Why: a terrain model (Copernicus GLO-30, 30 m) gives the height of the GROUND. On a
    bridge the road is above the valley the DEM sees; in a tunnel it's below the
    hill. Raw, a river bridge becomes a 40 % plunge and climb, a tunnel a mountain.
    So, before smoothing, bridges and tunnels are clamped to a straight grade by the

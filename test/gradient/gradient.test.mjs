@@ -85,6 +85,12 @@ test("chart helpers: nice ticks, a complete table (route order), provenance in w
     assert.deepEqual(pv.map((x) => x.tone), ["ok", "info"]);
     assert.match(pv[0].text, /works offline/); assert.match(pv[1].text, /not checked \(offline\)/);
     assert.match(V.provenance({ elevation: { source: "none" }, offline: true, structureSource: "cache" })[0].text, /shown flat/);
+    // the 30 m model: its licence credit shows whenever heights are drawn; outside the corridors, said plainly
+    const fresh = V.provenance({ elevation: { source: "dem", fetched: 40, credit: "Copernicus DEM GLO-30 © DLR …" }, structureSource: "network" });
+    assert.match(fresh[0].text, /30 m model/);
+    assert.equal(fresh[1].text, "Copernicus DEM GLO-30 © DLR …");
+    assert.match(V.provenance({ elevation: { source: "none", credit: "x" }, structureSource: "network" })[0].text, /pilot corridors/);
+    assert.ok(!V.provenance({ elevation: { source: "none", credit: "x" }, structureSource: "network" }).some((l) => l.text === "x"));
 });
 
 test("sections: a short easing doesn't split a climb; a long one does; tiny runs are dropped", () => {

@@ -1,3 +1,4 @@
 node_modules/
 data/mapunite.db*
 data/tts-cache/
+data/elevation/grids/
