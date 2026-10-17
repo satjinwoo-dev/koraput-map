@@ -52,6 +52,7 @@
     "public/js/master/remote.js",
     "public/js/master/providers.js",
     "public/js/master/phrases-radar.js",
+    "public/js/master/phrases-tone.js",
     "public/js/master/cognition.js",
     "public/js/master/agents/corridor-agent.js",
     "public/js/master/agents/link-agent.js",
