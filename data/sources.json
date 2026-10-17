@@ -34,10 +34,10 @@
     },
     {
       "id": "esri-imagery", "name": "Esri World Imagery", "hosts": ["server.arcgisonline.com"],
-      "use": "the satellite base layer (default), and the post-ride review map", "licence": "Esri terms of use", "licence_version": null,
+      "use": "the satellite base layer (default), its road and place-name label layers (Reference/World_Transportation, Reference/World_Boundaries_and_Places), and the post-ride review map", "licence": "Esri terms of use", "licence_version": null,
       "attribution": "Imagery © Esri, Maxar, Earthstar Geographics", "commercial_use": "unclear", "access_method": "XYZ tiles at request time",
       "fetched_at": null, "source_version": null, "legal_review": "pending",
-      "notes": "Check Esri's current terms for use in a commercial app (account or licence may be needed)."
+      "notes": "Check Esri's current terms for use in a commercial app (account or licence may be needed). The label layers' exact credit line (Esri's data providers) must be copied from each service's copyright text before launch."
     },
     {
       "id": "carto-basemaps", "name": "CARTO dark basemap", "hosts": ["basemaps.cartocdn.com", "carto.com"],

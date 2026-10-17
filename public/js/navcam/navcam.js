@@ -152,7 +152,9 @@ const NavCamera = (() => {
     function addUnderlay() {
         removeUnderlay();
         /** @type {any} */ let base = null;
-        lmap.eachLayer((/** @type {any} */ l) => { if (!base && l instanceof L.TileLayer && typeof l._url === "string") base = l; });
+        // the base map, not the name labels drawn over the satellite view (muOverlay, js/core.js)
+        const isBase = (/** @type {any} */ l) => l instanceof L.TileLayer && !l.options.muOverlay;
+        lmap.eachLayer((/** @type {any} */ l) => { if (!base && isBase(l) && typeof l._url === "string") base = l; });
         if (!base) return;
         const o = base.options;
         underlay = L.tileLayer(base._url, {
@@ -160,7 +162,7 @@ const NavCamera = (() => {
             zIndex: 0, keepBuffer: 1, attribution: "", className: "navcam-underlay", crossOrigin: o.crossOrigin
         }).addTo(lmap);
         // the sharp layer keeps a wider ring of tiles while the view turns
-        lmap.eachLayer((/** @type {any} */ l) => { if (l !== underlay && l instanceof L.TileLayer) { boosted.push([l, l.options.keepBuffer]); l.options.keepBuffer = 4; } });
+        lmap.eachLayer((/** @type {any} */ l) => { if (l !== underlay && isBase(l)) { boosted.push([l, l.options.keepBuffer]); l.options.keepBuffer = 4; } });
     }
     function removeUnderlay() {
         if (underlay && lmap) { try { lmap.removeLayer(underlay); } catch (e) { /* already gone */ } }

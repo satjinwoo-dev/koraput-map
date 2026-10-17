@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-17.7";           // the drive sheet collapses to one row while driving (swipe up for more)
+const VERSION = "mu-2026-10-17.8";           // satellite view shows road and place names (label layers over the imagery)
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
