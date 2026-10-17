@@ -98,9 +98,13 @@
         return { desi, plain, shortDesi, shortPlain, tu };
     }
 
-    /** One line for a screen row: "2 riders · 3 h ago · 82%". @param {any} row */
+    /**
+     * One line for a screen row: "You + 2 riders · motion sensor · 3 hours ago". No percentage: the log's confidence
+     * gates warnings internally; shown as a number it would read as a probability (Confirmed Decision 3).
+     * @param {any} row
+     */
     function screenEvidence(row) {
-        if (row.status === "predicted") return `AI prediction · ${((row.predicted && row.predicted.refs) || []).join(", ")} · not seen by anyone · ${Math.round(row.confidence * 100)}%`;
+        if (row.status === "predicted") return `AI prediction · ${((row.predicted && row.predicted.refs) || []).join(", ")} · not seen by anyone`;
         const parts = [];
         const others = row.riders - (row.felt ? 1 : 0);
         if (row.sources && row.sources.official) parts.push(`Official: ${(row.refs || []).join(", ") || "official list"}`);
@@ -109,7 +113,6 @@
         const how = Object.entries(row.sources || {}).filter(([s]) => s !== "official").map(([s]) => (s === "imu" ? "motion sensor" : s === "camera" ? "camera" : "rider report")).join(" + ");
         if (how) parts.push(how);
         parts.push(ago(row.ageS).plain);
-        parts.push(`${Math.round(row.confidence * 100)}%`);
         return parts.join(" · ");
     }
 
@@ -207,6 +210,39 @@
         return { ...row, words: evidence(row), screen: screenEvidence(row), kind: KIND_WORDS[/** @type {keyof typeof KIND_WORDS} */ (ev.type)] || { desi: ev.type, plain: ev.type, many: ev.type, one: ev.type } };
     }
 
+    /** A card row from a published hazard (RoadPulse, agreement.js summary as /area sends it). @param {any} h @param {number} now @param {number} alongM @param {number} aheadM @param {number} offsetM */
+    function communityRow(h, now, alongM, aheadM, offsetM) {
+        const status = h.status === "active" ? "verified" : h.status === "reported" ? "candidate" : h.status;      // disputed, maybe_fixed: shown, never counted
+        const w = communityEvidence(h, now);
+        return {
+            id: h.id, type: h.type, status, community: { status: h.status, found: h.found, notFound: h.notFound, unsure: h.unsure, reviewers: h.reviewers, agreementPct: h.agreementPct, recentDisagree: Boolean(h.recentDisagree) },
+            confidence: null, alongM: Math.round(alongM), aheadM: Math.round(aheadM), offsetM: Math.round(offsetM * 10) / 10,
+            sources: { rider: h.found }, riders: h.found, felt: false, lastSeen: h.lastFoundAt ?? null,
+            ageS: Number.isFinite(h.lastFoundAt) ? Math.max(0, Math.round((now - h.lastFoundAt) / 1000)) : 0, peakMs2: null, refs: [], predicted: null,
+            expiresAt: h.expiresAt ?? null,
+            words: { desi: w.desi, plain: w.plain, shortDesi: w.shortDesi, shortPlain: w.shortPlain, tu: w.desi }, screen: w.screen,
+            kind: KIND_WORDS[/** @type {keyof typeof KIND_WORDS} */ (h.type)] || { desi: h.type, plain: h.type, many: h.type, one: h.type }
+        };
+    }
+
+    /**
+     * Adds the published hazards along the route as rows; one within 15 m of a row the phone already has is the same
+     * hazard: its rider counts are added to that row's screen line instead.
+     * @param {any[]} rows @param {any[]} community @param {(lat: number, lng: number) => { alongM: number, offsetM: number }|null} place @param {number} fromM @param {number} now
+     */
+    function withCommunity(rows, community, place, fromM, now) {
+        const out = [...rows];
+        for (const h of community || []) {
+            if (!h || !Number.isFinite(h.lat) || !Number.isFinite(h.lng)) continue;
+            const pr = place(h.lat, h.lng);
+            if (!pr || pr.alongM < fromM) continue;
+            const same = out.find((r) => !r.community && Math.abs(r.alongM - pr.alongM) <= 15);
+            if (same) { same.screen = `${same.screen} · ${communityEvidence(h, now).screen}`; continue; }
+            out.push(communityRow(h, now, pr.alongM, pr.alongM - fromM, pr.offsetM));
+        }
+        return out.sort((a, b) => a.alongM - b.alongM);
+    }
+
     /** Counts of a card's rows. @param {any[]} rows */
     function tally(rows) {
         /** @type {Record<string, number>} */ const byKind = {};
@@ -255,9 +291,10 @@
 
     /**
      * The Truth Card for a route.
-     * @param {{ log: any, path: number[][], now: number, fromM?: number, cover?: any, corridorM?: number, stepM?: number, maxRows?: number }} o
+     * @param {{ log: any, path: number[][], now: number, fromM?: number, cover?: any, community?: any[], corridorM?: number, stepM?: number, maxRows?: number }} o
      *   fromM: the rider's distance along the route (rows behind them are left out; aheadM counts from here)
      *   cover: the smooth-pass coverage (roadsense.js createCoverage); without it every unreported stretch is "unknown"
+     *   community: published hazards (RoadPulse) with what riders said; shown with their counts
      */
     function buildTruth(o) {
         const cfg = { ...DEFAULTS, ...o };
@@ -275,8 +312,9 @@
                 found.set(ev.id, { ev, ...pr });
             }
         }
-        const rows = [...found.values()].sort((a, b) => a.alongM - b.alongM).slice(0, cfg.maxRows)
+        const own = [...found.values()].sort((a, b) => a.alongM - b.alongM).slice(0, cfg.maxRows)
             .map(({ ev, alongM, offsetM }) => rowOf(ev, o.log, o.now, alongM, alongM - fromM, offsetM));
+        const rows = withCommunity(own, o.community || [], (lat, lng) => { const pr = project(pts, lat, lng); return pr.offsetM <= cfg.corridorM ? pr : null; }, fromM, o.now).slice(0, cfg.maxRows);
         const t = tally(rows);
         const cov = stretchesOf(pts, fromM, rows, o.cover || null, o.now);
         const active = t.verified + t.candidates;
@@ -289,11 +327,13 @@
 
     /**
      * Without a route: the events within radiusM of the rider, nearest first (straight-line distance as aheadM).
-     * @param {{ log: any, lat: number, lng: number, now: number, radiusM?: number, maxRows?: number }} o
+     * @param {{ log: any, lat: number, lng: number, now: number, radiusM?: number, maxRows?: number, community?: any[] }} o
      */
     function buildNear(o) {
-        const found = o.log.query({ lat: o.lat, lng: o.lng, radiusM: o.radiusM || 2000, now: o.now }).slice(0, o.maxRows || DEFAULTS.maxRows);
-        const rows = found.map((/** @type {any} */ ev) => rowOf(ev, o.log, o.now, ev.distanceM, ev.distanceM, 0));
+        const radiusM = o.radiusM || 2000;
+        const found = o.log.query({ lat: o.lat, lng: o.lng, radiusM, now: o.now }).slice(0, o.maxRows || DEFAULTS.maxRows);
+        const own = found.map((/** @type {any} */ ev) => rowOf(ev, o.log, o.now, ev.distanceM, ev.distanceM, 0));
+        const rows = withCommunity(own, o.community || [], (lat, lng) => { const d = dist(o.lat, o.lng, lat, lng); return d <= radiusM ? { alongM: d, offsetM: 0 } : null; }, 0, o.now).slice(0, o.maxRows || DEFAULTS.maxRows);
         const t = tally(rows);
         return {
             at: o.now, lengthM: 0, fromM: 0, rows, ...t, stretches: [],
@@ -324,14 +364,15 @@
             scope, count: active.length, verified: card.verified, candidates: card.candidates, predicted: card.predicted || 0,
             where: where.desi, kinds: list("desi"),
             hazard: first ? first.kind.desi : "", distanceM: first ? Math.max(10, first.aheadM) : 0, evidence: first ? first.words.desi : "", evidenceTu: first ? first.words.tu : "",
-            confidence: first ? confidenceWords(first.confidence).desi : "",
+            // a published hazard's evidence already says how many riders confirmed it: no extra "bharosa" words
+            confidence: first && first.confidence !== null ? confidenceWords(first.confidence).desi : "riders ke review ke hisaab se",
             clearM: cov.clearM || 0, clearRiders: cov.clearRiders || 0, clearAgo: clearAgo ? clearAgo.desi : "",
             unknownM: cov.unknownM || 0, riddenAgo: riddenAgo ? riddenAgo.desi : "",
             officialKind: off ? off.kind.desi : "", officialRefs: off ? off.refs.join(", ") : "", officialM: off ? Math.max(10, off.aheadM) : 0,
             predictedKind: pred ? pred.kind.desi : "", predictedM: pred ? Math.max(10, pred.aheadM) : 0, predictedBy: predBy,
             screen: {
                 where: where.plain, kinds: list("plain"), hazard: first ? first.kind.plain : "", evidence: first ? first.words.plain : "",
-                confidence: first ? `${confidenceWords(first.confidence).plain} (${Math.round(first.confidence * 100)}%)` : "",
+                confidence: first && first.confidence !== null ? confidenceWords(first.confidence).plain : "",
                 clearAgo: clearAgo ? clearAgo.plain : "", riddenAgo: riddenAgo ? riddenAgo.plain : "",
                 officialKind: off ? off.kind.plain : "", predictedKind: pred ? pred.kind.plain : ""
             }

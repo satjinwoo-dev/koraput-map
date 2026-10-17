@@ -89,7 +89,7 @@ test("the evidence in words: who, when, confirmed or not; a short form for warni
     assert.equal(TR.evidence({ ...base, sources: { official: 1, imu: 1 }, riders: 1, felt: false, refs: [] }).plain, "official (official list) and 1 rider", "never an empty source name");
     assert.deepEqual([30, 600, 7200, 90000, 5 * 86400].map((s) => TR.ago(s).plain), ["just now", "10 minutes ago", "2 hours ago", "yesterday", "5 days ago"]);
     assert.deepEqual([0.95, 0.8, 0.6, 0.3].map((c) => TR.confidenceWords(c).band), ["high", "high", "medium", "low"]);
-    assert.equal(TR.screenEvidence({ ...base, riders: 3, felt: true }), "You + 2 riders · motion sensor · 3 hours ago · 90%");
+    assert.equal(TR.screenEvidence({ ...base, riders: 3, felt: true }), "You + 2 riders · motion sensor · 3 hours ago", "no percentage: it would read as a probability");
 });
 
 test("the voice: fixed phrases filled with the card's values, in desi and plain; the screen always in English", () => {
@@ -108,7 +108,7 @@ test("the voice: fixed phrases filled with the card's values, in desi and plain;
     assert.equal(a.display.title, "Road reports: 2 confirmed");
     assert.match(a.display.sub, /^First: bump or pothole in 1\.2 kilometres · felt by you and 2 other riders, last 1 hour ago$/);
     const b = say(plain, "road.truth", d);
-    assert.match(b.text, /^Confirmed reports on this route: 2, 1 bump or pothole, 1 rough road\. The first, in 1\.2 kilometres: bump or pothole, felt by you and 2 other riders, last 1 hour ago, high confidence \(\d+%\)\.$/);
+    assert.match(b.text, /^Confirmed reports on this route: 2, 1 bump or pothole, 1 rough road\. The first, in 1\.2 kilometres: bump or pothole, felt by you and 2 other riders, last 1 hour ago, high confidence\.$/);
     // only an unconfirmed report: says so
     const lone = RS.createLog(); lone.add(ob(3000, { rider: "r3cccccccccccccc" }));
     const c2 = TR.buildTruth({ log: lone, path: ROUTE, now: T0 + H });
@@ -242,7 +242,7 @@ test("the card on screen: hidden without a route, 'Condition unknown' with no ev
     assert.deepEqual(vm.pill, { text: "2 confirmed", tone: "warn" });
     assert.equal(vm.summary, "2 confirmed, 1 unconfirmed on this route: 1 bump or pothole, 1 rough road.");
     assert.deepEqual(vm.rows.map((r) => [r.distance, r.title, r.badge]), [["1.2 km", "Bump", "Confirmed"], ["3.0 km", "Bump", "Unconfirmed"], ["4.5 km", "Rough road", "Confirmed"]]);
-    assert.equal(vm.rows[0].evidence, `You + 2 riders · motion sensor · 1 hour ago · ${Math.round(card.rows[0].confidence * 100)}%`);
+    assert.equal(vm.rows[0].evidence, "You + 2 riders · motion sensor · 1 hour ago");
     assert.match(vm.rows[0].until, /^until \d{1,2} [A-Z][a-z]{2}$/);
     assert.equal(vm.source, "This phone's sensors and other riders' reports, updated 5 min ago.");
     assert.equal(vm.note, "No report doesn't mean the road is clear.");
@@ -288,4 +288,40 @@ test("wiring: scripts in order, styles, offline precache, the DOM event, type-ch
     assert.match(app, /async roadTruth\(\)/);
     const ts = JSON.parse(read("tsconfig.master.json")).files;
     for (const f of ["roadsense/truth.js", "roadsense/truth-card.js", "agents/truth-agent.js"]) assert.ok(ts.includes(`public/js/master/${f}`), f);
+});
+
+// ---------------------------------------------------------------- RoadPulse: published hazards on the card
+test("published hazards on the card: rider counts, never a percentage of probability; disputed and maybe-fixed shown apart", () => {
+    const log = RS.createLog();
+    log.addAll([ob(3000), ob(3000, { t: T0 + 2 * H, rider: "r1aaaaaaaaaaaaaa" })]);           // the phone's own verified bump at 3 km
+    const hz = (id, east, o) => ({ id, type: "pothole", ...at(east), heading: 90, severity: 3, found: 1, notFound: 0, unsure: 0, reviewers: 1, agreementPct: null, lastFoundAt: T0 - D, recentDisagree: false, alertable: true, status: "reported", ...o });
+    const community = [
+        hz("h1", 1000, { status: "active", found: 8, notFound: 2, unsure: 1, reviewers: 10, agreementPct: 80, lastFoundAt: T0 - 3 * H }),
+        hz("h2", 1500, {}),
+        hz("h3", 2500, { status: "disputed", found: 1, notFound: 3, reviewers: 4, agreementPct: 25, alertable: false }),
+        hz("h4", 3005, { status: "active", found: 3, notFound: 0, reviewers: 3, agreementPct: 100 }),     // the same as the phone's own at 3 km
+        hz("h5", 4000, { status: "maybe_fixed", found: 2, notFound: 3, reviewers: 5, agreementPct: 40, recentDisagree: true, alertable: false }),
+        hz("far", 1000, { ...at(1000, 300) })                                                       // 300 m off the route
+    ];
+    const card = TR.buildTruth({ log, community, path: ROUTE, now: T0 + 3 * H });
+    assert.deepEqual(card.rows.map((r) => r.id.startsWith("h") ? r.id : "own"), ["h1", "h2", "h3", "own", "h5"]);
+    assert.equal(card.verified, 2, "h1 (active) and the phone's own; disputed and maybe-fixed aren't counted");
+    assert.equal(card.candidates, 1, "h2: one rider's report");
+    const vm = CARD.viewModel({ hasRoute: true, card, sources: { community: true, lastFetch: T0 + 2 * H } }, T0 + 3 * H, { expanded: true });
+    const row = (i) => vm.rows[i];
+    assert.equal(row(0).badge, "Confirmed");
+    assert.equal(row(0).evidence, "8 of 10 reviewing riders found it · 80% rider agreement · last confirmed 6 hours ago · 1 not sure");
+    assert.equal(row(1).badge, "1 report");
+    assert.equal(row(1).evidence, "1 rider reported this yesterday");
+    assert.equal(row(2).badge, "Riders disagree");
+    assert.match(row(3).evidence, /^You \+ 1 rider · motion sensor · 1 hour ago · 3 of 3 reviewing riders found it/, "merged with the phone's own: one row");
+    assert.equal(row(4).badge, "Maybe fixed");
+    assert.match(row(4).evidence, /recent riders disagree, condition may have changed/);
+    for (const r of vm.rows) assert.doesNotMatch(r.evidence.replace(/\d+% rider agreement/, ""), /\d+%/, "the only percentage is rider agreement");
+    // said: the first confirmed hazard with its counts
+    const p = PH.install(P.createPersona({ style: "desi", rng: () => 0 }));
+    const said = p.phrase({ kind: TR.phraseKind(card), key: "x", severity: "advice", data: TR.phraseData(card, "route") });
+    assert.match(said.text, /10 mein se 8 riders ko mila, aakhri baar 6 ghante pehle/);
+    assert.match(said.text, /riders ke review ke hisaab se/);
+    assert.doesNotMatch(said.text, /bharosa/);
 });

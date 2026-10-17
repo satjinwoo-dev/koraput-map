@@ -142,7 +142,7 @@ test("dynamics agent: every cell ridden at speed with nothing felt is a smooth p
 });
 
 // ---------------------------------------------------------------- the card and the voice
-test("Truth Card: 2+ riders with smooth passes → 'Clear · verified by N riders'; one → 'ridden once'; reports still win", () => {
+test("Truth Card: 2+ riders with smooth passes → 'Clear · no bumps felt by N riders' (a sensor signal); one → 'ridden once'; reports still win", () => {
     const now = T0 + 3 * H;
     const log = RS.createLog();
     const cover = RS.createCoverage();
@@ -160,12 +160,12 @@ test("Truth Card: 2+ riders with smooth passes → 'Clear · verified by N rider
     const say = (p, kind, c, scope = "route") => p.phrase({ kind, key: kind, severity: "advice", data: TR.phraseData(c, scope) });
     const a = say(desi, "road.truth-clear", card);
     assert.equal(a.text, "Asha, is raaste saaf hai: 2 riders ne koi jhatka feel nahi kiya, aakhri baar 2 ghante pehle. Par phone paani ya bajri feel nahi kar sakta, dhyan rakhna.");
-    assert.equal(a.display.title, "Clear · verified by 2 riders");
-    assert.equal(a.display.sub, "No bumps felt · last 2 hours ago");
+    assert.equal(a.display.title, "Clear · no bumps felt by 2 riders");
+    assert.equal(a.display.sub, "Phone sensors · last 2 hours ago");
     assert.equal(say(plain, "road.truth-clear", card).text, "This route is clear: no bumps felt by 2 riders, last 2 hours ago. A phone can't feel water or gravel, so stay alert.");
     const vm = CARD.viewModel({ hasRoute: true, card, sources: { community: true, lastFetch: now - MIN } }, now);
-    assert.deepEqual(vm.pill, { text: "Clear · verified by 2 riders", tone: "clear" });
-    assert.equal(vm.summary, "No bumps or rough road felt on this route by 2 riders, last 2 h ago.");
+    assert.deepEqual(vm.pill, { text: "Clear · no bumps felt by 2 riders", tone: "clear" });
+    assert.equal(vm.summary, "No bumps or rough road felt on this route by 2 riders' phone sensors, last 2 h ago.");
     assert.deepEqual(vm.bar, [{ state: "clear", pct: 100 }]);
     assert.equal(vm.coverage, "5.0 km clear");
     assert.match(vm.feel, /can't feel water, gravel or animals/);
@@ -301,7 +301,7 @@ test("feeds end to end: an official item verifies by name until its date; a pred
     assert.equal(card.predicted, 1);
     assert.equal(card.candidates, 0, "a prediction is never a candidate either");
     assert.equal(o.screen.startsWith("Official: Example roadworks list"), true);
-    assert.match(p.screen, /^AI prediction · IMD nowcast \+ Bhuvan DEM \(test rule\) · not seen by anyone · 60%$/);
+    assert.match(p.screen, /^AI prediction · IMD nowcast \+ Bhuvan DEM \(test rule\) · not seen by anyone$/);
     const vm = CARD.viewModel({ hasRoute: true, card, sources: { community: true, lastFetch: T0 + H } }, T0 + H);
     assert.deepEqual(vm.rows.map((r) => r.badge), ["Predicted", "Official"]);
     // the voice: the official item by name, the prediction last and labelled

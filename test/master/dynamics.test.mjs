@@ -358,5 +358,5 @@ test("RoadSense: a pothole verified only by other riders (sync) is warned on thi
     assert.ok(e.said.some((s) => /2 riders ne bataya, 22 ghante pehle\./.test(s.text)), e.said.map((s) => s.text).join(" | "));
     const isl = e.islands.find((i) => i.title === "Bump reported ahead");
     assert.ok(isl, "on screen");
-    assert.match(isl.sub, /^In \d+ m · 2 riders · motion sensor · 22 hours ago · \d+%$/);
+    assert.match(isl.sub, /^In \d+ m · 2 riders · motion sensor · 22 hours ago$/, "no percentage on screen");
 });
