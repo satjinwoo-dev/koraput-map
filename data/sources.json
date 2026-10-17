@@ -1,0 +1,121 @@
+{
+  "about": "Every external data source and service MapUnite uses: its licence, attribution, whether commercial use is allowed, how it's accessed, and the legal review status. test/server/data-sources.test.mjs fails if code calls a host that isn't listed here. Nothing below is legal advice: every entry is 'pending' until someone qualified has checked the current terms. 'unclear' means we haven't confirmed it: treat as not cleared for commercial use.",
+  "fields": ["id", "name", "hosts", "use", "licence", "licence_version", "attribution", "commercial_use (yes | no | unclear | by_agreement)", "access_method", "fetched_at", "source_version", "legal_review (pending | approved | rejected)", "notes"],
+  "sources": [
+    {
+      "id": "osm-data", "name": "OpenStreetMap data (via Nominatim, Overpass, OSRM, road extracts)",
+      "hosts": ["www.openstreetmap.org", "nominatim.openstreetmap.org", "overpass-api.de"],
+      "use": "place search, POIs and speed limits (Overpass), the road index for hazard merging (data/roads)",
+      "licence": "ODbL", "licence_version": "1.0", "attribution": "© OpenStreetMap contributors",
+      "commercial_use": "yes", "access_method": "public APIs at request time; offline extract for data/roads",
+      "fetched_at": null, "source_version": null, "legal_review": "pending",
+      "notes": "Data is commercially usable with attribution; share-alike applies to derivative databases. Review before selling an API or publishing a database built on it (derivative vs collective database). The public Nominatim and Overpass servers have usage policies (Nominatim: max 1 request/s, no bulk): self-host for production."
+    },
+    {
+      "id": "osm-tiles", "name": "OpenStreetMap standard tiles", "hosts": ["tile.openstreetmap.org"],
+      "use": "the street base layer", "licence": "ODbL (data) / CC BY-SA 2.0 (cartography, check current terms)", "licence_version": null,
+      "attribution": "© OpenStreetMap contributors", "commercial_use": "unclear", "access_method": "XYZ tiles at request time",
+      "fetched_at": null, "source_version": null, "legal_review": "pending",
+      "notes": "The OSMF tile usage policy does not allow heavy production use of tile.openstreetmap.org: move to self-hosted or a commercial tile provider before launch."
+    },
+    {
+      "id": "osrm-demo", "name": "OSRM demo server", "hosts": ["router.project-osrm.org"],
+      "use": "routing", "licence": "OSRM software BSD-2-Clause; routes from OSM data (ODbL)", "licence_version": null,
+      "attribution": "© OpenStreetMap contributors", "commercial_use": "unclear", "access_method": "HTTP API at request time",
+      "fetched_at": null, "source_version": null, "legal_review": "pending",
+      "notes": "A demo server, not meant for production traffic: self-host OSRM (or another engine) with an OSM extract before launch."
+    },
+    {
+      "id": "opentopomap", "name": "OpenTopoMap tiles", "hosts": ["tile.opentopomap.org", "opentopomap.org"],
+      "use": "the terrain base layer", "licence": "CC BY-SA 3.0 (map style); data OSM (ODbL) and SRTM", "licence_version": null,
+      "attribution": "Map data: © OpenStreetMap contributors, SRTM | Map style: © OpenTopoMap (CC-BY-SA)", "commercial_use": "unclear",
+      "access_method": "XYZ tiles at request time", "fetched_at": null, "source_version": null, "legal_review": "pending",
+      "notes": "A volunteer-run server: check its fair-use terms; self-host for production."
+    },
+    {
+      "id": "esri-imagery", "name": "Esri World Imagery", "hosts": ["server.arcgisonline.com"],
+      "use": "the satellite base layer (default), and the post-ride review map", "licence": "Esri terms of use", "licence_version": null,
+      "attribution": "Imagery © Esri, Maxar, Earthstar Geographics", "commercial_use": "unclear", "access_method": "XYZ tiles at request time",
+      "fetched_at": null, "source_version": null, "legal_review": "pending",
+      "notes": "Check Esri's current terms for use in a commercial app (account or licence may be needed)."
+    },
+    {
+      "id": "carto-basemaps", "name": "CARTO dark basemap", "hosts": ["basemaps.cartocdn.com", "carto.com"],
+      "use": "the dark base layer", "licence": "CARTO basemap terms; data OSM (ODbL)", "licence_version": null,
+      "attribution": "© OpenStreetMap contributors © CARTO", "commercial_use": "unclear", "access_method": "XYZ tiles at request time",
+      "fetched_at": null, "source_version": null, "legal_review": "pending",
+      "notes": "Check CARTO's current limits for free vs commercial use."
+    },
+    {
+      "id": "open-meteo", "name": "Open-Meteo weather, air quality and elevation APIs", "hosts": ["api.open-meteo.com", "air-quality-api.open-meteo.com"],
+      "use": "weather on the route, the advice gate's wet-road check, air quality", "licence": "data CC BY 4.0; API terms: the free API is for non-commercial use",
+      "licence_version": "4.0", "attribution": "Weather data by Open-Meteo.com", "commercial_use": "by_agreement",
+      "access_method": "HTTP API at request time", "fetched_at": null, "source_version": null, "legal_review": "pending",
+      "notes": "Commercial use needs an Open-Meteo subscription, or self-hosting the open-source Open-Meteo with openly licensed model data (NOAA GFS, ECMWF open data). IMD data needs its own agreement."
+    },
+    {
+      "id": "google-maps-platform", "name": "Google Maps Platform (Places, Maps)", "hosts": ["places.googleapis.com", "maps.googleapis.com", "maps.gstatic.com", "www.google.com", "google.com"],
+      "use": "the Maps script tag and place lookups (server-side keys)", "licence": "Google Maps Platform Terms of Service", "licence_version": null,
+      "attribution": "Google", "commercial_use": "by_agreement", "access_method": "paid API with a server-side key",
+      "fetched_at": null, "source_version": null, "legal_review": "pending",
+      "notes": "Paid, under Google's terms (no caching or scraping beyond them). RoadPulse data must never be mixed with Google content."
+    },
+    {
+      "id": "google-cloud-tts", "name": "Google Cloud Text-to-Speech", "hosts": ["texttospeech.googleapis.com"],
+      "use": "premium voice (optional, server-side)", "licence": "Google Cloud terms", "licence_version": null, "attribution": null,
+      "commercial_use": "by_agreement", "access_method": "paid API with a server-side key", "fetched_at": null, "source_version": null, "legal_review": "pending",
+      "notes": "Optional: the phone's own TTS works without it."
+    },
+    {
+      "id": "elevenlabs", "name": "ElevenLabs TTS", "hosts": ["api.elevenlabs.io"],
+      "use": "premium voice (optional, server-side)", "licence": "ElevenLabs terms", "licence_version": null, "attribution": null,
+      "commercial_use": "by_agreement", "access_method": "paid API with a server-side key", "fetched_at": null, "source_version": null, "legal_review": "pending",
+      "notes": "Optional."
+    },
+    {
+      "id": "gemini", "name": "Google Gemini API", "hosts": ["generativelanguage.googleapis.com"],
+      "use": "Deep Search answers (optional; never road facts: 'sensors verify, language models talk')", "licence": "Google AI terms", "licence_version": null, "attribution": null,
+      "commercial_use": "by_agreement", "access_method": "API with a server-side key", "fetched_at": null, "source_version": null, "legal_review": "pending",
+      "notes": "The product direction is to depend on no third-party AI keys: keep optional, plan to remove or self-host."
+    },
+    {
+      "id": "groq", "name": "Groq API", "hosts": ["api.groq.com"],
+      "use": "language-model answers (optional)", "licence": "Groq terms", "licence_version": null, "attribution": null,
+      "commercial_use": "by_agreement", "access_method": "API with a server-side key", "fetched_at": null, "source_version": null, "legal_review": "pending",
+      "notes": "Same as Gemini: optional, planned for removal or self-hosting."
+    },
+    {
+      "id": "tomtom", "name": "TomTom Traffic API", "hosts": ["api.tomtom.com"],
+      "use": "traffic flow (optional, server-side)", "licence": "TomTom terms", "licence_version": null, "attribution": "© TomTom",
+      "commercial_use": "by_agreement", "access_method": "paid API with a server-side key", "fetched_at": null, "source_version": null, "legal_review": "pending",
+      "notes": "Optional."
+    },
+    {
+      "id": "bigdatacloud", "name": "BigDataCloud reverse geocoding", "hosts": ["api.bigdatacloud.net"],
+      "use": "city name from a position", "licence": "BigDataCloud terms", "licence_version": null, "attribution": null,
+      "commercial_use": "unclear", "access_method": "HTTP API at request time", "fetched_at": null, "source_version": null, "legal_review": "pending",
+      "notes": "Check whether the free client-side endpoint allows commercial apps."
+    },
+    {
+      "id": "lastfm", "name": "Last.fm API", "hosts": ["ws.audioscrobbler.com"],
+      "use": "music suggestions (optional)", "licence": "Last.fm API terms", "licence_version": null, "attribution": "Last.fm",
+      "commercial_use": "unclear", "access_method": "API with a key", "fetched_at": null, "source_version": null, "legal_review": "pending",
+      "notes": "Check the API terms for commercial use."
+    },
+    {
+      "id": "web-libraries", "name": "Front-end libraries and fonts from CDNs (Leaflet, fonts)", "hosts": ["unpkg.com", "cdn.jsdelivr.net", "fonts.googleapis.com", "fonts.gstatic.com"],
+      "use": "map library (Leaflet BSD-2-Clause), web fonts (SIL OFL)", "licence": "per library: Leaflet BSD-2-Clause; fonts SIL OFL 1.1", "licence_version": null,
+      "attribution": "Leaflet", "commercial_use": "yes", "access_method": "CDN at load time (the service worker caches them)",
+      "fetched_at": null, "source_version": "leaflet 1.9.4", "legal_review": "pending",
+      "notes": "Licences allow commercial use; consider self-hosting for offline-first and privacy (no third-party requests)."
+    },
+    {
+      "id": "roadpulse-riders", "name": "RoadPulse rider reports and reviews", "hosts": [],
+      "use": "the public hazard layer", "licence": "MapUnite contributor terms (to be written)", "licence_version": null, "attribution": "MapUnite riders",
+      "commercial_use": "unclear", "access_method": "published by riders after review (POST /api/master/roadsense/publish)",
+      "fetched_at": null, "source_version": null, "legal_review": "pending",
+      "notes": "Contributor terms must grant MapUnite the right to store, show and license the reports (needed before any API sale), and say what is public (spot, direction, kind, severity, day) and what never is (route, identity)."
+    }
+  ],
+  "ignoredHosts": ["mapunite.app", "app.example.com", "json-schema.org"]
+}

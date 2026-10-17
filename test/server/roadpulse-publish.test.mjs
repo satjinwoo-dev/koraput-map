@@ -256,3 +256,18 @@ test("low-traffic roads: one rider's report waits for a second rider or 48 h; fe
     const fresh = (await rs.publish({ v: 1, contributor: tok("g"), reports: [report({ east: 1600, t: T0 + 3 * D })] })).json.results[0].hazard;
     assert.ok((await area()).some((x) => x.id === fresh), "no hold on a busy road");
 });
+
+test("pilot scorecard (server part): states, independent confirmations and how fast, votes with passage", async () => {
+    const { rs, at } = setup();
+    const id = (await rs.publish({ v: 1, contributor: tok("a"), reports: [report()] })).json.results[0].hazard;
+    await rs.publish({ v: 1, contributor: tok("a"), reports: [report({ east: 800 })] });
+    at(T0 + 2 * D);
+    await rs.publish({ v: 1, contributor: tok("b"), votes: [{ hazard: id, verdict: "found", t: T0 + 2 * D - H, passage: PASSED }] });
+    await rs.publish({ v: 1, contributor: tok("c"), votes: [{ hazard: id, verdict: "not_found", t: T0 + 2 * D - H }] });   // no passage
+    const sc = rs.scorecard();
+    assert.deepEqual(sc.hazardsByState, { community_confirmed: 1, reviewed_report: 1 });
+    assert.equal(sc.independentlyConfirmed, 1);
+    assert.equal(sc.daysToIndependentConfirmation.median, 2);
+    assert.deepEqual(sc.votes, { current: 4, withPassage: 3, anonymous: 0, history: 4 });
+    assert.equal(sc.reportersLast30Days, 1);
+});
