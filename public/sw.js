@@ -174,6 +174,7 @@ const BIKE_SCRIPTS = [
     "/js/master/roadsense/roadsense-ui.js",
     "/js/master/roadsense/truth.js",
     "/js/master/roadsense/truth-card.js",
+    "/js/master/roadsense/review.js",
     "/js/master/roadsense/roadsense.css",
     "/js/master/agents/truth-agent.js",
     "/js/master/agents/roadsense-agent.js",

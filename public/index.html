@@ -24,7 +24,7 @@
 <link rel="stylesheet" href="js/advice/advice.css?v=20261011-ask"><!-- Roadmap Step 8: the road-conditions badge (shows during a ride) -->
 <link rel="stylesheet" href="js/master/vision/vision.css?v=20261011-master"><!-- Master AI: break-time fatigue check (camera only while stopped) -->
 <link rel="stylesheet" href="js/ai/avatar.css?v=20261011-avatar">
-<link rel="stylesheet" href="js/master/roadsense/roadsense.css?v=20261017-rs5"><!-- RoadSense Live: the Route Truth Card -->
+<link rel="stylesheet" href="js/master/roadsense/roadsense.css?v=20261017-rp1"><!-- RoadSense Live: the Route Truth Card -->
 <link rel="stylesheet" href="js/navcam/navcam.css?v=20261015-horizon"><!-- navigation camera: heading-up, 3D tilt (js/navcam/) --><!-- Master AI avatar: the particle face (corner view + full screen) -->
 <!-- Three.js for the Master AI avatar (js/ai/). Must come before any module script. The CSP allows this inline
      block by its SHA-256, which server.js computes from this file at start-up (lib/csp-inline.js; test/ai checks it). -->
@@ -1795,6 +1795,7 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="js/master/master-app.js?v=20261017-rp1"></script>
 <script src="js/master/roadsense/roadsense-ui.js?v=20261017-18plus"></script>
 <script src="js/master/roadsense/truth-card.js?v=20261017-rp1"></script>
+<script src="js/master/roadsense/review.js?v=20261017-rp1"></script>
 <!-- Master AI avatar: the state rules, then the module that draws the face (Three.js via the import map in <head>) -->
 <script src="js/ai/avatar-state.js?v=20261011-avatar"></script>
 <script type="module" src="js/ai/avatar-app.js?v=20261011-avatar"></script>

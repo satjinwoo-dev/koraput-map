@@ -39,3 +39,44 @@
 .rt-seg.rt-ridden { background: rgba(52,224,180,.4); }
 .rt-seg.rt-unknown { background: repeating-linear-gradient(90deg, rgba(255,255,255,.18) 0 4px, transparent 4px 8px); }
 .rt-coverage { font-size: 11.5px; color: var(--soft, #c6d2db); font-variant-numeric: tabular-nums; }
+
+/* RoadPulse post-ride review (js/master/roadsense/review.js): a bottom sheet, one-tap choices, a small map */
+.rp-chip { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(118px + var(--safe-b, 0px)); z-index: var(--z-hud, 1000);
+  padding: 9px 16px; border-radius: 999px; border: 1px solid rgba(255,255,255,.14); background: rgba(16,22,28,.92); color: var(--text, #f2f6f8);
+  font: 600 13px var(--font-ui, "Inter", system-ui, sans-serif); box-shadow: var(--elev-3, 0 8px 24px rgba(0,0,0,.35)); cursor: pointer; max-width: calc(100vw - 32px); }
+.rp-chip[hidden] { display: none; }
+.rp-sheet { position: fixed; inset: auto 0 0 0; max-height: 88vh; z-index: var(--z-modal, 5000); display: flex; flex-direction: column; gap: 10px;
+  padding: 14px 16px calc(14px + var(--safe-b, 0px)); border-radius: 22px 22px 0 0; background: var(--panel, #10161c); color: var(--text, #f2f6f8);
+  border-top: 1px solid rgba(255,255,255,.1); box-shadow: 0 -12px 40px rgba(0,0,0,.45); font-family: var(--font-ui, "Inter", system-ui, sans-serif); overflow: hidden; }
+.rp-head { display: flex; align-items: center; gap: 8px; }
+.rp-title { margin: 0; font: 700 17px var(--font-display, "Sora", sans-serif); }
+.rp-skip { margin-left: auto; font: 600 13px inherit; color: var(--muted, #8b9bab); background: none; border: 0; padding: 8px; cursor: pointer; }
+.rp-sub { margin: 0; font-size: 12px; line-height: 1.45; color: var(--muted, #8b9bab); }
+.rp-map { flex: none; height: 24vh; min-height: 150px; border-radius: 14px; overflow: hidden; background: #0b1015; }
+.rp-map[hidden] { display: none; }
+.rp-dot { display: block; width: 18px; height: 18px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.5); }
+.rp-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; -webkit-overflow-scrolling: touch; }
+.rp-h3 { margin: 6px 0 0; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted, #8b9bab); }
+.rp-card { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: 14px; background: rgba(255,255,255,.05); }
+.rp-card-title { font-size: 14px; font-weight: 600; }
+.rp-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.rp-btn { flex: 1 1 0; min-width: 96px; min-height: 44px; padding: 8px 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,.14);
+  background: rgba(255,255,255,.06); color: inherit; font: 600 14px inherit; cursor: pointer; }
+.rp-btn.rp-on { background: var(--mint, #34e0b4); color: #04120d; border-color: transparent; }
+.rp-btn.rp-chipbtn { flex: 0 1 auto; min-width: 0; min-height: 36px; font-size: 13px; }
+.rp-btn:focus-visible, .rp-publish:focus-visible, .rp-skip:focus-visible, .rp-chip:focus-visible { outline: 2px solid var(--mint, #34e0b4); outline-offset: 2px; }
+.rp-check { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.rp-check input { width: 20px; height: 20px; accent-color: var(--mint, #34e0b4); }
+.rp-hint { margin: 0; font-size: 12px; color: var(--muted, #8b9bab); }
+.rp-hint.rp-strong { color: var(--text, #f2f6f8); font-weight: 600; }
+.rp-minor > summary { cursor: pointer; font-size: 13px; color: var(--muted, #8b9bab); padding: 6px 0; }
+.rp-minor[open] { display: flex; flex-direction: column; gap: 8px; }
+.rp-add { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.rp-foot { flex: none; display: flex; flex-direction: column; gap: 10px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,.08); }
+.rp-publish { min-height: 48px; border-radius: 14px; border: 0; background: var(--mint, #34e0b4); color: #04120d; font: 700 15px inherit; cursor: pointer; }
+@media (prefers-reduced-motion: no-preference) { .rp-sheet { animation: rp-up .22s ease-out; } @keyframes rp-up { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } } }
+/* the app moves the main map's attribution up for its HUD; on this small map it belongs in the corner */
+.rp-map .leaflet-bottom.leaflet-right { right: 0; bottom: 0; transform: none; }
+.rp-map .leaflet-control-attribution { max-width: 100%; font-size: 10px; }
+/* the SOS button stays on top (safety): keep the footer's text clear of it */
+.rp-foot .rp-check { padding-right: 64px; }

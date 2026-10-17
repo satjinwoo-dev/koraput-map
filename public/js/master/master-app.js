@@ -147,6 +147,7 @@
     toDom("state.poi", "mu:master-poi");
     toDom("state.destination", "mu:master-destination");
     toDom("state.truth", "mu:master-truth");                 // the Route Truth Card (js/master/roadsense/truth-card.js)
+    toDom("state.ride", "mu:master-ride");                   // ride started / ended: the post-ride review (js/master/roadsense/review.js)
 
     /** Words for a kind right now, without the queue (a reply to the rider's own question). @param {string} kind @param {any} data @param {"advice"|"warning"} [severity] */
     const words = (kind, data, severity = "advice") => persona.phrase({ kind, key: kind, severity, data }, brain.world);

@@ -179,15 +179,16 @@
                 const v2 = typeof e.hazard === "string";
                 const sev = v2 ? e.severity : 2;
                 const posSigmaM = Number.isFinite(e.posSigmaM) ? e.posSigmaM : null;
+                const heading = Number.isFinite(e.headingDeg) ? e.headingDeg : null;
                 if (v2 && e.minor) {               // small unevenness: the rider's review only, collapsed; never warned
-                    reviewItem({ id: `m${e.id}.${e.t}`, kind: "impact", hazard: e.hazard, severity: 1, minor: true, t: e.t, lat: e.lat, lng: e.lng, posSigmaM });
+                    reviewItem({ id: `m${e.id}.${e.t}`, kind: "impact", hazard: e.hazard, severity: 1, minor: true, t: e.t, lat: e.lat, lng: e.lng, posSigmaM, heading });
                     return;
                 }
                 const type = v2 && (e.hazard === "pothole" || e.hazard === "speed_breaker") ? e.hazard : "bump";
                 const peak = v2 && Number.isFinite(e.peakRefMs2) ? e.peakRefMs2 : e.peakMs2;
                 const r = log.add({ type, t: e.t, lat: e.lat, lng: e.lng, source: "imu", rider: "self", present: true, conf: e.conf, peakMs2: peak });
                 if (r.id) feltAt.set(r.id, e.t);      // it was felt: this pass isn't a clean one
-                reviewItem({ id: `j${e.id}.${e.t}`, kind: "impact", hazard: type, severity: sev, minor: false, t: e.t, lat: e.lat, lng: e.lng, posSigmaM, logId: r.id || null });
+                reviewItem({ id: `j${e.id}.${e.t}`, kind: "impact", hazard: type, severity: sev, minor: false, t: e.t, lat: e.lat, lng: e.lng, posSigmaM, heading, logId: r.id || null });
             }
 
             function markRough(/** @type {any} */ s) {
@@ -196,7 +197,7 @@
                 // consecutive rough 20 m segments make one rough section for the review (a line, not a point)
                 if (roughOpen && s.t - roughOpen.tEnd <= 5000) { roughOpen.points.push([s.lat, s.lng]); roughOpen.tEnd = s.t; roughOpen.lengthM += s.distM; }
                 else {
-                    roughOpen = { id: `r${s.t}`, kind: "rough", hazard: "rough", severity: s.cls === "very_rough" ? 3 : 2, minor: false, t: s.t, tEnd: s.t, lat: s.lat, lng: s.lng, points: [[s.lat, s.lng]], lengthM: s.distM };
+                    roughOpen = { id: `r${s.t}`, kind: "rough", hazard: "rough", severity: s.cls === "very_rough" ? 3 : 2, minor: false, t: s.t, tEnd: s.t, lat: s.lat, lng: s.lng, points: [[s.lat, s.lng]], lengthM: s.distM, heading: Number.isFinite(s.headingDeg) ? s.headingDeg : null };
                     reviewItem(roughOpen);
                 }
             }
