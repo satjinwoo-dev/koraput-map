@@ -284,7 +284,7 @@ test("wiring: scripts in order, offline precache, capabilities, the settings sec
     for (const f of ["roadsense/roadsense.js", "roadsense/sync.js", "roadsense/roadsense-ui.js", "agents/roadsense-agent.js"]) assert.ok(sw.includes(`"/js/master/${f}"`), f);
     assert.match(read("public/js/master/master-app.js"), /caps\.provide\("roadsense-sync"/);
     const server = read("server.js");
-    assert.match(server, /createRoadsense\(\{ db: \(\) => db, secret: \(\) => SERVER_SECRET \}\)/);
+    assert.match(server, /createRoadsense\(\{ db: \(\) => db, secret: \(\) => SERVER_SECRET, roads: \(\) => roadIndex \}\)/);
     assert.match(server, /createMasterApi\(\{\s*express, rateLimit, roadsense,/);
     const ts = JSON.parse(read("tsconfig.master.json")).files;
     for (const f of ["roadsense/sync.js", "roadsense/roadsense-ui.js", "agents/roadsense-agent.js"]) assert.ok(ts.includes(`public/js/master/${f}`), f);
