@@ -134,7 +134,9 @@ const MapDetail = (() => {
         }
         for (const p of C.declutter(cand, driving() ? 40 : 120)) {
             const mk = L.marker([p.lat, p.lng], { icon: icon(p), pane: "mu-places", keyboard: false, interactive: p.kind !== "area" });
-            if (p.kind !== "area") mk.bindPopup(`<strong>${esc(p.name)}</strong>${p.en ? `<br>${esc(p.en)}` : ""}<br><small>${esc(p.kind)} · © OpenStreetMap contributors</small>`, { closeButton: false });
+            // the "Share place" button: js/passport/place-share.js (the phone's share menu, with a preview first)
+            const shareBtn = W.MUPlaceShare && W.MUPlaceShare.button ? `<br>${W.MUPlaceShare.button({ lat: p.lat, lng: p.lng, name: p.en || p.name, kind: p.kind })}` : "";
+            if (p.kind !== "area") mk.bindPopup(`<strong>${esc(p.name)}</strong>${p.en ? `<br>${esc(p.en)}` : ""}<br><small>${esc(p.kind)} · © OpenStreetMap contributors</small>${shareBtn}`, { closeButton: false });
             lay.addLayer(mk);
         }
     }

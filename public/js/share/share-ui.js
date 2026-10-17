@@ -4,10 +4,17 @@
    ==============================================================================
    MUShare.ui.createShareSheet(root, deps) → { open(summary), close, render }
 
-   Pops up when a ride ends (or from "Share ride" in the trip summary):
+   Ride Recap Studio. Pops up when a ride ends (or from "Share ride" in the trip
+   summary); nothing leaves the phone until the rider taps Share or Save:
      - a live preview of the card (the real canvas, scaled to fit);
+     - a template: Classic, Photo (the rider's own photo) or Minimal;
      - Story (9:16) or Post (4:5);
-     - "Hide where I started and finished" (on by default) and "Show the cost";
+     - Add photo: picked from the phone, drawn onto the card and never uploaded;
+       because it's redrawn, the exported PNG carries none of the photo's EXIF
+       (no GPS location, no camera details);
+     - a caption (≤ 80 characters);
+     - "Hide where I started and finished" (on by default), "Show the town
+       name" (off by default) and "Show the cost";
      - Share (the system share sheet, with the PNG, where the browser supports
        sharing files), Save image (download), Copy image (clipboard, where
        supported);
@@ -48,8 +55,13 @@
 
     /** @param {Storage|null} st */
     function loadPrefs(st) {
-        const d = { format: "story", privacy: true, showCost: true, auto: true };
-        try { const p = JSON.parse((st && st.getItem(PREFS_KEY)) || "{}") || {}; if (p.format === "post" || p.format === "story") d.format = p.format; for (const k of ["privacy", "showCost", "auto"]) if (typeof p[k] === "boolean") d[k] = p[k]; } catch { /* defaults */ }
+        const d = { format: "story", template: "classic", privacy: true, showPlace: false, showCost: true, auto: true };
+        try {
+            const p = JSON.parse((st && st.getItem(PREFS_KEY)) || "{}") || {};
+            if (p.format === "post" || p.format === "story") d.format = p.format;
+            if (["classic", "photo", "minimal"].includes(p.template)) d.template = p.template;
+            for (const k of ["privacy", "showPlace", "showCost", "auto"]) if (typeof p[k] === "boolean") d[k] = p[k];
+        } catch { /* defaults */ }
         return d;
     }
     function savePrefs(st, p) { try { if (st) st.setItem(PREFS_KEY, JSON.stringify(p)); } catch { /* blocked */ } }
@@ -63,19 +75,20 @@
 
     /**
      * @param {HTMLElement} root
-     * @param {{ model: any, render: any, units: any, storage?: Storage|null, onClose?: () => void, nav?: any, fonts?: any }} deps
+     * @param {{ model: any, render: any, units: any, storage?: Storage|null, onClose?: () => void, nav?: any, fonts?: any, shareOut?: any }} deps
+     *   shareOut: js/passport/share-out.js (the phone's share menu, also inside the Android app)
      */
     function createShareSheet(root, deps) {
         const U = deps.units;
         const storage = deps.storage !== undefined ? deps.storage : (() => { try { return globalThis.localStorage; } catch { return null; } })();
         const nav = deps.nav || (typeof navigator !== "undefined" ? navigator : null);
         const prefs = loadPrefs(storage);
-        let summary = null, card = null, blobUrl = null;
+        let summary = null, card = null, blobUrl = null, photo = null, caption = "";
         root.classList.add("sh");
 
         const canvas = h("canvas", { class: "sh-canvas", role: "img", "aria-label": "Your ride card" });
         const status = h("p", { class: "sh-status", role: "status", "aria-live": "polite" });
-        const seg = (items, get, set) => h("div", { class: "sh-seg", role: "radiogroup", "aria-label": "Card size" }, items.map(([v, label]) => h("button", { type: "button", role: "radio", class: "sh-seg-btn", "data-v": v, "aria-checked": String(get() === v), text: label, onclick: (e) => {
+        const seg = (items, get, set, label = "Card size") => h("div", { class: "sh-seg", role: "radiogroup", "aria-label": label }, items.map(([v, label]) => h("button", { type: "button", role: "radio", class: "sh-seg-btn", "data-v": v, "aria-checked": String(get() === v), text: label, onclick: (e) => {
             set(v);
             for (const b of /** @type {HTMLElement} */ (e.currentTarget).parentElement.children) b.setAttribute("aria-checked", String(b.getAttribute("data-v") === v));
         } })));
@@ -87,21 +100,48 @@
         };
         const canShareFiles = !!(nav && typeof nav.canShare === "function" && typeof File === "function" && (() => { try { return nav.canShare({ files: [new File([new Blob([""], { type: "image/png" })], "x.png", { type: "image/png" })] }); } catch { return false; } })());
         const canCopy = !!(nav && nav.clipboard && typeof nav.clipboard.write === "function" && typeof globalThis.ClipboardItem === "function");
+        const shareOut = deps.shareOut || null;
+        const canShare = canShareFiles || Boolean(shareOut && shareOut.available());
+        // the rider's photo: read on the phone, drawn onto the card, never stored or uploaded
+        const fileIn = /** @type {HTMLInputElement} */ (h("input", { type: "file", accept: "image/*", class: "sh-file", "aria-label": "Choose a photo", onchange: async (e) => {
+            const f = /** @type {HTMLInputElement} */ (e.currentTarget).files && /** @type {HTMLInputElement} */ (e.currentTarget).files[0];
+            if (!f) return;
+            try {
+                photo = typeof createImageBitmap === "function" ? await createImageBitmap(f, { imageOrientation: "from-image" }) : await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = URL.createObjectURL(f); });
+                prefs.template = "photo"; savePrefs(storage, prefs); syncTemplate(); build();
+                photoBtn.textContent = "Change photo"; removeBtn.hidden = false;
+            } catch { status.textContent = "Couldn't read that photo."; }
+            fileIn.value = "";
+        } }));
+        const photoBtn = h("button", { type: "button", class: "sh-btn-ghost", text: "Add photo", onclick: () => fileIn.click() });
+        const removeBtn = h("button", { type: "button", class: "sh-btn-ghost", text: "Remove photo", hidden: true, onclick: () => { photo = null; photoBtn.textContent = "Add photo"; removeBtn.hidden = true; if (prefs.template === "photo") { prefs.template = "classic"; syncTemplate(); } build(); } });
+        const captionIn = /** @type {HTMLInputElement} */ (h("input", { type: "text", class: "sh-caption", maxlength: "80", placeholder: "Add a caption (optional)", "aria-label": "Caption", oninput: (e) => { caption = /** @type {HTMLInputElement} */ (e.currentTarget).value; build(); } }));
+        const templates = seg([["classic", "Classic"], ["photo", "Photo"], ["minimal", "Minimal"]], () => prefs.template, (v) => {
+            prefs.template = v; savePrefs(storage, prefs);
+            if (v === "photo" && !photo) fileIn.click();
+            build();
+        }, "Card style");
+        const syncTemplate = () => { for (const b of templates.children) b.setAttribute("aria-checked", String(b.getAttribute("data-v") === prefs.template)); };
         const actions = h("div", { class: "sh-actions" }, [
+            canShare && !canShareFiles ? h("button", { type: "button", class: "sh-btn", onclick: share }, [h("span", { class: "sh-i", "aria-hidden": "true", html: ICON.share }), "Share"]) : null,
             canShareFiles ? h("button", { type: "button", class: "sh-btn", onclick: share }, [h("span", { class: "sh-i", "aria-hidden": "true", html: ICON.share }), "Share"]) : null,
-            h("button", { type: "button", class: canShareFiles ? "sh-btn-ghost" : "sh-btn", onclick: save }, [h("span", { class: "sh-i", "aria-hidden": "true", html: ICON.save }), "Save image"]),
+            h("button", { type: "button", class: canShare ? "sh-btn-ghost" : "sh-btn", onclick: save }, [h("span", { class: "sh-i", "aria-hidden": "true", html: ICON.save }), "Save image"]),
             canCopy ? h("button", { type: "button", class: "sh-btn-ghost", onclick: copy }, [h("span", { class: "sh-i", "aria-hidden": "true", html: ICON.copy }), "Copy"]) : null
         ]);
         root.replaceChildren(
             h("header", { class: "sh-head" }, [
-                h("div", {}, [h("h2", { class: "sh-title", text: "Share your ride" }), h("p", { class: "sh-sub", text: "Made on your phone. Nothing is uploaded." })]),
+                h("div", {}, [h("h2", { class: "sh-title", text: "Ride recap" }), h("p", { class: "sh-sub", text: "Made on your phone. Nothing is uploaded or posted until you share it." })]),
                 h("button", { type: "button", class: "sh-close", "aria-label": "Close", html: ICON.x, onclick: () => close() })
             ]),
             h("div", { class: "sh-body" }, [
                 h("div", { class: "sh-preview" }, [canvas]),
                 h("div", { class: "sh-side" }, [
+                    templates,
                     seg([["story", "Story 9:16"], ["post", "Post 4:5"]], () => prefs.format, (v) => { prefs.format = v; savePrefs(storage, prefs); build(); }),
-                    h("div", { class: "sh-opts" }, [toggle("Hide where I started and finished", "privacy"), toggle("Show the cost", "showCost"), toggle("Show this after every ride", "auto")]),
+                    h("div", { class: "sh-photo" }, [photoBtn, removeBtn, fileIn]),
+                    h("p", { class: "sh-sub", text: "Your photo is redrawn onto the card, so its location data isn't in the image." }),
+                    captionIn,
+                    h("div", { class: "sh-opts" }, [toggle("Hide where I started and finished", "privacy"), toggle("Show the town name", "showPlace"), toggle("Show the cost", "showCost"), toggle("Show this after every ride", "auto")]),
                     actions, status
                 ])
             ])
@@ -109,11 +149,12 @@
 
         async function build() {
             if (!summary) return;
-            card = deps.model.buildCard(summary, { privacy: prefs.privacy });
+            card = deps.model.buildCard(summary, { privacy: prefs.privacy, showPlace: prefs.showPlace, caption });
             if (deps.fonts && typeof deps.fonts.load === "function") {
                 try { await Promise.race([Promise.all(["800 80px Sora", "700 40px Sora", "500 30px Inter", "700 24px Inter"].map((f) => deps.fonts.load(f))), new Promise((r) => setTimeout(r, 1200))]); } catch { /* system fonts */ }
             }
-            deps.render.drawCard(canvas, card, { format: prefs.format, showCost: prefs.showCost, units: U });
+            const draw = typeof deps.render.drawTemplate === "function" ? deps.render.drawTemplate : deps.render.drawCard;
+            draw(canvas, card, { template: prefs.template, format: prefs.format, showCost: prefs.showCost, units: U, photo });
             canvas.dataset.format = prefs.format;
             canvas.setAttribute("aria-label", `${card.title}: ${U.num(card.distance / 1000, 1)} km${card.ecoScore !== null ? `, eco score ${Math.round(card.ecoScore * 100)}` : ""}${card.saved ? `, ${U.num(card.saved.share * 100, 0)} % less fuel than usual` : ""}`);
             status.textContent = "";
@@ -121,6 +162,10 @@
         const toBlob = () => new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Couldn't make the image"))), "image/png"));
 
         async function share() {
+            if (shareOut && !canShareFiles) {
+                try { const r = await shareOut.image({ blob: /** @type {Blob} */ (await toBlob()), fileName: fileName(card), title: card.title, text: `${card.title} · ${U.num(card.distance / 1000, 1)} km with MapUnite` }); status.textContent = shareOut.said(r); } catch { status.textContent = "Sharing didn't work here."; }
+                return;
+            }
             try {
                 const blob = await toBlob();
                 const file = new File([/** @type {Blob} */ (blob)], fileName(card), { type: "image/png" });
@@ -147,6 +192,7 @@
         }
 
         function open(s) {
+            if (s !== summary) { caption = ""; captionIn.value = ""; photo = null; photoBtn.textContent = "Add photo"; removeBtn.hidden = true; if (prefs.template === "photo") prefs.template = "classic"; syncTemplate(); }
             summary = s;
             root.hidden = false;
             build();

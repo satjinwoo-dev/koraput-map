@@ -18,6 +18,13 @@ package com.mapunite.app;
  *   beaconStatus() -> { supported, bluetoothOn, advertising }
  *   requestNotifications() -> { granted }   Android 13+ POST_NOTIFICATIONS,
  *       needed for the background-location foreground-service notification.
+ *   share({ title?, text, imageBase64?, fileName? }) -> { shared }
+ *       Android's own share sheet (ACTION_SEND through a chooser): WhatsApp,
+ *       Telegram, Instagram, … whatever is installed. No app-specific API or key.
+ *       With imageBase64 (a PNG) the image goes along via the FileProvider that
+ *       Capacitor's Android template declares (authority <appId>.fileprovider,
+ *       with a cache-path entry in res/xml/file_paths.xml); if that provider is
+ *       missing, the text is shared alone and imageShared is false.
  *
  * Register it in MainActivity (see native/android/MainActivity.java).
  * If your appId isn't com.mapunite.app, change the package line above.
@@ -31,8 +38,13 @@ import android.bluetooth.le.AdvertiseData;
 import android.bluetooth.le.AdvertiseSettings;
 import android.bluetooth.le.BluetoothLeAdvertiser;
 import android.content.Context;
+import android.content.Intent;
+import android.net.Uri;
 import android.os.Build;
 import android.os.ParcelUuid;
+import android.util.Base64;
+
+import androidx.core.content.FileProvider;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PermissionState;
@@ -43,6 +55,8 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
 
+import java.io.File;
+import java.io.FileOutputStream;
 import java.util.UUID;
 
 @CapacitorPlugin(
@@ -190,6 +204,56 @@ public class MapUniteNativePlugin extends Plugin {
         JSObject ret = new JSObject();
         ret.put("granted", getPermissionState("notifications") == PermissionState.GRANTED);
         call.resolve(ret);
+    }
+
+    // ---- Share (Android's share sheet) ------------------------------------
+
+    private static final int MAX_SHARE_IMAGE_BYTES = 12 * 1024 * 1024;
+
+    @PluginMethod
+    public void share(PluginCall call) {
+        String text = call.getString("text", "");
+        String title = call.getString("title", "Share");
+        String imageBase64 = call.getString("imageBase64", null);
+        String fileName = call.getString("fileName", "mapunite.png");
+        Intent send = new Intent(Intent.ACTION_SEND);
+        send.putExtra(Intent.EXTRA_TEXT, text);
+        send.putExtra(Intent.EXTRA_SUBJECT, title);
+        send.setType("text/plain");
+        boolean imageShared = false;
+        if (imageBase64 != null && !imageBase64.isEmpty()) {
+            try {
+                byte[] bytes = Base64.decode(imageBase64, Base64.DEFAULT);
+                if (bytes.length > MAX_SHARE_IMAGE_BYTES) throw new IllegalArgumentException("image too large");
+                File dir = new File(getContext().getCacheDir(), "shared");
+                if (!dir.exists() && !dir.mkdirs()) throw new IllegalStateException("no cache dir");
+                // only a plain file name, never a path from the page
+                String safe = fileName.replaceAll("[^A-Za-z0-9._-]", "-");
+                if (!safe.endsWith(".png")) safe = safe + ".png";
+                File out = new File(dir, safe);
+                try (FileOutputStream fos = new FileOutputStream(out)) { fos.write(bytes); }
+                Uri uri = FileProvider.getUriForFile(getContext(), getContext().getPackageName() + ".fileprovider", out);
+                send.putExtra(Intent.EXTRA_STREAM, uri);
+                send.setType("image/png");
+                send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                imageShared = true;
+            } catch (Exception e) {
+                // no FileProvider / bad image: share the text alone rather than nothing
+                imageShared = false;
+            }
+        }
+        Intent chooser = Intent.createChooser(send, title);
+        chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        if (imageShared) chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        try {
+            getContext().startActivity(chooser);
+            JSObject ret = new JSObject();
+            ret.put("shared", true);
+            ret.put("imageShared", imageShared);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("Couldn't open the share sheet: " + e.getMessage());
+        }
     }
 
     // ---- Lifecycle -------------------------------------------------------

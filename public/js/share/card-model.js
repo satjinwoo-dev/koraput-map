@@ -13,7 +13,10 @@
        when this ride beat it by 3 % or more over at least 2 km. No tanks → no
        savings claim, just the eco score.
      - Privacy (on by default): the first and last 400 m of the route are cut, so
-       the card never shows where you started or finished (home, work).
+       the card never shows where you started or finished (home, work). The town
+       is named only when the rider turns "Show the town name" on.
+     - The rider's caption, and the road reports they reviewed / published after
+       the ride (counts only: "confirmed" needs other riders, so it's never said).
    ============================================================================ */
 (function (root, factory) {
     if (typeof module === "object" && module.exports) module.exports = factory();
@@ -107,8 +110,10 @@
     }
 
     /**
-     * @param {{ trip: any, live?: any, powertrain?: string|null, bike?: string|null, correction?: number, usual?: { perMetre: number, tanks: number }|null }} sum
-     * @param {{ privacy?: boolean, trim?: number }} [o]
+     * @param {{ trip: any, live?: any, powertrain?: string|null, bike?: string|null, correction?: number, usual?: { perMetre: number, tanks: number }|null,
+     *   reports?: { reviewed?: number, published?: number }|null }} sum
+     * @param {{ privacy?: boolean, trim?: number, caption?: string, showPlace?: boolean }} [o]
+     *   caption: the rider's own line (≤ 80 characters); showPlace: name the town (off unless the rider turns it on)
      */
     function buildCard(sum, o = {}) {
         const O = { ...CARD_DEFAULTS, ...o };
@@ -134,7 +139,11 @@
         const shown = O.privacy !== false ? trimEnds(pts, O.trim) : pts.filter((p) => p && Number.isFinite(p.lat) && Number.isFinite(p.lng));
         const ecoScore = live && Number.isFinite(live.ecoScore) ? live.ecoScore : null;
         return {
-            title: rideTitle(startedAt), startedAt, endedAt, place: trip.place || "", bike: sum.bike || "",
+            title: rideTitle(startedAt), startedAt, endedAt, place: O.showPlace === true ? String(trip.place || "") : "", bike: sum.bike || "",
+            caption: String(O.caption || "").replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 80),
+            // the road reports the rider reviewed / published after this ride (never "confirmed": that needs other riders)
+            reports: sum.reports && (Number(sum.reports.reviewed) > 0 || Number(sum.reports.published) > 0)
+                ? { reviewed: Math.max(0, Number(sum.reports.reviewed) | 0), published: Math.max(0, Number(sum.reports.published) | 0) } : null,
             powertrain: ev ? "ev" : "fuel",
             distance, duration, moving,
             avgSpeed: moving > 0 ? distance / moving : 0,

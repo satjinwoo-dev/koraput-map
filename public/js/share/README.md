@@ -1,6 +1,6 @@
-# Post-ride share card (`public/js/share/`)
+# Post-ride share card: Ride Recap Studio (`public/js/share/`)
 
-When a SmartDrive trip finishes, a share sheet opens with a card the rider can post: the route shape, the eco score, distance, mileage, cost, moving time and, when it's real, what they saved compared with their usual riding. The card is drawn on a `<canvas>` on the phone. Nothing is uploaded and no map tiles are used, so the image never includes anyone's street map.
+When a SmartDrive trip finishes, a share sheet opens with a card the rider can post. It has three templates (Classic, Photo with the rider's own photo, and Minimal), a caption, and the road reports the rider reviewed or published after that ride (see `js/passport/README.md`). The Classic card shows the route shape, the eco score, distance, mileage, cost, moving time and, when it's real, what they saved compared with their usual riding. The card is drawn on a `<canvas>` on the phone. Nothing is uploaded and no map tiles are used, so the image never includes anyone's street map.
 
 **When it opens:** on `mu:ride-summary` (sent by the HUD), 900 ms after the trip ends, for rides of 1 km or more, unless the rider turned off "Show this after every ride". `#share-ride-btn` in the results panel opens it again later.
 
@@ -24,11 +24,13 @@ When a SmartDrive trip finishes, a share sheet opens with a card the rider can p
 
   The comparison is with the rider's own tanks, never with a brochure figure. Small amounts are shown in mL rather than as "0.00 L".
 - **Cost** follows **Show the cost**. With it off, the banner states litres saved instead of money.
-- Otherwise the banner shows smoothness (harsh moments) or speeds. It never makes up a saving.
+- Otherwise the banner shows smoothness (harsh moments) or the average speed. It never makes up a saving, and **top speed is never shown**.
+- **The town** is named only when the rider turns on **Show the town name** (off by default).
+- **The photo** is drawn onto the canvas, so the exported PNG carries none of its EXIF (no GPS location).
 
 ## Export
 
-- **Share:** Web Share with a PNG file, where the browser supports sharing files (Android Chrome, iOS Safari). The button is hidden where it doesn't work.
+- **Share:** the phone's share menu (`js/passport/share-out.js`): Android's chooser inside the app, Web Share with a PNG file in a browser that supports it. The button is hidden where neither works.
 - **Save image:** downloads a PNG named after the ride, e.g. `mapunite-evening-ride-2026-10-04.png`.
 - **Copy:** `ClipboardItem` PNG, where available.
 

@@ -238,6 +238,7 @@ function setupGoogleSearch() {
                         <button id="search-nav-btn" style="width:100%; padding:10px; border:none; border-radius:10px; background:#34e0b4; color:#000; font-weight:900; font-size:14px; cursor:pointer; opacity:0.5; transition:0.3s;" disabled>
                             ▶ Start Navigation
                         </button>
+                        ${typeof MUPlaceShare !== "undefined" && MUPlaceShare.button ? MUPlaceShare.button({ lat: destLat, lng: destLng, name: placeName }) : ""}
                     </div>
                 `;
 

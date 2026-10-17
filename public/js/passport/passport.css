@@ -1,0 +1,32 @@
+/* MapUnite Rider Passport + place sharing (js/passport/) */
+.pp-modal { display: none; align-items: center; justify-content: center; }
+.pp-card { max-width: 520px; width: calc(100% - 24px); max-height: calc(var(--app-h, 100vh) - 40px); overflow-y: auto; }
+.pp-card.pp-wide { max-width: 640px; }
+.pp-sub { margin: 4px 0 10px; font-size: 12.5px; color: var(--muted, #8b9bab); line-height: 1.45; }
+.pp-label { display: block; margin: 10px 0 4px; font-size: 12px; font-weight: 700; color: var(--soft, #c6d2db); text-transform: uppercase; letter-spacing: .05em; }
+.pp-input { width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line-strong, rgba(255,255,255,.16)); background: rgba(255,255,255,.05); color: var(--text, #f2f6f8); font: inherit; font-size: 14px; }
+textarea.pp-input { resize: vertical; }
+.pp-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 12px 0 4px; font-size: 14px; color: var(--soft, #c6d2db); }
+.pp-preview { margin: 0; padding: 12px; border-radius: 12px; background: rgba(0,0,0,.35); border: 1px dashed rgba(255,255,255,.18); white-space: pre-wrap; word-break: break-word; font: 13px/1.5 var(--font-ui, system-ui, sans-serif); color: var(--text, #f2f6f8); }
+.pp-actions { display: flex; gap: 10px; margin-top: 14px; }
+.pp-actions > button { flex: 1; }
+.pp-status { min-height: 18px; margin: 8px 0 0; font-size: 12.5px; color: var(--soft, #c6d2db); }
+.pp-sec { margin-top: 16px; padding: 12px 14px; border-radius: 16px; background: rgba(255,255,255,.04); border: 1px solid var(--line, rgba(255,255,255,.085)); }
+.pp-sec-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.pp-sec h3 { margin: 0; font-size: 15px; }
+.pp-tag { flex: none; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; background: rgba(255,255,255,.08); color: var(--soft, #c6d2db); }
+.pp-app .pp-tag { background: rgba(77,163,255,.16); color: #8ec5ff; }
+.pp-community .pp-tag { background: rgba(52,224,180,.16); color: var(--mint, #34e0b4); }
+.pp-line { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 9px 0; border-top: 1px solid var(--line, rgba(255,255,255,.085)); }
+.pp-line:first-of-type { border-top: 0; }
+.pp-l { font-size: 14px; font-weight: 600; }
+.pp-n { font-size: 12px; color: var(--muted, #8b9bab); margin-top: 2px; }
+.pp-v { font-family: var(--font-display, "Sora", sans-serif); font-weight: 700; font-size: 15px; text-align: right; }
+.pp-vis { padding: 6px 8px; border-radius: 10px; border: 1px solid var(--line-strong, rgba(255,255,255,.16)); background: rgba(255,255,255,.06); color: var(--text, #f2f6f8); font-size: 12px; }
+.pp-badge { padding: 8px 0; border-top: 1px solid var(--line, rgba(255,255,255,.085)); opacity: .7; }
+.pp-badge.on { opacity: 1; }
+.pp-badge.on .pp-l { color: var(--mint, #34e0b4); }
+.pp-canvas { display: block; width: 100%; max-width: 360px; height: auto; margin: 10px auto 0; border-radius: 14px; aspect-ratio: 4 / 5; }
+.pp-pop { text-align: center; font-size: 13px; }
+.mu-share-place { margin-top: 8px; width: 100%; padding: 8px 12px; border: 0; border-radius: 10px; background: #1a73e8; color: #fff; font-weight: 700; font-size: 13px; cursor: pointer; }
+@media (max-width: 520px) { .pp-line { grid-template-columns: minmax(0, 1fr) auto; } .pp-line .pp-vis { grid-column: 1 / -1; justify-self: start; } }

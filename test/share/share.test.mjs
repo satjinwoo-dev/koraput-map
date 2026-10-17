@@ -114,10 +114,35 @@ test("stats and banner words", () => {
     assert.match(tiny.sub, /^4 mL less fuel/); assert.match(tiny.title, /^4 mL less than usual$/);
     const n = R.bannerText(M.buildCard({ trip: { startedAt: 0, points: [] }, live: live({ harsh: { accel: 0, brake: 0 } }) }), U, true);
     assert.equal(n.title, "Smooth all the way");
+    // top speed is never on a card
+    for (const b of [n, R.bannerText(M.buildCard({ trip: { startedAt: 0, points: [] }, live: live({}) }), U, true)]) assert.ok(!/top speed/i.test(b.title + b.sub), b.sub);
+});
+
+test("recap: caption, the town only when asked, report counts (never 'confirmed'), templates", () => {
+    const sum = { trip: { startedAt: 0, points: [], place: "Koraput" }, live: live({}), reports: { reviewed: 3, published: 2 } };
+    const off = M.buildCard(sum, { caption: "  Ghat\nride  " });
+    assert.equal(off.place, "", "the town is hidden by default");
+    assert.equal(off.caption, "Ghat ride");
+    assert.equal(M.buildCard(sum, { showPlace: true }).place, "Koraput");
+    assert.equal(M.buildCard(sum, { caption: "x".repeat(200) }).caption.length, 80);
+    assert.deepEqual(off.reports, { reviewed: 3, published: 2 });
+    assert.equal(M.buildCard({ ...sum, reports: { reviewed: 0, published: 0 } }).reports, null);
+    const foot = R.footText(off);
+    assert.match(foot, /3 road reports reviewed, 2 published/);
+    assert.ok(!/confirm/i.test(foot));
+    assert.deepEqual(R.TEMPLATES, ["classic", "photo", "minimal"]);
+    // the photo fills the card (cover), centred
+    assert.deepEqual(R.cover(4000, 3000, 1080, 1920), { x: -740, y: 0, w: 2560, h: 1920 });
+    assert.deepEqual(R.cover(1000, 4000, 1080, 1350), { x: 0, y: -1485, w: 1080, h: 4320 });
 });
 
 test("share sheet helpers: file name and remembered choices", () => {
     assert.equal(S.fileName({ title: "Evening ride", startedAt: new Date(2026, 9, 4, 18).getTime() }), "mapunite-evening-ride-2026-10-04.png");
     const st = { v: JSON.stringify({ format: "square", privacy: false, showCost: "yes", auto: false }), getItem() { return this.v; } };
-    assert.deepEqual(S.loadPrefs(/** @type {any} */ (st)), { format: "story", privacy: false, showCost: true, auto: false });
+    assert.deepEqual(S.loadPrefs(/** @type {any} */ (st)), { format: "story", template: "classic", privacy: false, showPlace: false, showCost: true, auto: false });
+    // the town name is off unless the rider turned it on; a bad template falls back to classic
+    const st2 = { v: JSON.stringify({ template: "photo", showPlace: true }), getItem() { return this.v; } };
+    assert.equal(S.loadPrefs(/** @type {any} */ (st2)).template, "photo");
+    assert.equal(S.loadPrefs(/** @type {any} */ (st2)).showPlace, true);
+    assert.equal(S.loadPrefs(/** @type {any} */ ({ getItem: () => JSON.stringify({ template: "neon" }) })).template, "classic");
 });

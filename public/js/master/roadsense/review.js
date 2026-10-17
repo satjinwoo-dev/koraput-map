@@ -290,10 +290,17 @@
                     const log = capOf("roadsense");
                     if (log) { for (const x of out.local) { try { log.add({ ...x, source: "rider", rider: "self", conf: 0.8 }); } catch (e) { /* bad point */ } } try { log.save(); } catch (e) { /* storage */ } }
                     const sync = capOf("roadsense-sync");
-                    if (sync && sync.consent()) {
+                    const shared = Boolean(sync && sync.consent());
+                    if (shared) {
                         if (out.reports.length || out.votes.length || out.thanks.length) sync.publish({ reports: out.reports, votes: out.votes, thanks: out.thanks });
                         if (out.cover) sync.approveCover(out.cover.from, out.cover.to);
                     }
+                    // the Rider Passport's tally for this ride (js/passport/passport-app.js): detected by the phone, reviewed by
+                    // the rider, published. Counts only; "confirmed" is the server's, from other riders.
+                    try {
+                        doc.dispatchEvent(new W.CustomEvent("mu:roadpulse-reviewed", { detail: { startedAt: rv.startedAt,
+                            detected: rv.items.length + (rv.unknown || []).length + rv.minor.length, reviewed: out.local.length, published: shared ? out.reports.length : 0 } }));
+                    } catch (e) { /* old browser */ }
                 }
                 markDone(rv.startedAt);
                 close();

@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-17.11";          // Ride Focus AMOLED: optional true-black map while navigating
+const VERSION = "mu-2026-10-17.12";          // Rider Passport, place sharing, Ride Recap Studio
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
@@ -134,6 +134,11 @@ const BIKE_SCRIPTS = [
     "/js/hud/hud.js",
     "/js/hud/hud-app.js",
     "/js/hud/hud.css",
+    "/js/passport/share-out.js",
+    "/js/passport/place-share.js",
+    "/js/passport/passport-model.js",
+    "/js/passport/passport-app.js",
+    "/js/passport/passport.css",
     "/js/share/share-app.js",
     "/js/share/card-model.js",
     "/js/share/card-render.js",

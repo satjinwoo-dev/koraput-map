@@ -11,6 +11,10 @@ On top of those two features, voice alerts, voice commands and pairing a Meshtas
 
 ---
 
+**Sharing (places, ride recaps, the Rider Passport card)** goes through Android's own share sheet: `MapUniteNative.share()` in `native/android/MapUniteNativePlugin.java`. It needs no extra plugin or key. Images are passed through the FileProvider that Capacitor's Android template declares (`<appId>.fileprovider`, with a `cache-path` entry in `res/xml/file_paths.xml`). If your project doesn't have it, add that `<cache-path name="cache" path="." />` entry; without it the text is still shared, without the image.
+
+---
+
 ## 0. What you need
 
 | Tool | Version |

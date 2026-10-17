@@ -2,7 +2,12 @@
 /* ============================================================================
    MapUnite share — draw the post-ride card on a canvas (exportable PNG)
    ==============================================================================
-   MUShare.render.drawCard(canvas, card, { format, showCost, units }) → canvas
+   MUShare.render.drawTemplate(canvas, card, { template, format, showCost, units, photo }) → canvas
+     classic  the original card (route art, eco ring, four figures, banner);
+     photo    the rider's photo full-bleed, title, caption, three figures, a
+              small route inset (the photo is redrawn, so no EXIF/GPS survives);
+     minimal  true black, the route as one line, the distance large.
+   Top speed is never drawn: it isn't an achievement to post.
 
    Two sizes made for social apps: Story 1080×1920 (9:16) and Post 1080×1350
    (4:5). Everything is drawn (no screenshots of the DOM, no map tiles), so the
@@ -97,8 +102,9 @@
                 sub: `${L} less fuel than my average over ${card.saved.tanks} full tank${card.saved.tanks === 1 ? "" : "s"} (−${U.num(card.saved.share * 100, 0)} %)`
             };
         }
-        if (card.harsh !== null && card.harsh !== undefined) return { tone: "neutral", title: card.harsh === 0 ? "Smooth all the way" : `${card.harsh} harsh moment${card.harsh === 1 ? "" : "s"}`, sub: `Top speed ${U.num(card.maxSpeed * 3.6, 0)} km/h · average ${U.num(card.avgSpeed * 3.6, 0)} km/h` };
-        return { tone: "neutral", title: `Average ${U.num(card.avgSpeed * 3.6, 0)} km/h`, sub: `Top speed ${U.num(card.maxSpeed * 3.6, 0)} km/h` };
+        // top speed is never shown: it isn't an achievement to post
+        if (card.harsh !== null && card.harsh !== undefined) return { tone: "neutral", title: card.harsh === 0 ? "Smooth all the way" : `${card.harsh} harsh moment${card.harsh === 1 ? "" : "s"}`, sub: `Average ${U.num(card.avgSpeed * 3.6, 0)} km/h while moving` };
+        return { tone: "neutral", title: `Average ${U.num(card.avgSpeed * 3.6, 0)} km/h`, sub: `${U.num(card.distance / 1000, 1)} km ridden with MapUnite` };
     }
 
     /**
@@ -131,7 +137,7 @@
 
         // ---- title ----
         text(ctx, card.title, Lt.pad, Lt.title, fit(ctx, card.title, 800, DISPLAY, Lt.titleSize, Lt.w - 2 * Lt.pad), C.text, "left", -1);
-        const sub = [card.bike, card.place].filter(Boolean).join(" · ") || "Ridden with MapUnite";
+        const sub = card.caption || [card.bike, card.place].filter(Boolean).join(" · ") || "Ridden with MapUnite";
         text(ctx, sub, Lt.pad, Lt.sub, fit(ctx, sub, 500, UI, 34, Lt.w - 2 * Lt.pad), C.soft);
 
         // ---- route art ----
@@ -204,10 +210,135 @@
         text(ctx, bt.sub, bn.x + 100, bn.y + bn.h / 2 + 34, fit(ctx, bt.sub, 500, UI, fmt === "post" ? 23 : 26, bn.w - 130), C.soft);
 
         // ---- footer ----
-        const foot = card.estimated ? "Estimated by MapUnite from GPS speed" : card.matched ? "Estimated by MapUnite physics from live GPS, matched to my fill-ups" : "Estimated by MapUnite physics from live GPS";
+        const foot = footText(card);
         text(ctx, foot, Lt.w / 2, Lt.foot, fit(ctx, foot, 500, UI, 24, Lt.w - 2 * Lt.pad), C.muted, "center");
         return canvas;
     }
 
-    return { SIZES, layout, fitRoute, stats, bannerText, drawCard };
+    /** The footnote: how the numbers were made, and the rider's road reports (counts, never "confirmed"). Pure. @param {any} card */
+    function footText(card) {
+        const how = card.estimated ? "Fuel estimated by MapUnite from GPS speed" : card.matched ? "Fuel estimated by MapUnite physics, matched to my fill-ups" : "Fuel estimated by MapUnite physics from live GPS";
+        const rp = card.reports ? ` · ${card.reports.reviewed} road report${card.reports.reviewed === 1 ? "" : "s"} reviewed, ${card.reports.published} published` : "";
+        return how + rp;
+    }
+
+    /** Cover-fit an image into a box (pure maths). @param {number} iw @param {number} ih @param {number} w @param {number} h */
+    function cover(iw, ih, w, h) {
+        const s = Math.max(w / Math.max(1, iw), h / Math.max(1, ih));
+        const dw = iw * s, dh = ih * s;
+        return { x: (w - dw) / 2, y: (h - dh) / 2, w: dw, h: dh };
+    }
+
+    /** The route as a line in a box (no glow when `plain`). */
+    function routeLine(ctx, card, box, inset, plain) {
+        if (!card.route || card.route.pts.length < 2) return false;
+        const P = fitRoute(card.route.pts, box, inset);
+        const path = () => { ctx.beginPath(); P.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); };
+        ctx.lineJoin = "round"; ctx.lineCap = "round";
+        if (!plain) { ctx.shadowColor = "rgba(52,224,180,0.7)"; ctx.shadowBlur = 24; path(); ctx.strokeStyle = "rgba(52,224,180,0.3)"; ctx.lineWidth = 16; ctx.stroke(); ctx.shadowBlur = 0; }
+        path(); ctx.strokeStyle = C.mint; ctx.lineWidth = plain ? 6 : 7; ctx.stroke();
+        const [ex, ey] = P[P.length - 1];
+        ctx.beginPath(); ctx.arc(ex, ey, plain ? 10 : 12, 0, Math.PI * 2); ctx.fillStyle = C.mint; ctx.fill();
+        return true;
+    }
+
+    /** Three figures in a row (photo and minimal templates). */
+    function statRow(ctx, items, x, y, w, size) {
+        const col = w / items.length;
+        items.forEach((st, i) => {
+            const cx = x + i * col;
+            text(ctx, st.label.toUpperCase(), cx, y, `700 ${Math.round(size * 0.36)}px ${UI}`, "rgba(242,246,248,0.7)", "left", 2);
+            const vw = text(ctx, st.value, cx, y + size + 6, fit(ctx, st.value, 800, DISPLAY, size, col - 60), C.text, "left", -1);
+            if (st.unit) text(ctx, st.unit, cx + vw + 8, y + size + 6, `600 ${Math.round(size * 0.42)}px ${UI}`, C.soft);
+        });
+    }
+
+    /** The small brand mark: present, never loud. */
+    function brand(ctx, x, y, size, alpha = 0.85) {
+        ctx.beginPath(); ctx.arc(x + size * 0.45, y - size * 0.34, size * 0.24, 0, Math.PI * 2); ctx.fillStyle = C.mint; ctx.fill();
+        text(ctx, "MapUnite", x + size * 0.95, y, `700 ${size}px ${DISPLAY}`, `rgba(242,246,248,${alpha})`);
+    }
+
+    /**
+     * Photo template: the rider's photo full-bleed, a dark fade for legibility, the ride's title, caption, three
+     * figures and a small route inset. The photo is redrawn here, so the exported PNG carries none of its metadata.
+     * @param {HTMLCanvasElement} canvas @param {any} card @param {{ format?: "story"|"post", showCost?: boolean, units: any, photo: any, locale?: string }} o
+     */
+    function drawPhoto(canvas, card, o) {
+        const U = o.units, S = SIZES[o.format === "post" ? "post" : "story"];
+        canvas.width = S.w; canvas.height = S.h;
+        const ctx = /** @type {CanvasRenderingContext2D} */ (canvas.getContext("2d"));
+        ctx.fillStyle = C.ink; ctx.fillRect(0, 0, S.w, S.h);
+        const iw = o.photo.naturalWidth || o.photo.width, ih = o.photo.naturalHeight || o.photo.height;
+        const f = cover(iw, ih, S.w, S.h);
+        ctx.drawImage(o.photo, f.x, f.y, f.w, f.h);
+        const top = ctx.createLinearGradient(0, 0, 0, S.h * 0.22);
+        top.addColorStop(0, "rgba(0,0,0,0.55)"); top.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.fillStyle = top; ctx.fillRect(0, 0, S.w, S.h * 0.22);
+        const bot = ctx.createLinearGradient(0, S.h * 0.42, 0, S.h);
+        bot.addColorStop(0, "rgba(0,0,0,0)"); bot.addColorStop(0.45, "rgba(0,0,0,0.62)"); bot.addColorStop(1, "rgba(0,0,0,0.9)");
+        ctx.fillStyle = bot; ctx.fillRect(0, S.h * 0.42, S.w, S.h * 0.58);
+        const pad = 84;
+        brand(ctx, pad, 104, 34);
+        const date = new Intl.DateTimeFormat(o.locale || "en-IN", { day: "numeric", month: "short" }).format(new Date(card.startedAt));
+        text(ctx, date, S.w - pad, 104, `600 30px ${UI}`, "rgba(242,246,248,0.85)", "right");
+        // route inset
+        const inset = { x: S.w - pad - 260, y: S.h - (o.format === "post" ? 640 : 780), w: 260, h: 260 };
+        if (card.route) {
+            rr(ctx, inset.x, inset.y, inset.w, inset.h, 32); ctx.fillStyle = "rgba(8,14,23,0.62)"; ctx.fill();
+            ctx.strokeStyle = "rgba(255,255,255,0.18)"; ctx.lineWidth = 2; ctx.stroke();
+            routeLine(ctx, card, inset, 36, true);
+        }
+        const titleY = S.h - (o.format === "post" ? 400 : 480);
+        text(ctx, card.title, pad, titleY, fit(ctx, card.title, 800, DISPLAY, 84, S.w - 2 * pad - (card.route ? 280 : 0)), C.text, "left", -1);
+        const sub = card.caption || card.place || "";
+        if (sub) text(ctx, sub, pad, titleY + 62, fit(ctx, sub, 500, UI, 38, S.w - 2 * pad), C.soft);
+        const st = stats(card, U, o.showCost !== false);
+        statRow(ctx, [st[0], st[3], st[2]], pad, S.h - (o.format === "post" ? 230 : 280), S.w - 2 * pad, o.format === "post" ? 56 : 64);
+        const foot = footText(card);
+        text(ctx, foot, S.w / 2, S.h - 48, fit(ctx, foot, 500, UI, 24, S.w - 2 * pad), "rgba(242,246,248,0.6)", "center");
+        return canvas;
+    }
+
+    /**
+     * Minimal template: true black, the route as one clean line, the distance large, and little else.
+     * @param {HTMLCanvasElement} canvas @param {any} card @param {{ format?: "story"|"post", showCost?: boolean, units: any, locale?: string }} o
+     */
+    function drawMinimal(canvas, card, o) {
+        const U = o.units, S = SIZES[o.format === "post" ? "post" : "story"];
+        canvas.width = S.w; canvas.height = S.h;
+        const ctx = /** @type {CanvasRenderingContext2D} */ (canvas.getContext("2d"));
+        ctx.fillStyle = "#000"; ctx.fillRect(0, 0, S.w, S.h);
+        const pad = 96;
+        const date = new Intl.DateTimeFormat(o.locale || "en-IN", { weekday: "long", day: "numeric", month: "long" }).format(new Date(card.startedAt));
+        text(ctx, date.toUpperCase(), pad, 150, `700 28px ${UI}`, C.muted, "left", 3);
+        text(ctx, card.title, pad, 230, fit(ctx, card.title, 800, DISPLAY, 72, S.w - 2 * pad), C.text, "left", -1);
+        if (card.caption) text(ctx, card.caption, pad, 290, fit(ctx, card.caption, 500, UI, 36, S.w - 2 * pad), C.soft);
+        const box = { x: pad, y: 340, w: S.w - 2 * pad, h: o.format === "post" ? 560 : 900 };
+        if (!routeLine(ctx, card, box, 30, true)) text(ctx, "Route not shown", S.w / 2, box.y + box.h / 2, `600 34px ${UI}`, C.muted, "center");
+        if (card.route && card.privacy) text(ctx, "start & finish hidden", box.x + box.w, box.y + box.h + 34, `500 22px ${UI}`, C.muted, "right");
+        const st = stats(card, U, o.showCost !== false);
+        const km = st[0];
+        const y = box.y + box.h + (o.format === "post" ? 150 : 210);
+        const vw = text(ctx, km.value, pad, y, `800 ${o.format === "post" ? 150 : 190}px ${DISPLAY}`, C.text, "left", -4);
+        text(ctx, "km", pad + vw + 16, y, `600 54px ${UI}`, C.mint);
+        text(ctx, `${st[3].value} ${st[3].unit} moving`, pad, y + 70, `600 36px ${UI}`, C.soft);
+        brand(ctx, pad, S.h - 70, 30, 0.55);
+        const rp = card.reports ? `${card.reports.reviewed} road reports reviewed · ${card.reports.published} published` : "";
+        if (rp) text(ctx, rp, S.w - pad, S.h - 70, fit(ctx, rp, 500, UI, 24, S.w / 2), C.muted, "right");
+        return canvas;
+    }
+
+    /**
+     * Any template. "photo" needs a photo; without one it falls back to the classic card.
+     * @param {HTMLCanvasElement} canvas @param {any} card
+     * @param {{ template?: "classic"|"photo"|"minimal", format?: "story"|"post", showCost?: boolean, units: any, photo?: any, locale?: string }} o
+     */
+    function drawTemplate(canvas, card, o) {
+        if (o.template === "photo" && o.photo) return drawPhoto(canvas, card, /** @type {any} */ (o));
+        if (o.template === "minimal") return drawMinimal(canvas, card, o);
+        return drawCard(canvas, card, o);
+    }
+
+    return { SIZES, TEMPLATES: Object.freeze(["classic", "photo", "minimal"]), layout, fitRoute, stats, bannerText, footText, cover, drawCard, drawPhoto, drawMinimal, drawTemplate };
 });
