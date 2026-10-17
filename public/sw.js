@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-17.6";           // navigation camera: the map fills the screen to the top edge (no dark sky band)
+const VERSION = "mu-2026-10-17.7";           // the drive sheet collapses to one row while driving (swipe up for more)
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
@@ -59,6 +59,7 @@ const APP_SCRIPTS = [
     "/js/gps.js",
     "/js/navcam/navcam-core.js",
     "/js/navcam/navcam.js",
+    "/js/navsheet.js",
     "/js/navigation.js",
     "/js/garage/fuel-baseline.js",
     "/js/smartdrive.js",

@@ -665,6 +665,7 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
     if (exitBtn) { exitBtn.style.display = "none"; exitBtn.textContent = "Stop"; exitBtn.style.background = ""; exitBtn.style.color = ""; }
     if ($("stat-status")) { $("stat-status").textContent = "Ready"; $("stat-status").style.color = ""; }
     if ($("speed-n")) $("speed-n").textContent = "0";
+    if (typeof NavSheet !== "undefined") NavSheet.reset();          // the route preview: the full sheet
 
     if (startBtn) {
         startBtn.onclick = () => {
@@ -673,6 +674,8 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
             if (exitBtn) exitBtn.style.display = "block";
 
             if ($("stat-status")) { $("stat-status").textContent = "En route"; $("stat-status").style.color = "#f5a524"; }
+            // like Google Maps: the sheet shrinks to the trip numbers + Stop; swipe up for the rest (js/navsheet.js)
+            if (typeof NavSheet !== "undefined") NavSheet.collapse();
 
             // Navigation camera (js/navcam/): heading-up, tilted, rider in the lower third. Without it, the old close-up.
             const camOn = typeof NavCamera !== "undefined" && NavCamera.start({ map, route: () => fullPath, at: myCoords ? { lat: myCoords.lat, lng: myCoords.lng } : { lat: startPos[0], lng: startPos[1] } });
@@ -901,6 +904,7 @@ function stopDrive(cancelled = false) {
     if (typeof GroupNavigation !== "undefined" && GroupNavigation.active) setTimeout(() => safeShow("group-nav-active", "flex"), 0);
     if (navDrListener) { document.removeEventListener("mu:dr-position", navDrListener); navDrListener = null; }
     if (typeof NavCamera !== "undefined") NavCamera.stop();
+    if (typeof NavSheet !== "undefined") NavSheet.reset();
     navigationLayer.clearLayers();
     safeHide("premium-nav-ui");
     safeHide("nav-bottom-sheet");

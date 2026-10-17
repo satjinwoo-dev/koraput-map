@@ -322,6 +322,18 @@ body:has(#premium-nav-ui[style*="block"]) #toast-container { bottom: calc(250px 
   background: var(--glass-strong); border-top: 1px solid var(--line-strong); box-shadow: var(--inner), 0 -12px 48px rgba(0,0,0,.5);
   -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); }
 .nav-bottom-sheet::before { content: ""; align-self: center; width: 38px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.2); margin-top: -6px; }
+/* While driving (js/navsheet.js): one compact row of trip numbers + Stop; swipe up or tap for the rest. */
+.nav-sheet-handle { align-self: center; width: 64px; height: 22px; margin: -10px 0 -8px; padding: 0; border: 0; background: none; cursor: pointer; display: grid; place-items: center; touch-action: none; }
+.nav-sheet-handle::before { content: ""; width: 38px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.32); }
+.nav-sheet-handle[hidden] { display: none; }
+.nav-bottom-sheet.has-handle:has(> .nav-sheet-handle:not([hidden]))::before { display: none; }
+.nav-bottom-sheet.is-collapsed { gap: 10px; padding-top: 12px; overflow: hidden; touch-action: none; }
+.nav-bottom-sheet.is-collapsed > :not(.nav-sheet-handle):not(.nav-stats):not(.controls-row) { display: none !important; }
+.nav-bottom-sheet.is-collapsed .nav-stats { cursor: pointer; }
+.nav-bottom-sheet.is-expanded { z-index: calc(var(--z-nav) + 2); }   /* opened mid-drive: above the SmartDrive HUD strip */
+.nav-bottom-sheet.is-collapsed .n-stat:last-child { display: none; }
+.nav-bottom-sheet.is-collapsed .controls-row button { height: 44px; }
+.nav-bottom-sheet.is-collapsed .btn-icon-nav { width: 44px; }
 .nav-stats { display: flex; justify-content: space-between; align-items: flex-end; gap: 6px; }
 .n-stat { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .n-stat .l { font-size: 10.5px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
@@ -1691,7 +1703,8 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="js/gps.js?v=20261003-step7"></script>
 <script src="js/navcam/navcam-core.js?v=20261017-fulltop"></script>
 <script src="js/navcam/navcam.js?v=20261017-fulltop"></script>
-<script src="js/navigation.js?v=20261017-18plus"></script>
+<script src="js/navsheet.js?v=20261017-sheet"></script><!-- the drive sheet collapses while driving; swipe up for more -->
+<script src="js/navigation.js?v=20261017-sheet"></script>
 <script src="js/garage/fuel-baseline.js?v=20261003-step8"></script>
 <script src="js/smartdrive.js?v=20261004-ui"></script>
 <script src="js/groupnav.js?v=20261004-step8"></script>
