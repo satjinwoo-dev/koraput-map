@@ -24,7 +24,7 @@ function world() {
         const api = {
             async post(path, body) {
                 calls.push({ phone: name, path, body: JSON.parse(JSON.stringify(body)) });
-                const fn = { "/roadsense/upload": server.upload, "/roadsense/area": server.area, "/roadsense/forget": server.forget, "/roadsense/publish": server.publish, "/roadsense/cover": server.cover }[path];
+                const fn = { "/roadsense/upload": server.upload, "/roadsense/area": server.area, "/roadsense/forget": server.forget, "/roadsense/publish": server.publish, "/roadsense/cover": server.cover, "/roadsense/me": server.me }[path];
                 const r = await fn(JSON.parse(JSON.stringify(body)), { ip: name });
                 return { ok: r.status === 200 && r.json.ok !== false, status: r.status, data: JSON.parse(JSON.stringify(r.json)), reason: r.json.reason };
             }
@@ -142,4 +142,23 @@ test("delete my road reports: the contributor's reports and votes go; a new cont
     await a.sync.flush();
     const second = w.calls.filter((c) => c.path === "/roadsense/publish").at(-1).body.contributor;
     assert.notEqual(second, first, "a fresh contributor token");
+});
+
+test("reputation: the rider's own reports, confirmed by others, from the server; nothing before the first publish", async () => {
+    const w = world();
+    const a = w.phone("A"), b = w.phone("B");
+    a.sync.setConsent(true); b.sync.setConsent(true);
+    assert.equal(await a.sync.reputation(), null, "no contributor yet: nothing to ask");
+    a.sync.publish({ reports: [report()] });
+    w.at(T0 + 3 * H);
+    await a.sync.flush();
+    let r = await a.sync.reputation();
+    assert.deepEqual([r.reports, r.confirmed, r.pending, r.badges.length], [1, 0, 1, 0]);
+    await b.sync.fetchTiles([tile]);
+    b.sync.publish({ votes: [{ hazard: b.sync.hazards()[0].id, verdict: "found", t: T0 + D }] });
+    w.at(T0 + D + 3 * H);
+    await b.sync.flush();
+    r = await a.sync.reputation();
+    assert.equal(r.confirmed, 1);
+    assert.equal(r.next.needConfirmed, 4);
 });

@@ -5,6 +5,7 @@
    #roadsense-share-toggle   on/off for sharing AND receiving (off by default)
    #roadsense-status         what's waiting, sent, received and cached
    #roadsense-forget-btn     asks the server to delete everything this phone sent
+   #roadsense-badges         RoadPulse: the rider's reports other riders confirmed, accuracy, badges
    #voice-tone-toggle        the voice's tone: Family (off, default) or Rowdy (MUMaster.live.setTone)
    #voice-18-toggle          18+ Rowdy (gaaliyan), off by default, on only after an "are you 18+?" confirm
    Loaded after master-app.js, which provides the "roadsense-sync" capability.
@@ -53,12 +54,27 @@
     }
     show(sync.status());
     sync.onChange(show);
+    // RoadPulse reputation: earned by reports other riders confirmed, never by count or kilometres
+    const badges = document.getElementById("roadsense-badges");
+    async function showBadges() {
+        if (!badges) return;
+        const r = typeof sync.reputation === "function" ? await sync.reputation().catch(() => null) : null;
+        if (!r) { badges.hidden = true; return; }
+        badges.hidden = false;
+        const names = r.badges.map((/** @type {any} */ b) => `${b.name} (${b.en})`).join(", ");
+        const next = r.next && r.next.needConfirmed > 0 ? ` ${r.next.needConfirmed} more confirmed for ${r.next.name}.` : "";
+        badges.textContent = r.reports
+            ? `Your reports: ${r.confirmed} confirmed by other riders, ${r.pending} waiting · accuracy ${Math.round(r.accuracy * 100)}%${names ? ` · ${names}` : ""}.${next}`
+            : "Publish road reports after your rides. Badges come when other riders confirm them, not from how much you ride.";
+    }
+    showBadges();
     toggle.addEventListener("change", () => show(sync.setConsent(toggle.checked)));
     forget.addEventListener("click", async () => {
         if (!W.confirm("Delete every road report this phone has shared from the server? Reports from other riders aren't affected.")) return;
         forget.disabled = true;
         const r = await sync.forgetAll();
         forget.disabled = false;
+        showBadges();
         status.textContent = r.ok ? `Deleted ${r.deleted} report${r.deleted === 1 ? "" : "s"} from the server.` : `Couldn't reach the server (${r.reason}). Try again with signal.`;
     });
 })();

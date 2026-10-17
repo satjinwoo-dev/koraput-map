@@ -1111,6 +1111,7 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
       </div>
       <p class="field-hint">Nothing your phone detects is shared on its own. After a ride you review what it found, and only the reports you choose to publish are shared: the spot, the road direction, the kind, how bad and the hour, never your name, route, home or ride history. Published reports go up 0–2 hours later, never near where your rides start or end, under a random contributor ID (not your name) so one rider counts as one vote. In return the phone downloads other riders' reports along your route, with how many riders confirmed each one, and keeps them so warnings work with no signal.</p>
       <p class="field-hint" id="roadsense-status" aria-live="polite">Off.</p>
+      <p class="field-hint" id="roadsense-badges" hidden></p>
       <button id="roadsense-forget-btn" type="button" class="btn-secondary-nav btn-block">Delete my road reports from the server</button>
       <div class="modal-row">
         <label for="voice-tone-toggle">Rowdy voice (bhaigiri mode)</label>
@@ -1765,7 +1766,7 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="js/master/agents/road-agent.js?v=20261011-master"></script>
 <script src="js/master/perception/dynamics.js?v=20261017-rp1"></script>
 <script src="js/master/roadsense/roadsense.js?v=20261017-rs5"></script>
-<script src="js/master/roadsense/sync.js?v=20261017-rp1"></script>
+<script src="js/master/roadsense/sync.js?v=20261017-rp2"></script>
 <script src="js/master/roadsense/agreement.js?v=20261017-rp1"></script>
 <script src="js/master/roadsense/alerts.js?v=20261017-rp1"></script>
 <script src="js/master/roadsense/truth.js?v=20261017-rp1"></script>
@@ -1793,7 +1794,7 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="js/master/agents/roadsense-agent.js?v=20261015-rs3"></script>
 <script src="js/master/agents/truth-agent.js?v=20261017-rp1"></script>
 <script src="js/master/master-app.js?v=20261017-rp1"></script>
-<script src="js/master/roadsense/roadsense-ui.js?v=20261017-18plus"></script>
+<script src="js/master/roadsense/roadsense-ui.js?v=20261017-rp2"></script>
 <script src="js/master/roadsense/truth-card.js?v=20261017-rp1"></script>
 <script src="js/master/roadsense/review.js?v=20261017-rp1"></script>
 <!-- Master AI avatar: the state rules, then the module that draws the face (Three.js via the import map in <head>) -->

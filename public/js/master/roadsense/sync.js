@@ -450,6 +450,13 @@
             /** The published hazards kept offline (other riders' and this phone's own, mine: true). */
             hazards: () => Object.values(hazardsCache),
             /** @param {string} id */ isMine: (id) => myHazards.includes(id),
+            /** This rider's reputation and badges (server-computed from what other riders confirmed), or null. */
+            async reputation() {
+                const a = api();
+                if (!consent.on || !a || !ident) return null;
+                const r = await a.post("/roadsense/me", { v: 1, contributor: ident.contributor }, { timeoutMs: cfg.timeoutMs });
+                return r.ok && r.data ? r.data : null;
+            },
             /** @param {number[][]} points @param {number} [marginM] */
             tilesAlong: (points, marginM = 1000) => tilesAlong(RS, points, marginM, cfg.tilesMax),
             /** Ask the server to delete everything this phone uploaded; then forget the pseudonyms here. */
