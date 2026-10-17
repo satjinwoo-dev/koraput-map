@@ -126,6 +126,8 @@ const { MediaStore } = require("./lib/media");
 const { createBikeApi } = require("./lib/bikedb/http-api");
 const { createAdminApi } = require("./lib/bikedb/admin-api");
 const { createMasterApi } = require("./lib/master/http-api");
+const { createRoadsense } = require("./lib/master/roadsense");
+const { loadFeedDir: loadRoadsenseFeeds } = require("./lib/master/roadsense-feeds");
 const { cleanSettings: cleanBikeSettings } = require("./public/js/garage/store.js");
 
 // ==========================================================================
@@ -363,8 +365,11 @@ app.use("/api/bikes", bikeApi.router);
 // blackspots), vetted places, Deep Search, destination safety, music mood. Every third-party
 // key stays in this process. Own JSON parsers and per-route limits (sized for what a phone's
 // agents send, with a convoy behind one carrier IP), so mounted before the global ones.
+// RoadSense Live: anonymous road observations in this server's database, rider labels keyed by
+// SERVER_SECRET (lib/master/roadsense.js). Both are defined further down and only read per request.
+const roadsense = createRoadsense({ db: () => db, secret: () => SERVER_SECRET });
 const masterApi = createMasterApi({
-    express, rateLimit,
+    express, rateLimit, roadsense,
     allowOrigin: (origin) => CORS_ORIGIN === "*" || (Array.isArray(CORS_ORIGIN) && CORS_ORIGIN.includes(origin))
 });
 app.use("/api/master", masterApi.router);
@@ -821,6 +826,14 @@ const SERVER_SECRET = (() => {
     stmt.setMeta.run("server_secret", fresh);
     return fresh;
 })();
+// RoadSense Live: official lists and model predictions dropped as GeoJSON in ROADSENSE_FEEDS_DIR
+// (default data/roadsense/feeds; format in its README). None ship with the app.
+{
+    const feeds = loadRoadsenseFeeds(process.env.ROADSENSE_FEEDS_DIR || path.join(__dirname, "data", "roadsense", "feeds"));
+    if (feeds.items.length) console.log(`[roadsense] ${roadsense.ingest(feeds.items)} official/predicted item(s) from ${feeds.files} file(s)`);
+    for (const e of feeds.errors.slice(0, 10)) console.warn(`[roadsense] feed: ${e}`);
+}
+
 const ownerKeyFor = (deviceId) => deviceId
     ? crypto.createHmac("sha256", SERVER_SECRET).update(String(deviceId)).digest("hex").slice(0, 16)
     : null;

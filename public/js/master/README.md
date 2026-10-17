@@ -32,6 +32,7 @@ The Master never has a voice of its own. It goes through the same `voiceAnnounce
 | `master-app.js` | Boot: wires everything, exposes `MUMaster.live`. Load last. |
 | `agents/ride-agent.js` | `state.ride`: riding time, breaks and distance. Says when a break is due (1 h 30 min, then 2 h). |
 | `agents/network-agent.js` | Network health (OS flag, connection type, a round trip to our server), plus no-signal zones it learns on this phone and warns about before you reach them. |
+| `roadsense/roadsense.js` | RoadSense Live: the one road event log on the phone (capability `roadsense`). Observations with source, time, confidence and rider; rules for verified / candidate / cleared / expired; "unknown" when there's no evidence. `roadsense/sync.js` + `agents/roadsense-agent.js`: opt-in anonymous sync with `/api/master/roadsense`, into the same log (the offline cache). See `roadsense/README.md`. |
 | `agents/vision-agent.js` + `vision/` | The break-time fatigue check: armed by `ride.break-due`, offered only once the bike has stood still ≥ 15 s, front camera + MediaPipe on the phone, reports `fatigue.high/moderate/low`. See `vision/README.md`. |
 | `agents/_template.js` | A fully commented agent to copy. It isn't loaded by `index.html`. |
 | `geo.js` | Shared geometry (SI): route cursor, "2 km ahead" slices, resampling, projection, turn rate (hairpins), sun elevation, POI tiles. |

@@ -71,9 +71,26 @@
         const replay = typeof W.MU_DYNAMICS_REPLAY === "string" || Array.isArray(W.MU_DYNAMICS_REPLAY) ? W.MU_DYNAMICS_REPLAY : null;
         if (plugin || replay) caps.provide("dynamics", M.perception.dynamics.createDynamicsProvider({ plugin, replay }));
     }
+    // RoadSense Live (js/master/roadsense/): the one road event log on the phone, shared by every agent that
+    // sees the road (the dynamics agent today; the camera's road agent and the server sync next)
+    if (M.roadsense) {
+        const roadsense = M.roadsense.createLog({ store: caps.get("store").namespace("roadsense") });
+        roadsense.load();
+        caps.provide("roadsense", roadsense);
+        // smooth passes ("ridden, nothing found"), so the Truth Card can say "clear" instead of "unknown"
+        const cover = M.roadsense.createCoverage({ store: caps.get("store").namespace("roadsense") });
+        cover.load();
+        caps.provide("roadsense-cover", cover);
+    }
     // the cognitive engines: our server's /api/master (keys stay there), the app's own context, the DEM cache,
     // and in the Android app the radio-signal and media-session plugins
     if (M.remote) caps.provide("master-api", M.remote.createMasterApiProvider({ window: W }));
+    // RoadSense sync (js/master/roadsense/sync.js): opt-in sharing with /api/master/roadsense, into the same log
+    if (M.roadsense && M.roadsenseSync && caps.get("roadsense")) {
+        caps.provide("roadsense-sync", M.roadsenseSync.createSync({
+            RS: M.roadsense, log: caps.get("roadsense"), cover: caps.get("roadsense-cover"), store: caps.get("store").namespace("roadsense-sync"), api: caps.get("master-api")
+        }));
+    }
     if (M.providers) {
         caps.provide("app-context", M.providers.createAppContextProvider(W, W.document));
         if (W.MUTrip && W.MUTrip.elevation && typeof W.MUTrip.elevation.createElevation === "function") caps.provide("terrain", M.providers.createTerrainProvider(W.MUTrip.elevation.createElevation()));
@@ -104,6 +121,7 @@
     toDom("state.answer", "mu:master-answer");
     toDom("state.poi", "mu:master-poi");
     toDom("state.destination", "mu:master-destination");
+    toDom("state.truth", "mu:master-truth");                 // the Route Truth Card (js/master/roadsense/truth-card.js)
 
     /** Words for a kind right now, without the queue (a reply to the rider's own question). @param {string} kind @param {any} data @param {"advice"|"warning"} [severity] */
     const words = (kind, data, severity = "advice") => persona.phrase({ kind, key: kind, severity, data }, brain.world);
@@ -141,6 +159,18 @@
             const w = p ? words("poi.nearest", { place: p.name, distanceM: Math.max(100, p.distanceM), category: cw.desi, screen: { category: cw.plain } })
                 : words("poi.none", { category: cw.desi, screen: { category: cw.plain } });
             return { ok: Boolean(p), text: w.text, display: w.display, place: p, alternatives: r.ok ? r.result.slice(1) : [] };
+        },
+        /**
+         * "Aage sadak kaisi hai?": what the RoadSense log knows about the road ahead (or around the rider), said
+         * through fixed phrases with its evidence. No language model decides what the road is like.
+         */
+        async roadTruth() {
+            const r = await brain.delegate("road-truth", {}, { timeoutMs: 3000 });
+            if (!r.ok || !r.result) { const w = words("road.truth-unknown", { where: "aage ke raaste", screen: { where: "the road ahead" } }); return { ok: false, text: w.text, display: w.display, card: null }; }
+            const w = words(r.result.kind, r.result.data);
+            // then the fixed follow-up sentences: the rest of the road, official items by name, a model's prediction
+            const more = (r.result.extras || []).map((/** @type {string} */ k) => words(k, r.result.data).text).filter(Boolean);
+            return { ok: true, text: [w.text, ...more].join(" "), display: w.display, card: r.result.card, sources: r.result.sources };
         },
         /** @param {"medical"|"breakdown"} kind */
         async emergency(kind = "medical") {

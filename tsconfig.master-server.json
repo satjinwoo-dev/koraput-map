@@ -30,6 +30,8 @@
     "lib/master/sun.js",
     "lib/master/safety.js",
     "lib/master/music.js",
+    "lib/master/roadsense.js",
+    "lib/master/roadsense-feeds.js",
     "lib/master/http-api.js"
   ]
 }

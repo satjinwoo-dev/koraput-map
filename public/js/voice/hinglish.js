@@ -37,7 +37,7 @@
         bhai: "भाई", bhaiya: "भैया", yaar: "यार", ji: "जी", haan: "हाँ", haanji: "हाँजी", nahi: "नहीं", nahin: "नहीं", na: "ना", mat: "मत",
         // pronouns, particles, postpositions
         main: "मैं", hum: "हम", tum: "तुम", aap: "आप", tu: "तू", tera: "तेरा", teri: "तेरी", mera: "मेरा", meri: "मेरी", apna: "अपना", apni: "अपनी",
-        ka: "का", ke: "के", ki: "की", ko: "को", se: "से", mein: "में", pe: "पे", par: "पर", tak: "तक", hi: "ही", bhi: "भी", toh: "तो", to: "तो",
+        ka: "का", ke: "के", ki: "की", ko: "को", ne: "ने", se: "से", mein: "में", pe: "पे", par: "पर", tak: "तक", hi: "ही", bhi: "भी", toh: "तो", to: "तो",
         aur: "और", ya: "या", ab: "अब", abhi: "अभी", phir: "फिर", jab: "जब", tab: "तब", kya: "क्या", kyun: "क्यों", kaise: "कैसे", kahan: "कहाँ",
         kuch: "कुछ", koi: "कोई", kisi: "किसी", sab: "सब", bas: "बस", sa: "सा", si: "सी", wala: "वाला", wale: "वाले", wali: "वाली",
         yahan: "यहाँ", yahin: "यहीं", wahan: "वहाँ", wahin: "वहीं", idhar: "इधर", udhar: "उधर",
@@ -55,7 +55,7 @@
         ruk: "रुक", ruko: "रुको", ruke: "रुके", rukne: "रुकने", rukte: "रुकते", rukna: "रुकना",
         rakh: "रख", rakho: "रखो", rakhna: "रखना", reh: "रह", rehna: "रहना",
         lag: "लग", laga: "लगा", lage: "लगे", lagi: "लगी", lagana: "लगाना", lagatar: "लगातार",
-        bata: "बता", batao: "बताओ", batana: "बताना", bataun: "बताऊँ", bol: "बोल", bolo: "बोलो", bolun: "बोलूँ", sun: "सुन", suno: "सुनो",
+        bata: "बता", bataya: "बताया", batao: "बताओ", batana: "बताना", bataun: "बताऊँ", bol: "बोल", bolo: "बोलो", bolun: "बोलूँ", sun: "सुन", suno: "सुनो",
         bana: "बना", bhej: "भेज", bhejna: "भेजना", daal: "डाल", dabao: "दबाओ", maar: "मार", utha: "उठा", nikalna: "निकलना",
         ghabra: "घबरा", ghabrana: "घबराना", ghus: "घुस", pi: "पी", piyo: "पियो", sake: "सके", sakte: "सकते", sakta: "सकता",
         milega: "मिलेगा", milegi: "मिलेगी", mila: "मिला", paaya: "पाया", pada: "पड़ा", padega: "पड़ेगा", bachenge: "बचेंगे", bacho: "बचो",
@@ -63,7 +63,9 @@
         // nouns
         baat: "बात", baar: "बार", aankh: "आँख", aankhen: "आँखें", aankhon: "आँखों", chehra: "चेहरा", chehre: "चेहरे", muh: "मुँह", sir: "सिर",
         haath: "हाथ", kamar: "कमर", saans: "साँस", neend: "नींद", jhapki: "झपकी", thakaan: "थकान", palkein: "पलकें", ubaasi: "उबासी",
-        sadak: "सड़क", raasta: "रास्ता", raste: "रास्ते", gaddha: "गड्ढा", gaddhe: "गड्ढे", jhatka: "झटका", jhatke: "झटके",
+        doosre: "दूसरे", doosra: "दूसरा", aakhri: "आख़िरी", anumaan: "अनुमान", dekha: "देखा", guzra: "गुज़रा", jaankari: "जानकारी", mutaabik: "मुताबिक़",
+        pakka: "पक्का", sarkari: "सरकारी",
+        sadak: "सड़क", raasta: "रास्ता", raste: "रास्ते", raaste: "रास्ते", haalat: "हालत", pata: "पता", pakki: "पक्की", kachchi: "कच्ची", bataunga: "बताऊँगा", gaddha: "गड्ढा", gaddhe: "गड्ढे", jhatka: "झटका", jhatke: "झटके",
         gaadi: "गाड़ी", paani: "पानी", chai: "चाय", tapri: "टपरी", dhaba: "ढाबा", ghar: "घर", jagah: "जगह", taraf: "तरफ़", beech: "बीच",
         mausam: "मौसम", baarish: "बारिश", dhoop: "धूप", kohra: "कोहरा", dhund: "धुंध", toofan: "तूफ़ान", aandhi: "आँधी", hawa: "हवा", roshni: "रोशनी",
         khatra: "ख़तरा", galti: "ग़लती", kaam: "काम", aaram: "आराम", mann: "मन", baare: "बारे", ghante: "घंटे", ghanta: "घंटा",
@@ -71,7 +73,7 @@
         paidal: "पैदल", thela: "ठेला", gaay: "गाय", bhains: "भैंस", kutta: "कुत्ता", janwar: "जानवर",
         // adjectives, adverbs
         aage: "आगे", peeche: "पीछे", paas: "पास", door: "दूर", saamne: "सामने", saath: "साथ", neeche: "नीचे", upar: "ऊपर",
-        pehle: "पहले", baad: "बाद", agle: "अगले", agla: "अगला", pichhle: "पिछले", pichhli: "पिछली", dobara: "दोबारा", wapas: "वापस", turant: "तुरंत",
+        pehle: "पहले", pehli: "पहली", baaki: "बाकी", har: "हर", is: "इस", baad: "बाद", agle: "अगले", agla: "अगला", pichhle: "पिछले", pichhli: "पिछली", dobara: "दोबारा", wapas: "वापस", turant: "तुरंत",
         achanak: "अचानक", dheere: "धीरे", jaldi: "जल्दी", bahut: "बहुत", zyada: "ज़्यादा", kam: "कम", thoda: "थोड़ा", thodi: "थोड़ी", thode: "थोड़े",
         kaafi: "काफ़ी", bilkul: "बिल्कुल", poora: "पूरा", pura: "पूरा", khud: "ख़ुद", sirf: "सिर्फ़",
         achha: "अच्छा", achhi: "अच्छी", achhe: "अच्छे", badhiya: "बढ़िया", theek: "ठीक", kharab: "ख़राब", galat: "ग़लत", saaf: "साफ़",
@@ -88,11 +90,12 @@
         "fresh", "gap", "group", "heads", "late", "live", "load", "manhole", "mileage", "navigation", "network", "offline", "ok", "okay", "petrol",
         "phone", "raincoat", "ride", "route", "rumble", "safe", "save", "screen", "side", "signal", "speed", "spot", "start", "strip", "sync",
         "tempo", "tension", "time", "tractor", "traffic", "truck", "try", "tyre", "up", "update", "view", "visor", "weak", "gps", "helmet",
-        "tip", "app", "battery", "charge", "map", "location", "selfie", "mode", "please", "sorry", "thanks", "rickshaw", "e"
+        "tip", "app", "battery", "charge", "map", "location", "selfie", "mode", "please", "sorry", "thanks", "rickshaw", "e",
+        "report", "riders", "rider", "sensor", "feel"
     ]));
 
     /** Words that are Hindi in our lines but also English (or too short) to prove a line is Hinglish on their own. */
-    const AMBIGUOUS = Object.freeze(new Set(["do", "main", "sir", "band", "pi", "ho", "to", "sun", "na", "ya", "hi", "de", "le", "lo", "pe", "se",
+    const AMBIGUOUS = Object.freeze(new Set(["do", "main", "sir", "is", "har", "band", "pi", "ho", "to", "sun", "na", "ya", "hi", "de", "le", "lo", "pe", "se",
         "sa", "si", "ja", "aa", "door", "the", "tab", "ret", "tel", "bas", "par", "mat", "kam", "metre", "metres", "meter", "meters", "km",
         "minute", "minutes", "second", "seconds"]));
 

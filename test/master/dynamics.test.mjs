@@ -94,12 +94,15 @@ function fakeClock(start) {
 }
 function emitter() { const fns = new Set(); return { on(fn) { fns.add(fn); return () => fns.delete(fn); }, emit(v) { for (const fn of fns) fn(v); } }; }
 
+/** state.dynamics as it was at the end of the ride */
+const e2s = (bus) => bus.last("state.dynamics");
+
 function fakeWindow() {
     const m = new Map();
     return { localStorage: { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k), key: (i) => [...m.keys()][i] ?? null, get length() { return m.size; } } };
 }
 
-async function ride(list, store = fakeWindow()) {
+async function ride(list, store = fakeWindow(), roadsense = null) {
     const clock = fakeClock(list[0].t - 500);
     const bus = B.createBus({ now: clock.now, timers: clock.timers });
     const caps = CAPS.createCapabilities();
@@ -109,6 +112,7 @@ async function ride(list, store = fakeWindow()) {
     caps.provide("location", { available: () => true, current: () => null, onFix: emitter().on });
     caps.provide("drive", { available: () => true, current: () => drive, onChange: drives.on });
     caps.provide("dynamics", DY.createDynamicsProvider({ replay: list, timers: clock.timers }));
+    if (roadsense) caps.provide("roadsense", roadsense);
     const said = [], islands = [];
     const persona = PH.install(P.createPersona({ style: "desi", rng: () => 0 }));
     const output = O.createOutput({ window: {}, voice: (text, o) => { said.push({ text, at: clock.now(), ...o }); return true; }, island: (s) => { islands.push({ ...s, at: clock.now() }); return true; }, busy: () => false, emit: () => {} });
@@ -121,7 +125,12 @@ async function ride(list, store = fakeWindow()) {
     for (let i = 0; i < 5; i++) await tick();
     assert.equal(kernel.get("dynamics").state, "running");
     clock.advance(list[list.length - 1].t - list[0].t + 2000);
-    return { reports, said, islands, bus, kernel, store };
+    const state = e2s(bus);
+    // the ride ends: the agent stops and writes the log (it saves once a minute while riding)
+    drive = { driving: false, navigating: false }; drives.emit(drive);
+    for (let i = 0; i < 5; i++) await tick();
+    clock.advance(1000);
+    return { reports, said, islands, bus, kernel, store, state };
 }
 
 test("Kotlin ride → dynamics agent → Master AI: tips only when stopped, rough road once, the known pothole warned ahead", async () => {
@@ -161,10 +170,11 @@ test("Kotlin ride → dynamics agent → Master AI: tips only when stopped, roug
     // screen words are English; the spoken ones desi
     for (const i of e.islands) assert.doesNotMatch(`${i.title} ${i.sub}`, /\b(bhai|jhatka|gaddha|baar|aage)\b/i);
 
-    const st = e.bus.last("state.dynamics");
+    const st = e.state;
     assert.equal(st.hardBrakes, 3);
     assert.equal(st.veryHardBrakes, 1);
-    assert.ok(st.confirmedBumps >= 1);
+    assert.ok(st.verifiedEvents >= 1, "the pothole is a verified RoadSense event");
+    assert.ok(st.cleanPasses >= 1, "one-off jolts on the rough stretch weren't felt again on the next pass");
     assert.ok(st.roughM >= 60);
 });
 
@@ -177,4 +187,84 @@ test("dynamics agent: a known pothole is warned on the first pass of the next ri
     assert.ok(bumps.length >= 2, `warned ${bumps.length} times`);   // every pass of the next day's ride
     const firstLegEnd = list.findIndex((f, i) => i > 20 && f.ego.speedMs < 0.5) ;
     assert.ok(bumps[0].at <= list[firstLegEnd].t + 86400000, "already on leg 1");
+});
+
+// RoadSense: the jolts live in the shared road event log, and riding over a repaired pothole clears it
+const shift = (list, ms, keepJolts = true) => list.map((f) => ({
+    ...f, t: f.t + ms,
+    events: f.events.filter((x) => keepJolts || x.type !== "jolt").map((x) => ({ ...x, t: x.t + ms })),
+    segments: f.segments.map((s) => ({ ...s, t: s.t + ms }))
+}));
+
+test("RoadSense: the pothole is one event with its evidence; riding over it repaired clears it, and it's no longer warned", async () => {
+    const RS = require("../../public/js/master/roadsense/roadsense.js");
+    const list = frames();
+    const store = fakeWindow();
+    await ride(list, store);                                                  // day 1: three passes, all felt
+    const saved = JSON.parse(store.localStorage.getItem("mu.master.dynamics.events"));
+    assert.equal(saved.v, RS.VERSION);
+    const log = RS.createLog({ store: { get: (k, f) => (k === "events" ? saved : f), set() {} } });
+    log.load();
+    const end = list[list.length - 1].t;
+    const bump = log.query({ lat: 18.5204, lng: LNG0 + 300 / M_PER_DEG_LNG, radiusM: 15, now: end, group: "shock" })[0];
+    assert.ok(bump, "the pothole at 300 m is in the log");
+    assert.equal(bump.status, "verified");
+    assert.equal(bump.passes, 3);
+    assert.equal(bump.riders, 1);
+    assert.equal(bump.absentPasses, 0, "every pass hit it: no clean pass");
+    assert.deepEqual(bump.sources, { imu: 3 });
+    assert.ok(bump.peakMs2 >= 12);
+    assert.equal(store.localStorage.getItem("mu.master.dynamics.cells"), null, "the old private cells are gone");
+
+    // day 2: the pothole has been fixed. Leg 1 still warns (the log only knows yesterday), then 3 clean passes clear it
+    const day2 = await ride(shift(list, 86400000, false), store);
+    assert.ok(day2.reports.some((r) => r.kind === "road.bump-ahead"), "still warned before anyone has ridden over the repair");
+    assert.ok(day2.state.cleanPasses >= 3);
+    // day 3: nothing to warn
+    const day3 = await ride(shift(list, 2 * 86400000, false), store);
+    assert.equal(day3.reports.filter((r) => r.kind === "road.bump-ahead").length, 0, "a cleared pothole isn't warned");
+});
+
+test("RoadSense: a single pass is only a candidate; the bump is never warned from one jolt", async () => {
+    const list = frames();
+    const leg1End = list.findIndex((f, i) => i > 20 && f.ego.speedMs < 0.5);
+    const e = await ride(list.slice(0, leg1End + 1));
+    assert.equal(e.reports.filter((r) => r.kind === "road.bump-ahead").length, 0);
+    assert.equal(e.state.verifiedEvents, 0);
+});
+
+test("RoadSense: with the shared 'roadsense' capability (as master-app provides it), the agent writes there", async () => {
+    const RS = require("../../public/js/master/roadsense/roadsense.js");
+    const saved = new Map();
+    const shared = RS.createLog({ store: { get: (k, f) => saved.get(k) ?? f, set: (k, v) => saved.set(k, v) } });
+    const store = fakeWindow();
+    const e = await ride(frames(), store, shared);
+    assert.equal(e.reports.filter((r) => r.kind === "road.bump-ahead").length, 1);
+    const end = frames().at(-1).t;
+    assert.ok(shared.stats(end).verified >= 1);
+    assert.ok(saved.get("events").events.length >= 1, "saved through the shared log's own store");
+    assert.equal(store.localStorage.getItem("mu.master.dynamics.events"), null, "not into the agent's private store");
+});
+
+test("RoadSense: a pothole verified only by other riders (sync) is warned on this phone's first ride, as reported by them", async () => {
+    const RS = require("../../public/js/master/roadsense/roadsense.js");
+    const list = frames();
+    const shared = RS.createLog();
+    const at = { lat: 18.5204, lng: LNG0 + 300 / M_PER_DEG_LNG };
+    // two other riders felt it yesterday (what /api/master/roadsense/area hands the phone)
+    shared.addAll([
+        { id: "remote-a-0001", type: "bump", t: list[0].t - 86400000, ...at, source: "imu", rider: "r1111111111aaaaa", present: true, conf: 0.7, peakMs2: 18 },
+        { id: "remote-b-0001", type: "bump", t: list[0].t - 80000000, ...at, source: "imu", rider: "r2222222222bbbbb", present: true, conf: 0.7, peakMs2: 17 }
+    ]);
+    const leg1End = list.findIndex((f, i) => i > 20 && f.ego.speedMs < 0.5);
+    const e = await ride(list.slice(0, leg1End + 1), fakeWindow(), shared);
+    const reported = e.reports.filter((r) => r.kind === "road.bump-reported");
+    assert.equal(reported.length, 1, "warned before the phone ever felt it");
+    assert.equal(reported[0].data.riders, 2);
+    assert.equal(e.reports.filter((r) => r.kind === "road.bump-ahead").length, 0, "not 'where you hit one before'");
+    // the evidence, said and shown: who and when out loud; sensors and confidence on screen
+    assert.ok(e.said.some((s) => /2 riders ne bataya, 22 ghante pehle\./.test(s.text)), e.said.map((s) => s.text).join(" | "));
+    const isl = e.islands.find((i) => i.title === "Bump reported ahead");
+    assert.ok(isl, "on screen");
+    assert.match(isl.sub, /^In \d+ m · 2 riders · motion sensor · 22 hours ago · \d+%$/);
 });
