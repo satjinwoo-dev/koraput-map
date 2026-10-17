@@ -44,6 +44,7 @@
     "public/js/master/roadsense/sync.js",
     "public/js/master/roadsense/roadsense-ui.js",
     "public/js/master/roadsense/truth.js",
+    "public/js/master/roadsense/agreement.js",
     "public/js/master/roadsense/truth-card.js",
     "public/js/master/agents/truth-agent.js",
     "public/js/master/agents/roadsense-agent.js",
