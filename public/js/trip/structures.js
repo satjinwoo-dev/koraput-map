@@ -2,7 +2,7 @@
 /* ============================================================================
    MapUnite trip — bridges and tunnels on a route's height profile (roadmap Step 9)
    ==============================================================================
-   The terrain model (Copernicus 90 m DEM, js/trip/elevation.js) gives the height of
+   The terrain model (Copernicus GLO-30 30 m, js/trip/elevation.js) gives the height of
    the GROUND. On a bridge that's the valley floor under the deck; in a tunnel, the
    hillside above it. Left in, a 300 m bridge over a 30 m gully becomes a 30 m
    descent and a 30 m climb that never happen, and the fuel estimate pays for both.
@@ -43,7 +43,7 @@
         minDepth: 8,                      // m below / above the straight line
         steepGrade: 0.15,                 // the slopes into and out of the dip or hump
         maxChordGrade: 0.10,              // the straight line itself (a bridge deck's grade)
-        margin: 45                        // m beyond each end (half the DEM's 90 m cell)
+        margin: 45                        // m beyond each end (half a 90 m cell: kept wide on the 30 m model too, bridge ends are often mapped short)
     });
     const RAD = Math.PI / 180;
 
