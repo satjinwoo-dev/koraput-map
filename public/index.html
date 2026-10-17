@@ -322,6 +322,13 @@ body:has(#premium-nav-ui[style*="block"]) #toast-container { bottom: calc(250px 
   background: var(--glass-strong); border-top: 1px solid var(--line-strong); box-shadow: var(--inner), 0 -12px 48px rgba(0,0,0,.5);
   -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); }
 .nav-bottom-sheet::before { content: ""; align-self: center; width: 38px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.2); margin-top: -6px; }
+/* Ride Focus AMOLED (js/ridefocus.js): a filter on the dark base TILES only (near-black land → #000, roads stay dim
+   grey); routes, markers, labels, banners and buttons are never filtered. No animation. */
+#map.mu-amoled, #map.mu-amoled.navcam { background: #000; }
+#map.mu-amoled .mu-amoled-base, #map.mu-amoled .navcam-underlay { filter: contrast(1.3); }
+#ridefocus-btn.on { color: #00d8ff; box-shadow: inset 0 0 0 2px #00d8ff, var(--inner); }
+#ridefocus-btn[hidden] { display: none; }
+.nav-bottom-sheet.is-collapsed .controls-row #ridefocus-btn { width: 44px; height: 44px; }
 /* Named places on the map (js/mapdetail.js): an icon and the name, like Google Maps, readable on imagery. */
 .mu-place-icon { width: 0 !important; height: 0 !important; background: none; border: 0; }
 .mu-place { position: absolute; left: -10px; top: -10px; display: flex; align-items: center; gap: 4px; white-space: nowrap; font: 700 12px/1.15 var(--font-ui, system-ui, sans-serif); cursor: pointer; }
@@ -1052,6 +1059,11 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
     </div>
     <p class="field-hint">Switches from Walk back to your bike or car by itself once you’re clearly riding (30 s above ~25 km/h), so speed alerts come back on. It only suggests switching to Walk — a slow crawl in traffic looks the same. Your own choice always wins for 10 minutes.</p>
     <div class="modal-row">
+      <label for="ride-focus-toggle">Ride Focus AMOLED</label>
+      <input type="checkbox" id="ride-focus-toggle" class="switch">
+    </div>
+    <p class="field-hint">While navigating: a true-black map, your road up to the next turn in bright white and cyan, the route after it in cyan, nearby roads dim. Hazards, turns and buttons stay at full brightness. Switch it any time with the ◐ button beside Stop. Black areas can reduce screen power on AMOLED phones; how much depends on your screen and brightness.</p>
+    <div class="modal-row">
       <label for="gps-saver-toggle">Battery saver when parked</label>
       <input type="checkbox" id="gps-saver-toggle" class="switch" checked>
     </div>
@@ -1707,15 +1719,16 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="/shell.js"></script>
 <!-- App scripts, split by concern (Batch 2). Order matters: core first, boot last. -->
 <script src="js/core.js?v=20261017-labels"></script>
-<script src="js/mapdetail.js?v=20261017-places"></script><!-- named places on the map (OSM) + optional Google map style -->
+<script src="js/mapdetail.js?v=20261017-amoled"></script><!-- named places on the map (OSM) + optional Google map style -->
 <script src="js/voice/hinglish.js?v=20261017-rp1"></script>
 <script src="js/voice/engine.js?v=20261011-voice"></script>
 <script src="js/voice.js?v=20261016-rs4"></script>
 <script src="js/gps.js?v=20261003-step7"></script>
 <script src="js/navcam/navcam-core.js?v=20261017-fulltop"></script>
-<script src="js/navcam/navcam.js?v=20261017-labels"></script>
+<script src="js/navcam/navcam.js?v=20261017-amoled"></script>
 <script src="js/navsheet.js?v=20261017-sheet"></script><!-- the drive sheet collapses while driving; swipe up for more -->
-<script src="js/navigation.js?v=20261017-sheet"></script>
+<script src="js/ridefocus.js?v=20261017-amoled"></script><!-- Ride Focus AMOLED: optional true-black map while navigating -->
+<script src="js/navigation.js?v=20261017-amoled"></script>
 <script src="js/garage/fuel-baseline.js?v=20261003-step8"></script>
 <script src="js/smartdrive.js?v=20261004-ui"></script>
 <script src="js/groupnav.js?v=20261004-step8"></script>

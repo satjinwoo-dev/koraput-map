@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-17.10";          // terrain heights from our own 30 m model (Copernicus GLO-30), not Open-Meteo
+const VERSION = "mu-2026-10-17.11";          // Ride Focus AMOLED: optional true-black map while navigating
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
@@ -61,6 +61,7 @@ const APP_SCRIPTS = [
     "/js/navcam/navcam-core.js",
     "/js/navcam/navcam.js",
     "/js/navsheet.js",
+    "/js/ridefocus.js",
     "/js/navigation.js",
     "/js/garage/fuel-baseline.js",
     "/js/smartdrive.js",

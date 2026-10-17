@@ -680,6 +680,8 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
             // Navigation camera (js/navcam/): heading-up, tilted, rider in the lower third. Without it, the old close-up.
             const camOn = typeof NavCamera !== "undefined" && NavCamera.start({ map, route: () => fullPath, at: myCoords ? { lat: myCoords.lat, lng: myCoords.lng } : { lat: startPos[0], lng: startPos[1] } });
             if (!camOn && myCoords) map.flyTo([myCoords.lat, myCoords.lng], 18, { animate: true, duration: 1.5 });
+            // Ride Focus AMOLED (js/ridefocus.js): the true-black map, when the rider has turned it on
+            if (typeof RideFocus !== "undefined" && RideFocus.start) RideFocus.start({ map, ahead: dottedPath, trail: solidPath, route: () => fullPath, turn: () => maneuverLatLng(nextManeuver()) });
 
             navState.ready = false;
             navState.active = true;
@@ -744,6 +746,7 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
                         if (d < 35) stepIdx++;
                     }
                     updateStepDisplay(currentPos);
+                    if (typeof RideFocus !== "undefined" && RideFocus.update) RideFocus.update(currentLat, currentLng);   // the turn may have advanced
                     if (estimated) return;             // no reroute / arrival decisions on an estimate
 
                     // --- Off-route detection + reroute (roadmap Section 7 + 10) ---
@@ -905,6 +908,7 @@ function stopDrive(cancelled = false) {
     if (navDrListener) { document.removeEventListener("mu:dr-position", navDrListener); navDrListener = null; }
     if (typeof NavCamera !== "undefined") NavCamera.stop();
     if (typeof NavSheet !== "undefined") NavSheet.reset();
+    if (typeof RideFocus !== "undefined" && RideFocus.stop) RideFocus.stop();      // the rider's own map style comes back
     navigationLayer.clearLayers();
     safeHide("premium-nav-ui");
     safeHide("nav-bottom-sheet");

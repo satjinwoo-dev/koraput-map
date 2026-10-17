@@ -292,6 +292,11 @@ const NavCamera = (() => {
         paint();
         kick();
     }
+    /** The base map changed mid-drive (Ride Focus AMOLED): copy the new one into the underlay. */
+    function rebase() {
+        if (!on || !lmap) return;
+        addUnderlay();
+    }
     function stop() {
         if (!on) return;
         on = false; paused = false;
@@ -308,7 +313,7 @@ const NavCamera = (() => {
     }
 
     return {
-        start, follow, stop, pause, resume, supported, toggleHeadingUp,
+        start, follow, stop, pause, resume, supported, toggleHeadingUp, rebase,
         get active() { return on; },
         get paused() { return paused; },
         /** For the console and tests. */
