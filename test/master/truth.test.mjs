@@ -84,7 +84,8 @@ test("the evidence in words: who, when, confirmed or not; a short form for warni
     const unconfirmed = TR.evidence({ ...base, status: "candidate", riders: 1, felt: false });
     assert.match(unconfirmed.desi, /, abhi pakka nahi$/);
     assert.match(unconfirmed.plain, /^reported by 1 rider, .*, not confirmed$/);
-    assert.match(TR.evidence({ ...base, sources: { official: 1 }, riders: 1, felt: false }).plain, /^official alert/);
+    assert.equal(TR.evidence({ ...base, sources: { official: 1 }, riders: 0, felt: false, refs: ["MoRTH roadworks list"] }).plain, "official: MoRTH roadworks list");
+    assert.equal(TR.evidence({ ...base, sources: { official: 1, imu: 1 }, riders: 1, felt: false, refs: [] }).plain, "official (official list) and 1 rider", "never an empty source name");
     assert.deepEqual([30, 600, 7200, 90000, 5 * 86400].map((s) => TR.ago(s).plain), ["just now", "10 minutes ago", "2 hours ago", "yesterday", "5 days ago"]);
     assert.deepEqual([0.95, 0.8, 0.6, 0.3].map((c) => TR.confidenceWords(c).band), ["high", "high", "medium", "low"]);
     assert.equal(TR.screenEvidence({ ...base, riders: 3, felt: true }), "You + 2 riders · motion sensor · 3 hours ago · 90%");
@@ -100,23 +101,26 @@ test("the voice: fixed phrases filled with the card's values, in desi and plain;
     const d = TR.phraseData(card, "route");
     assert.equal(TR.phraseKind(card), "road.truth");
     const a = say(desi, "road.truth", d);
-    assert.equal(a.text, "Asha, is raaste pe 2 pakki report hai: 1 gaddha ya breaker aur 1 kharab sadak. Pehli 1.2 km aage, gaddha ya breaker: aap aur 2 aur riders ne feel kiya, aakhri baar 1 ghante pehle, bharosa zyada. Baaki sadak ki haalat pata nahi.");
+    assert.equal(a.text, "Asha, is raaste pe 2 pakki report hai: 1 gaddha ya breaker aur 1 kharab sadak. Pehli 1.2 km aage, gaddha ya breaker: aap aur 2 aur riders ne feel kiya, aakhri baar 1 ghante pehle, bharosa zyada.");
+    assert.deepEqual(TR.phraseExtras(card), ["road.truth-rest-unknown"], "then: the rest of the road is unknown (no smooth passes)");
+    assert.equal(say(desi, "road.truth-rest-unknown", d).text, "Baaki sadak ki haalat pata nahi.");
     assert.equal(a.display.title, "Road reports: 2 confirmed");
     assert.match(a.display.sub, /^First: bump or pothole in 1\.2 kilometres · felt by you and 2 other riders, last 1 hour ago$/);
     const b = say(plain, "road.truth", d);
-    assert.match(b.text, /^Confirmed reports on this route: 2, 1 bump or pothole, 1 rough road\. The first, in 1\.2 kilometres: bump or pothole, felt by you and 2 other riders, last 1 hour ago, high confidence \(\d+%\)\. Everywhere else, the condition is unknown\.$/);
+    assert.match(b.text, /^Confirmed reports on this route: 2, 1 bump or pothole, 1 rough road\. The first, in 1\.2 kilometres: bump or pothole, felt by you and 2 other riders, last 1 hour ago, high confidence \(\d+%\)\.$/);
     // only an unconfirmed report: says so
     const lone = RS.createLog(); lone.add(ob(3000, { rider: "r3cccccccccccccc" }));
     const c2 = TR.buildTruth({ log: lone, path: ROUTE, now: T0 + H });
     assert.equal(TR.phraseKind(c2), "road.truth-unconfirmed");
-    assert.match(say(desi, "road.truth-unconfirmed", TR.phraseData(c2, "route")).text, /koi pakki report nahi, sirf 1 kachchi report hai.*abhi pakka nahi\. Haalat pata nahi/);
+    assert.match(say(desi, "road.truth-unconfirmed", TR.phraseData(c2, "route")).text, /koi pakki report nahi, sirf 1 kachchi report hai.*abhi pakka nahi\. Dhyan se chalao\.$/);
     // nothing: "condition unknown", never "clear"
     const c3 = TR.buildTruth({ log: RS.createLog(), path: ROUTE, now });
     assert.equal(TR.phraseKind(c3), "road.truth-unknown");
     const u = say(plain, "road.truth-unknown", TR.phraseData(c3, "ahead"));
     assert.equal(u.text, "No reports for the road ahead, from sensors or riders. Condition unknown, ride with care.");
     assert.equal(u.display.title, "Condition unknown");
-    for (const kind of ["road.truth", "road.truth-unconfirmed", "road.truth-unknown", "road.route-truth"]) {
+    // "clear" / "saaf" is said only by the smooth-pass phrases (tested below), never by these
+    for (const kind of ["road.truth", "road.truth-unconfirmed", "road.truth-unknown", "road.route-truth", "road.truth-rest-unknown", "road.truth-ridden", "road.truth-official", "road.truth-predicted"]) {
         for (const p of [desi, plain]) {
             const r = say(p, kind, d);
             assert.doesNotMatch(r.text, /\bclear\b|\bsaaf\b|\bsafe\b/i, `${kind}: never claims a clear road`);
@@ -235,7 +239,7 @@ test("the card on screen: hidden without a route, 'Condition unknown' with no ev
     const card = TR.buildTruth({ log: seeded(), path: ROUTE, now });
     const vm = CARD.viewModel({ hasRoute: true, navigating: false, card, sources: { community: true, lastFetch: now - 5 * MIN } }, now);
     assert.deepEqual(vm.pill, { text: "2 confirmed", tone: "warn" });
-    assert.equal(vm.summary, "2 confirmed, 1 unconfirmed on this route: 1 bump or pothole, 1 rough road. Everywhere else: condition unknown.");
+    assert.equal(vm.summary, "2 confirmed, 1 unconfirmed on this route: 1 bump or pothole, 1 rough road.");
     assert.deepEqual(vm.rows.map((r) => [r.distance, r.title, r.badge]), [["1.2 km", "Bump", "Confirmed"], ["3.0 km", "Bump", "Unconfirmed"], ["4.5 km", "Rough road", "Confirmed"]]);
     assert.equal(vm.rows[0].evidence, `You + 2 riders · motion sensor · 1 hour ago · ${Math.round(card.rows[0].confidence * 100)}%`);
     assert.match(vm.rows[0].until, /^until \d{1,2} [A-Z][a-z]{2}$/);

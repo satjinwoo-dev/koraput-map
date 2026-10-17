@@ -72,7 +72,7 @@ test("verification: one pass is a candidate; a second pass, another rider, or a 
     assert.deepEqual(sensors.sources, { imu: 1, camera: 1 });
     // a weak single report stays a candidate; an official feed verifies alone
     assert.equal(at([ob({ source: "rider", rider: "a", conf: undefined })], T0 + MIN).status, "candidate");
-    assert.equal(at([ob({ type: "waterlogging", source: "official", rider: "imd", conf: undefined })], T0 + MIN).status, "verified");
+    assert.equal(at([ob({ type: "waterlogging", source: "official", rider: "imd", conf: undefined, ref: "IMD nowcast" })], T0 + MIN).status, "verified");
     // two passes of near-zero confidence aren't enough: confidence must reach verifyConf too
     assert.equal(at([ob({ conf: 0.2 }), ob({ conf: 0.2, t: T0 + 5 * MIN })], T0 + 6 * MIN).status, "candidate");
 });

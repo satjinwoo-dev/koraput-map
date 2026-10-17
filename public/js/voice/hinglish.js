@@ -63,7 +63,8 @@
         // nouns
         baat: "बात", baar: "बार", aankh: "आँख", aankhen: "आँखें", aankhon: "आँखों", chehra: "चेहरा", chehre: "चेहरे", muh: "मुँह", sir: "सिर",
         haath: "हाथ", kamar: "कमर", saans: "साँस", neend: "नींद", jhapki: "झपकी", thakaan: "थकान", palkein: "पलकें", ubaasi: "उबासी",
-        doosre: "दूसरे", doosra: "दूसरा",
+        doosre: "दूसरे", doosra: "दूसरा", aakhri: "आख़िरी", anumaan: "अनुमान", dekha: "देखा", guzra: "गुज़रा", jaankari: "जानकारी", mutaabik: "मुताबिक़",
+        pakka: "पक्का", sarkari: "सरकारी",
         sadak: "सड़क", raasta: "रास्ता", raste: "रास्ते", raaste: "रास्ते", haalat: "हालत", pata: "पता", pakki: "पक्की", kachchi: "कच्ची", bataunga: "बताऊँगा", gaddha: "गड्ढा", gaddhe: "गड्ढे", jhatka: "झटका", jhatke: "झटके",
         gaadi: "गाड़ी", paani: "पानी", chai: "चाय", tapri: "टपरी", dhaba: "ढाबा", ghar: "घर", jagah: "जगह", taraf: "तरफ़", beech: "बीच",
         mausam: "मौसम", baarish: "बारिश", dhoop: "धूप", kohra: "कोहरा", dhund: "धुंध", toofan: "तूफ़ान", aandhi: "आँधी", hawa: "हवा", roshni: "रोशनी",
@@ -90,7 +91,7 @@
         "phone", "raincoat", "ride", "route", "rumble", "safe", "save", "screen", "side", "signal", "speed", "spot", "start", "strip", "sync",
         "tempo", "tension", "time", "tractor", "traffic", "truck", "try", "tyre", "up", "update", "view", "visor", "weak", "gps", "helmet",
         "tip", "app", "battery", "charge", "map", "location", "selfie", "mode", "please", "sorry", "thanks", "rickshaw", "e",
-        "report", "riders", "rider", "sensor"
+        "report", "riders", "rider", "sensor", "feel"
     ]));
 
     /** Words that are Hindi in our lines but also English (or too short) to prove a line is Hinglish on their own. */

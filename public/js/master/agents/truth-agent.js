@@ -14,8 +14,10 @@
    Voice:
      task.road-truth   "aage sadak kaisi hai?" (js/voice.js, or the Deep Search
                        model's road_ahead action): the card ahead of the rider,
-                       or within 2 km when there's no route, and the phrase to say
-                       it with: road.truth / road.truth-unconfirmed / road.truth-unknown
+                       or within 2 km when there's no route, and the phrases to say
+                       it with (truth.js phraseKind + phraseExtras): reports,
+                       "clear" (smooth passes by 2+ riders), ridden once, unknown;
+                       then official items by name and predictions, kept apart
      road.route-truth  advice, once per route when navigation starts, only when
                        the route has confirmed reports (the ask-first gate applies)
 
@@ -47,7 +49,7 @@
         apiVersion: 1,
         description: "The Route Truth Card: road reports on the route with their source, age and confidence, or 'condition unknown'.",
         requires: ["roadsense"],
-        optional: ["route", "location", "drive", "roadsense-sync"],
+        optional: ["route", "location", "drive", "roadsense-sync", "roadsense-cover"],
         defaults: {
             debounceMs: 5000,          // log changes → rebuilt at most this often
             moveStepM: 100,            // navigating: rebuilt every 100 m along the route
@@ -64,6 +66,7 @@
             const location = ctx.caps.has("location") ? ctx.caps.get("location") : null;
             const drive = ctx.caps.has("drive") ? ctx.caps.get("drive") : null;
             const sync = ctx.caps.has("roadsense-sync") ? ctx.caps.get("roadsense-sync") : null;
+            const cover = ctx.caps.has("roadsense-cover") ? ctx.caps.get("roadsense-cover") : null;   // smooth passes: "ridden, nothing found"
 
             /** @type {number[][]|null} */ let path = null;
             /** @type {{ lat: number, lng: number, s: number }[]} */ let pts = [];
@@ -79,7 +82,7 @@
             function rebuild() {
                 pending = null;
                 const t = ctx.now();
-                card = path ? T.buildTruth({ log, path, now: t, fromM: navigating ? fromM : 0 }) : null;
+                card = path ? T.buildTruth({ log, cover, path, now: t, fromM: navigating ? fromM : 0 }) : null;
                 builtFromM = fromM;
                 ctx.setState("truth", { at: t, hasRoute: Boolean(path), navigating, card, sources: sources() });
                 ctx.heartbeat();
@@ -108,6 +111,7 @@
 
             const offAdd = log.onAdd(ctx.wrap(soon));
             ctx.onStop(offAdd);
+            if (cover) { const off = cover.onAdd(ctx.wrap(soon)); ctx.onStop(off); }
             if (sync) { const off = sync.onChange(ctx.wrap(soon)); ctx.onStop(off); }
             if (route) { const off = route.onChange(ctx.wrap(setRoute)); ctx.onStop(off); }
             if (drive) {
@@ -134,14 +138,14 @@
             ctx.bus.handle("task.road-truth", () => {
                 const t = ctx.now();
                 let c, scope;
-                if (path) { c = T.buildTruth({ log, path, now: t, fromM }); scope = fromM > 0 ? "ahead" : "route"; }
+                if (path) { c = T.buildTruth({ log, cover, path, now: t, fromM }); scope = fromM > 0 ? "ahead" : "route"; }
                 else {
                     const here = location && location.current();
-                    if (!here || !Number.isFinite(here.lat) || !Number.isFinite(here.lng)) return { kind: "road.truth-unknown", data: { ...T.phraseData({ rows: [], verified: 0, candidates: 0, byKind: {} }, "near") }, card: null, sources: sources() };
+                    if (!here || !Number.isFinite(here.lat) || !Number.isFinite(here.lng)) return { kind: "road.truth-unknown", extras: [], data: { ...T.phraseData({ rows: [], verified: 0, candidates: 0, predicted: 0, byKind: {}, coverage: {} }, "near") }, card: null, sources: sources() };
                     c = T.buildNear({ log, lat: here.lat, lng: here.lng, now: t, radiusM: cfg.nearRadiusM });
                     scope = "near";
                 }
-                return { kind: T.phraseKind(c), data: T.phraseData(c, scope), card: c, sources: sources() };
+                return { kind: T.phraseKind(c), extras: T.phraseExtras(c), data: T.phraseData(c, scope), card: c, sources: sources() };
             });
 
             if (route) setRoute(route.current()); else rebuild();

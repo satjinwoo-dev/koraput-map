@@ -23,6 +23,10 @@
    Why a bump needs 2 passes: one jolt can be a stone or a pothole already
    fixed; the same strong jolt at the same place twice is a real feature.
 
+   Smooth passes ("ridden, nothing found"): every ≈ 220 m cell ridden at ≥ 3 m/s
+   with the IMU working and a good fix, where nothing was felt, goes into the
+   RoadSense coverage (capability "roadsense-cover"), so the Truth Card can say
+   "clear, no bumps felt by N riders" instead of "unknown".
    Every strong jolt and rough 20 m stretch goes into the RoadSense log
    (js/master/roadsense/roadsense.js, capability "roadsense"): one record of the
    road on the phone, with source, time, confidence and expiry. The log's rules
@@ -66,7 +70,7 @@
         apiVersion: 1,
         description: "Hard braking, road shocks and roughness from the phone's motion sensors and GPS, only while riding.",
         requires: ["dynamics"],
-        optional: ["roadsense"],
+        optional: ["roadsense", "roadsense-cover"],
         depends: ["ride"],
         runWhen: { topic: "state.ride", test: (/** @type {any} */ r) => Boolean(r && r.active) },
         defaults: {
@@ -103,7 +107,13 @@
             const log = shared || RS.createLog({ store: ctx.store });
             if (!shared) log.load();
             ctx.store.remove("cells");                // the pre-RoadSense jolt cells: replaced by the log
-            const stats = { hardBrakes: 0, veryHardBrakes: 0, hardAccels: 0, jolts: 0, distM: 0, roughM: 0, bumpsWarned: 0, tips: 0, frames: 0, cleanPasses: 0 };
+            // smooth passes ("ridden, nothing found"): the shared coverage, else this agent's own
+            const sharedCover = ctx.caps.has("roadsense-cover") ? ctx.caps.get("roadsense-cover") : null;
+            const cover = sharedCover || RS.createCoverage({ store: ctx.store });
+            if (!sharedCover) cover.load();
+            /** the coverage cells of this ride not yet settled: cell → { last, smooth } */
+            /** @type {Map<string, { last: number, smooth: boolean }>} */ const inCell = new Map();
+            const stats = { hardBrakes: 0, veryHardBrakes: 0, hardAccels: 0, jolts: 0, distM: 0, roughM: 0, bumpsWarned: 0, tips: 0, frames: 0, cleanPasses: 0, smoothCells: 0 };
             /** @type {number[]} */ let brakeTimes = [];
             /** @type {any} */ let veryHard = null;
             let stillSince = /** @type {number|null} */ (null);
@@ -126,8 +136,9 @@
             function save(/** @type {number} */ t, force = false) {
                 if (!force && t - lastSaveAt < cfg.saveEveryMs) return;
                 lastSaveAt = t;
-                if (force || t - lastPruneAt >= cfg.pruneEveryMs) { lastPruneAt = t; log.prune(t); }
+                if (force || t - lastPruneAt >= cfg.pruneEveryMs) { lastPruneAt = t; log.prune(t); cover.prune(t); }
                 log.save();
+                cover.save();
                 logStats = log.stats(t);
             }
 
@@ -223,6 +234,31 @@
                 }
             }
 
+            /**
+             * Smooth passes. A coverage cell (≈ 220 m) counts only if EVERY frame in it could have felt a bump
+             * (≥ 3 m/s, IMU ≥ 50 Hz, a good fix) and nothing was felt there: no jolt, no rough 20 m segment.
+             * Committed once the bike has left the cell and cleanSettleMs has passed (a late jolt can still spoil it).
+             */
+            function noteSmooth(/** @type {any} */ f) {
+                const e = f.ego;
+                const spoil = (/** @type {any} */ x) => { if (!hasPos(x)) return; const c = cover.cellOf(x.lat, x.lng); const v = inCell.get(c); if (v) v.smooth = false; else inCell.set(c, { last: f.t, smooth: false }); };
+                for (const ev of f.events) if (ev.type === "jolt") spoil(ev);
+                for (const sg of f.segments) if (sg.cls === "rough" || sg.cls === "very_rough") spoil(sg);
+                if (hasPos(e)) {
+                    const good = e.speedMs >= cfg.cleanMinSpeedMs && f.imuHz >= cfg.cleanMinImuHz && !(Number.isFinite(e.posSigmaM) && e.posSigmaM > cfg.cleanMaxPosSigmaM);
+                    const c = cover.cellOf(e.lat, e.lng);
+                    const v = inCell.get(c) || { last: f.t, smooth: true };
+                    v.last = f.t;
+                    if (!good) v.smooth = false;
+                    inCell.set(c, v);
+                    for (const [cell, x] of inCell) {
+                        if (cell === c || f.t - x.last < cfg.cleanSettleMs) continue;
+                        inCell.delete(cell);
+                        if (x.smooth && cover.add({ cell, t: x.last, rider: RS.SELF })) stats.smoothCells++;
+                    }
+                }
+            }
+
             function onFrame(/** @type {any} */ f) {
                 stats.frames++;
                 const speed = f.ego.speedMs;
@@ -246,6 +282,7 @@
                 }
                 noteRideOver(f);
                 settleRideOvers(f.t);
+                noteSmooth(f);
                 if (f.events.length || f.segments.length) save(f.t);
 
                 // stopped long enough? (speed known to ±3 m/s)
@@ -263,7 +300,7 @@
 
             const off = P.onFrame(ctx.wrap(onFrame));
             // unsettled ride-overs are dropped on stop: a late jolt may never arrive
-            ctx.onStop(() => { off(); overBump.clear(); save(ctx.now(), true); P.stop().catch(() => {}); });
+            ctx.onStop(() => { off(); overBump.clear(); inCell.clear(); save(ctx.now(), true); P.stop().catch(() => {}); });
             return P.start();
         }
     };

@@ -79,7 +79,9 @@
         waterlogging:  { group: "water", halfLifeMs: 3 * H,   maxAgeMs: 1 * D,   clearPasses: 2, sensedBy: ["camera"],        basis: "prior" },
         gravel:        { group: "loose", halfLifeMs: 2 * D,   maxAgeMs: 14 * D,  clearPasses: 2, sensedBy: ["camera"],        basis: "prior" },
         debris:        { group: "debris", halfLifeMs: 6 * H,  maxAgeMs: 3 * D,   clearPasses: 2, sensedBy: ["camera"],        basis: "prior" },
-        animal:        { group: "animal", halfLifeMs: 10 * 60000, maxAgeMs: H,   clearPasses: 1, sensedBy: ["camera"],        basis: "prior" }
+        animal:        { group: "animal", halfLifeMs: 10 * 60000, maxAgeMs: H,   clearPasses: 1, sensedBy: ["camera"],        basis: "prior" },
+        // roadworks come mostly from official lists (MoRTH, municipal) with their own validity window
+        roadworks:     { group: "works", halfLifeMs: 7 * D,   maxAgeMs: 180 * D, clearPasses: 2, sensedBy: ["camera"],        basis: "prior" }
     });
 
     /**
@@ -91,8 +93,14 @@
         imu:      { defaultConf: 0.7,  verifiesAlone: false, basis: "prior" },
         camera:   { defaultConf: 0.7,  verifiesAlone: false, basis: "prior" },
         rider:    { defaultConf: 0.6,  verifiesAlone: false, basis: "prior" },    // "gaddha!" said or tapped by a rider
-        official: { defaultConf: 0.95, verifiesAlone: true,  basis: "prior" }     // SACHET CAP, IMD, NHAI: their own feed
+        official: { defaultConf: 0.95, verifiesAlone: true,  basis: "prior" },    // SACHET CAP, IMD, MoRTH, municipal: their own feed
+        // a model's forecast (e.g. low-lying ground from ISRO Bhuvan + an IMD rain nowcast → waterlogging risk). It never
+        // verifies, never counts as a rider and never clears anything: an event with only predictions is "predicted".
+        // Its confidence must come with it (no default).
+        prediction: { defaultConf: 0, verifiesAlone: false, basis: "model" }
     });
+    /** Sources only the server's feeds may use (phones can't claim them); they must name their source (ref). */
+    const FEED_SOURCES = Object.freeze(["official", "prediction"]);
 
     const POLICY = Object.freeze({
         passGapMs: 60000,          // one rider's sightings this far apart are separate passes (dynamics agent)
@@ -112,12 +120,13 @@
     const r7 = (/** @type {number} */ v) => Math.round(v * 1e7) / 1e7;
 
     /** Saved form (phone storage is small: localStorage is ≈ 5 MB for the whole app):
-        [id, type, lat, lng, t0 (s), [[dt (s), source, rider, present 1/0, conf %, type, peak × 10 | -1, obs id], …]] */
+        [id, type, lat, lng, t0 (s), [[dt (s), source, rider, present 1/0, conf %, type, peak × 10 | -1, obs id, (valid until (s) | -1, ref)?], …]] */
     function pack(/** @type {any} */ e) {
         const t0 = Math.floor(Math.min(...e.obs.map((/** @type {any} */ o) => o.t)) / 1000);
         return [e.id, TYPE_CODES.indexOf(e.type), r7(e.lat), r7(e.lng), t0, e.obs.map((/** @type {any} */ o) => [
             Math.round(o.t / 1000) - t0, SOURCE_CODES.indexOf(o.source), o.rider, o.present ? 1 : 0, Math.round(o.conf * 100),
-            TYPE_CODES.indexOf(o.type), fin(o.peakMs2) ? Math.round(o.peakMs2 * 10) : -1, o.id
+            TYPE_CODES.indexOf(o.type), fin(o.peakMs2) ? Math.round(o.peakMs2 * 10) : -1, o.id,
+            ...(fin(o.validUntil) || o.ref ? [fin(o.validUntil) ? Math.round(o.validUntil / 1000) : -1, o.ref || ""] : [])
         ])];
     }
     /** @returns {any} null when the record isn't one of ours */
@@ -125,8 +134,10 @@
         if (!Array.isArray(a) || a.length !== 6 || typeof a[0] !== "string" || !TYPE_CODES[a[1]] || !fin(a[2]) || !fin(a[3]) || !fin(a[4]) || !Array.isArray(a[5])) return null;
         const obs = [];
         for (const x of a[5]) {
-            if (!Array.isArray(x) || x.length !== 8 || typeof x[7] !== "string" || !ID_RE.test(x[7]) || !fin(x[0]) || !SOURCE_CODES[x[1]] || typeof x[2] !== "string" || !x[2] || !fin(x[4]) || x[4] < 0 || x[4] > 100 || !TYPE_CODES[x[5]]) continue;
-            obs.push({ id: x[7], t: (a[4] + x[0]) * 1000, source: SOURCE_CODES[x[1]], rider: x[2], present: x[3] === 1, conf: x[4] / 100, type: TYPE_CODES[x[5]], ...(fin(x[6]) && x[6] >= 0 ? { peakMs2: x[6] / 10 } : {}) });
+            if (!Array.isArray(x) || (x.length !== 8 && x.length !== 10) || typeof x[7] !== "string" || !ID_RE.test(x[7]) || !fin(x[0]) || !SOURCE_CODES[x[1]] || typeof x[2] !== "string" || !x[2] || !fin(x[4]) || x[4] < 0 || x[4] > 100 || !TYPE_CODES[x[5]]) continue;
+            const feed = x.length === 10 ? { ...(fin(x[8]) && x[8] > 0 ? { validUntil: x[8] * 1000 } : {}), ...(typeof x[9] === "string" && x[9] ? { ref: x[9] } : {}) } : {};
+            if (FEED_SOURCES.includes(SOURCE_CODES[x[1]]) && !feed.ref) continue;
+            obs.push({ ...feed, id: x[7], t: (a[4] + x[0]) * 1000, source: SOURCE_CODES[x[1]], rider: x[2], present: x[3] === 1, conf: x[4] / 100, type: TYPE_CODES[x[5]], ...(fin(x[6]) && x[6] >= 0 ? { peakMs2: x[6] / 10 } : {}) });
         }
         if (!obs.length) return null;
         return { id: a[0], v: VERSION, type: TYPE_CODES[a[1]], lat: a[2], lng: a[3], obs, lastT: Math.max(...obs.map((o) => o.t)) };
@@ -150,19 +161,27 @@
         if (o.conf !== undefined && o.conf !== null && (!fin(o.conf) || o.conf < 0 || o.conf > 1)) return bad("conf must be 0..1");
         if (o.peakMs2 !== undefined && o.peakMs2 !== null && !fin(o.peakMs2)) return bad("peakMs2 must be a number");
         if (o.id !== undefined && o.id !== null && (typeof o.id !== "string" || !ID_RE.test(o.id))) return bad("id must be 6–32 letters, digits, _ or -");
+        if (o.validUntil !== undefined && o.validUntil !== null && (!fin(o.validUntil) || o.validUntil <= 0)) return bad("validUntil must be a time");
+        if (o.ref !== undefined && o.ref !== null && (typeof o.ref !== "string" || !o.ref.trim() || o.ref.length > 80)) return bad("ref must be a short source name");
+        if (FEED_SOURCES.includes(o.source) && !(typeof o.ref === "string" && o.ref.trim())) return bad(`${o.source} needs ref: where it comes from`);
+        if (o.source === "prediction" && (!fin(o.conf) || !o.present)) return bad("a prediction needs its own conf and present: true");
         return {
             ok: true, error: null,
             obs: {
                 id: typeof o.id === "string" ? o.id : null,
                 type: o.type, t: o.t, lat: o.lat, lng: o.lng, source: o.source, rider: o.rider, present: o.present,
                 conf: fin(o.conf) ? o.conf : SOURCES[o.source].defaultConf,
-                peakMs2: fin(o.peakMs2) ? Math.abs(o.peakMs2) : null
+                peakMs2: fin(o.peakMs2) ? Math.abs(o.peakMs2) : null,
+                validUntil: fin(o.validUntil) ? o.validUntil : null,
+                ref: typeof o.ref === "string" ? o.ref.trim() : null
             }
         };
     }
 
     /** Evidence weight of one observation at time `now`. @param {any} o @param {number} halfLifeMs @param {number} now */
     function weight(o, halfLifeMs, now) {
+        // a feed item with a validity window (an official roadworks notice, a nowcast) holds until then, then is gone
+        if (fin(o.validUntil)) return now > o.validUntil ? 0 : clamp01(o.conf);
         const age = Math.max(0, now - o.t);
         return clamp01(o.conf) * Math.pow(0.5, age / halfLifeMs);
     }
@@ -243,7 +262,9 @@
     function assess(ev, now, policy = POLICY) {
         const ty = TYPES[ev.type];
         const P = { ...POLICY, ...policy };
-        const present = countable(ev.obs.filter((/** @type {any} */ o) => o.present));
+        const present = countable(ev.obs.filter((/** @type {any} */ o) => o.present && o.source !== "prediction"));
+        // predictions are kept apart: they can make an event "predicted", nothing more
+        const predictions = ev.obs.filter((/** @type {any} */ o) => o.source === "prediction" && weight(o, ty.halfLifeMs, now) > 0);
         const lastSeen = present.length ? Math.max(...present.map((/** @type {any} */ o) => o.t)) : -Infinity;
         const firstSeen = present.length ? Math.min(...present.map((/** @type {any} */ o) => o.t)) : -Infinity;
 
@@ -270,9 +291,16 @@
         }
         const officialAlive = present.some((/** @type {any} */ o) => SOURCES[o.source].verifiesAlone && weight(o, ty.halfLifeMs, now) >= P.minPieceWeight);
 
-        /** @type {"candidate"|"verified"|"cleared"|"expired"} */
+        /** @type {"candidate"|"verified"|"cleared"|"expired"|"predicted"} */
         let status;
-        if (!present.length || now - lastSeen > ty.maxAgeMs || confidence < P.floorConf) status = "expired";
+        const predicted = predictions.length ? {
+            confidence: Math.max(...predictions.map((/** @type {any} */ o) => clamp01(o.conf))),
+            refs: [...new Set(predictions.map((/** @type {any} */ o) => o.ref))],
+            validUntil: Math.max(...predictions.map((/** @type {any} */ o) => fin(o.validUntil) ? o.validUntil : o.t + ty.halfLifeMs))
+        } : null;
+        const noLiveEvidence = !present.length || now - lastSeen > ty.maxAgeMs || confidence < P.floorConf;
+        if (noLiveEvidence && predicted && absentPasses.length < ty.clearPasses) { status = "predicted"; confidence = predicted.confidence; }
+        else if (noLiveEvidence) status = "expired";
         else if (absentPasses.length >= ty.clearPasses) status = "cleared";
         else if (officialAlive || (pieces >= P.minPieces && confidence >= P.verifyConf)) status = "verified";
         else status = "candidate";
@@ -280,9 +308,14 @@
         /** @type {Record<string, number>} */ const sources = {};
         for (const o of present) sources[o.source] = (sources[o.source] || 0) + 1;
         const peaks = present.map((/** @type {any} */ o) => o.peakMs2).filter(fin);
+        const official = present.filter((/** @type {any} */ o) => o.source === "official" && weight(o, ty.halfLifeMs, now) > 0);
         return {
+            // official lists by name, and how long they say it lasts; a model's prediction, kept apart
+            refs: [...new Set(official.map((/** @type {any} */ o) => o.ref).filter(Boolean))],
+            validUntil: official.some((/** @type {any} */ o) => fin(o.validUntil)) ? Math.max(...official.filter((/** @type {any} */ o) => fin(o.validUntil)).map((/** @type {any} */ o) => o.validUntil)) : null,
+            predicted,
             status, confidence: Math.round(confidence * 1000) / 1000, pieces,
-            passes: presentPasses.length, riders: new Set(present.map((/** @type {any} */ o) => o.rider)).size,
+            passes: presentPasses.length, riders: new Set(present.filter((/** @type {any} */ o) => !FEED_SOURCES.includes(o.source)).map((/** @type {any} */ o) => o.rider)).size,
             felt: present.some((/** @type {any} */ o) => o.rider === SELF),                   // this phone's own evidence is part of it
             absentPasses: absentPasses.length, sources,
             firstSeen: present.length ? firstSeen : null, lastSeen: present.length ? lastSeen : null,
@@ -297,6 +330,7 @@
     function expiresAt(ev, now, policy = POLICY) {
         const ty = TYPES[ev.type];
         const a = assess(ev, now, policy);
+        if (a.status === "predicted" && a.predicted) return a.predicted.validUntil;
         if (a.status === "expired" || a.status === "cleared" || a.lastSeen === null) return now;
         const cap = a.lastSeen + ty.maxAgeMs;
         const live = (/** @type {number} */ t) => assess(ev, t, policy).status !== "expired";
@@ -381,7 +415,11 @@
                 events.set(e.id, e);
                 indexAdd(e);
             }
-            const compact = { id: ob.id, t: ob.t, source: ob.source, rider: ob.rider, present: ob.present, conf: Math.round(ob.conf * 1000) / 1000, type: ob.type, ...(ob.peakMs2 !== null ? { peakMs2: Math.round(ob.peakMs2 * 10) / 10 } : {}) };
+            const compact = {
+                id: ob.id, t: ob.t, source: ob.source, rider: ob.rider, present: ob.present, conf: Math.round(ob.conf * 1000) / 1000, type: ob.type,
+                ...(ob.peakMs2 !== null ? { peakMs2: Math.round(ob.peakMs2 * 10) / 10 } : {}),
+                ...(ob.validUntil !== null ? { validUntil: ob.validUntil } : {}), ...(ob.ref ? { ref: ob.ref } : {})
+            };
             e.obs.push(compact);
             ids.add(ob.id);
             // keep the newest maxObs by time (an old one arriving late, e.g. downloaded, drops out at once)
@@ -452,7 +490,7 @@
             truthAt(q) {
                 const found = this.query({ lat: q.lat, lng: q.lng, radiusM: q.radiusM ?? P.mergeRadiusM * 2, now: q.now, until: true });
                 if (!found.length) return { status: "unknown", events: [] };
-                const order = { verified: 0, candidate: 1 };
+                const order = { verified: 0, candidate: 1, predicted: 2 };
                 found.sort((a, b) => (/** @type {any} */ (order)[a.status] - /** @type {any} */ (order)[b.status]) || b.confidence - a.confidence);
                 return { status: found[0].status, events: found };
             },
@@ -471,7 +509,10 @@
             evidence(id) {
                 const e = events.get(id);
                 if (!e) return [];
-                return e.obs.map((/** @type {any} */ x) => ({ id: x.id, type: x.type, t: x.t, lat: r7(e.lat), lng: r7(e.lng), source: x.source, rider: x.rider, present: x.present, conf: x.conf, ...(fin(x.peakMs2) ? { peakMs2: x.peakMs2 } : {}) }));
+                return e.obs.map((/** @type {any} */ x) => ({
+                    id: x.id, type: x.type, t: x.t, lat: r7(e.lat), lng: r7(e.lng), source: x.source, rider: x.rider, present: x.present, conf: x.conf,
+                    ...(fin(x.peakMs2) ? { peakMs2: x.peakMs2 } : {}), ...(fin(x.validUntil) ? { validUntil: x.validUntil } : {}), ...(x.ref ? { ref: x.ref } : {})
+                }));
             },
             /** Hear every new observation. @param {(obs: any) => void} fn @returns {() => void} */
             onAdd(fn) { listeners.add(fn); return () => listeners.delete(fn); },
@@ -504,5 +545,106 @@
         };
     }
 
-    return { VERSION, SELF, TILE_DEG, TYPES, SOURCES, POLICY, validateObservation, weight, passesOf, assess, expiresAt, tileOf, tileBounds, newId, createLog };
+    /* ------------------------------------------------------------------------
+       COVERAGE: "ridden, nothing found" (smooth passes)
+       A smooth pass = this phone rode through a ≈ 220 m cell at ≥ 3 m/s with the IMU
+       working and felt no jolt and no rough road there. Kept per cell and rider (the
+       latest pass of each), so the Truth Card can say a stretch was ridden recently by
+       N riders with nothing felt, instead of "unknown". What it can't say: a phone
+       can't feel water, gravel or animals, so "clear" only ever means no bumps felt.
+       Other riders' passes come from the server under per-cell labels (sync.js):
+       a label can't be linked to the same rider's other cells.
+       ------------------------------------------------------------------------ */
+    const COVER = Object.freeze({
+        cellDeg: 0.002,            // ≈ 220 m: coarse on purpose (less of a track), fine enough for a stretch
+        freshMs: 7 * D,            // a pass older than a week no longer says anything      (prior)
+        clearRiders: 2,            // "clear" needs 2 riders, like "verified"
+        ridersPerCell: 4,          // the latest pass of up to 4 riders per cell
+        maxCells: 5000             // ≈ 0.3 MB saved when full; least recently ridden go first
+    });
+    const COVER_CELL_RE = /^-?\d{1,6}:-?\d{1,6}$/;
+    /** @param {number} lat @param {number} lng */
+    const coverCell = (lat, lng) => `${Math.floor(lat / COVER.cellDeg)}:${Math.floor(lng / COVER.cellDeg)}`;
+
+    /** @param {{ store?: { get: (k: string, f?: any) => any, set: (k: string, v: any) => any } | null, policy?: Partial<typeof COVER> }} [o] */
+    function createCoverage(o = {}) {
+        const P = { ...COVER, ...(o.policy || {}) };
+        const store = o.store || null;
+        /** @type {Map<string, Map<string, number>>} cell → rider → latest smooth pass */ const cells = new Map();
+        /** @type {Set<(p: any) => void>} */ const listeners = new Set();
+        let dirty = false;
+
+        /**
+         * One smooth pass. { cell } or { lat, lng }, t, rider. Returns the cell, or null when refused.
+         * @param {{ cell?: string, lat?: number, lng?: number, t: number, rider: string }} p
+         */
+        function add(p) {
+            if (!p || !fin(p.t) || p.t <= 0 || typeof p.rider !== "string" || !p.rider || p.rider.length > 64) return null;
+            const cell = typeof p.cell === "string" ? p.cell : fin(p.lat) && fin(p.lng) ? coverCell(/** @type {number} */ (p.lat), /** @type {number} */ (p.lng)) : null;
+            if (!cell || !COVER_CELL_RE.test(cell)) return null;
+            const m = cells.get(cell) || new Map();
+            if ((m.get(p.rider) || 0) >= p.t) return cell;                       // already have this or a newer pass
+            m.set(p.rider, p.t);
+            if (m.size > P.ridersPerCell) {
+                const keep = [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, P.ridersPerCell);
+                m.clear(); for (const [r, t] of keep) m.set(r, t);
+            }
+            cells.set(cell, m);
+            dirty = true;
+            for (const fn of listeners) { try { fn({ cell, t: p.t, rider: p.rider }); } catch (e) { /* independent */ } }
+            return cell;
+        }
+
+        /** Fresh smooth passes in a cell: how many riders, the latest, and whether this phone is one. @param {string} cell @param {number} now */
+        function at(cell, now) {
+            const m = cells.get(cell);
+            let riders = 0, last = null, self = false;
+            if (m) for (const [r, t] of m) if (now - t <= P.freshMs && t <= now + 60000) { riders++; last = last === null ? t : Math.max(last, t); if (r === SELF) self = true; }
+            return { riders, last, self };
+        }
+
+        return {
+            add, at, cellOf: coverCell,
+            /** @param {(p: any) => void} fn */ onAdd(fn) { listeners.add(fn); return () => listeners.delete(fn); },
+            size: () => cells.size,
+            /** Drop stale passes and empty cells, then the least recently ridden beyond maxCells. @param {number} now */
+            prune(now) {
+                let removed = 0;
+                for (const [cell, m] of cells) {
+                    for (const [r, t] of m) if (now - t > P.freshMs) { m.delete(r); dirty = true; }
+                    if (!m.size) { cells.delete(cell); removed++; }
+                }
+                if (cells.size > P.maxCells) {
+                    const latest = (/** @type {Map<string, number>} */ m) => Math.max(...m.values());
+                    const old = [...cells.entries()].sort((a, b) => latest(a[1]) - latest(b[1])).slice(0, cells.size - P.maxCells);
+                    for (const [cell] of old) { cells.delete(cell); removed++; }
+                }
+                if (removed) dirty = true;
+                return removed;
+            },
+            save() {
+                if (!store || !dirty) return false;
+                store.set("cover", { v: VERSION, cells: [...cells.entries()].map(([c, m]) => [c, [...m.entries()].map(([r, t]) => [r, Math.round(t / 1000)])]) });
+                dirty = false;
+                return true;
+            },
+            load() {
+                if (!store) return 0;
+                const saved = store.get("cover", null);
+                cells.clear();
+                if (!saved || saved.v !== VERSION || !Array.isArray(saved.cells)) return 0;
+                for (const row of saved.cells) {
+                    if (!Array.isArray(row) || typeof row[0] !== "string" || !COVER_CELL_RE.test(row[0]) || !Array.isArray(row[1])) continue;
+                    const m = new Map();
+                    for (const x of row[1]) if (Array.isArray(x) && typeof x[0] === "string" && x[0] && fin(x[1])) m.set(x[0], x[1] * 1000);
+                    if (m.size) cells.set(row[0], m);
+                }
+                dirty = false;
+                return cells.size;
+            },
+            policy: P
+        };
+    }
+
+    return { VERSION, SELF, TILE_DEG, COVER, FEED_SOURCES, coverCell, createCoverage, TYPES, SOURCES, POLICY, validateObservation, weight, passesOf, assess, expiresAt, tileOf, tileBounds, newId, createLog };
 });

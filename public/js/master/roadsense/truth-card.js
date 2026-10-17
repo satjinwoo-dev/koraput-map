@@ -12,7 +12,10 @@
      This phone's sensors and other riders' reports, updated 5 min ago.
      No report doesn't mean the road is clear.
 
-   Nothing on the route → "Condition unknown", never "clear". 🔊 says the same
+   Ridden by 2+ riders with nothing felt (smooth passes) → "Clear · verified by N
+   riders", with what that can't cover (water, gravel, animals); one rider →
+   "ridden once"; nothing at all → "Condition unknown", never "clear". Official
+   items show their list's name; predictions are badged "Predicted". 🔊 says the same
    card through the Master's fixed phrases (MUMaster.live.roadTruth).
 
    viewModel(state, now) is pure (tested in Node); mount() draws it with
@@ -71,38 +74,66 @@
         const where = state.navigating ? "the road ahead" : "this route";
         const kindOf = (/** @type {string} */ k) => (c.rows.find((/** @type {any} */ r) => r.type === k) || { kind: { plain: k, many: k } }).kind;
         const kinds = Object.entries(c.byKind || {}).sort((a, b) => b[1] - a[1]).map(([k, n]) => plural(n, kindOf(k).plain, kindOf(k).many)).join(", ");
+        const cov = c.coverage || { clearM: 0, riddenM: 0, unknownM: 0, hazardM: 0, clearRiders: 0, clearLastSeen: null };
+        const span = Math.max(1, (c.lengthM || 0) - (c.fromM || 0));
         let pill, summary;
-        if (c.unknown) {
+        if (c.verified > 0) {
+            pill = { text: `${c.verified} confirmed`, tone: "warn" };
+            summary = `${c.verified} confirmed${c.candidates ? `, ${c.candidates} unconfirmed` : ""} on ${where}${kinds ? `: ${kinds}` : ""}.`;
+        } else if (c.candidates > 0) {
+            pill = { text: `${c.candidates} unconfirmed`, tone: "muted" };
+            summary = `Nothing confirmed on ${where}, ${plural(c.candidates, "unconfirmed report", "unconfirmed reports")}. Ride with care.`;
+        } else if (cov.clearM > 0 && cov.clearM >= 0.9 * span) {
+            // "ridden, nothing found" by 2+ riders: the founder's "Clear (verified by X riders)", said with what it means
+            pill = { text: `Clear · verified by ${cov.clearRiders} riders`, tone: "clear" };
+            summary = `No bumps or rough road felt on ${where} by ${cov.clearRiders} riders${cov.clearLastSeen ? `, last ${since(now - cov.clearLastSeen)}` : ""}.`;
+        } else if (cov.clearM > 0) {
+            pill = { text: `Partly clear · ${cov.clearRiders} riders`, tone: "clear" };
+            summary = `Nothing reported on ${where}. ${distance(cov.clearM)} ridden by ${cov.clearRiders}+ riders with no bumps felt; the rest is unknown.`;
+        } else if (cov.riddenM > 0) {
+            pill = { text: "Ridden once, nothing felt", tone: "muted" };
+            summary = `Nothing reported on ${where}. Only one rider has been over ${distance(cov.riddenM)} of it, with no bumps felt: not confirmed yet.`;
+        } else {
             pill = { text: "Condition unknown", tone: "unknown" };
             summary = `No sensor or rider reports on ${where}. Condition unknown: ride with care.`;
-        } else if (c.verified > 0) {
-            pill = { text: `${c.verified} confirmed`, tone: "warn" };
-            summary = `${c.verified} confirmed${c.candidates ? `, ${c.candidates} unconfirmed` : ""} on ${where}${kinds ? `: ${kinds}` : ""}. Everywhere else: condition unknown.`;
-        } else {
-            pill = { text: `${c.candidates} unconfirmed`, tone: "muted" };
-            summary = `Nothing confirmed on ${where}, ${plural(c.candidates, "unconfirmed report", "unconfirmed reports")}. Condition unknown: ride with care.`;
         }
+        // the road at a glance: hazard / clear / ridden once / unknown, in proportion
+        const bar = (c.stretches || []).filter((/** @type {any} */ x) => x.toM > x.fromM).map((/** @type {any} */ x) => ({
+            state: x.state, pct: Math.max(0.5, Math.round(((x.toM - x.fromM) / span) * 1000) / 10)
+        }));
+        const parts = [];
+        if (cov.clearM > 0) parts.push(`${distance(cov.clearM)} clear`);
+        if (cov.riddenM > 0) parts.push(`${distance(cov.riddenM)} ridden once`);
+        if (cov.hazardM > 0) parts.push(`${distance(cov.hazardM)} with reports`);
+        if (cov.unknownM > 0) parts.push(`${distance(cov.unknownM)} unknown`);
+        const coverage = bar.length && (cov.clearM > 0 || cov.riddenM > 0) ? parts.join(" · ") : "";
         const limit = o.expanded ? Infinity : state.navigating ? ROWS_COMPACT : ROWS_FULL;
+        const badgeOf = (/** @type {any} */ r) => r.status === "predicted" ? ["Predicted", "info"] : r.status === "verified" && r.refs && r.refs.length && !r.felt && r.riders === 0 ? ["Official", "warn"]
+            : r.status === "verified" ? ["Confirmed", "warn"] : ["Unconfirmed", "muted"];
         const rows = c.rows.slice(0, limit).map((/** @type {any} */ r) => ({
             id: r.id,
             distance: distance(state.navigating ? r.aheadM : r.alongM),
             title: r.kind.one,
-            badge: r.status === "verified" ? "Confirmed" : "Unconfirmed",
-            tone: r.status === "verified" ? "warn" : "muted",
+            badge: badgeOf(r)[0],
+            tone: badgeOf(r)[1],
             evidence: r.screen,
             until: until(r.expiresAt, now)
         }));
         const s = state.sources || {};
         // describe the evidence actually on the card: other riders' reports saved before sharing was turned off still count
-        const othersShown = c.rows.some((/** @type {any} */ r) => r.riders - (r.felt ? 1 : 0) > 0);
+        // ("clear" always includes another rider: it takes 2)
+        const othersShown = c.rows.some((/** @type {any} */ r) => r.riders - (r.felt ? 1 : 0) > 0) || cov.clearM > 0;
         let source;
         if (!s.community && othersShown) source = "This phone's sensors and other riders' reports saved earlier. Community road reports are off, so they won't update.";
         else if (!s.community) source = "From this phone's own sensors only. Turn on Community road reports in Settings to see other riders' reports.";
         else if (s.lastFetch) source = `This phone's sensors and other riders' reports, updated ${since(now - s.lastFetch)}${s.offline ? " (saved copy, no signal)" : ""}.`;
         else source = "This phone's sensors. Other riders' reports download when there's signal.";
         return {
-            hidden: false, pill, summary, rows, more: Math.max(0, c.rows.length - rows.length), source,
-            note: "No report doesn't mean the road is clear.", navigating: Boolean(state.navigating)
+            hidden: false, pill, summary, rows, more: Math.max(0, c.rows.length - rows.length), source, bar, coverage,
+            // what "clear" can and can't mean, whenever a smooth pass is on the card; "no report ≠ clear" while any part is unknown
+            feel: cov.clearM > 0 || cov.riddenM > 0 ? "Clear means no bumps or rough road were felt. A phone can't feel water, gravel or animals." : "",
+            note: cov.unknownM > 0 || c.unknown || !bar.length ? "No report doesn't mean the road is clear." : "",
+            navigating: Boolean(state.navigating)
         };
     }
 
@@ -148,6 +179,13 @@
             });
             head.append(hear);
             const kids = [head, h("p", "rt-summary", vm.summary)];
+            if (vm.coverage) {
+                const bar = h("div", "rt-bar");
+                bar.setAttribute("role", "img");
+                bar.setAttribute("aria-label", vm.coverage);
+                for (const b of vm.bar) { const seg = h("span", `rt-seg rt-${b.state}`); seg.style.width = `${b.pct}%`; bar.append(seg); }
+                kids.push(bar, h("p", "rt-coverage", vm.coverage));
+            }
             if (vm.rows.length) {
                 const list = h("ol", "rt-rows");
                 for (const r of vm.rows) {
@@ -164,7 +202,9 @@
                 more.addEventListener("click", () => { expanded = true; render(); });
                 kids.push(more);
             }
-            kids.push(h("p", "rt-source", vm.source), h("p", "rt-note", vm.note));
+            kids.push(h("p", "rt-source", vm.source));
+            if (vm.feel) kids.push(h("p", "rt-note", vm.feel));
+            if (vm.note) kids.push(h("p", "rt-note", vm.note));
             root.replaceChildren(...kids);
         }
 

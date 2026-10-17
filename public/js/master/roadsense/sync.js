@@ -21,7 +21,10 @@
           ≈ 5.5 km tiles: the tiles along the route when one is set (all of it,
           while there's signal), and around the rider while riding. It goes into
           the SAME log on the phone (localStorage), so warnings work with no
-          signal at all. Each observation keeps its id: one this phone uploaded
+          signal at all. Smooth passes ("ridden, nothing found") go up and come
+          down the same way, per ≈ 220 m cell under an unlinkable per-cell token.
+          Official lists and predictions come down with the evidence, each naming
+          its source. Each observation keeps its id: one this phone uploaded
           comes back as a duplicate and is skipped, and another rider counts as
           one rider however often they passed (roadsense.js).
 
@@ -47,6 +50,9 @@
         tileMemory: 500,
         pseudonymsMax: 800,            // days of pseudonyms kept, so "delete" can reach them
         sentMax: 5000,                 // ids of uploaded observations remembered (never re-imported as someone else's)
+        coverOutboxMax: 3000,          // smooth passes waiting
+        coverBatchMax: 500,            // per /cover upload (the server's limit)
+        coverLabelsMax: 5000,          // labels of this phone's own smooth passes (recognised when they come back; sent by "delete")
         backoffMinMs: 60000, backoffMaxMs: 30 * 60000,
         timeoutMs: 15000
     });
@@ -56,6 +62,13 @@
     function distM(lat, lng, lat2, lng2) {
         const n = (lat2 - lat) * M_PER_DEG, e = (lng2 - lng) * M_PER_DEG * Math.cos(lat * Math.PI / 180);
         return Math.hypot(n, e);
+    }
+
+    /** SHA-256 as hex (Web Crypto: the browser, and Node 20+ for the tests). @param {string} text */
+    async function sha256hex(text) {
+        const c = /** @type {any} */ (globalThis).crypto;
+        const d = await c.subtle.digest("SHA-256", new TextEncoder().encode(text));
+        return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
     }
 
     /** The phone's own calendar day (pseudonyms change with it). @param {number} t */
@@ -94,13 +107,13 @@
 
     /**
      * @param {{
-     *   RS: any, log: any, store: { get: (k: string, f?: any) => any, set: (k: string, v: any) => any },
+     *   RS: any, log: any, cover?: any, store: { get: (k: string, f?: any) => any, set: (k: string, v: any) => any },
      *   api?: { post: (path: string, body: any, o?: any) => Promise<{ ok: boolean, status: number, data: any, reason?: string }> } | null,
      *   now?: () => number, random?: () => string, settings?: Partial<typeof DEFAULTS>
      * }} o
      */
     function createSync(o) {
-        const RS = o.RS, log = o.log, store = o.store;
+        const RS = o.RS, log = o.log, store = o.store, cover = o.cover || null;
         const cfg = { ...DEFAULTS, ...(o.settings || {}) };
         const now = o.now || Date.now;
         const api = () => o.api || null;
@@ -121,7 +134,10 @@
         /** @type {Record<string, number>} */ let tiles = store.get("tiles", {}) || {};
         /** @type {string[]} */ let sentIds = store.get("sent", []) || [];
         let sentSet = new Set(sentIds);
-        const st = { uploaded: 0, privateDropped: 0, received: 0, lastUpload: null, lastFetch: null, backoffUntil: 0, failures: 0, lastError: "" };
+        /** @type {{ cell: string, t: number }[]} */ let coverOutbox = store.get("coverOutbox", []) || [];
+        /** @type {string[]} */ let coverLabels = store.get("coverLabels", []) || [];
+        let coverLabelSet = new Set(coverLabels);
+        const st = { uploaded: 0, coverUploaded: 0, coverReceived: 0, privateDropped: 0, received: 0, lastUpload: null, lastFetch: null, backoffUntil: 0, failures: 0, lastError: "" };
         /** @type {Set<(s: any) => void>} */ const watchers = new Set();
         const changed = () => { const s = status(); for (const fn of watchers) { try { fn(s); } catch (e) { /* independent */ } } };
 
@@ -146,14 +162,31 @@
             saveOutbox();
         });
 
+        // and its smooth passes: the latest per cell
+        const offCover = cover ? cover.onAdd((/** @type {any} */ p) => {
+            if (!consent.on || p.rider !== RS.SELF) return;
+            coverOutbox = coverOutbox.filter((x) => x.cell !== p.cell);
+            coverOutbox.push({ cell: p.cell, t: p.t });
+            if (coverOutbox.length > cfg.coverOutboxMax) coverOutbox.splice(0, coverOutbox.length - cfg.coverOutboxMax);
+            store.set("coverOutbox", coverOutbox);
+        }) : () => {};
+        /** the middle of a coverage cell @param {string} cell */
+        const cellMiddle = (cell) => { const [y, x] = cell.split(":").map(Number); const d = RS.COVER.cellDeg; return { lat: (y + 0.5) * d, lng: (x + 0.5) * d }; };
+
         function fail(/** @type {string} */ why) {
             st.failures++;
             st.lastError = why;
             st.backoffUntil = now() + Math.min(cfg.backoffMaxMs, cfg.backoffMinMs * 2 ** Math.min(10, st.failures - 1));
         }
 
-        /** Upload what's old enough. Returns how many went up. */
+        /** Upload what's old enough: observations, then smooth passes. Returns how many observations went up. */
         async function flush() {
+            const sent = await flushObs();
+            if (now() >= st.backoffUntil) await flushCover();
+            return sent;
+        }
+
+        async function flushObs() {
             const a = api();
             if (!consent.on || !a || !outbox.length || now() < st.backoffUntil) return 0;
             const t = now();
@@ -200,6 +233,45 @@
         }
 
         /**
+         * Smooth passes go up as { cell, hour, token }: token = SHA-256(today's pseudonym | cell). The server keeps
+         * SHA-256(token) as the label, so it can count distinct riders per cell but can't join one rider's cells
+         * into a route, and this phone can recognise its own passes when they come back.
+         */
+        async function flushCover() {
+            const a = api();
+            if (!consent.on || !a || !cover || !coverOutbox.length) return 0;
+            const t = now();
+            const before = coverOutbox.length;
+            coverOutbox = coverOutbox.filter((x) => !inPrivate(cellMiddle(x.cell)));
+            st.privateDropped += before - coverOutbox.length;
+            const ready = coverOutbox.filter((x) => t - x.t >= cfg.minAgeMs).slice(0, cfg.coverBatchMax);
+            if (before !== coverOutbox.length) store.set("coverOutbox", coverOutbox);
+            if (!ready.length) return 0;
+            const items = [];
+            /** @type {string[]} */ const labels = [];
+            for (const x of ready) {
+                const token = await sha256hex(`${pseudonymFor(dayOf(x.t))}|${x.cell}`);
+                items.push({ cell: x.cell, t: Math.floor(x.t / 3600000) * 3600000, token });     // the hour only
+                labels.push((await sha256hex(token)).slice(0, 16));
+            }
+            // shuffled: the order mustn't trace the ride
+            for (let i = items.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [items[i], items[j]] = [items[j], items[i]]; }
+            const r = await a.post("/roadsense/cover", { v: 1, cells: items }, { timeoutMs: cfg.timeoutMs });
+            if (!(r.ok || r.status === 400)) { fail(r.reason || `http ${r.status}`); changed(); return 0; }
+            const done = new Set(ready.map((x) => `${x.cell}@${x.t}`));
+            coverOutbox = coverOutbox.filter((x) => !done.has(`${x.cell}@${x.t}`));
+            store.set("coverOutbox", coverOutbox);
+            if (r.ok) {
+                st.coverUploaded += ready.length;
+                coverLabels = [...coverLabels, ...labels].slice(-cfg.coverLabelsMax);
+                coverLabelSet = new Set(coverLabels);
+                store.set("coverLabels", coverLabels);
+            }
+            changed();
+            return ready.length;
+        }
+
+        /**
          * Fetch the live evidence in these tiles into the log (tiles fetched within tileFreshMs are skipped).
          * @param {string[]} want
          * @returns {Promise<{ fetched: number, added: number, skipped: number }>}
@@ -215,9 +287,15 @@
                 const chunk = todo.slice(i, i + cfg.tilesPerCall);
                 const r = await a.post("/roadsense/area", { v: 1, tiles: chunk }, { timeoutMs: cfg.timeoutMs });
                 if (!r.ok || !r.data || !Array.isArray(r.data.obs)) { fail(r.reason || `http ${r.status}`); break; }
-                // other riders' evidence only: never "self", never an official claim from this route
-                const theirs = r.data.obs.filter((/** @type {any} */ ob) => ob && ob.rider !== RS.SELF && PHONE_SOURCES.includes(ob.source) && !sentSet.has(ob.id));
+                // other riders' evidence, and the server's own feeds (official lists, predictions, each naming its source);
+                // never "self", never what this phone sent
+                const theirs = r.data.obs.filter((/** @type {any} */ ob) => ob && ob.rider !== RS.SELF && (PHONE_SOURCES.includes(ob.source) || RS.FEED_SOURCES.includes(ob.source)) && !sentSet.has(ob.id));
                 for (const x of log.addAll(theirs)) if (x.ok && !x.dup && x.obsId) res.added++;
+                // other riders' smooth passes: [cell, label, hour (s)]; this phone's own come back as its own labels
+                if (cover && Array.isArray(r.data.cover)) for (const c of r.data.cover) {
+                    if (!Array.isArray(c) || typeof c[1] !== "string" || coverLabelSet.has(c[1]) || !Number.isFinite(c[2])) continue;
+                    if (cover.add({ cell: c[0], t: c[2] * 1000, rider: `c${c[1]}` })) st.coverReceived++;
+                }
                 for (const k of chunk) tiles[k] = t;
                 res.fetched += chunk.length;
                 st.failures = 0; st.backoffUntil = 0;
@@ -226,14 +304,14 @@
             const keys = Object.keys(tiles);
             if (keys.length > cfg.tileMemory) for (const k of keys.sort((x, y) => tiles[x] - tiles[y]).slice(0, keys.length - cfg.tileMemory)) delete tiles[k];
             store.set("tiles", tiles);
-            if (res.fetched) { st.received += res.added; st.lastFetch = now(); log.save(); }
+            if (res.fetched) { st.received += res.added; st.lastFetch = now(); log.save(); if (cover) cover.save(); }
             changed();
             return res;
         }
 
         function status() {
             return {
-                consent: consent.on, consentAt: consent.at, queued: outbox.length, pseudonyms: pseudonyms.length, privateZones: zones.length,
+                consent: consent.on, consentAt: consent.at, queued: outbox.length, coverQueued: coverOutbox.length, pseudonyms: pseudonyms.length, privateZones: zones.length,
                 tilesCached: Object.keys(tiles).length, ...st
             };
         }
@@ -244,7 +322,7 @@
             setConsent(on) {
                 consent = { on: Boolean(on), at: now() };
                 store.set("consent", consent);
-                if (!consent.on) { outbox = []; saveOutbox(); }     // nothing waiting goes up after "off"
+                if (!consent.on) { outbox = []; saveOutbox(); coverOutbox = []; store.set("coverOutbox", coverOutbox); }     // nothing waiting goes up after "off"
                 changed();
                 return status();
             },
@@ -266,22 +344,25 @@
                 const a = api();
                 if (!a) return { ok: false, reason: "no-server", deleted: 0 };
                 let deleted = 0;
-                for (let i = 0; i < pseudonyms.length; i += 800) {
-                    const r = await a.post("/roadsense/forget", { v: 1, riders: pseudonyms.slice(i, i + 800).map((p) => p.id) }, { timeoutMs: cfg.timeoutMs });
+                const rounds = Math.max(Math.ceil(pseudonyms.length / 800), Math.ceil(coverLabels.length / 5000));
+                for (let i = 0; i < rounds; i++) {
+                    const body = { v: 1, riders: pseudonyms.slice(i * 800, (i + 1) * 800).map((p) => p.id), cover: coverLabels.slice(i * 5000, (i + 1) * 5000) };
+                    const r = await a.post("/roadsense/forget", body, { timeoutMs: cfg.timeoutMs });
                     if (!r.ok) return { ok: false, reason: r.reason || `http ${r.status}`, deleted };
                     deleted += Number(r.data && r.data.deleted) || 0;
                 }
                 pseudonyms = []; store.set("pseudonyms", pseudonyms);
-                outbox = []; saveOutbox();
+                coverLabels = []; coverLabelSet = new Set(); store.set("coverLabels", coverLabels);
+                outbox = []; saveOutbox(); coverOutbox = []; store.set("coverOutbox", coverOutbox);
                 changed();
                 return { ok: true, deleted };
             },
             status,
             /** @param {(s: any) => void} fn */
             onChange(fn) { watchers.add(fn); return () => watchers.delete(fn); },
-            stop() { off(); }
+            stop() { off(); offCover(); }
         };
     }
 
-    return { DEFAULTS, createSync, tilesAlong, dayOf };
+    return { DEFAULTS, createSync, tilesAlong, dayOf, sha256hex };
 });

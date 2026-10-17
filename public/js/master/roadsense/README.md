@@ -163,12 +163,71 @@ The screen shows the exact percentage.
 - `test/advice/ask.test.mjs`: road questions go to the solver, never to the model.
 - `test/master/dynamics.test.mjs`: the evidence said and shown in a bump warning.
 
+## Ridden, nothing found (smooth passes)
+
+**Coverage solves the cold start:** a road nobody has reported on is no longer only "unknown" if riders have been over it.
+
+**What counts as a smooth pass.** A ≈ 220 m cell counts when every frame in it had all of:
+- ≥ 3 m/s;
+- an IMU at ≥ 50 Hz;
+- a fix within 10 m;
+- no jolt and no rough 20 m segment.
+
+Crawling, a bad fix or a single jolt spoils that cell only.
+
+**Where it's kept.** The dynamics agent records the pass in `createCoverage()` (`roadsense.js`, capability `roadsense-cover`): the latest pass per rider and cell, up to 4 riders, fresh for **7 days** (a prior).
+
+**What the Truth Card says.** The route is split into stretches:
+
+| Stretch | When | Shown as |
+|---|---|---|
+| hazard | A report lies there. | — |
+| clear | 2+ riders, nothing reported. | **Clear · verified by N riders** |
+| ridden | 1 rider. | *Ridden once, nothing felt* (not "clear") |
+| unknown | Nobody has ridden it. | — |
+
+- The card shows a bar of the stretches plus "4.9 km clear · 100 m with reports".
+- "Clear" always comes with: *Clear means no bumps or rough road were felt. A phone can't feel water, gravel or animals.*
+
+**What the voice says.**
+- **Clear:** "is raaste saaf hai: 3 riders ne koi jhatka feel nahi kiya, aakhri baar 30 minute pehle. Par phone paani ya bajri feel nahi kar sakta, dhyan rakhna."
+- **With reports:** the reports lead, and the clear part follows as its own sentence.
+
+**Sync, private by design.**
+- **Upload:** a pass goes up as `{ cell, hour, token }`, where token = SHA-256(daily pseudonym | cell), shuffled, at least 10 minutes old, never in a private zone.
+- **Stored:** the server keeps label = SHA-256(token). Every (rider, cell) pair has its own label, so the server can count distinct riders per cell but can't join one rider's cells into a route.
+- **Own passes:** the phone recognises its own labels when they come back.
+- **One address, one count:** an address counts once per cell per day. That's held in memory only and never stored, so fakes from one place can't make a road "clear". Riders sharing a carrier address (CGNAT) are undercounted, which is the safe direction.
+- **Retention and deletion:** passes are kept 7 days; "Delete my road reports" also sends the phone's labels.
+
+## Official lists and AI predictions (groundwork)
+
+**Two more sources** (`roadsense.js`), only from the server's feeds (`lib/master/roadsense-feeds.js`, `data/roadsense/feeds/README.md`). Every item must name itself (`ref`) and say when it ends (`validUntil`).
+
+| Source | How it's treated | Shown as | Said as |
+|---|---|---|---|
+| `official` (MoRTH, NHAI, municipal, SACHET) | Verifies on its own until `validUntil`, then it's gone. | *Official: <list>* | "Sarkari jaankari: 2.4 km aage sadak ka kaam, <list> ke mutaabik." |
+| `prediction` (e.g. low-lying ground from ISRO Bhuvan + an IMD rain nowcast) | Never verifies, never counts as a rider, never clears anything. An event with only predictions has status `predicted`. | *Predicted*, with *AI prediction · <model> · not seen by anyone · 60%* | Last, as "Ek anumaan bhi hai … Kisi ne dekha nahi, pakka nahi." |
+
+New kind: `roadworks`.
+
+**What's built:**
+- GeoJSON ingestion at server start: Points, or LineStrings sampled every 100 m.
+- The feed table, served by `/area` with the evidence.
+- A waterlogging predictor that stays **off** until its thresholds (rain rate, how low-lying, confidence) are given with their source.
+
+**What's not built:**
+- No government list or model thresholds ship with the app. None were found published with coordinates for this region, and none are invented.
+- Phones can't upload either source.
+
+**Tests:** `test/master/smooth.test.mjs`.
+
 ## Next (not built yet)
 
 | Step | What it adds |
 |---|---|
-| Coverage | Remember stretches ridden with nothing found, so the card can say "ridden yesterday, nothing felt" instead of "unknown". |
-| Official layers | SACHET CAP and IMD alerts as `official` observations on the card. |
+| Real feeds | Adapters for the actual MoRTH, municipal, SACHET and IMD sources once their access and formats are confirmed. Calibrated thresholds for the waterlogging predictor. |
+| In-ride warnings | Official roadworks and predicted waterlogging spoken 2–8 s ahead, like bumps. Today they're on the card and in answers only. |
 | 5 | The labelled 1D-CNN behind the same DynamicsFrame. |
 | Camera | The road agent (`road.hazards`) becomes a second writer. |
 | Bigger cache | localStorage holds 2,000 events. A long route in a dense area can exceed that, and the least recently seen go first. IndexedDB would remove the limit. |

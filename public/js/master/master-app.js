@@ -77,6 +77,10 @@
         const roadsense = M.roadsense.createLog({ store: caps.get("store").namespace("roadsense") });
         roadsense.load();
         caps.provide("roadsense", roadsense);
+        // smooth passes ("ridden, nothing found"), so the Truth Card can say "clear" instead of "unknown"
+        const cover = M.roadsense.createCoverage({ store: caps.get("store").namespace("roadsense") });
+        cover.load();
+        caps.provide("roadsense-cover", cover);
     }
     // the cognitive engines: our server's /api/master (keys stay there), the app's own context, the DEM cache,
     // and in the Android app the radio-signal and media-session plugins
@@ -84,7 +88,7 @@
     // RoadSense sync (js/master/roadsense/sync.js): opt-in sharing with /api/master/roadsense, into the same log
     if (M.roadsense && M.roadsenseSync && caps.get("roadsense")) {
         caps.provide("roadsense-sync", M.roadsenseSync.createSync({
-            RS: M.roadsense, log: caps.get("roadsense"), store: caps.get("store").namespace("roadsense-sync"), api: caps.get("master-api")
+            RS: M.roadsense, log: caps.get("roadsense"), cover: caps.get("roadsense-cover"), store: caps.get("store").namespace("roadsense-sync"), api: caps.get("master-api")
         }));
     }
     if (M.providers) {
@@ -164,7 +168,9 @@
             const r = await brain.delegate("road-truth", {}, { timeoutMs: 3000 });
             if (!r.ok || !r.result) { const w = words("road.truth-unknown", { where: "aage ke raaste", screen: { where: "the road ahead" } }); return { ok: false, text: w.text, display: w.display, card: null }; }
             const w = words(r.result.kind, r.result.data);
-            return { ok: true, text: w.text, display: w.display, card: r.result.card, sources: r.result.sources };
+            // then the fixed follow-up sentences: the rest of the road, official items by name, a model's prediction
+            const more = (r.result.extras || []).map((/** @type {string} */ k) => words(k, r.result.data).text).filter(Boolean);
+            return { ok: true, text: [w.text, ...more].join(" "), display: w.display, card: r.result.card, sources: r.result.sources };
         },
         /** @param {"medical"|"breakdown"} kind */
         async emergency(kind = "medical") {
