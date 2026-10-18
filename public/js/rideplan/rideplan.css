@@ -79,3 +79,42 @@
 .rp-alerts { margin: 0 0 12px; padding: 10px 12px; border-radius: 14px; background: rgba(245,165,36,.1); border: 1px solid rgba(245,165,36,.45); }
 .rp-alerts p { margin: 4px 0; font-size: 13.5px; line-height: 1.45; color: #fde68a; }
 .rp-facts .rp-warn { color: #fcd34d; }
+/* Hyper-Vision: the rider's schedule (js/rideplan/hypervision-app.js) */
+.rp-sec.hv { border-color: rgba(52,224,180,.45); background: linear-gradient(180deg, rgba(52,224,180,.07), rgba(255,255,255,.02)); }
+.hv-in { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; align-items: end; }
+.hv-in .rp-label { margin-bottom: 4px; }
+.hv-in .rp-input { margin-bottom: 10px; min-width: 0; }
+.hv-in .hv-wide, .hv-in input[type="datetime-local"] { grid-column: 1 / -1; }
+.hv-tot { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 10px 0; }
+.hv-tot > div { display: flex; flex-direction: column; gap: 2px; padding: 8px; border-radius: 12px; background: rgba(255,255,255,.05); min-width: 0; }
+.hv-tot b { font-size: 13.5px; overflow-wrap: anywhere; }
+.hv-tot span { font-size: 11px; color: var(--muted, #8b9bab); }
+.hv-adv { list-style: none; margin: 0 0 10px; padding: 0; }
+.hv-adv li { display: flex; gap: 8px; margin: 0 0 6px; padding: 8px 10px; border-radius: 12px; font-size: 13px; line-height: 1.45; background: rgba(255,255,255,.04); }
+.hv-adv li.hv-warning { background: rgba(245,165,36,.1); color: #fde68a; }
+.hv-adv li.hv-ok { background: rgba(52,224,180,.08); }
+.hv-list { list-style: none; margin: 0; padding: 0; position: relative; }
+.hv-list::before { content: ""; position: absolute; left: 14px; top: 14px; bottom: 14px; width: 2px; background: rgba(52,224,180,.35); }
+.hv-row { display: flex; gap: 10px; padding: 8px 0; position: relative; }
+.hv-ic { flex: 0 0 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; background: var(--ink-2, #121821); border: 1px solid rgba(52,224,180,.5); font-size: 15px; z-index: 1; }
+.hv-main { flex: 1; min-width: 0; }
+.hv-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+.hv-top b { font-size: 14px; }
+.hv-t { font-size: 13px; font-weight: 600; color: var(--mint, #34e0b4); }
+.hv-km { margin-left: auto; font-size: 12px; color: var(--muted, #8b9bab); }
+.hv-where { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hv-why { margin: 4px 0 0; padding-left: 16px; font-size: 12px; color: var(--muted, #8b9bab); line-height: 1.45; }
+.hv-ed { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.hv-b { min-height: 34px; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--line-strong, rgba(255,255,255,.16)); background: rgba(255,255,255,.05); color: inherit; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.hv-b:disabled { opacity: .4; cursor: default; }
+.hv-b.hv-x { color: #fca5a5; }
+.hv-go { margin-top: 12px; width: 100%; }
+/* on the ride: the next planned stop, ahead of / behind the plan */
+.hv-chip { position: fixed; left: 12px; right: 84px; top: calc(12px + var(--safe-t, 0px)); z-index: 1150; max-width: 460px; margin: 0 auto; padding: 8px 12px; border-radius: 14px;
+  display: flex; flex-direction: column; gap: 2px; background: rgba(18,24,33,.88); border: 1px solid rgba(52,224,180,.45); color: var(--text, #f2f6f8); font-size: 12.5px; line-height: 1.35; backdrop-filter: blur(8px); pointer-events: none; }
+.hv-chip b { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hv-chip span { color: var(--muted, #b7c4cf); }
+.hv-chip[hidden] { display: none; }
+.hv-chip.in-banner { position: static; max-width: none; margin: 6px 0 0; padding: 6px 0 0; border: 0; border-top: 1px solid rgba(52,224,180,.35); border-radius: 0; background: none; backdrop-filter: none; }
+.hv-chip.in-banner b { font-size: 12.5px; color: var(--mint, #34e0b4); }
+.hv-chip.in-banner span { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

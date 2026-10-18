@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-18.8";           // Ride Plan v1: rider reports, sources on every part, usual weather, rider choices
+const VERSION = "mu-2026-10-18.9";           // Hyper-Vision: the rider's stop-by-stop schedule
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
@@ -141,6 +141,8 @@ const BIKE_SCRIPTS = [
     "/js/passport/passport-app.js",
     "/js/rideplan/rideplan-app.js",
     "/js/rideplan/stop-ask.js",
+    "/js/rideplan/schedule.js",
+    "/js/rideplan/hypervision-app.js",
     "/js/passport/passport.css",
     "/js/rideplan/rideplan.css",
     "/js/share/share-app.js",
