@@ -78,7 +78,9 @@
      LASTFM_API_KEY           Master AI music mood + suggestions (/api/master/music); unset = title words only
      OPEN_METEO_API_KEY       only with a commercial Open-Meteo plan (weather is keyless otherwise)
      PLACES_CACHE_SECONDS     server memory cache for Google Places answers, default 900 (see lib/master/poi.js)
-     RIDE_PLAN_GOOGLE_MAX     Google Places category requests per Ride Plan (lib/master/rideplan.js), default 12; 0 = OSM only
+     MET_NO_USER_AGENT        the Ride Plan's weather (MET Norway, fetched by this server): User-Agent naming the app and a
+                              contact, as MET's terms require; default names the project repository
+     MASTER_HOSPITALS_DIR     government hospital directories (known locations), default ./data/master/hospitals
      MASTER_POI_GOOGLE        "0" = the Master's places use OSM only (no Places cost; the search box keeps Google)
      GOOGLE_MAP_TILES_KEY     optional: Google's map as a map style (Map Tiles API + billing on that key);
                               or MAP_TILES_GOOGLE=1 to use GOOGLE_MAPS_SERVER_KEY. Proxied, never sent to the phone
@@ -132,6 +134,7 @@ const { MediaStore } = require("./lib/media");
 const { createBikeApi } = require("./lib/bikedb/http-api");
 const { createAdminApi } = require("./lib/bikedb/admin-api");
 const { createMasterApi } = require("./lib/master/http-api");
+const { createPlaceRatings } = require("./lib/master/place-ratings");
 const { createRoadsense } = require("./lib/master/roadsense");
 const { loadFeedDir: loadRoadsenseFeeds } = require("./lib/master/roadsense-feeds");
 const { loadRoadDir } = require("./lib/master/roadpulse-roads");
@@ -398,8 +401,9 @@ app.use("/api/bikes", bikeApi.router);
 // README) make hazard merging road-aware; without them hazards merge by distance and direction.
 let roadIndex = loadRoadDir(process.env.ROADSENSE_ROADS_DIR || path.join(__dirname, "data", "roads"));
 const roadsense = createRoadsense({ db: () => db, secret: () => SERVER_SECRET, roads: () => roadIndex });
+const ratings = createPlaceRatings({ db: () => db, secret: () => SERVER_SECRET, overpassUrl: process.env.OVERPASS_URL || undefined });
 const masterApi = createMasterApi({
-    express, rateLimit, roadsense, dem,
+    express, rateLimit, roadsense, dem, ratings,
     allowOrigin: (origin) => CORS_ORIGIN === "*" || (Array.isArray(CORS_ORIGIN) && CORS_ORIGIN.includes(origin))
 });
 app.use("/api/master", masterApi.router);

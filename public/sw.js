@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-18.6";           // Ride Plan: the whole route before a ride
+const VERSION = "mu-2026-10-18.7";           // Ride Plan without paid services: MET Norway, rider ratings, known hospitals
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
@@ -140,6 +140,7 @@ const BIKE_SCRIPTS = [
     "/js/passport/passport-model.js",
     "/js/passport/passport-app.js",
     "/js/rideplan/rideplan-app.js",
+    "/js/rideplan/stop-ask.js",
     "/js/passport/passport.css",
     "/js/rideplan/rideplan.css",
     "/js/share/share-app.js",

@@ -48,10 +48,31 @@
     },
     {
       "id": "open-meteo", "name": "Open-Meteo weather and air quality APIs", "hosts": ["api.open-meteo.com", "air-quality-api.open-meteo.com"],
-      "use": "weather on the route, the advice gate's wet-road check, air quality, and the Ride Plan's ride-day forecast (hourly, up to 16 days ahead)", "licence": "data CC BY 4.0; API terms: the free API is for non-commercial use",
+      "use": "weather on the route, the advice gate's wet-road check, air quality", "licence": "data CC BY 4.0; API terms: the free API is for non-commercial use",
       "licence_version": "4.0", "attribution": "Weather data by Open-Meteo.com", "commercial_use": "by_agreement",
       "access_method": "HTTP API at request time", "fetched_at": null, "source_version": null, "legal_review": "pending",
       "notes": "Commercial use needs an Open-Meteo subscription, or self-hosting the open-source Open-Meteo with openly licensed model data (NOAA GFS, ECMWF open data). IMD data needs its own agreement."
+    },
+    {
+      "id": "met-norway", "name": "MET Norway Locationforecast 2.0", "hosts": ["api.met.no"],
+      "use": "the Ride Plan's ride-day forecast (lib/master/metno.js), fetched by our server only and cached per ~1 km cell for 30 minutes", "licence": "data CC BY 4.0 and NLOD 2.0; api.met.no terms of service",
+      "licence_version": "4.0", "attribution": "Weather forecast from MET Norway", "commercial_use": "yes",
+      "access_method": "HTTP API from the server (User-Agent with app name and contact, coordinates ≤ 4 decimals)", "fetched_at": null, "source_version": "locationforecast/2.0/complete", "legal_review": "pending",
+      "notes": "Free, commercial use allowed with attribution. Terms: identify the app in User-Agent (MET_NO_USER_AGENT), cache, no more than 20 requests/second per app. Hourly steps for ~2.5 days, then 6-hourly to ~9-10 days."
+    },
+    {
+      "id": "govt-hospital-directory", "name": "Government hospital directory with geo-codes (e.g. National Hospital Directory on data.gov.in)", "hosts": [],
+      "use": "known hospital locations along a route in the Ride Plan (lib/master/hospitals.js), imported by scripts/master/import-hospitals.mjs", "licence": "Government Open Data License - India (check the dataset page)",
+      "licence_version": null, "attribution": "the dataset's publisher, as named on data.gov.in", "commercial_use": "yes",
+      "access_method": "manual download, imported on the server", "fetched_at": null, "source_version": null, "legal_review": "pending",
+      "notes": "Shown as KNOWN locations, never verified: directories go stale and geo-codes are approximate. Nothing is imported yet (data/master/hospitals/README.md)."
+    },
+    {
+      "id": "mapunite-place-ratings", "name": "MapUnite riders' place ratings", "hosts": [],
+      "use": "riders' 👍/👎 and tags for OSM places they said they stopped at (lib/master/place-ratings.js), shown in the Ride Plan from 3 ratings", "licence": "MapUnite's own data",
+      "licence_version": null, "attribution": "MapUnite riders", "commercial_use": "yes",
+      "access_method": "our server's database", "fetched_at": null, "source_version": null, "legal_review": "pending",
+      "notes": "Opt-in after a ride, never automatic from a stop; pseudonymous rater (HMAC of a phone token); fixed tags, no free text; deletable with /api/master/ratings/forget."
     },
     {
       "id": "copernicus-dem-glo30", "name": "Copernicus DEM GLO-30 (ESA / European Union)", "hosts": ["copernicus-dem-30m.s3.amazonaws.com"],
@@ -73,7 +94,7 @@
     },
     {
       "id": "google-maps-platform", "name": "Google Maps Platform (Places, Maps)", "hosts": ["places.googleapis.com", "maps.googleapis.com", "maps.gstatic.com", "www.google.com", "google.com", "tile.googleapis.com"],
-      "use": "the Maps script tag, place lookups (server-side keys), ratings and reviews for the Master AI's vetted places and the Ride Plan's stop picks (capped by RIDE_PLAN_GOOGLE_MAX), and the optional Google map style (Map Tiles API, proxied by lib/map-detail.js, off unless GOOGLE_MAP_TILES_KEY is set)", "licence": "Google Maps Platform Terms of Service", "licence_version": null,
+      "use": "the Maps script tag, place lookups (server-side keys), ratings and reviews for the Master AI's vetted places (off with MASTER_POI_GOOGLE=0), and the optional Google map style; the Ride Plan uses none of it (Map Tiles API, proxied by lib/map-detail.js, off unless GOOGLE_MAP_TILES_KEY is set)", "licence": "Google Maps Platform Terms of Service", "licence_version": null,
       "attribution": "Google", "commercial_use": "by_agreement", "access_method": "paid API with a server-side key",
       "fetched_at": null, "source_version": null, "legal_review": "pending",
       "notes": "Paid, under Google's terms (no caching or scraping beyond them). RoadPulse data must never be mixed with Google content. Map Tiles: the server passes tiles through with Google's cache headers and stores none; Google's logo and the viewport copyright line must show while the Google style is on (the app shows a text logo: replace with Google's official logo asset before launch). Check whether a server-side tile proxy is allowed under the current Map Tiles terms."
@@ -135,5 +156,5 @@
       "notes": "Contributor terms must grant MapUnite the right to store, show and license the reports (needed before any API sale), and say what is public (spot, direction, kind, severity, day) and what never is (route, identity)."
     }
   ],
-  "ignoredHosts": ["mapunite.app", "app.example.com", "json-schema.org"]
+  "ignoredHosts": ["mapunite.app", "app.example.com", "json-schema.org", "github.com"]
 }
