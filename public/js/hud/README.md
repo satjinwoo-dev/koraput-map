@@ -12,7 +12,7 @@ It has two views:
 | `live.js` | `MUHud.live`: pure estimator in strict SI. `createLiveEstimator(physics, model, opts)` → `push(fix)`, `band(grade)`, `state`; also `pitstopAlert()`. No DOM. |
 | `hud.js` | `MUHud.view`: the strip and the dashboard. `liveFigure`, `ecoGuidance`, `scaleGeometry` and `alertText` are pure and tested. |
 | `hud.css` | Styles, scoped under `.hud` / `#smartdrive-hud`. Container query for the narrow strip; landscape layouts. |
-| `hud-app.js` | `MUHud.app`: wiring. Starts on `mu:drive-state`, feeds `mu:fix` into the estimator, renders at 1 Hz, checks stops every 5 s, and sends `mu:ride-summary` when a trip ends. |
+| `hud-app.js` | `MUHud.app`: wiring. Starts on `mu:drive-state`, feeds `mu:fix` into the estimator, renders at 1 Hz, checks stops every 5 s, and sends `mu:ride-summary` when a trip ends. It also runs the Ride Story journal (`js/story/journal.js`) next to the estimator, fetches the weather for it every 10 minutes, and counts the pillion in the physics when this phone is paired as the rider or the trip card says *Pillion*. |
 
 ## Events
 
@@ -22,11 +22,11 @@ It has two views:
 | `mu:drive-state` | existing | `{ driving, navigating }`: the HUD starts on either one, but not in walking mode |
 | `mu:speed-limit` | existing | `{ limit }` in km/h; the eco band is clamped to it |
 | `mu:trip-end` | `SmartDrive.endTrip` (new) | the trip's points and totals |
-| `mu:ride-summary` | `hud-app.js` (new) | `{ trip, live, powertrain, correction?, bike, priceUnit, priceExample }`: the share card listens for it |
+| `mu:ride-summary` | `hud-app.js` (new) | `{ trip, live, powertrain, correction?, bike, priceUnit, priceExample, story? }`: the share card listens for it. `story` is `{ journal, ctx }` for the Ride Story (`js/story/`). |
 
 ## How the live numbers are worked out
 
-1. **Acceleration** is the least-squares slope of speed over the last 4 s, clamped to ±4 m/s², so a GPS jump doesn't read as full throttle.
+1. **Acceleration** is the least-squares slope of speed over the last 4 s, clamped to ±4 m/s², so a GPS jump doesn't read as full throttle. Times are taken relative to the window's first sample. With raw epoch seconds (~1.8 × 10⁹) the squares lost every digit, so on a real clock the slope read ≈ 0 and no hard moment was ever counted. A test with real timestamps now guards this.
 2. **Fuel rate** comes from `operatingPoint(model, v, { accel, grade, altitude })`, capped at full throttle. Below 0.8 m/s the bike counts as idling; after 180 s at rest the engine counts as off.
 3. **Energy** is integrated with the trapezoid rule. Gaps over 5 s (a tunnel, say) are skipped rather than guessed.
 4. The **live figure** covers a 6 s window: steady enough to read, quick enough to react.

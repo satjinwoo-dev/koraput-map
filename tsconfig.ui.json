@@ -28,6 +28,8 @@
     "public/js/hud/live.js",
     "public/js/hud/hud.js",
     "public/js/hud/hud-app.js",
+    "public/js/story/journal.js",
+    "public/js/story/story-core.js",
     "public/js/navcam/navcam-core.js",
     "public/js/navcam/navmotion-core.js",
     "public/js/navpip/navpip-core.js",

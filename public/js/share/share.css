@@ -46,3 +46,7 @@
 .sh-range { width: 100%; accent-color: var(--sh-mint); }
 .sh-seg[aria-label="Card style"] { flex-wrap: wrap; gap: 3px; }
 .sh-seg[aria-label="Card style"] .sh-seg-btn { flex: 1 1 22%; min-width: 64px; }
+
+/* Ride Story button (js/story/) */
+.sh-story { width: 100%; margin-top: 8px; background: linear-gradient(135deg, #c6f432, #7ee081) !important; color: #0b0d10 !important; box-shadow: 0 6px 22px rgba(198,244,50,.3); }
+.sh-story[hidden] { display: none !important; }
