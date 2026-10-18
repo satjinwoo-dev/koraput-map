@@ -346,44 +346,57 @@ function fakeCaches() {
         }
     };
 }
-function fakeMeteo() {
+function fakeDemServer() {
     const calls = [];
     let mode = "ok";
-    const fetch = async (url) => {
-        calls.push(url);
+    const fetch = async (url, init) => {
+        const body = JSON.parse(init.body);
+        calls.push({ url, init, body });
         if (mode === "offline") throw new TypeError("Failed to fetch");
         if (mode === "500") return new Response("{}", { status: 500 });
-        const u = new URL(url);
-        const lats = u.searchParams.get("latitude").split(",").map(Number);
-        return new Response(JSON.stringify({ elevation: lats.map((x) => Math.round((x - 28) * 1000)) }), { status: 200 });
+        // the server's answer: a height inside the pilot corridor (lat ≥ 18), null outside
+        return new Response(JSON.stringify({ ok: true, elevation: body.lat.map((x) => (x >= 18 ? Math.round((x - 18) * 1000) : null)),
+            source: "copernicus", resolutionM: 30, attribution: ["Copernicus DEM GLO-30 test credit"] }), { status: 200 });
     };
     return { fetch, calls, set: (m) => { mode = m; } };
 }
 
-test("elevation: batches of 100, rounded keys, remembered, persisted, honest about failures", async () => {
-    const net = fakeMeteo(), cs = fakeCaches();
+test("elevation: the self-hosted 30 m server (POST, batches of 500), rounded keys, remembered, persisted, honest about failures", async () => {
+    assert.equal(Elev.ENDPOINT, "/api/elevation", "same-origin server, not Open-Meteo");
+    const net = fakeDemServer(), cs = fakeCaches();
     const el = Elev.createElevation({ fetch: net.fetch, caches: /** @type {any} */ (cs) });
-    const lat = Array.from({ length: 250 }, (_, i) => 28 + i * 0.001), lng = lat.map(() => 77.123456);
+    const lat = Array.from({ length: 1200 }, (_, i) => 18 + i * 0.0001), lng = lat.map(() => 82.123456);
     const a = await el.lookup(lat, lng);
     assert.equal(net.calls.length, 3);
-    assert.ok(net.calls.every((u) => u.startsWith(Elev.ENDPOINT) && new URL(u).searchParams.get("latitude").split(",").length <= 100));
+    assert.ok(net.calls.every((c) => c.url === Elev.ENDPOINT && c.init.method === "POST" && c.init.credentials === "omit" && c.body.lat.length <= 500));
     assert.equal(a.source, "dem");
-    assert.equal(a.z[10], 10);
-    assert.ok(net.calls[0].includes("77.1235"), "coordinates rounded to ~11 m");
+    assert.equal(a.z[100], 10);
+    assert.equal(a.credit, "Copernicus DEM GLO-30 test credit", "the licence credit travels with the heights");
+    assert.equal(net.calls[0].body.lng[0], 82.1235, "coordinates rounded to ~11 m");
     const b = await el.lookup(lat.slice(0, 50), lng.slice(0, 50));
     assert.equal(net.calls.length, 3, "second lookup served from memory");
     assert.equal(b.cached, 50);
-    // persisted to Cache Storage, readable by a fresh instance with no network
+    // persisted to Cache Storage (under the 30 m key), readable by a fresh instance with no network, credit included
     await new Promise((r) => setTimeout(r, 1700));
+    assert.ok([...cs.stores.get(Elev.CACHE_NAME).keys()].includes("/__mu/trip/elevation-30m.json"));
     const offline = Elev.createElevation({ fetch: async () => { throw new TypeError("offline"); }, caches: /** @type {any} */ (cs) });
     const c = await offline.lookup(lat, lng);
     assert.equal(c.source, "dem");
+    assert.equal(c.credit, "Copernicus DEM GLO-30 test credit");
+    // outside the corridors the server says null: NaN, "none", and not remembered (a corridor added later is picked up)
+    const out = await el.lookup([12.97, 12.98], [77.59, 77.59]);
+    assert.equal(out.source, "none");
+    assert.ok(Number.isNaN(out.z[0]));
+    await el.lookup([12.97], [77.59]);
+    assert.equal(net.calls.length, 5, "asked again: nulls aren't cached");
+    // part inside, part outside
+    const mixed = await el.lookup([18.5, 12.5], [82.5, 77.5]);
+    assert.equal(mixed.source, "partial");
     // a new place while offline: NaN + "none"; server error: same
-    const d = await offline.lookup([12.97], [77.59]);
+    const d = await offline.lookup([19.97], [82.59]);
     assert.equal(d.source, "none");
-    assert.ok(Number.isNaN(d.z[0]));
     net.set("500");
-    const e = await Elev.createElevation({ fetch: net.fetch, caches: null }).lookup([12.97, 12.98], [77.59, 77.59]);
+    const e = await Elev.createElevation({ fetch: net.fetch, caches: null }).lookup([18.97, 18.98], [82.59, 82.59]);
     assert.equal(e.source, "none");
     assert.equal(Elev.keyOf(12.345678, 77.000049), "12.3457,77.0000");
 });

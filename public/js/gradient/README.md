@@ -2,7 +2,7 @@
 
 Turns terrain heights into the grades of the **road**, fixing the sections where the terrain model is wrong: bridges, tunnels and cuttings. It shows the result as an elevation profile that highlights steep climbs and every section it fixed. It works offline.
 
-**Why it's needed:** the Copernicus 90 m DEM (via Open-Meteo) gives the height of the ground. On a river bridge the road is 20–40 m above the valley floor the DEM sees; in a tunnel it's below the hill. Raw, a bridge becomes a 40 % plunge and climb, which wrecks grades, fuel estimates and the HUD's grade under you.
+**Why it's needed:** the terrain model (Copernicus GLO-30, 30 m, self-hosted for the pilot corridors) gives the height of the ground. On a river bridge the road is 20–40 m above the valley floor the DEM sees; in a tunnel it's below the hill. Raw, a bridge becomes a 40 % plunge and climb, which wrecks grades, fuel estimates and the HUD's grade under you.
 
 | File | What it does |
 |---|---|
@@ -36,7 +36,7 @@ There is **one** bridge-and-tunnel pipeline in the app: `js/trip/structures.js` 
 
 ## Network and offline
 
-- **Terrain:** Open-Meteo elevation, shared with the trip card, saved in `mu-trip-v1`.
+- **Terrain:** MapUnite's 30 m model (`/api/elevation`, Copernicus GLO-30), shared with the trip card, saved in `mu-trip-v1`. Its licence credit is shown under the chart whenever heights are drawn. Outside the pilot corridors the route is shown flat, and the sheet says why.
 - **Bridges and tunnels:**
   - one Overpass POST per route, made only when navigation starts or the rider opens the sheet;
   - saved in `mu-trip-v1` for 30 days, shared with the trip card (a stale copy is used offline);

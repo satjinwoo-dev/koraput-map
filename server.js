@@ -82,6 +82,8 @@
      GOOGLE_MAP_TILES_KEY     optional: Google's map as a map style (Map Tiles API + billing on that key);
                               or MAP_TILES_GOOGLE=1 to use GOOGLE_MAPS_SERVER_KEY. Proxied, never sent to the phone
      MAP_TILES_RATE_LIMIT_MAX Google tile requests per IP per minute (default 1500)
+     ELEVATION_DIR            the 30 m terrain grids, default ./data/elevation/grids (scripts/elevation-ingest.mjs)
+     ELEVATION_RATE_LIMIT_MAX elevation requests per IP per minute (default 120, up to 1000 points each)
      MASTER_BLACKSPOTS_DIR    official blackspot datasets, default ./data/master/blackspots
      HTTP_RATE_LIMIT_MAX      default 300 per 15 min per IP
      MAX_SOCKETS_PER_IP       default 20
@@ -133,6 +135,7 @@ const { createRoadsense } = require("./lib/master/roadsense");
 const { loadFeedDir: loadRoadsenseFeeds } = require("./lib/master/roadsense-feeds");
 const { loadRoadDir } = require("./lib/master/roadpulse-roads");
 const { createMapDetail } = require("./lib/map-detail");
+const { createDemStore } = require("./lib/elevation/dem-store");
 const { cleanSettings: cleanBikeSettings } = require("./public/js/garage/store.js");
 
 // ==========================================================================
@@ -343,6 +346,14 @@ const mapTilesLimiter = rateLimit({ windowMs: 60 * 1000, max: Number(process.env
 app.get("/api/map/places", mapPlacesLimiter, mapDetail.placesHandler);
 app.get("/api/map/gtile/:type/:z/:x/:y", mapTilesLimiter, mapDetail.googleTileHandler);
 app.get("/api/map/gattr", mapPlacesLimiter, mapDetail.googleAttributionHandler);
+
+// Terrain heights (lib/elevation/dem-store.js): the self-hosted 30 m model (Copernicus GLO-30 / NASADEM) for the
+// pilot corridors, built by scripts/elevation-ingest.mjs. Replaces Open-Meteo's 90 m elevation API on the phone.
+const ELEVATION_DIR = process.env.ELEVATION_DIR || path.join(__dirname, "data", "elevation", "grids");
+const dem = createDemStore({ dir: ELEVATION_DIR });
+const elevationLimiter = rateLimit({ windowMs: 60 * 1000, max: Number(process.env.ELEVATION_RATE_LIMIT_MAX) || 120, standardHeaders: true, legacyHeaders: false });
+app.post("/api/elevation", elevationLimiter, express.json({ limit: "64kb" }), dem.handler);
+app.get("/api/elevation/coverage", elevationLimiter, dem.coverageHandler);
 
 // The bike catalogue's built files are gitignored, so a fresh checkout has none, and without
 // public/bikedb/catalog.json the app's bike list can't load ("The bike list isn't on this phone
@@ -3445,6 +3456,7 @@ function listen() {
         }).catch(() => {});
         console.log(`   Cluster: ${bus.mode === "redis" ? `node ${NODE_ID} via Redis${adapterAttached ? " + Socket.IO adapter" : ""}` : "single process"}`);
         if (!GOOGLE_KEY) console.log("   Places proxy: disabled (set GOOGLE_MAPS_SERVER_KEY to enable)");
+        if (!dem.size) console.log("   Elevation: no terrain grids (run scripts/elevation-ingest.mjs): routes show without hills");
     });
 }
 

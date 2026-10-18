@@ -95,9 +95,11 @@
     function provenance(meta) {
         const out = [];
         const e = meta.elevation || {};
-        if (e.source === "none") out.push({ tone: "warn", icon: "offline", text: meta.offline ? "Offline and this route's hills aren't saved yet: shown flat" : "Terrain heights unavailable: shown flat" });
+        if (e.source === "none") out.push({ tone: "warn", icon: "offline", text: meta.offline ? "Offline and this route's hills aren't saved yet: shown flat" : "No terrain data here yet (the 30 m model covers the pilot corridors): shown flat" });
         else if (e.source === "partial") out.push({ tone: "info", icon: "offline", text: `Some heights missing (${Math.round((e.missing / Math.max(1, e.total)) * 100)} %): filled in between` });
-        else out.push({ tone: "ok", icon: "check", text: e.fetched > 0 ? "Terrain: Copernicus 90 m (Open-Meteo), saved for offline" : "Terrain: saved on this phone (works offline)" });
+        else out.push({ tone: "ok", icon: "check", text: e.fetched > 0 ? "Terrain: 30 m model, saved for offline" : "Terrain: saved on this phone (works offline)" });
+        // the elevation data's licence credit (Copernicus / NASA), whenever heights are drawn
+        if (e.source !== "none" && e.credit) out.push({ tone: "info", icon: "check", text: e.credit });
         const s = meta.structureSource;
         if (s === "network") out.push({ tone: "ok", icon: "check", text: "Bridges & tunnels: OpenStreetMap, saved for 30 days" });
         else if (s === "cache") out.push({ tone: "ok", icon: "check", text: "Bridges & tunnels: saved on this phone" });

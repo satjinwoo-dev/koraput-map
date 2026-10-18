@@ -9,7 +9,7 @@
           (an area name beats a hospital beats a temple beats a shop);
         - during a drive only the important kinds (rank ≤ 3: areas, health,
           fuel, police, worship, schools, stations, sights);
-        - shown on the Satellite, Dark and Terrain styles; not on Street (OSM
+        - shown on the Satellite, Dark, Terrain and Ride Focus AMOLED styles; not on Street (OSM
           tiles already draw them) nor on Google (Google draws its own).
       Under the navigation camera markers stand upright (navcam.css), so the
       names stay readable as the map turns.
@@ -88,7 +88,7 @@ const MapDetail = (() => {
     /** @type {Map<string, any[]>} */ const tiles = new Map();
     const pending = new Set();
     let layer = /** @type {any} */ (null), style = "satellite", timer = 0, retry = 0;
-    const SHOW_ON = new Set(["satellite", "dark", "terrain"]);
+    const SHOW_ON = new Set(["satellite", "dark", "terrain", "amoled"]);   // amoled: Ride Focus (js/ridefocus.js)
 
     function ensureLayer(m) {
         if (layer) return layer;
@@ -134,7 +134,9 @@ const MapDetail = (() => {
         }
         for (const p of C.declutter(cand, driving() ? 40 : 120)) {
             const mk = L.marker([p.lat, p.lng], { icon: icon(p), pane: "mu-places", keyboard: false, interactive: p.kind !== "area" });
-            if (p.kind !== "area") mk.bindPopup(`<strong>${esc(p.name)}</strong>${p.en ? `<br>${esc(p.en)}` : ""}<br><small>${esc(p.kind)} · © OpenStreetMap contributors</small>`, { closeButton: false });
+            // the "Share place" button: js/passport/place-share.js (the phone's share menu, with a preview first)
+            const shareBtn = W.MUPlaceShare && W.MUPlaceShare.button ? `<br>${W.MUPlaceShare.button({ lat: p.lat, lng: p.lng, name: p.en || p.name, kind: p.kind })}` : "";
+            if (p.kind !== "area") mk.bindPopup(`<strong>${esc(p.name)}</strong>${p.en ? `<br>${esc(p.en)}` : ""}<br><small>${esc(p.kind)} · © OpenStreetMap contributors</small>${shareBtn}`, { closeButton: false });
             lay.addLayer(mk);
         }
     }

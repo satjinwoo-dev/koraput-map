@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-17.9";           // named places on the map (OSM), optional Google map style
+const VERSION = "mu-2026-10-18.4";           // Rider Passport card in Lens, Gauge, Poster and Bento, with the rider's photo
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
@@ -61,6 +61,7 @@ const APP_SCRIPTS = [
     "/js/navcam/navcam-core.js",
     "/js/navcam/navcam.js",
     "/js/navsheet.js",
+    "/js/ridefocus.js",
     "/js/navigation.js",
     "/js/garage/fuel-baseline.js",
     "/js/smartdrive.js",
@@ -133,9 +134,17 @@ const BIKE_SCRIPTS = [
     "/js/hud/hud.js",
     "/js/hud/hud-app.js",
     "/js/hud/hud.css",
+    "/js/passport/share-out.js",
+    "/js/passport/place-share.js",
+    "/js/passport/passport-model.js",
+    "/js/passport/passport-app.js",
+    "/js/passport/passport.css",
     "/js/share/share-app.js",
     "/js/share/card-model.js",
     "/js/share/card-render.js",
+    "/js/share/card-styles.js",
+    "/js/share/card-liquid.js",
+    "/js/share/basemap.js",
     "/js/share/share-ui.js",
     "/js/share/share.css",
     // Advanced analytics: fuel learner dashboard + convoy pitstop planner (both lazy-loaded by their *-app.js)
@@ -228,7 +237,7 @@ const CDN_PRECACHE = [
 // The one Google Fonts stylesheet both pages use (same URL in index.html and
 // garage.html, so one cached copy serves both). Its font files are precached
 // for the Latin subsets; other scripts' subsets are cached the first time used.
-const FONT_CSS = "https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap";
+const FONT_CSS = "https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Inter:wght@200;300;400;500;600;700&family=Anton&display=swap";
 const FONT_SUBSETS_RE = /\/\*\s*(latin|latin-ext)\s*\*\/\s*@font-face\s*{[^}]*?url\((https:\/\/fonts\.gstatic\.com\/[^)\s]+)\)/g;
 
 const NEVER_INTERCEPT_PATHS = ["/socket.io/", "/api/", "/healthz", "/csp-report"];

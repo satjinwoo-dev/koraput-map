@@ -16,7 +16,7 @@
     const W = /** @type {any} */ (root);
     if (!W.document) return;
     const $ = (id) => document.getElementById(id);
-    const FILES = { js: ["js/share/card-model.js", "js/share/card-render.js", "js/share/share-ui.js"], css: "js/share/share.css" };
+    const FILES = { js: ["js/share/card-model.js", "js/share/card-render.js", "js/share/card-styles.js", "js/share/card-liquid.js", "js/share/basemap.js", "js/share/share-ui.js"], css: "js/share/share.css" };
     let loading = null, sheet = null, last = null;
 
     function load() {
@@ -49,10 +49,22 @@
         await load();
         if (!sheet) sheet = W.MUShare.ui.createShareSheet(mount, {
             model: W.MUShare.model, render: W.MUShare.render, units: W.MUGarage.units,
-            fonts: document.fonts, onClose: () => { host.style.display = "none"; host.setAttribute("aria-hidden", "true"); }
+            fonts: document.fonts, shareOut: W.MUShareOut || null, onClose: () => { host.style.display = "none"; host.setAttribute("aria-hidden", "true"); }
         });
         host.style.display = "flex"; host.setAttribute("aria-hidden", "false");
-        sheet.open({ ...s, usual: s.powertrain === "ev" ? null : usual() });
+        sheet.open({ ...s, usual: s.powertrain === "ev" ? null : usual(), reports: reportsFor(s) });
+    }
+
+    /** The road reports the rider reviewed after this ride (js/passport/passport-app.js keeps them, one per ride). */
+    function reportsFor(s) {
+        const t = s && s.trip && Number(s.trip.startedAt);
+        if (!Number.isFinite(t)) return null;
+        try {
+            const all = (JSON.parse(localStorage.getItem("mu.passport.v1") || "{}").reports) || {};
+            let best = null, bestD = 15 * 60 * 1000;                      // the review's ride and SmartDrive's trip start within minutes
+            for (const [k, v] of Object.entries(all)) { const d = Math.abs(Number(k) - t); if (d <= bestD) { bestD = d; best = v; } }
+            return best;
+        } catch { return null; }
     }
 
     function onSummary(e) {
@@ -72,5 +84,5 @@
     }
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init); else init();
     W.MUShare = W.MUShare || {};
-    W.MUShare.app = { open, get last() { return last; } };
+    W.MUShare.app = { open, load, get last() { return last; } };
 })(typeof globalThis !== "undefined" ? globalThis : this);
