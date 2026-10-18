@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-18.3";           // liquid-glass recap and Passport cards (Lens, Gauge, Poster)
+const VERSION = "mu-2026-10-18.4";           // Rider Passport card in Lens, Gauge, Poster and Bento, with the rider's photo
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;

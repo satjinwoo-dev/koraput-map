@@ -3,7 +3,7 @@
    MapUnite share — liquid-glass cards (Lens, Gauge, Poster) and the Passport card
    ==============================================================================
    MUShare.liquid.draw(style, canvas, card, o, R)        style: "lens" | "gauge" | "poster"
-   MUShare.liquid.drawPassport(canvas, passportCard)
+   MUShare.liquid.drawPassport(canvas, passportCard, { style, photo })   the same three looks for the Rider Passport
 
      lens    real refractive glass: the background (the rider's photo, the map,
              or an iridescent chrome ribbon) is bent at the glass edges,
@@ -18,7 +18,7 @@
              the route glowing across it, monospace labels in the corners.
    refract() works on pixels once per card (cached), so previews and the motion
    stay smooth. Photos are redrawn: no EXIF/GPS in the exported image.
-   Pure and tested: sdfRoundRect(), refractSample(), ribbonPaths(), posterWord().
+   Pure and tested: sdfRoundRect(), refractSample(), ribbonPaths(), posterWord(), passportWord(), passportFigures().
    ============================================================================ */
 (function (root, factory) {
     if (typeof module === "object" && module.exports) module.exports = factory();
@@ -461,53 +461,243 @@
         return canvas;
     }
 
-    // ------------------------------------------------------------------ Passport (Lens look)
-    /** @param {HTMLCanvasElement} canvas @param {{ name: string, sections: any[], badges: any[] }} card @param {{ seed?: number }} [o] */
-    function drawPassport(canvas, card, o = {}) {
+    // ------------------------------------------------------------------ Passport (Lens, Gauge, Poster)
+    const PASSPORT_STYLES = Object.freeze(["lens", "gauge", "poster"]);
+
+    /**
+     * What the Passport card shows, from MUPassportModel.forCard(): the self-reported line, the recorded/confirmed rows,
+     * and the headline (distance ridden when the rider put it on the card, else the first row). Pure.
+     * @param {{ sections: any[] }} card
+     */
+    function passportFigures(card) {
+        const self = card.sections.find((s) => s.source === "self");
+        const selfLine = self && self.items.length ? self.items.map((/** @type {any} */ it) => (it.id === "experience" ? `riding since ${it.value}` : it.value)).join("  ·  ") : "";
+        const rows = card.sections.filter((s) => s.source !== "self").flatMap((s) => s.items.map((/** @type {any} */ it) => {
+            const m = /^([\d.,]+)\s*(.*)$/.exec(it.value);
+            return { id: it.id, label: it.label, value: it.value, num: m ? m[1] : it.value, unit: m ? m[2] : "", source: s.source };
+        }));
+        const hi = rows.findIndex((r) => r.id === "distance");
+        const headline = rows.length ? rows[hi >= 0 ? hi : 0] : null;
+        return { selfLine, rows, headline, rest: headline ? rows.filter((r) => r !== headline) : [] };
+    }
+
+    /** The poster's word on the Passport: the rider's first name, upper-case Latin letters, ≤ 8, or RIDER. Pure. @param {string} name */
+    function passportWord(name) {
+        const w = String(name || "").trim().split(/\s+/)[0].toUpperCase();
+        return /^[A-Z]{2,8}$/.test(w) ? w : "RIDER";
+    }
+
+    /** The rider's photo scaled to cover a box (the Passport has no recap renderer to ask). */
+    function cover(img, W, H) {
+        const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
+        const s = Math.max(W / iw, H / ih);
+        return { x: (W - iw * s) / 2, y: (H - ih * s) / 2, w: iw * s, h: ih * s };
+    }
+    // Anton when it has loaded (document.fonts.check() says true when no Anton face is declared at all, e.g. offline)
+    function antonLoaded() {
+        try { if (typeof document !== "undefined" && document.fonts) for (const f of /** @type {any} */ (document.fonts)) if (String(f.family).replace(/["']/g, "") === "Anton" && f.status === "loaded") return true; } catch (e) { /* no FontFaceSet */ }
+        return false;
+    }
+    const PP_NOTE = "Confirmed = other riders' independent rides. Self-reported lines are the rider's own.";
+
+    /** Lens: thin type in a refractive glass panel over the chrome ribbon or the rider's photo. */
+    function passportLens(canvas, card, o) {
         const W = 1080, H = 1350;
-        canvas.width = W; canvas.height = H;
         const ctx = canvas.getContext("2d");
-        const bg = mk(W, H);
-        ribbon(bg.getContext("2d"), W, H, o.seed || 7);
+        const bg = mk(W, H), b = bg.getContext("2d");
+        if (o.photo) { const f = cover(o.photo, W, H); b.drawImage(o.photo, f.x, f.y, f.w, f.h); }
+        else ribbon(b, W, H, o.seed || 7);
         ctx.drawImage(bg, 0, 0);
         const G = { x: 80, y: 150, w: 920, h: 1120 };
-        ctx.drawImage(refract(bg, G, { r: 70, band: 80, strength: 50, mag: 0.06, chroma: 0.45, frost: 3 }), G.x, G.y);
-        glassFinish(ctx, G, { r: 70, tint: "rgba(255,255,255,0.32)" });
+        ctx.drawImage(refract(bg, G, { r: 70, band: 80, strength: 50, mag: 0.06, chroma: 0.45, frost: o.photo ? 14 : 3 }), G.x, G.y);
+        glassFinish(ctx, G, { r: 70, tint: o.photo ? "rgba(255,255,255,0.52)" : "rgba(255,255,255,0.32)" });
+        const F = passportFigures(card);
         const ink = "#0f172a", soft = "rgba(15,23,42,0.6)", px = G.x + 64, inner = G.w - 128;
-        text(ctx, "mapunite", 80, 100, `700 36px ${DISPLAY}`, ink, "left", -1);
+        text(ctx, "mapunite", 80, 100, `700 36px ${DISPLAY}`, o.photo ? "#ffffff" : ink, "left", -1);
         text(ctx, "RIDER PASSPORT", G.x + G.w - 64, G.y + 86, `400 24px ${THIN}`, soft, "right", 5);
         text(ctx, card.name || "Rider", px, G.y + 200, fit(ctx, card.name || "Rider", 200, THIN, 130, inner), ink, "left", -4);
         ctx.fillStyle = "rgba(15,23,42,0.22)"; ctx.fillRect(px, G.y + 236, inner * 0.4, 2);
         let y = G.y + 300;
-        const self = card.sections.find((s) => s.source === "self");
-        if (self && self.items.length) {
-            const line = self.items.map((it) => (it.id === "experience" ? `riding since ${it.value}` : it.value)).join("  ·  ");
-            text(ctx, line, px, y, fit(ctx, line, 300, THIN, 34, inner), ink);
+        if (F.selfLine) {
+            text(ctx, F.selfLine, px, y, fit(ctx, F.selfLine, 300, THIN, 34, inner), ink);
             text(ctx, "SELF-REPORTED", px, y + 40, `400 18px ${THIN}`, soft, "left", 3);
             y += 110;
         }
-        const rows = card.sections.filter((s) => s.source !== "self").flatMap((s) => s.items.map((it) => ({ ...it, source: s.source })));
         const colW = inner / 2;
-        rows.slice(0, 6).forEach((it, i) => {
+        F.rows.slice(0, 6).forEach((it, i) => {
             const x = px + (i % 2) * colW, yy = y + Math.floor(i / 2) * 190;
             text(ctx, it.label.toUpperCase(), x, yy, `400 20px ${THIN}`, soft, "left", 2.5);
-            const m = /^([\d.,]+)\s*(.*)$/.exec(it.value) || [null, it.value, ""];
-            const w2 = text(ctx, m[1], x - 4, yy + 104, fit(ctx, m[1], 200, THIN, 110, colW - 120), ink, "left", -3);
-            if (m[2]) text(ctx, m[2], x + w2 + 8, yy + 104, `300 26px ${THIN}`, soft);
+            const w2 = text(ctx, it.num, x - 4, yy + 104, fit(ctx, it.num, 200, THIN, 110, colW - 120), ink, "left", -3);
+            if (it.unit) text(ctx, it.unit, x + w2 + 8, yy + 104, `300 26px ${THIN}`, soft);
             text(ctx, it.source === "community" ? "confirmed by other riders" : "recorded by MapUnite", x, yy + 140, `400 18px ${THIN}`, it.source === "community" ? "#0e7490" : soft);
         });
         if (card.badges.length) {
             let bx = px; const by = G.y + G.h - 120;
-            for (const b of card.badges.slice(0, 4)) {
+            for (const bd of card.badges.slice(0, 4)) {
                 ctx.font = `500 24px ${THIN}`;
-                const w = ctx.measureText(b.name).width + 56;
+                const w = ctx.measureText(bd.name).width + 56;
                 if (bx + w > px + inner) break;
                 rr(ctx, bx, by, w, 56, 28); ctx.fillStyle = "rgba(255,255,255,0.55)"; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = "rgba(15,23,42,0.18)"; ctx.stroke();
-                text(ctx, b.name, bx + w / 2, by + 36, `500 24px ${THIN}`, ink, "center");
+                text(ctx, bd.name, bx + w / 2, by + 36, `500 24px ${THIN}`, ink, "center");
                 bx += w + 12;
             }
         }
-        text(ctx, "Confirmed = other riders' independent rides. Self-reported lines are the rider's own.", W / 2, H - 34, `400 20px ${THIN}`, "rgba(15,23,42,0.55)", "center");
+        text(ctx, PP_NOTE, W / 2, H - 34, `400 20px ${THIN}`, o.photo ? "rgba(255,255,255,0.85)" : "rgba(15,23,42,0.55)", "center");
+    }
+
+    /** Gauge: the headline figure in a glass dial, the other rows in glass pills, on a dark ground. */
+    function passportGauge(canvas, card, o) {
+        const W = 1080, H = 1350;
+        const ctx = canvas.getContext("2d");
+        const bg = mk(W, H), b = bg.getContext("2d");
+        if (o.photo) { const f = cover(o.photo, W, H); b.drawImage(o.photo, f.x, f.y, f.w, f.h); b.fillStyle = "rgba(3,5,10,0.5)"; b.fillRect(0, 0, W, H); }
+        else { ribbon(b, W, H, o.seed || 7, true); b.fillStyle = "rgba(3,5,10,0.35)"; b.fillRect(0, 0, W, H); }
+        for (const [x, y, rad, c] of [[0.08, 0.92, 0.7, "rgba(239,68,68,0.40)"], [0.95, 0.15, 0.7, "rgba(59,130,246,0.38)"], [0.5, 0.45, 0.45, "rgba(124,58,237,0.16)"]]) {
+            const g = b.createRadialGradient(x * W, y * H, 0, x * W, y * H, rad * W); g.addColorStop(0, c); g.addColorStop(1, "rgba(0,0,0,0)"); b.fillStyle = g; b.fillRect(0, 0, W, H);
+        }
+        ctx.drawImage(bg, 0, 0);
+        const F = passportFigures(card);
+        const white = "#ffffff", soft = "rgba(255,255,255,0.7)", cyan = "#67e8f9";
+        text(ctx, "mapunite", 80, 100, `700 36px ${DISPLAY}`, "rgba(255,255,255,0.92)", "left", -1);
+        text(ctx, "RIDER PASSPORT", W - 80, 98, `400 22px ${THIN}`, soft, "right", 5);
+        text(ctx, card.name || "Rider", 80, 200, fit(ctx, card.name || "Rider", 200, THIN, 84, W - 160), white, "left", -2);
+        if (F.selfLine) text(ctx, F.selfLine, 80, 250, fit(ctx, F.selfLine, 300, THIN, 28, W - 160), soft);
+        // the dial: a full bezel (decoration, not a score: nothing on the Passport is out of 100) and the headline figure
+        const D = { cx: 540, cy: 575, r: 270 };
+        const box = { x: D.cx - D.r, y: D.cy - D.r, w: 2 * D.r, h: 2 * D.r };
+        ctx.drawImage(refract(bg, box, { circle: true, band: 90, strength: 60, mag: 0.1, chroma: 0.6, frost: 8 }), box.x, box.y);
+        glassFinish(ctx, box, { circle: true, tint: "rgba(8,10,20,0.42)", rimW: 3 });
+        const rr2 = D.r - 50;
+        for (let i = 0; i < 60; i++) {
+            const ang = (Math.PI * 2 * i) / 60, long = i % 5 === 0;
+            ctx.beginPath(); ctx.moveTo(D.cx + Math.cos(ang) * (rr2 - (long ? 24 : 12)), D.cy + Math.sin(ang) * (rr2 - (long ? 24 : 12)));
+            ctx.lineTo(D.cx + Math.cos(ang) * rr2, D.cy + Math.sin(ang) * rr2);
+            ctx.lineWidth = long ? 3 : 1.5; ctx.strokeStyle = "rgba(255,255,255,0.45)"; ctx.stroke();
+        }
+        const cg = ctx.createConicGradient ? ctx.createConicGradient(-Math.PI / 2, D.cx, D.cy) : null;
+        if (cg) { cg.addColorStop(0, "#ef4444"); cg.addColorStop(0.35, "#d946ef"); cg.addColorStop(0.7, "#3b82f6"); cg.addColorStop(1, "#ef4444"); }
+        ctx.beginPath(); ctx.arc(D.cx, D.cy, rr2 + 20, 0, Math.PI * 2); ctx.lineWidth = 6; ctx.strokeStyle = cg || "rgba(217,70,239,0.8)"; ctx.shadowColor = "rgba(217,70,239,0.7)"; ctx.shadowBlur = 20; ctx.stroke(); ctx.shadowBlur = 0;
+        if (F.headline) {
+            const hl = F.headline;
+            text(ctx, hl.num, D.cx, D.cy + 40, fit(ctx, hl.num, 700, DISPLAY, Math.round(D.r * 0.5), rr2 * 1.5), white, "center", -3);
+            if (hl.unit) text(ctx, hl.unit.toUpperCase(), D.cx, D.cy + 96, `500 ${Math.round(D.r * 0.1)}px ${THIN}`, soft, "center", 6);
+            text(ctx, hl.label.toUpperCase(), D.cx, D.cy - 92, fit(ctx, hl.label.toUpperCase(), 500, THIN, 22, rr2 * 1.4), soft, "center", 3);
+            text(ctx, hl.source === "community" ? "confirmed by other riders" : "recorded by MapUnite", D.cx, D.cy + 150, `400 20px ${THIN}`, hl.source === "community" ? cyan : "rgba(255,255,255,0.55)", "center");
+        } else text(ctx, "Nothing on the card yet", D.cx, D.cy + 12, `300 34px ${THIN}`, soft, "center");
+        // glass pills, two per row
+        const pw = 440, ph = 116, gap = 24, x0 = (W - 2 * pw - gap) / 2, y0 = D.cy + D.r + 44;
+        F.rest.slice(0, 4).forEach((it, i) => {
+            const pb = { x: x0 + (i % 2) * (pw + gap), y: y0 + Math.floor(i / 2) * (ph + 20), w: pw, h: ph };
+            ctx.drawImage(refract(bg, pb, { r: 58, band: 40, strength: 22, mag: 0.04, chroma: 0.5, frost: 10 }), pb.x, pb.y);
+            glassFinish(ctx, pb, { r: 58, tint: "rgba(8,10,20,0.4)", rimW: 2 });
+            ctx.beginPath(); ctx.arc(pb.x + 40, pb.y + 40, 6, 0, Math.PI * 2);
+            if (it.source === "community") { ctx.fillStyle = cyan; ctx.fill(); } else { ctx.lineWidth = 2; ctx.strokeStyle = "rgba(255,255,255,0.7)"; ctx.stroke(); }
+            text(ctx, it.label.toUpperCase(), pb.x + 58, pb.y + 47, fit(ctx, it.label.toUpperCase(), 500, THIN, 19, pw - 80), soft, "left", 2.5);
+            const w2 = text(ctx, it.num, pb.x + 36, pb.y + 96, fit(ctx, it.num, 600, DISPLAY, 40, pw - 170), white);
+            if (it.unit) text(ctx, it.unit, pb.x + 46 + w2, pb.y + 96, fit(ctx, it.unit, 300, THIN, 26, pw - 80 - w2), soft);
+        });
+        if (card.badges.length) {
+            ctx.font = `500 22px ${THIN}`;
+            const names = card.badges.slice(0, 4).map((bd) => bd.name);
+            const ws = names.map((s) => ctx.measureText(s).width + 52);
+            let n = names.length; while (n > 1 && ws.slice(0, n).reduce((a, v) => a + v + 12, -12) > W - 160) n--;
+            let bx = (W - ws.slice(0, n).reduce((a, v) => a + v + 12, -12)) / 2; const by = 1210;
+            for (let i = 0; i < n; i++) {
+                rr(ctx, bx, by, ws[i], 50, 25); ctx.fillStyle = "rgba(255,255,255,0.1)"; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = "rgba(255,255,255,0.35)"; ctx.stroke();
+                text(ctx, names[i], bx + ws[i] / 2, by + 33, `500 22px ${THIN}`, white, "center");
+                bx += ws[i] + 12;
+            }
+        }
+        text(ctx, "●  confirmed by other riders     ○  recorded by MapUnite", W / 2, H - 70, `400 19px ${THIN}`, "rgba(255,255,255,0.6)", "center");
+        text(ctx, PP_NOTE, W / 2, H - 34, `400 19px ${THIN}`, "rgba(255,255,255,0.55)", "center");
+    }
+
+    /** Poster: the rider's first name huge and condensed on lavender, a glowing ribbon through it, a monospace ledger. */
+    function passportPoster(canvas, card, o) {
+        const W = 1080, H = 1350;
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#ece8f6"; ctx.fillRect(0, 0, W, H);
+        const glow = ctx.createRadialGradient(W * 0.3, H * 0.3, 0, W * 0.3, H * 0.3, W);
+        glow.addColorStop(0, "rgba(196,181,253,0.55)"); glow.addColorStop(1, "rgba(236,232,246,0)");
+        ctx.fillStyle = glow; ctx.fillRect(0, 0, W, H);
+        const r = rng((o.seed || 7) + 5);
+        ctx.fillStyle = "rgba(40,20,80,0.05)";
+        for (let i = 0; i < 2200; i++) ctx.fillRect(r() * W, r() * H, 1.4, 1.4);
+        const F = passportFigures(card);
+        const ink = "#0b0b10", deep = "#2a1f55", mid = "#4b3f78";
+        if (o.photo) {
+            const cx = W * 0.5, cy = 380, rad = 280;
+            ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2); ctx.clip();
+            const f = cover(o.photo, rad * 2, rad * 2);
+            ctx.drawImage(o.photo, cx - rad + f.x, cy - rad + f.y, f.w, f.h);
+            ctx.restore();
+        }
+        const word = passportWord(card.name);
+        const anton = antonLoaded();
+        const face = anton ? `400 {px}px ${CONDENSED}` : `900 {px}px ${DISPLAY}`, squeeze = anton ? 1 : 0.58;
+        ctx.font = face.replace("{px}", "100");
+        const size = Math.min((W - 80) / ((ctx.measureText(word).width || 1) * squeeze) * 100, 400);
+        const baseY = 640;
+        ctx.save();
+        ctx.font = face.replace("{px}", String(Math.round(size))); ctx.textBaseline = "alphabetic"; ctx.textAlign = "left";
+        const total = ctx.measureText(word).width * squeeze;
+        ctx.translate((W - total) / 2, 0); ctx.scale(squeeze, 1);
+        ctx.fillStyle = ink; ctx.fillText(word, 0, baseY);
+        ctx.restore();
+        // one glowing ribbon through the word
+        const p = ribbonPaths(o.seed || 7, W, H)[0];
+        const ys = baseY - size * 0.45;
+        ctx.save(); ctx.lineCap = "round";
+        const path = () => { ctx.beginPath(); ctx.moveTo(-40, ys + 120); ctx.bezierCurveTo(W * 0.3, p.p1[1] * 0.3 + ys * 0.7, W * 0.65, p.p2[1] * 0.3 + ys * 0.7 + 60, W + 40, ys - 110); };
+        const g = ctx.createLinearGradient(0, 0, W, 0); g.addColorStop(0, "#7c3aed"); g.addColorStop(1, "#2563eb");
+        ctx.shadowColor = "rgba(124,58,237,0.7)"; ctx.shadowBlur = 30; path(); ctx.strokeStyle = g; ctx.lineWidth = 12; ctx.stroke();
+        ctx.shadowBlur = 0; path(); ctx.strokeStyle = "#f5f3ff"; ctx.lineWidth = 3.6; ctx.stroke();
+        ctx.restore();
+        text(ctx, "mapunite", 64, 92, `700 40px ${DISPLAY}`, ink, "left", -1.5);
+        text(ctx, "[RIDER PASSPORT]", W - 64, 90, `500 24px ${MONO}`, "#1f1640", "right", 1);
+        ctx.fillStyle = "rgba(31,22,64,0.55)";
+        for (let i = 0; i < 26; i++) ctx.fillRect(40, 200 + i * (H - 440) / 26, i % 5 === 0 ? 18 : 9, 2);
+        const full = (card.name || "Rider").toUpperCase();
+        text(ctx, F.selfLine ? `${full}  ·  ${F.selfLine.toUpperCase()}` : full, W / 2, baseY + 74, fit(ctx, F.selfLine ? `${full}  ·  ${F.selfLine.toUpperCase()}` : full, 400, CONDENSED, 42, W - 200), deep, "center", 1);
+        // the ledger: label …… value, a tick for confirmed lines
+        const lx = 110, rx = W - 110;
+        F.rows.slice(0, 6).forEach((it, i) => {
+            const y = baseY + 160 + i * 58;
+            const lab = it.label.toUpperCase(), val = `${it.value}${it.source === "community" ? "  ✓" : ""}`;
+            ctx.font = `500 24px ${MONO}`;
+            const lw = text(ctx, lab, lx, y, `500 24px ${MONO}`, mid, "left", 1);
+            const vw = text(ctx, val, rx, y, `600 26px ${MONO}`, ink, "right", 0);
+            ctx.fillStyle = "rgba(75,63,120,0.35)";
+            for (let x = lx + lw + 14; x < rx - vw - 14; x += 12) ctx.fillRect(x, y - 6, 3, 3);
+        });
+        const py2 = H - 150;
+        if (card.badges.length) {
+            let bx = 64;
+            for (const bd of card.badges.slice(0, 4)) {
+                ctx.font = `600 20px ${MONO}`;
+                const w = ctx.measureText(bd.name.toUpperCase()).width + 44;
+                if (bx + w > W - 64) break;
+                rr(ctx, bx, py2, w, 46, 23); ctx.fillStyle = "#a855f7"; ctx.fill();
+                text(ctx, bd.name.toUpperCase(), bx + w / 2, py2 + 30, `600 20px ${MONO}`, "#ffffff", "center", 1);
+                bx += w + 12;
+            }
+        } else {
+            ["#a855f7", "#c4b5fd", "#ddd6fe"].forEach((c, i) => { rr(ctx, W - 64 - (3 - i) * 132, py2, 120, 46, 23); ctx.fillStyle = c; ctx.fill(); });
+        }
+        text(ctx, "✓ = confirmed by other riders' independent rides · the rest recorded by MapUnite", W / 2, H - 70, `500 18px ${MONO}`, "rgba(31,22,64,0.6)", "center");
+        text(ctx, "Self-reported lines are the rider's own.", W / 2, H - 38, `500 18px ${MONO}`, "rgba(31,22,64,0.6)", "center");
+    }
+
+    /**
+     * The Passport card, 1080 × 1350. Photos are redrawn: no EXIF/GPS in the exported image.
+     * @param {HTMLCanvasElement} canvas @param {{ name: string, sections: any[], badges: any[] }} card
+     * @param {{ style?: string, seed?: number, photo?: any }} [o]
+     */
+    function drawPassport(canvas, card, o = {}) {
+        canvas.width = 1080; canvas.height = 1350;
+        if (o.style === "gauge") passportGauge(canvas, card, o);
+        else if (o.style === "poster") passportPoster(canvas, card, o);
+        else passportLens(canvas, card, o);
         return canvas;
     }
 
@@ -517,5 +707,5 @@
         return drawLens(canvas, card, o, R, S);
     }
 
-    return { STYLES, sdfRoundRect, refractSample, ribbonPaths, posterWord, rng, refract, draw, drawLens, drawGauge, drawPoster, drawPassport };
+    return { STYLES, PASSPORT_STYLES, sdfRoundRect, refractSample, ribbonPaths, posterWord, passportWord, passportFigures, rng, refract, draw, drawLens, drawGauge, drawPoster, drawPassport };
 });

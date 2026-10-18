@@ -137,3 +137,32 @@ test("wiring: the phone's share menu (native in the app), previews, no auto-uplo
     const sw = read("public/sw.js");
     for (const f of ["share-out.js", "place-share.js", "passport-model.js", "passport-app.js", "passport.css"]) assert.ok(sw.includes(`"/js/passport/${f}"`), f);
 });
+
+test("Passport card looks: Lens, Gauge, Poster from the liquid module; the headline and rows come only from the card's lines", async () => {
+    const { createRequire } = await import("node:module");
+    const LQ = createRequire(import.meta.url)("../../public/js/share/card-liquid.js");
+    assert.deepEqual(LQ.PASSPORT_STYLES, ["lens", "gauge", "poster"]);
+    const vis = { ...Object.fromEntries(Object.keys(P.DEFAULT_VIS).map((k) => [k, "private"])), distance: "card", rides: "card", confirmed: "card", experience: "card", bike: "card" };
+    const p = P.build({ self: { name: "Arjun Patra", ridingSince: 2016, bike: "Pulsar 150" }, rides: [], community: { confirmed: 7, pending: 1, accuracy: 0.9, thanksReceived: 4 }, visibility: vis, now: Date.UTC(2026, 9, 18) });
+    const card = P.forCard(p, vis);
+    const F = LQ.passportFigures(card);
+    assert.equal(F.headline.id, "distance", "distance ridden leads when it's on the card");
+    assert.equal(F.selfLine, "riding since 2016  ·  Pulsar 150");
+    assert.deepEqual(F.rows.map((r) => [r.id, r.source]), [["distance", "app"], ["rides", "app"], ["confirmed", "community"]]);
+    assert.deepEqual(F.rest.map((r) => r.id), ["rides", "confirmed"]);
+    assert.deepEqual([F.headline.num, F.headline.unit], ["0", "km"]);
+    // nothing on the card: no headline, nothing made up
+    const empty = LQ.passportFigures({ sections: [] });
+    assert.equal(empty.headline, null);
+    assert.deepEqual(empty.rows, []);
+    // without distance, the first row leads
+    const p2 = P.build({ self: { name: "A" }, rides: [], visibility: { ...vis, distance: "private" }, now: Date.UTC(2026, 9, 18) });
+    assert.equal(LQ.passportFigures(P.forCard(p2, vis)).headline.id, "rides");
+    assert.equal(LQ.passportWord("Arjun Patra"), "ARJUN");
+    assert.equal(LQ.passportWord("अर्जुन"), "RIDER");
+    assert.equal(LQ.passportWord("Bartholomew"), "RIDER");
+    const app = read("public/js/passport/passport-app.js");
+    assert.match(app, /CARD_STYLES = \["lens", "gauge", "poster", "bento"\]/);
+    assert.ok(!/localStorage\.setItem\([^)]*photo/.test(app) && !/photo:\s*photo\s*[,}].*save\(/.test(app), "the photo isn't stored");
+});
+

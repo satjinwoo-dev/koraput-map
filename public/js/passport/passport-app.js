@@ -24,9 +24,12 @@ const MUPassport = (() => {
     if (!W || !W.document || !W.MUPassportModel) return {};
     const M = W.MUPassportModel;
     const KEY = "mu.passport.v1";
+    // the card's looks: the recap's liquid-glass three (js/share/card-liquid.js), and the Bento tiles
+    const CARD_STYLES = ["lens", "gauge", "poster", "bento"];
+    const STYLE_NAMES = { lens: "Lens", gauge: "Gauge", poster: "Poster", bento: "Bento" };
 
     function load() {
-        try { const s = JSON.parse(localStorage.getItem(KEY) || "{}"); return { self: s.self || {}, visibility: s.visibility || {}, reports: s.reports || {} }; } catch (e) { return { self: {}, visibility: {}, reports: {} }; }
+        try { const s = JSON.parse(localStorage.getItem(KEY) || "{}"); return { self: s.self || {}, visibility: s.visibility || {}, reports: s.reports || {}, cardStyle: CARD_STYLES.includes(s.cardStyle) ? s.cardStyle : "lens" }; } catch (e) { return { self: {}, visibility: {}, reports: {}, cardStyle: "lens" }; }
     }
     function save(st) { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) { /* private mode */ } }
 
@@ -60,12 +63,15 @@ const MUPassport = (() => {
     }
 
     // ------------------------------------------------------------ the card (1080 × 1350, drawn on the phone)
-    // Bento style (js/share/card-styles.js, loaded with the recap): a name header, self-reported chips, tiles for
-    // what MapUnite recorded and what other riders confirmed (each tile says which), and the badges earned.
+    // Lens, Gauge and Poster come from js/share/card-liquid.js (loaded with the recap), with the rider's photo behind
+    // them if they pick one (redrawn, so no EXIF/GPS leaves the phone). Bento, and any look when the liquid module
+    // hasn't loaded: a name header, self-reported chips, tiles for what MapUnite recorded and what other riders
+    // confirmed (each tile says which), and the badges earned.
     const FONT = `"Inter", system-ui, sans-serif`, DISPLAY = `"Sora", "Inter", system-ui, sans-serif`;
-    function drawCard(canvas, card) {
-        // the liquid-glass Passport (js/share/card-liquid.js) when it has loaded; the Bento tiles otherwise
-        if (W.MUShare && W.MUShare.liquid && typeof W.MUShare.liquid.drawPassport === "function") return W.MUShare.liquid.drawPassport(canvas, card, { seed: (card.name || "").length * 97 + 11 });
+    /** @param {HTMLCanvasElement} canvas @param {any} card @param {{ style?: string, photo?: any }} [o] */
+    function drawCard(canvas, card, o = {}) {
+        const style = o.style || "lens";
+        if (style !== "bento" && W.MUShare && W.MUShare.liquid && typeof W.MUShare.liquid.drawPassport === "function") return W.MUShare.liquid.drawPassport(canvas, card, { style, photo: o.photo || null, seed: (card.name || "").length * 97 + 11 });
         const S = W.MUShare && W.MUShare.styles;
         canvas.width = 1080; canvas.height = 1350;
         const ctx = canvas.getContext("2d");
@@ -152,9 +158,14 @@ const MUPassport = (() => {
         return el;
     };
     let modal = null;
+    // the thin Inter and condensed Anton faces the liquid looks draw with (canvas text doesn't wait for webfonts)
+    let fontsP = null;
+    const fonts = () => fontsP || (fontsP = (document.fonts && typeof document.fonts.load === "function"
+        ? Promise.all(["200 100px Inter", "300 100px Inter", "400 100px Anton", "700 100px Sora"].map((f) => document.fonts.load(f).catch(() => null))) : Promise.resolve([])).then(() => undefined));
     async function open() {
         if (modal) modal.remove();
         const st = load();
+        let photo = null;
         const body = h("div", { class: "pp-body" }, [h("p", { class: "pp-sub", text: "Loading…" })]);
         const close = () => { if (modal) { modal.remove(); modal = null; } };
         modal = h("div", { class: "modal pp-modal", role: "dialog", "aria-modal": "true", "aria-label": "Rider Passport", onclick: (e) => { if (e.target === modal) close(); } }, [
@@ -202,8 +213,30 @@ const MUPassport = (() => {
             ]);
             const canvas = h("canvas", { class: "pp-canvas", role: "img", "aria-label": "Your Passport card" });
             const status = h("p", { class: "pp-status", role: "status" });
-            const cardWrap = h("section", { class: "pp-sec", hidden: true }, [h("h3", { text: "Card preview: only the lines marked On my card" }), canvas,
-                h("div", { class: "pp-actions" }, [
+            const draw = async () => { await fonts(); drawCard(canvas, M.forCard(p, { ...M.DEFAULT_VIS, ...st.visibility }), { style: st.cardStyle, photo }); };
+            const chips = h("div", { class: "pp-styles", role: "radiogroup", "aria-label": "Card style" }, CARD_STYLES.map((s) => h("button", {
+                type: "button", class: "pp-chip", role: "radio", "aria-checked": String(s === st.cardStyle), text: STYLE_NAMES[s],
+                onclick: (e) => {
+                    st.cardStyle = s; save(st);
+                    for (const c of chips.children) c.setAttribute("aria-checked", String(c === e.currentTarget));
+                    draw();
+                }
+            })));
+            // the rider's own photo behind Lens, Gauge and Poster: kept in memory for this preview only, never stored
+            const file = h("input", { type: "file", accept: "image/*", hidden: true, onchange: () => {
+                const f = file.files && file.files[0];
+                if (!f) return;
+                const img = new Image(), url = URL.createObjectURL(f);
+                img.onload = () => { photo = img; URL.revokeObjectURL(url); if (st.cardStyle === "bento") { st.cardStyle = "lens"; save(st); for (const c of chips.children) c.setAttribute("aria-checked", String(c.textContent === "Lens")); } photoBtn.textContent = "Remove photo"; draw(); };
+                img.onerror = () => { URL.revokeObjectURL(url); status.textContent = "That photo couldn't be opened."; };
+                img.src = url;
+                file.value = "";
+            } });
+            const photoBtn = h("button", { type: "button", class: "btn-secondary-nav", text: photo ? "Remove photo" : "Add your photo", onclick: () => {
+                if (photo) { photo = null; photoBtn.textContent = "Add your photo"; draw(); } else file.click();
+            } });
+            const cardWrap = h("section", { class: "pp-sec", hidden: true }, [h("h3", { text: "Card preview: only the lines marked On my card" }), chips, canvas,
+                h("div", { class: "pp-actions" }, [photoBtn, file,
                     h("button", { type: "button", class: "btn-primary-nav", text: "Share card", onclick: () => canvas.toBlob(async (blob) => { if (!blob) return; status.textContent = W.MUShareOut.said(await W.MUShareOut.image({ blob, fileName: "mapunite-passport.png", title: "My MapUnite Rider Passport" })); }, "image/png") })
                 ]), status]);
             body.replaceChildren(
@@ -215,7 +248,7 @@ const MUPassport = (() => {
                 h("div", { class: "pp-actions" }, [h("button", { type: "button", class: "btn-primary-nav", text: "Preview my card", onclick: async () => {
                     // the card's Bento tiles come from the recap's styles: load them on first use (precached)
                     if (W.MUShare && W.MUShare.app && typeof W.MUShare.app.load === "function" && !W.MUShare.liquid) { try { await W.MUShare.app.load(); } catch (e) { /* plain tiles */ } }
-                    drawCard(canvas, M.forCard(p, { ...M.DEFAULT_VIS, ...st.visibility })); cardWrap.hidden = false; cardWrap.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                    await draw(); cardWrap.hidden = false; cardWrap.scrollIntoView({ behavior: "smooth", block: "nearest" });
                 } })]),
                 cardWrap
             );

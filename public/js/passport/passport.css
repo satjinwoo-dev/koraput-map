@@ -30,3 +30,6 @@ textarea.pp-input { resize: vertical; }
 .pp-pop { text-align: center; font-size: 13px; }
 .mu-share-place { margin-top: 8px; width: 100%; padding: 8px 12px; border: 0; border-radius: 10px; background: #1a73e8; color: #fff; font-weight: 700; font-size: 13px; cursor: pointer; }
 @media (max-width: 520px) { .pp-line { grid-template-columns: minmax(0, 1fr) auto; } .pp-line .pp-vis { grid-column: 1 / -1; justify-self: start; } }
+.pp-styles { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.pp-chip { flex: 1 1 0; min-width: 0; padding: 8px 6px; border-radius: 999px; border: 1px solid var(--line-strong, rgba(255,255,255,.16)); background: rgba(255,255,255,.05); color: var(--soft, #c6d2db); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.pp-chip[aria-checked="true"] { background: rgba(52,224,180,.16); border-color: rgba(52,224,180,.55); color: var(--mint, #34e0b4); }
