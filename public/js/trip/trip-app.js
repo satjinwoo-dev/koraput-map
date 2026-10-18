@@ -97,6 +97,8 @@
         if (c) c.setRoute(d);
     });
     document.addEventListener("mu:route-clear", () => { pendingRoute = null; if (card) card.clear(); });
+    // rider + pillion paired (js/pin/pillion.js): on the rider's phone the load is "pillion"
+    document.addEventListener("mu:pillion", (e) => { const d = /** @type {CustomEvent} */ (e).detail || {}; const c = mountCard(); if (c && d.role === "rider") c.setPillion(true); });
     document.addEventListener("mu:drive-state", (e) => { const d = /** @type {CustomEvent} */ (e).detail || {}; if (card) card.setCompact(!!d.navigating); });
 
     // ---------------------------------------------------------------- 2. the in-app garage

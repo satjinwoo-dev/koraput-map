@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-18.12";          // navigation, minimized: picture-in-picture + live turn notification
+const VERSION = "mu-2026-10-18.13";          // 4-digit PINs: group rides, rider + pillion
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
@@ -64,6 +64,9 @@ const APP_SCRIPTS = [
     "/js/navcam/navmotion.js",
     "/js/navpip/navpip-core.js",
     "/js/navpip/navpip.js",
+    "/js/pin/pinpad.js",
+    "/js/pin/group-pin.js",
+    "/js/pin/pillion.js",
     "/js/navsheet.js",
     "/js/ridefocus.js",
     "/js/roadfocus.js",
@@ -226,7 +229,8 @@ const BIKE_SCRIPTS = [
     "/js/ai/avatar.css",
     // the navigation camera's styles (its scripts are in APP_SCRIPTS)
     "/js/navcam/navcam.css",
-    "/js/navpip/navpip.css"
+    "/js/navpip/navpip.css",
+    "/js/pin/pinpad.css"
 ];
 // The Socket.IO client library: a static script the server ships. index.html can't
 // boot offline without it (core.js calls io() at once; offline it just keeps

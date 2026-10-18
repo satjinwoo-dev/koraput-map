@@ -910,6 +910,10 @@ const clusterNodes = new Map();     // nodeId -> last heartbeat time (op clock)
 const pendingDeparture = new Map(); // deviceId -> grace timer, armed by the process that owns the socket
 const venueCache = new Map();       // "lat,lng" -> {ts, venues}
 const lastTripSent = new Map();     // local socketId -> JSON of the last tripData it received
+// Rider + pillion: two phones on one bike, paired with a 4-digit code (replicated through ops)
+const pairCodes = new Map();        // code -> { deviceId, name, expiresAt }
+const pairs = new Map();            // pairId -> { id, a: { deviceId, name }, b: { deviceId, name }, riderDeviceId|null, at }
+const pinFails = new Map();         // `${scope}:${who}` -> [failure times]  (local: brute-force brakes)
 const heartbeatSeen = new Map();    // nodeId -> local receipt time of its last heartbeat
 
 const bus = createBus({ redisUrl: REDIS_URL, prefix: CLUSTER_PREFIX, log: console });
@@ -1049,17 +1053,75 @@ function tripFor(viewerSid) {
     for (const t of trips.values()) if (canSeeTrip(t, viewerSid) && (!best || t.startedAt > best.startedAt)) best = t;
     return best;
 }
-function publicTrip(t) {
+// A trip's 4-digit PIN is what lets a rider join it. Only its members see it (to share it); everyone else
+// sees only that the trip is locked.
+function publicTrip(t, viewerSid = null) {
     if (!t) return null;
+    const member = viewerSid != null && t.members.some((m) => m.id === viewerSid);
     return {
         id: t.id, name: t.name, lat: t.lat, lng: t.lng, hostId: t.hostId,
-        members: t.members.map((m) => ({ id: m.id, name: m.name })),
-        circleId: t.circleId || null, circleName: t.circleName || null
+        members: t.members.map((m) => ({ id: m.id, name: m.name, pillion: pillionOfTripMember(t, m.id) })),
+        circleId: t.circleId || null, circleName: t.circleName || null,
+        locked: Boolean(t.pin), pin: member && t.pin ? t.pin : null
     };
 }
+const PIN_RE = /^\d{4}$/;
+/** A 4-digit PIN no running trip (or pending pairing) is using. */
+function newPin(taken) {
+    for (let i = 0; i < 60; i++) {
+        const p = String(crypto.randomInt(0, 10000)).padStart(4, "0");
+        if (!taken(p)) return p;
+    }
+    return String(crypto.randomInt(0, 10000)).padStart(4, "0");
+}
+const newTripPin = () => newPin((p) => [...trips.values()].some((t) => t.pin === p));
+const newPairCode = () => newPin((p) => pairCodes.has(p));
+const PIN_TRIES = 5, PIN_WINDOW_MS = 10 * 60 * 1000;
+/** Wrong-PIN brakes, per device (or address) and per trip. → remaining tries in the window, 0 = locked for now */
+function pinTriesLeft(key, now = Date.now(), max = PIN_TRIES) {
+    const a = (pinFails.get(key) || []).filter((t) => now - t < PIN_WINDOW_MS);
+    if (a.length) pinFails.set(key, a); else pinFails.delete(key);
+    return Math.max(0, max - a.length);
+}
+function pinFailed(key, now = Date.now()) { const a = (pinFails.get(key) || []).filter((t) => now - t < PIN_WINDOW_MS); a.push(now); pinFails.set(key, a); }
+// per phone (5) and per network address (20: a new device id per try doesn't get around it)
+const pinKeys = (socket, scope) => { const u = users.get(socket.id); return { dev: `${scope}:dev:${(u && u.deviceId) || socket.id}`, ip: `${scope}:ip:${(socket.handshake && socket.handshake.address) || "?"}` }; };
+const pinLeft = (k) => Math.min(pinTriesLeft(k.dev), pinTriesLeft(k.ip, Date.now(), PIN_TRIES * 4));
+const pinMiss = (k) => { pinFailed(k.dev); pinFailed(k.ip); };
+
+// --- rider + pillion -------------------------------------------------------
+function pairOfDevice(deviceId) {
+    if (!deviceId) return null;
+    for (const p of pairs.values()) if (p.a.deviceId === deviceId || p.b.deviceId === deviceId) return p;
+    return null;
+}
+const sidsOfDevice = (deviceId) => { const out = []; if (deviceId) for (const [sid, u] of users) if (u.deviceId === deviceId) out.push(sid); return out; };
+/** What a paired phone is told: its partner, who rides, whether to ask. */
+function pairViewFor(deviceId) {
+    const p = pairOfDevice(deviceId);
+    if (!p) return { paired: false };
+    const me = p.a.deviceId === deviceId ? p.a : p.b, other = me === p.a ? p.b : p.a;
+    const partnerSid = sidsOfDevice(other.deviceId)[0] || null;
+    return {
+        paired: true, partner: { name: other.name, id: partnerSid, online: Boolean(partnerSid) },
+        role: p.riderDeviceId ? (p.riderDeviceId === deviceId ? "rider" : "pillion") : null,
+        askRole: !p.riderDeviceId, since: p.at
+    };
+}
+function pushPairTo(deviceId) { for (const sid of sidsOfDevice(deviceId)) emitLocal(sid, "pairUpdate", pairViewFor(deviceId)); }
+/** On the map and in trips: the pillion rides with the rider (one bike). */
+function pillionInfo(u) {
+    const p = u && pairOfDevice(u.deviceId);
+    if (!p || !p.riderDeviceId) return null;
+    const isRider = p.riderDeviceId === u.deviceId;
+    const other = p.a.deviceId === u.deviceId ? p.b : p.a;
+    return isRider ? { role: "rider", partnerName: other.name } : { role: "pillion", partnerName: other.name, riderSid: sidsOfDevice(other.deviceId)[0] || null };
+}
+function pillionOfTripMember(t, sid) { const i = pillionInfo(users.get(sid)); return i && i.role === "pillion" && t.members.some((m) => m.id === i.riderSid) ? true : undefined; }
+
 function pushTripViewTo(sid, force = false) {
     if (!users.has(sid)) return;
-    const pub = publicTrip(tripFor(sid));
+    const pub = publicTrip(tripFor(sid), sid);
     const key = JSON.stringify(pub);
     if (!force && lastTripSent.get(sid) === key) return;
     lastTripSent.set(sid, key);
@@ -1111,7 +1173,9 @@ function publicUser(u, level) {
         relayedBy: relayed ? (u.relayedBy || null) : null,
         bg: level !== "nopos" && Boolean(u.bgOnly),          // Android app in the background (native location)
         // Batch 2: listed but not sharing right now (trip-only, not riding)
-        paused: level === "nopos" && u.sharingMode !== "off"
+        paused: level === "nopos" && u.sharingMode !== "off",
+        // rider + pillion on one bike: the rider's marker says so; the pillion's is drawn with the rider's
+        ...(() => { const i = level === "hidden" ? null : pillionInfo(u); return i ? (i.role === "rider" ? { pillion: i.partnerName } : { ridingWith: i.riderSid, riderName: i.partnerName }) : {}; })()
     };
 }
 
@@ -2146,7 +2210,8 @@ const OPS = {
         }
         const trip = {
             id: op.tripId, name: op.name, lat: op.lat, lng: op.lng, hostId: op.sid,
-            members: [{ id: op.sid, name: user.name }], circleId, circleName, startedAt: op.now
+            members: [{ id: op.sid, name: user.name }], circleId, circleName, startedAt: op.now,
+            pin: PIN_RE.test(op.pin || "") ? op.pin : null           // the group PIN: members share it, others need it to join
         };
         trips.set(trip.id, trip);
         pushTripViews();
@@ -2170,6 +2235,59 @@ const OPS = {
     "trip.leave"(op) {
         const affected = removeFromTrip(op.sid);
         afterMembershipChange(affected.length ? affected : [op.sid]);
+        return { ok: true };
+    },
+
+    // a new group PIN (the host renewed it, or too many wrong tries): the old one stops working
+    "trip.pin"(op) {
+        const t = trips.get(op.tripId);
+        if (!t || !PIN_RE.test(op.pin)) return { ok: false };
+        t.pin = op.pin;
+        pushTripViews();
+        return { ok: true, pin: t.pin };
+    },
+
+    // rider + pillion: a code to pair with (10 minutes, one use)
+    "pair.code"(op) {
+        const u = users.get(op.sid);
+        if (!u || !u.deviceId) return { ok: false, reason: "no-device" };
+        for (const [c, v] of pairCodes) if (v.deviceId === u.deviceId || v.expiresAt <= op.now) pairCodes.delete(c);
+        pairCodes.set(op.code, { deviceId: u.deviceId, name: u.name, expiresAt: op.now + 10 * 60 * 1000 });
+        return { ok: true, code: op.code, expiresAt: op.now + 10 * 60 * 1000 };
+    },
+    "pair.join"(op) {
+        const u = users.get(op.sid);
+        const c = pairCodes.get(op.code);
+        if (!u || !u.deviceId) return { ok: false, reason: "no-device" };
+        if (!c || c.expiresAt <= op.now) return { ok: false, reason: "wrong-code" };
+        if (c.deviceId === u.deviceId) return { ok: false, reason: "own-code" };
+        pairCodes.delete(op.code);
+        // one bike each: a phone already paired leaves its old pair
+        for (const d of [u.deviceId, c.deviceId]) { const old = pairOfDevice(d); if (old) { pairs.delete(old.id); for (const x of [old.a.deviceId, old.b.deviceId]) if (x !== u.deviceId && x !== c.deviceId) pushPairTo(x); } }
+        const p = { id: op.pairId, a: { deviceId: c.deviceId, name: c.name }, b: { deviceId: u.deviceId, name: u.name }, riderDeviceId: null, at: op.now };
+        pairs.set(p.id, p);
+        pushPairTo(p.a.deviceId); pushPairTo(p.b.deviceId);
+        return { ok: true };
+    },
+    "pair.role"(op) {
+        const u = users.get(op.sid);
+        const p = u && pairOfDevice(u.deviceId);
+        if (!p) return { ok: false, reason: "not-paired" };
+        const other = p.a.deviceId === u.deviceId ? p.b : p.a;
+        p.riderDeviceId = op.rider === "me" ? u.deviceId : other.deviceId;
+        pushPairTo(p.a.deviceId); pushPairTo(p.b.deviceId);
+        for (const d of [p.a.deviceId, p.b.deviceId]) for (const sid of sidsOfDevice(d)) { const x = users.get(sid); if (x) emitUserEvent("friendMoved", x, sid); }
+        pushTripViews();
+        return { ok: true };
+    },
+    "pair.leave"(op) {
+        const u = users.get(op.sid);
+        const p = u && pairOfDevice(u.deviceId);
+        if (!p) return { ok: true };
+        pairs.delete(p.id);
+        pushPairTo(p.a.deviceId); pushPairTo(p.b.deviceId);
+        for (const d of [p.a.deviceId, p.b.deviceId]) for (const sid of sidsOfDevice(d)) { const x = users.get(sid); if (x) emitUserEvent("friendMoved", x, sid); }
+        pushTripViews();
         return { ok: true };
     },
 
@@ -2536,9 +2654,10 @@ io.on("connection", (socket) => {
             socket.emit("loadMemoryPhotos", memories.map(publicMemory));
             socket.emit("loadGeofences", geofences.map(publicFence));
             socket.emit("onlineUsers", visibleUsersFor(socket.id));
-            const t = publicTrip(tripFor(socket.id));
+            const t = publicTrip(tripFor(socket.id), socket.id);
             lastTripSent.set(socket.id, JSON.stringify(t));
             if (t) socket.emit("tripData", t);
+            if (user.deviceId) socket.emit("pairUpdate", pairViewFor(user.deviceId));   // rider + pillion, after a reconnect
         });
     }));
 
@@ -2635,14 +2754,77 @@ io.on("connection", (socket) => {
         }
         return commit({
             t: "trip.start", sid: socket.id, tripId: generateId(), name: clampStr(data.name, 80).trim(),
-            lat: data.lat, lng: data.lng, circleId, circleName
+            lat: data.lat, lng: data.lng, circleId, circleName, pin: newTripPin()
         });
     }));
 
+    // Joining a group needs its 4-digit PIN: from the trip offered on the map, or typed in on its own.
+    // Wrong PINs: 5 per 10 minutes per phone; 20 against one trip and its PIN changes (the host is told).
     socket.on("joinTrip", safeHandler(socket, (data) => {
-        if (!users.has(socket.id)) return;
+        if (!users.has(socket.id) || tripOf(socket.id)) return;
         const tripId = isNonEmptyStr(data?.tripId, 60) ? data.tripId : null;
-        return commit({ t: "trip.join", sid: socket.id, tripId });
+        const pin = typeof data?.pin === "string" ? data.pin.trim() : "";
+        if (pin && !PIN_RE.test(pin)) return socket.emit("tripError", { reason: "bad-pin" });
+        const who = pinKeys(socket, "trip");
+        if (!pinLeft(who)) return socket.emit("tripError", { reason: "too-many-tries", retryInMin: 10 });
+        let target = tripId ? trips.get(tripId) : null;
+        if (!target && pin) for (const t of trips.values()) if (t.pin === pin && canSeeTrip(t, socket.id)) { target = t; break; }
+        if (!target && !tripId && !pin) target = tripFor(socket.id);
+        if (!target || !canSeeTrip(target, socket.id)) {
+            if (pin) { pinMiss(who); return socket.emit("tripError", { reason: "wrong-pin", triesLeft: pinLeft(who) }); }
+            return socket.emit("tripError", { reason: "no-trip" });
+        }
+        if (target.pin && pin !== target.pin) {
+            if (!pin) return socket.emit("tripError", { reason: "pin-required", tripId: target.id, name: target.name });
+            pinMiss(who);
+            const tk = `trip:${target.id}`;
+            pinFailed(tk);
+            if ((pinFails.get(tk) || []).length >= 20) {
+                pinFails.delete(tk);
+                commit({ t: "trip.pin", tripId: target.id, pin: newTripPin() });
+                emitLocal(target.hostId, "tripError", { reason: "pin-rotated" });
+            }
+            return socket.emit("tripError", { reason: "wrong-pin", triesLeft: pinLeft(who), tripId: target.id });
+        }
+        return commit({ t: "trip.join", sid: socket.id, tripId: target.id });
+    }));
+
+    socket.on("renewTripPin", safeHandler(socket, () => {
+        const t = tripOf(socket.id);
+        if (!t || t.hostId !== socket.id || !throttle(socket.id, "trip-pin", 3000)) return;
+        return commit({ t: "trip.pin", tripId: t.id, pin: newTripPin() });
+    }));
+
+    // --- rider + pillion: one makes a code, the other types it, then they say who rides ---------
+    socket.on("pairCreate", safeHandler(socket, (data, ack) => {
+        const u = users.get(socket.id);
+        const reply = typeof ack === "function" ? ack : () => {};
+        if (!u || !u.deviceId) return reply({ ok: false, reason: "no-device" });
+        if (!throttle(socket.id, "pair-code", 2000)) return reply({ ok: false, reason: "too-fast" });
+        return commitThen({ t: "pair.code", sid: socket.id, code: newPairCode() }, (r) => reply(r));
+    }));
+    socket.on("pairJoin", safeHandler(socket, (data, ack) => {
+        const u = users.get(socket.id);
+        const reply = typeof ack === "function" ? ack : () => {};
+        const code = typeof data?.code === "string" ? data.code.trim() : "";
+        if (!u || !u.deviceId) return reply({ ok: false, reason: "no-device" });
+        if (!PIN_RE.test(code)) return reply({ ok: false, reason: "bad-code" });
+        const who = pinKeys(socket, "pair");
+        if (!pinLeft(who)) return reply({ ok: false, reason: "too-many-tries", retryInMin: 10 });
+        const c = pairCodes.get(code);
+        if (!c || c.expiresAt <= Date.now()) { pinMiss(who); return reply({ ok: false, reason: "wrong-code", triesLeft: pinLeft(who) }); }
+        if (c.deviceId === u.deviceId) return reply({ ok: false, reason: "own-code" });
+        return commitThen({ t: "pair.join", sid: socket.id, code, pairId: generateId() }, (r) => reply(r));
+    }));
+    socket.on("pairRole", safeHandler(socket, (data, ack) => {
+        const reply = typeof ack === "function" ? ack : () => {};
+        if (!users.has(socket.id) || !["me", "partner"].includes(data?.rider)) return reply({ ok: false });
+        return commitThen({ t: "pair.role", sid: socket.id, rider: data.rider }, (r) => reply(r));
+    }));
+    socket.on("pairLeave", safeHandler(socket, (data, ack) => {
+        const reply = typeof ack === "function" ? ack : () => {};
+        if (!users.has(socket.id)) return reply({ ok: false });
+        return commitThen({ t: "pair.leave", sid: socket.id }, (r) => reply(r));
     }));
 
     socket.on("leaveTrip", safeHandler(socket, () => {

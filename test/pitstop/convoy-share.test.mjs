@@ -76,7 +76,8 @@ test("setup: a host starts a trip, a mate joins, an outsider stays out", opts, a
     host.emit("startTrip", { name: "Koraput ride", lat: 18.81, lng: 82.71 });
     const trip = await started;
     const joined = nextProfile(host, mate, () => true);
-    mate.emit("joinTrip", { tripId: trip.id });
+    assert.match(trip.pin, /^\d{4}$/, "the host sees the group PIN");
+    mate.emit("joinTrip", { tripId: trip.id, pin: trip.pin });
     await joined;
 });
 

@@ -143,7 +143,9 @@ function createOrUpdateFriendMarker(u) {
         ownerKey: u.ownerKey || prev.ownerKey || null,
         accuracy: Number.isFinite(u.accuracy) ? u.accuracy : null, est: Boolean(u.est), via,
         viaAt: via ? Date.now() : null, fixAt: Number.isFinite(u.fixAt) ? u.fixAt : null,
-        relayedBy: via ? (u.relayedBy || null) : null, updatedAt: Date.now()
+        relayedBy: via ? (u.relayedBy || null) : null, updatedAt: Date.now(),
+        // rider + pillion (js/pin/pillion.js): one bike on the map
+        pillion: u.pillion || null, ridingWith: u.ridingWith || null, riderName: u.riderName || null
     };
     const f = friendData[u.id];
     const opacity = f.online ? 1 : via ? 0.9 : 0.45;
@@ -159,6 +161,10 @@ function createOrUpdateFriendMarker(u) {
         el.classList.toggle("approx-marker", f.approx);
         el.classList.toggle("est-marker", f.est);
         el.classList.toggle("radio-marker", Boolean(via));
+        // the rider's marker carries "+1"; the pillion's hides under it (when the rider's is on the map)
+        el.classList.toggle("has-pillion", Boolean(f.pillion));
+        if (f.pillion) el.setAttribute("title", `${f.name} + ${f.pillion} (pillion)`); else el.removeAttribute("title");
+        el.classList.toggle("pillion-hidden", Boolean(f.ridingWith && friendMarkers[f.ridingWith]));
     }
     if (f.est && Number.isFinite(f.accuracy) && f.accuracy >= 30) {
         if (!friendAccuracyCircles[u.id]) friendAccuracyCircles[u.id] = L.circle([u.lat, u.lng], { radius: f.accuracy, color: "#ff9f0a", weight: 1.5, dashArray: "5 6", fillOpacity: 0.05, interactive: false }).addTo(map);

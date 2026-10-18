@@ -1,0 +1,112 @@
+/* MapUnite PIN pad (js/pin/pinpad.js): four boxes → a turning ring → green → one tile with a tick */
+.pin-overlay { position: fixed; inset: 0; z-index: 6000; display: grid; place-items: center; padding: 16px;
+  background: rgba(4,6,10,.55); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); opacity: 0; transition: opacity .2s; }
+.pin-overlay.in { opacity: 1; }
+.pin-card { position: relative; width: min(360px, 100%); padding: 14px 22px 18px; border-radius: 24px; text-align: center; color: #f2f5f8;
+  background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.015)), #121418;
+  border: 1px solid rgba(255,255,255,.09); box-shadow: 0 24px 60px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.06);
+  transform: translateY(14px) scale(.98); transition: transform .25s cubic-bezier(.2,.8,.2,1); }
+.pin-overlay.in .pin-card { transform: none; }
+.pin-grab { width: 38px; height: 4px; margin: 0 auto 14px; border-radius: 4px; background: rgba(255,255,255,.18); }
+.pin-title { margin: 0 0 6px; font-size: 18px; font-weight: 700; letter-spacing: -.01em; transition: color .3s; }
+.pin-title.ok { color: #34e0b4; }
+.pin-sub { margin: 0; font-size: 12.5px; line-height: 1.45; color: rgba(242,245,248,.6); }
+.pin-err { min-height: 18px; margin: 8px 0 0; font-size: 12.5px; color: #fca5a5; }
+.pin-foot { margin: 6px 0 0; font-size: 11.5px; color: rgba(242,245,248,.45); }
+.pin-cancel { margin-top: 10px; padding: 8px 14px; border: 0; border-radius: 10px; background: none; color: rgba(242,245,248,.6); font: inherit; font-size: 13px; cursor: pointer; }
+
+/* the stage: boxes sit absolutely round its centre, so they can fly to the ring and back */
+.pin-stage { position: relative; height: 180px; margin: 10px auto 0; cursor: text; }
+.pin-input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; border: 0; color: transparent; background: transparent; caret-color: transparent; font-size: 16px; }
+.pin-spin { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
+.pin-box { position: absolute; left: 0; top: 0; width: 52px; height: 52px; display: grid; place-items: center; border-radius: 13px;
+  background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.02)), #1a1d22; border: 1px solid rgba(255,255,255,.12);
+  box-shadow: 0 6px 16px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.07);
+  font: 600 21px/1 var(--font-ui, system-ui, sans-serif); color: #f2f5f8;
+  transition: transform .5s cubic-bezier(.3,1.25,.4,1), background .3s, border-color .3s, color .3s, opacity .35s; }
+.pin-box.filled { border-color: rgba(255,255,255,.26); }
+.pin-box.caret { border-color: rgba(255,255,255,.55); box-shadow: 0 0 0 3px rgba(255,255,255,.06), 0 6px 16px rgba(0,0,0,.35); }
+.pin-box.caret::after { content: ""; width: 2px; height: 22px; border-radius: 2px; background: #f2f5f8; animation: pin-blink 1s steps(1) infinite; }
+.pin-box.caret .pin-d { display: none; }
+@keyframes pin-blink { 50% { opacity: 0; } }
+.pin-ring { position: absolute; left: 50%; top: 50%; width: 124px; height: 124px; margin: -62px 0 0 -62px; border-radius: 50%; border: 1px solid rgba(255,255,255,.12); opacity: 0; transform: scale(.6); transition: opacity .35s, transform .5s; }
+.pin-dot { position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: rgba(255,255,255,.7); opacity: 0; transition: opacity .3s; }
+.pin-stage.orbit .pin-ring { opacity: 1; transform: none; }
+.pin-stage.orbit .pin-dot { opacity: 1; }
+.pin-stage.orbit .pin-spin { animation: pin-turn 2.4s linear infinite; }
+@keyframes pin-turn { to { transform: rotate(360deg); } }
+/* right: green, then gathered into one tile with a tick and a burst */
+.pin-stage.ok .pin-box { background: linear-gradient(180deg, rgba(52,224,180,.2), rgba(52,224,180,.06)), #10201c; border-color: #34e0b4; color: #8ff3d6; box-shadow: 0 0 18px rgba(52,224,180,.35); }
+.pin-stage.ok .pin-ring { border-color: rgba(52,224,180,.35); }
+.pin-stage.done .pin-spin { animation-play-state: paused; }
+.pin-stage.done .pin-box { opacity: 0; }
+.pin-stage.done .pin-ring, .pin-stage.done .pin-dot { opacity: 0; }
+.pin-done { position: absolute; left: 50%; top: 50%; width: 76px; height: 76px; margin: -38px 0 0 -38px; border-radius: 22px; opacity: 0; transform: scale(.4);
+  border: 1.5px solid rgba(52,224,180,.55); box-shadow: 0 0 0 7px rgba(52,224,180,.08), 0 0 30px rgba(52,224,180,.35); background: rgba(52,224,180,.08);
+  display: grid; place-items: center; transition: opacity .35s .15s, transform .5s .15s cubic-bezier(.3,1.4,.4,1); }
+.pin-stage.done .pin-done { opacity: 1; transform: none; }
+.pin-check { width: 40px; height: 40px; border-radius: 12px; background: linear-gradient(145deg, #34e0b4, #12a587); display: grid; place-items: center; }
+.pin-check::after { content: ""; width: 16px; height: 9px; margin-top: -4px; border-left: 3px solid #062112; border-bottom: 3px solid #062112; transform: rotate(-45deg); }
+.pin-spark { position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: #34e0b4; box-shadow: 0 0 8px #34e0b4;
+  animation: pin-spark 1.1s ease-out forwards; }
+@keyframes pin-spark { 0% { transform: translate(0, 0) scale(.6); opacity: 0; } 20% { opacity: 1; } 100% { transform: translate(var(--dx), var(--dy)) scale(1); opacity: 0; } }
+/* wrong: a shake, red, back in the row */
+.pin-stage.bad .pin-box { border-color: #f87171; color: #fecaca; }
+.pin-stage.bad .pin-spin { animation: pin-shake .45s; }
+@keyframes pin-shake { 20% { transform: translateX(-9px); } 40% { transform: translateX(8px); } 60% { transform: translateX(-6px); } 80% { transform: translateX(4px); } }
+
+/* a code to share */
+.pin-show { display: flex; justify-content: center; gap: 10px; margin: 18px 0 10px; }
+.pin-tile { width: 54px; height: 62px; display: grid; place-items: center; border-radius: 14px; font: 700 28px/1 var(--font-ui, system-ui, sans-serif); color: #fff;
+  background: linear-gradient(160deg, rgba(52,224,180,.22), rgba(99,102,241,.16)), #161a20; border: 1px solid rgba(255,255,255,.18);
+  box-shadow: 0 8px 20px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.18); animation: pin-pop .4s cubic-bezier(.3,1.4,.4,1) both; }
+@keyframes pin-pop { from { opacity: 0; transform: translateY(8px) scale(.85); } to { opacity: 1; transform: none; } }
+.pin-left { min-height: 18px; }
+.pin-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 14px; }
+.pin-btn { min-height: 42px; padding: 8px 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,.16); background: rgba(255,255,255,.06); color: #f2f5f8; font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; }
+.pin-btn.primary { background: linear-gradient(135deg, #34e0b4, #22c55e); color: #062112; border: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .pin-box, .pin-ring, .pin-done, .pin-card, .pin-overlay { transition: none; }
+  .pin-stage.orbit .pin-spin, .pin-stage.bad .pin-spin, .pin-tile, .pin-box.caret::after { animation: none; }
+}
+
+/* The Group menu and the rider & pillion sheets (js/pin/group-pin.js, js/pin/pillion.js) */
+/* the sheet sits above the SOS button (js/sos.js keeps it on top of everything, on purpose) */
+.gp-menu { position: fixed; inset: 0; z-index: 6000; display: flex; align-items: flex-end; justify-content: center; padding: 12px 12px calc(156px + env(safe-area-inset-bottom, 0px));
+  background: rgba(4,6,10,.5); -webkit-backdrop-filter: blur(5px); backdrop-filter: blur(5px); opacity: 0; transition: opacity .2s; }
+.gp-menu.in { opacity: 1; }
+.gp-card { width: min(440px, 100%); margin-bottom: env(safe-area-inset-bottom, 0); padding: 12px 16px 14px; border-radius: 24px; color: #f2f5f8;
+  background: linear-gradient(170deg, rgba(255,255,255,.1), rgba(255,255,255,.02)), rgba(16,19,24,.92); border: 1px solid rgba(255,255,255,.12);
+  box-shadow: 0 -10px 40px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.1); -webkit-backdrop-filter: blur(20px) saturate(1.4); backdrop-filter: blur(20px) saturate(1.4);
+  transform: translateY(24px); transition: transform .25s cubic-bezier(.2,.8,.2,1); text-align: left; }
+.gp-menu.in .gp-card { transform: none; }
+.gp-h { margin: 0 0 10px; font-size: 18px; font-weight: 800; text-align: center; }
+.gp-card .pin-sub { text-align: center; margin-bottom: 12px; }
+.gp-card .pin-cancel { display: block; margin: 8px auto 0; }
+.gp-item { display: flex; align-items: center; gap: 12px; width: 100%; margin: 0 0 8px; padding: 12px; border-radius: 16px; border: 1px solid rgba(255,255,255,.1);
+  background: rgba(255,255,255,.05); color: inherit; font: inherit; text-align: left; cursor: pointer; transition: background .15s, transform .1s; }
+.gp-item:active { transform: scale(.98); background: rgba(255,255,255,.09); }
+.gp-ic { flex: 0 0 44px; height: 44px; display: grid; place-items: center; border-radius: 14px; font-size: 21px; background: linear-gradient(145deg, rgba(52,224,180,.28), rgba(99,102,241,.22)); }
+.gp-tx { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.gp-tx b { font-size: 15px; } .gp-tx small { font-size: 12.5px; color: rgba(242,245,248,.6); line-height: 1.35; }
+/* the PIN in the trip panel */
+.gp-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 6px 0 4px; padding: 8px 10px; border-radius: 14px; background: rgba(52,224,180,.08); border: 1px solid rgba(52,224,180,.3); }
+.gp-l { flex-basis: 100%; font-size: 11px; font-weight: 700; color: rgba(242,245,248,.7); text-transform: uppercase; letter-spacing: .05em; }
+.gp-digits { display: inline-flex; gap: 4px; margin-right: auto; }
+.gp-digits b { width: 26px; height: 32px; display: grid; place-items: center; border-radius: 8px; background: #161a20; border: 1px solid rgba(255,255,255,.16); font-size: 16px; color: #fff; }
+.gp-b { min-height: 34px; padding: 4px 12px; border-radius: 10px; border: 0; background: linear-gradient(135deg, #34e0b4, #22c55e); color: #062112; font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+.gp-b.ghost { background: rgba(255,255,255,.08); color: #f2f5f8; border: 1px solid rgba(255,255,255,.16); font-size: 15px; }
+/* "Who's riding?" */
+.pl-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.pl-who { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 16px 10px; border-radius: 18px; border: 1px solid rgba(255,255,255,.12);
+  background: linear-gradient(170deg, rgba(255,255,255,.08), rgba(255,255,255,.02)); color: inherit; font: inherit; cursor: pointer; transition: transform .12s, border-color .2s, background .2s; }
+.pl-who:active { transform: scale(.97); }
+.pl-who.on { border-color: #34e0b4; background: rgba(52,224,180,.12); }
+.pl-ic { font-size: 34px; } .pl-who b { font-size: 15px; } .pl-who small { font-size: 12px; color: rgba(242,245,248,.6); }
+.pl-status { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; padding: 12px; border-radius: 16px; background: rgba(52,224,180,.1); border: 1px solid rgba(52,224,180,.35); }
+.pl-status > span:last-child { display: flex; flex-direction: column; gap: 2px; } .pl-status small { font-size: 12.5px; color: rgba(242,245,248,.7); }
+.pl-badge { font-size: 26px; }
+/* one bike on the map: the rider's marker says +1, the pillion's hides under it */
+.leaflet-marker-icon.has-pillion::after { content: "+1"; position: absolute; right: -6px; top: -6px; min-width: 20px; height: 20px; padding: 0 4px; border-radius: 10px;
+  display: grid; place-items: center; font: 800 11px/1 var(--font-ui, system-ui, sans-serif); color: #062112; background: #34e0b4; border: 2px solid #0b0f14; }
+.leaflet-marker-icon.pillion-hidden { display: none !important; }
