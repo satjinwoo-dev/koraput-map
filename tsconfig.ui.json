@@ -31,6 +31,7 @@
     "public/js/navcam/navcam-core.js",
     "public/js/navcam/navmotion-core.js",
     "public/js/navpip/navpip-core.js",
+    "public/js/edit/edit-core.js",
     "public/js/passport/passport-model.js",
     "public/js/share/card-model.js",
     "public/js/share/card-render.js",

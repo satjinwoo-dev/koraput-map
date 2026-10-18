@@ -1,0 +1,44 @@
+/* MapUnite Ride Edit (js/edit/edit-app.js): the editing agent's screen */
+.re-modal { position: fixed; inset: 0; z-index: 6000; display: flex; align-items: flex-end; justify-content: center; padding: 10px 10px calc(150px + env(safe-area-inset-bottom, 0px));
+  background: rgba(4,6,10,.62); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); opacity: 0; transition: opacity .2s; }
+.re-modal.in { opacity: 1; }
+.re-card { width: min(560px, 100%); max-height: calc(100% - 4px); overflow-y: auto; padding: 16px; border-radius: 26px; color: #f2f5f8;
+  background: radial-gradient(120% 60% at 0% 0%, rgba(227,38,47,.16), transparent 60%), radial-gradient(100% 60% at 100% 0%, rgba(52,224,180,.14), transparent 60%), rgba(12,14,18,.94);
+  border: 1px solid rgba(255,255,255,.12); box-shadow: 0 20px 60px rgba(0,0,0,.55); }
+.re-head { display: flex; justify-content: space-between; gap: 10px; }
+.re-title { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 20px; font-weight: 900; letter-spacing: -.01em; }
+.re-badge { padding: 2px 8px; border-radius: 999px; background: linear-gradient(135deg, #e3262f, #ff7a45); font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
+.re-sub { margin: 4px 0 0; font-size: 12.5px; line-height: 1.45; color: rgba(242,245,248,.62); }
+.re-x { flex: 0 0 34px; height: 34px; border-radius: 50%; border: 0; background: rgba(255,255,255,.08); color: inherit; cursor: pointer; }
+.re-thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 8px; margin: 14px 0 10px; }
+.re-th, .re-add { position: relative; aspect-ratio: 1; border-radius: 14px; overflow: hidden; background: #1a1d22; border: 1px solid rgba(255,255,255,.1); }
+.re-th img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.re-wait { display: grid; place-items: center; height: 100%; color: rgba(255,255,255,.5); animation: re-pulse 1s ease-in-out infinite; }
+@keyframes re-pulse { 50% { opacity: .35; } }
+.re-dur { position: absolute; left: 6px; bottom: 6px; padding: 1px 6px; border-radius: 6px; background: rgba(0,0,0,.6); font-size: 11px; font-weight: 700; }
+.re-rm { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border-radius: 50%; border: 0; background: rgba(0,0,0,.6); color: #fff; font-size: 11px; cursor: pointer; }
+.re-add { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; border: 1.5px dashed rgba(255,255,255,.3); background: rgba(255,255,255,.03); color: inherit; font: inherit; cursor: pointer; }
+.re-add span { font-size: 24px; } .re-add small { font-size: 10.5px; text-align: center; padding: 0 4px; color: rgba(242,245,248,.7); }
+.re-ride { display: flex; align-items: center; gap: 10px; margin: 4px 0 8px; padding: 10px 12px; border-radius: 16px; background: rgba(52,224,180,.08); border: 1px solid rgba(52,224,180,.3); cursor: pointer; }
+.re-ride-ic { font-size: 22px; } .re-ride-tx { display: flex; flex-direction: column; margin-right: auto; } .re-ride-tx small { font-size: 12px; color: rgba(242,245,248,.65); }
+.re-row { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 0; }
+.re-lbl { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: rgba(242,245,248,.55); }
+.re-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.re-chip { min-height: 36px; padding: 6px 12px; border-radius: 999px; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.05); color: inherit; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.re-chip[aria-checked="true"] { background: #f2f5f8; color: #0b0d10; border-color: transparent; }
+.re-input { width: 100%; box-sizing: border-box; margin-top: 12px; min-height: 42px; padding: 8px 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.04); color: inherit; font: inherit; font-size: 14px; }
+.re-go { width: 100%; min-height: 52px; margin-top: 14px; border: 0; border-radius: 16px; background: linear-gradient(135deg, #e3262f, #ff7a45); color: #fff; font: inherit; font-size: 16px; font-weight: 900; cursor: pointer; box-shadow: 0 10px 26px rgba(227,38,47,.35); }
+.re-go:disabled { opacity: .6; cursor: default; }
+.re-log { list-style: none; margin: 12px 0 0; padding: 0; }
+.re-step { display: flex; gap: 10px; align-items: flex-start; margin: 0 0 8px; font-size: 13px; line-height: 1.45; opacity: 0; transform: translateY(6px); transition: opacity .3s, transform .3s; }
+.re-step.in { opacity: 1; transform: none; }
+.re-dot { flex: 0 0 10px; height: 10px; margin-top: 4px; border-radius: 50%; background: #34e0b4; box-shadow: 0 0 10px #34e0b4; }
+.re-stage { margin: 12px auto 0; width: min(100%, 300px); aspect-ratio: 9 / 16; border-radius: 18px; overflow: hidden; background: #000; box-shadow: 0 12px 30px rgba(0,0,0,.5); }
+.re-stage.wide { width: 100%; aspect-ratio: 16 / 9; }
+.re-canvas { display: block; width: 100%; height: 100%; }
+.re-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+.re-b { min-height: 44px; border-radius: 14px; border: 1px solid rgba(255,255,255,.16); background: rgba(255,255,255,.06); color: inherit; font: inherit; font-size: 13.5px; font-weight: 700; cursor: pointer; }
+.re-b.primary { background: #f2f5f8; color: #0b0d10; border: 0; }
+.re-b:disabled { opacity: .5; }
+.re-status { min-height: 18px; margin: 10px 0 0; font-size: 12.5px; color: rgba(242,245,248,.75); }
+@media (prefers-reduced-motion: reduce) { .re-step { transition: none; } .re-wait { animation: none; } }

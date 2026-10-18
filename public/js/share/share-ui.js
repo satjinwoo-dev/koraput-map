@@ -148,6 +148,8 @@
         const canRecord = typeof canvas.captureStream === "function" && typeof globalThis.MediaRecorder === "function";
         const playBtn = h("button", { type: "button", class: "sh-btn-ghost", text: "▶ Play motion", onclick: () => play() });
         const videoBtn = h("button", { type: "button", class: "sh-btn-ghost", text: "Save motion video", hidden: !canRecord, onclick: () => record() });
+        // Ride Edit (js/edit/): the editing agent makes a reel from the rider's own photos and clips, with this ride in it
+        const editBtn = h("button", { type: "button", class: "sh-btn", text: "🎬 Edit a video with my clips", hidden: !canRecord, onclick: () => { if (globalThis.RideEdit && globalThis.RideEdit.open) globalThis.RideEdit.open({ card }); } });
         const syncTemplate = () => { for (const b of templates.children) b.setAttribute("aria-checked", String(b.getAttribute("data-v") === prefs.template)); };
         const actions = h("div", { class: "sh-actions" }, [
             canShare && !canShareFiles ? h("button", { type: "button", class: "sh-btn", onclick: share }, [h("span", { class: "sh-i", "aria-hidden": "true", html: ICON.share }), "Share"]) : null,
@@ -170,6 +172,7 @@
                     captionIn,
                     h("div", { class: "sh-opts" }, [toggle("Map behind the route", "map"), toggle("Hide where I started and finished", "privacy"), trims, toggle("Show the town name", "showPlace"), toggle("Show the cost", "showCost"), toggle("Show this after every ride", "auto")]),
                     h("div", { class: "sh-photo" }, [playBtn, videoBtn]),
+                    editBtn,
                     actions, status
                 ])
             ])
