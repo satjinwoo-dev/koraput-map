@@ -29,6 +29,7 @@
     "public/js/hud/hud.js",
     "public/js/hud/hud-app.js",
     "public/js/navcam/navcam-core.js",
+    "public/js/navcam/navmotion-core.js",
     "public/js/passport/passport-model.js",
     "public/js/share/card-model.js",
     "public/js/share/card-render.js",

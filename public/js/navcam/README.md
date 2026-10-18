@@ -31,10 +31,23 @@ Leaflet only draws flat, north-up maps, so no plugin is used. While the camera i
 - **Wider tile ring:** the sharp layer keeps `keepBuffer` 4 while the camera is on, so turning doesn't throw away what's loaded. Both changes are undone on Stop.
 - **No horizon:** the map reaches the screen's top edge (the tilt is fitted to it), so the top of the screen is road, not a dark band. A sky band is kept only as a fallback if even a 30° tilt couldn't fill the screen; the map's own background is ground-coloured, not black.
 
+## Motion: like a car navigator, every frame
+
+GPS fixes come about once a second. Between them (`navmotion-core.js`, `navmotion.js`):
+- **The arrow is held to the road.** A fix within 35 m of the route is on it; the arrow sits on the route line, not on the fix (GPS error isn't the rider leaving the road). Off the route, it follows the fixes.
+- **It glides every frame** at the rider's speed: to where the last fix said, then on at the same speed for up to 2 s until the next fix, catching up smoothly (time constant 250 ms). It never slides back for GPS shimmer; a jump back of 40 m or more is real and taken. Without a speed from the phone, it uses the speed the fixes show along the road.
+- **It points the way the road goes** (5 m behind to 15 m ahead, so a corner turns it smoothly), and lies flat on the map, tilted with it. Grey without GPS (dead reckoning).
+- **The camera moves with it**, frame by frame (`NavCamera.frame`): a sub-pixel pan, no once-a-second glide, so arrow and map never drift apart.
+- **The route ahead starts at the arrow:** what's behind it goes. A blue line on a darker casing. The map's own "you are here" dot, its accuracy ring and the history trail are hidden while the arrow shows the rider.
+- **Near a turn** (12 s of riding, 150–400 m) the camera zooms in to 18, and a white arrow is drawn on the road through the turn (40 m before to 30 m after at zoom 18, longer further out); after it, back out.
+- **A new instruction slides into the turn banner.**
+
 | File | What it does |
 |---|---|
+| `navmotion-core.js` | The motion maths, pure and `// @ts-check`: the route index, the nearest point, the arrow's glide, zoom near a turn, the turn arrow. |
+| `navmotion.js` | `NavMotion.start / fix / reroute / stop`: the arrow, the route cut at it, the camera and the turn arrow, every frame. |
 | `navcam-core.js` | The maths, pure and `// @ts-check` (in `npm run ui:typecheck`): which way is ahead, turning smoothly, zoom by speed, the anchor and size, the transform. |
-| `navcam.js` | `NavCamera.start / follow / stop`, plus the compass, Re-centre and the sky band. `js/navigation.js` calls it. |
+| `navcam.js` | `NavCamera.start / follow / frame / stop`, plus the compass, Re-centre and the sky band. `js/navigation.js` calls it. |
 | `navcam.css` | Upright markers, the direction chevron on the rider's marker, the buttons. |
 
 `NavCamera.state()` in the console shows the bearing, the course, the zoom and the geometry.
@@ -43,4 +56,5 @@ Leaflet only draws flat, north-up maps, so no plugin is used. While the camera i
 - angles, choosing the course, smooth turning and zoom hysteresis;
 - the route's direction round a corner;
 - that the drawn square covers every visible screen point at any bearing;
-- the wiring: script order, the offline precache, navigation's calls, and the Maps tag left untouched.
+- the wiring: script order, the offline precache, navigation's calls, and the Maps tag left untouched;
+- the motion: held to the road, gliding between fixes, never back for shimmer, off-route glide, no-speed phones, the corner, zoom near a turn, the turn arrow (`navmotion-core.test.mjs`).

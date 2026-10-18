@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-18.10";          // Hyper-Vision: new look, edit mode (the rider's own plan)
+const VERSION = "mu-2026-10-18.11";          // navigation motion: gliding arrow, camera with it, route cut, turn zoom and arrows
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
@@ -60,6 +60,8 @@ const APP_SCRIPTS = [
     "/js/gps.js",
     "/js/navcam/navcam-core.js",
     "/js/navcam/navcam.js",
+    "/js/navcam/navmotion-core.js",
+    "/js/navcam/navmotion.js",
     "/js/navsheet.js",
     "/js/ridefocus.js",
     "/js/roadfocus.js",

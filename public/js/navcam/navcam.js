@@ -3,6 +3,8 @@
    ==============================================================================
    NavCamera.start({ map, route })   when a drive starts (js/navigation.js)
    NavCamera.follow({ lat, lng, speedMs, headingDeg })   every fix / estimate
+   NavCamera.frame({ lat, lng, bearingDeg, zoom }, t)    every frame, from navmotion.js (then
+                                     follow() isn't used: the map moves with the drawn arrow)
    NavCamera.stop()                  when the drive ends
 
    HOW: Leaflet draws a flat, north-up map. While the camera is on, #map is
@@ -263,6 +265,42 @@ const NavCamera = (() => {
         kick();
     }
 
+    /**
+     * Every frame, from the navigation motion (navmotion.js): the arrow's drawn position, the road's direction
+     * there and the zoom. The map moves with the arrow (no once-a-second glide) and turns with the road.
+     * @param {{ lat: number, lng: number, bearingDeg?: number|null, zoom?: number|null }} f @param {number} t
+     */
+    let lastLayoutT = 0, lastMoveEndT = 0;
+    function frame(f, t) {
+        if (!on || !f || !Number.isFinite(f.lat) || !Number.isFinite(f.lng)) return;
+        user = { lat: f.lat, lng: f.lng };
+        if (f.bearingDeg != null && Number.isFinite(f.bearingDeg)) { course = f.bearingDeg; target = f.bearingDeg; }
+        const z = f.zoom != null && Number.isFinite(f.zoom) ? f.zoom : zoom;
+        if (paused) { zoom = z; return; }
+        if (raf) { cancelAnimationFrame(raf); raf = 0; }   // this frame does the turning
+        const dt = lastT ? Math.min(100, t - lastT) : 16;
+        lastT = t;
+        if (target != null) bearing = reduceMotion() ? target : C.stepBearing(bearing, target, dt);
+        if (t - lastLayoutT > 500 || (applied && geom && C.box(geom, displayBearing()).band !== applied.band)) { lastLayoutT = t; layout(); }
+        if (lmap._animatingZoom) { paint(); return; }
+        if (z !== zoom) {
+            zoom = z;
+            lmap.setView(viewCenter(f, zoom), zoom, { animate: !reduceMotion() });
+            paint();
+            return;
+        }
+        const want = lmap.project(viewCenter(f, zoom), zoom), cur = lmap.project(lmap.getCenter(), zoom);
+        const d = want.subtract(cur);
+        if (Math.abs(d.x) > 2000 || Math.abs(d.y) > 2000 || typeof lmap._rawPanBy !== "function") lmap.setView(viewCenter(f, zoom), zoom, { animate: false });
+        else if (Math.abs(d.x) + Math.abs(d.y) > 0.01) {
+            // sub-pixel pan without an animation; "moveend" (tiles, vector redraw) a few times a second, not every frame
+            lmap._rawPanBy(d);
+            lmap.fire("move");
+            if (t - lastMoveEndT > 250) { lastMoveEndT = t; lmap.fire("moveend"); }
+        }
+        paint();
+    }
+
     function pause() {
         if (!on || paused) return;
         paused = true;
@@ -313,8 +351,11 @@ const NavCamera = (() => {
     }
 
     return {
-        start, follow, stop, pause, resume, supported, toggleHeadingUp, rebase,
+        start, follow, frame, stop, pause, resume, supported, toggleHeadingUp, rebase,
         get active() { return on; },
+        get zoom() { return zoom; },
+        /** The map's turn now (0 when north-up): the rider's arrow is drawn relative to it. */
+        get bearing() { return on && !paused ? displayBearing() : 0; },
         get paused() { return paused; },
         /** For the console and tests. */
         state: () => ({ on, paused, headingUp, bearing: Math.round(bearing * 10) / 10, target, course, zoom, geom, box: applied, underlay: Boolean(underlay) })

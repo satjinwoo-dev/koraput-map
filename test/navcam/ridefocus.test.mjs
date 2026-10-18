@@ -70,6 +70,6 @@ test("wiring: optional (off by default), switchable mid-drive, styles layers (ne
     assert.match(navjs, /RideFocus\.start\(\{ map, ahead: dottedPath, trail: solidPath, route: \(\) => fullPath, turn: \(\) => maneuverLatLng\(nextManeuver\(\)\) \}\)/);
     assert.ok(navjs.indexOf("RideFocus.update(currentLat, currentLng)") > navjs.indexOf("if (d < 35) stepIdx++"), "redrawn after the step advances");
     assert.ok(navjs.indexOf("RideFocus.stop()") > navjs.indexOf("function stopDrive"));
-    assert.match(read("public/js/navcam/navcam.js"), /start, follow, stop, pause, resume, supported, toggleHeadingUp, rebase,/);
+    assert.match(read("public/js/navcam/navcam.js"), /start, follow, frame, stop, pause, resume, supported, toggleHeadingUp, rebase,/);
     assert.match(read("public/js/mapdetail.js"), /new Set\(\["satellite", "dark", "terrain", "amoled"\]\)/);
 });

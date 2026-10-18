@@ -582,14 +582,16 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
     navState.etaSec = routeData.duration;
     navState.routePath = fullPath;          // Phase 4: tunnel mode snaps its estimate to this
 
-    const dottedPath = L.polyline(fullPath, { color: '#4f46e5', weight: 8, opacity: 0.7, className: 'anim-dash' }).addTo(navigationLayer);
+    // the route like a car navigator's: a solid blue line on a darker casing (js/navcam/navmotion.js cuts it at the rider)
+    const routeCasing = L.polyline(fullPath, { color: '#1546a0', weight: 13, opacity: 1, lineCap: 'round', lineJoin: 'round', interactive: false }).addTo(navigationLayer);
+    const dottedPath = L.polyline(fullPath, { color: '#4b8df8', weight: 8, opacity: 1, lineCap: 'round', lineJoin: 'round' }).addTo(navigationLayer);
     const solidPath = L.polyline([], { color: '#34e0b4', weight: 8, opacity: 1, className: 'solid-trail' }).addTo(navigationLayer);
 
+    // the rider: a navigation arrow lying flat on the map, pointing the way the road goes
     const userIcon = L.divIcon({
-        className: 'nav-avatar-marker',
-        // the wrap lets the navigation camera (js/navcam/) keep the avatar upright; the chevron shows the direction of travel
-        html: `<div class="nav-avatar-wrap"><img src="${escapeHTML(currentUser.avatar)}" style="width:100%;height:100%;object-fit:cover; border-radius:50%; border:2px solid #34e0b4;"><span class="navcam-chevron"></span></div>`,
-        iconSize: [40, 40], iconAnchor: [20, 20]
+        className: 'nav-avatar-marker mu-puck',
+        html: '<div class="mu-puck-arrow"><svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="22" class="halo"/><path d="M24 6 L38 39 L24 31 L10 39 Z"/></svg></div>',
+        iconSize: [48, 48], iconAnchor: [24, 24]
     });
 
     const startPos = myCoords ? [myCoords.lat, myCoords.lng] : fullPath[0];
@@ -639,6 +641,12 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
         }
         const phrase = maneuverPhrase(next);
         const d = distanceToNext(fromPos);
+        // a new instruction slides into the banner, like a car navigator's
+        const banner = $("turn-banner");
+        if (banner && banner.dataset.step !== `${routeVersion}:${stepIdx + 1}`) {
+            banner.dataset.step = `${routeVersion}:${stepIdx + 1}`;
+            banner.classList.remove("mu-turn-in"); void banner.offsetWidth; banner.classList.add("mu-turn-in");
+        }
         if (turnDist) turnDist.textContent = Number.isFinite(d) ? `In ${formatDistanceShort(d)}` : "Next";
         navState.nextManeuverM = Number.isFinite(d) ? d : null;             // roadmap Step 8: advice holds near a turn
         if (turnName) turnName.textContent = phrase;
@@ -685,6 +693,9 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
             if (typeof RideFocus !== "undefined" && RideFocus.start) RideFocus.start({ map, ahead: dottedPath, trail: solidPath, route: () => fullPath, turn: () => maneuverLatLng(nextManeuver()) });
             // Straight-road focus (js/roadfocus.js): on a long straight with the next turn far away, the road glows and the rest dims
             if (typeof RoadFocus !== "undefined" && RoadFocus.start) RoadFocus.start({ map, route: () => fullPath, turn: () => maneuverLatLng(nextManeuver()) });
+            // Navigation motion (js/navcam/navmotion.js): the arrow glides along the road every frame, the camera moves with it,
+            // the route behind the rider goes, and near a turn the camera zooms in and a turn arrow is drawn on the road
+            if (typeof NavMotion !== "undefined") NavMotion.start({ map, route: () => fullPath, puck: userMarker, ahead: dottedPath, casing: routeCasing, turn: () => maneuverLatLng(nextManeuver()) });
 
             navState.ready = false;
             navState.active = true;
@@ -714,16 +725,20 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
                     const speedKmh = Math.round(speedMps * 3.6);
                     if ($("speed-n")) $("speed-n").textContent = speedKmh;
 
-                    userMarker.setLatLng(currentPos);
+                    const motion = typeof NavMotion !== "undefined" && NavMotion.active;
+                    if (motion) NavMotion.fix(currentLat, currentLng, speedMps, estimated);   // the arrow, route and camera move every frame
+                    else userMarker.setLatLng(currentPos);
                     const umEl = typeof userMarker.getElement === "function" ? userMarker.getElement() : null;
                     if (umEl) umEl.classList.toggle("dr-est", Boolean(estimated));
                     const ss = $("stat-status");
                     if (ss && ss.textContent !== "Arrived") { ss.textContent = estimated ? "No GPS" : "En route"; ss.style.color = estimated ? "var(--c-sensor)" : "#f5a524"; }
-                    if (typeof NavCamera !== "undefined" && NavCamera.active) NavCamera.follow({ lat: currentLat, lng: currentLng, speedMs: speedMps, headingDeg });
+                    if (motion && typeof NavCamera !== "undefined" && NavCamera.active) { /* NavMotion drives the camera */ }
+                    else if (typeof NavCamera !== "undefined" && NavCamera.active) NavCamera.follow({ lat: currentLat, lng: currentLng, speedMs: speedMps, headingDeg });
                     else map.panTo(currentPos);
 
+                    // the ridden part: gone with the route cut at the arrow (like a car navigator); the old trail otherwise
                     traveledCoords.push(L.latLng(currentLat, currentLng));
-                    solidPath.setLatLngs(traveledCoords);
+                    if (!motion) solidPath.setLatLngs(traveledCoords);
 
                     const remainingMeters = map.distance(currentPos, [destLat, destLng]);        // straight line: arrival test only
                     const alongM = remainingAlongPathMeters(currentLat, currentLng, fullPath);
@@ -775,6 +790,8 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
                                 // HEARS it (roadmap Section 26: no silent rerouting).
                                 fullPath = cand.geometry.coordinates.map(c => [c[1], c[0]]);
                                 dottedPath.setLatLngs(fullPath);
+                                routeCasing.setLatLngs(fullPath);
+                                if (typeof NavMotion !== "undefined") NavMotion.reroute();
                                 navState.routePath = fullPath;
                                 activeRoute = { distanceM: cand.distance, durationSec: cand.duration };
                                 etaFactor = 1; etaSource = "";
@@ -866,6 +883,8 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
                             const savedMin = Math.max(1, Math.round((current.durationSec - best.durationSec) / 60));
                             fullPath = best.path;
                             dottedPath.setLatLngs(fullPath);
+                            routeCasing.setLatLngs(fullPath);
+                            if (typeof NavMotion !== "undefined") NavMotion.reroute();
                             navState.routePath = fullPath;
                             activeRoute = { distanceM: best.distanceM, durationSec: best.durationSec };
                             etaFactor = 1; etaSource = best.traffic ? "traffic" : "";
@@ -910,6 +929,7 @@ function stopDrive(cancelled = false) {
     // Navigating to a meeting point: bring the meetup sheet back afterwards.
     if (typeof GroupNavigation !== "undefined" && GroupNavigation.active) setTimeout(() => safeShow("group-nav-active", "flex"), 0);
     if (navDrListener) { document.removeEventListener("mu:dr-position", navDrListener); navDrListener = null; }
+    if (typeof NavMotion !== "undefined") NavMotion.stop();
     if (typeof NavCamera !== "undefined") NavCamera.stop();
     if (typeof NavSheet !== "undefined") NavSheet.reset();
     if (typeof RideFocus !== "undefined" && RideFocus.stop) RideFocus.stop();      // the rider's own map style comes back
