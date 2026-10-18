@@ -1,0 +1,51 @@
+/* MapUnite Ride Plan (js/rideplan/) */
+#ride-plan-btn { width: 100%; }
+#ride-plan-btn[hidden] { display: none; }
+.nav-bottom-sheet.is-collapsed #ride-plan-btn { display: none; }
+.rp-modal { display: none; }
+.rp-card-wrap { max-width: 640px; padding-bottom: 32px; }
+.rp-label { display: block; margin: 0 0 6px; font-size: 12px; font-weight: 700; color: var(--soft, #c6d2db); text-transform: uppercase; letter-spacing: .05em; }
+.rp-input { width: 100%; box-sizing: border-box; height: 46px; margin: 0 0 12px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--line-strong, rgba(255,255,255,.16)); background: rgba(255,255,255,.05); color: var(--text, #f2f6f8); font: inherit; font-size: 15px; color-scheme: dark; }
+.rp-card-wrap > .btn-primary-nav { width: 100%; }
+.rp-out { margin-top: 14px; }
+.rp-wait, .rp-err { margin: 12px 0; font-size: 14px; color: var(--soft, #c6d2db); line-height: 1.5; }
+.rp-err { color: #fca5a5; }
+.rp-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+.rp-card { text-align: left; padding: 12px; border-radius: 16px; border: 1px solid var(--line, rgba(255,255,255,.1)); background: rgba(255,255,255,.04); color: var(--text, #f2f6f8); font: inherit; cursor: pointer; }
+.rp-card.on { border-color: rgba(52,224,180,.7); background: rgba(52,224,180,.08); }
+.rp-ct { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 15px; }
+.rp-badge { padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+.rp-badge.fast { background: rgba(77,163,255,.2); color: #9cc9ff; }
+.rp-badge.best { background: rgba(52,224,180,.2); color: var(--mint, #34e0b4); }
+.rp-cv { margin-top: 6px; font-family: var(--font-display, "Sora", sans-serif); font-weight: 700; font-size: 16px; }
+.rp-cs { font-size: 12.5px; color: var(--soft, #c6d2db); }
+.rp-facts { margin: 8px 0 0; padding-left: 16px; font-size: 12px; color: var(--muted, #8b9bab); line-height: 1.5; }
+.rp-why { margin: 12px 0; font-size: 13.5px; line-height: 1.5; color: var(--soft, #c6d2db); }
+.rp-use { width: 100%; margin-bottom: 8px; }
+.rp-sec { margin-top: 10px; border-radius: 14px; border: 1px solid var(--line, rgba(255,255,255,.085)); background: rgba(255,255,255,.03); }
+.rp-sec > summary { padding: 12px 14px; font-weight: 700; font-size: 14.5px; cursor: pointer; list-style-position: inside; }
+.rp-sec > :not(summary) { margin-left: 14px; margin-right: 14px; }
+.rp-sec > :last-child { margin-bottom: 12px; }
+.rp-wx { display: flex; flex-direction: column; gap: 6px; }
+.rp-wrow { display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 8px 10px; border-radius: 10px; background: rgba(255,255,255,.04); font-size: 13px; }
+.rp-wrow.adv { box-shadow: inset 3px 0 0 #f5a524; }
+.rp-wrow.warn { box-shadow: inset 3px 0 0 #ef4444; background: rgba(239,68,68,.08); }
+.rp-wk { font-weight: 700; min-width: 120px; }
+.rp-hz { color: #fcd34d; font-weight: 600; }
+.rp-wrow.warn .rp-hz { color: #fca5a5; }
+.rp-stop { padding: 8px 0; border-top: 1px solid var(--line, rgba(255,255,255,.085)); }
+.rp-stop:first-of-type { border-top: 0; }
+.rp-sh { display: flex; justify-content: space-between; gap: 8px; font-size: 13.5px; margin-bottom: 4px; }
+.rp-sh span { color: var(--soft, #c6d2db); }
+.rp-place { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; padding: 6px 0; }
+.rp-pn { display: flex; flex-direction: column; min-width: 0; }
+.rp-pn b { font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rp-pm { font-size: 12px; color: var(--muted, #8b9bab); }
+.rp-rate { font-size: 12px; font-weight: 700; color: #fcd34d; white-space: nowrap; }
+.rp-rate.ok { color: var(--mint, #34e0b4); }
+.rp-rate.none { color: var(--muted, #8b9bab); font-weight: 500; }
+.rp-call { padding: 5px 10px; border-radius: 999px; background: rgba(52,224,180,.15); color: var(--mint, #34e0b4); font-size: 12px; font-weight: 700; text-decoration: none; }
+.rp-note { margin: 6px 0; font-size: 12.5px; color: var(--muted, #8b9bab); line-height: 1.45; }
+.rp-note.warn { color: #fcd34d; }
+.rp-list { margin: 4px 0; padding-left: 18px; font-size: 13.5px; line-height: 1.6; }
+.rp-src { margin: 14px 0 0; font-size: 11.5px; color: var(--muted, #8b9bab); line-height: 1.5; }

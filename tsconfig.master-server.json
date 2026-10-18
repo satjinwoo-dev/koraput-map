@@ -30,6 +30,7 @@
     "lib/master/sun.js",
     "lib/master/safety.js",
     "lib/master/music.js",
+    "lib/master/rideplan.js",
     "lib/master/roadsense.js",
     "lib/master/roadpulse-reputation.js",
     "lib/master/roadpulse-roads.js",

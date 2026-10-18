@@ -48,7 +48,7 @@
     },
     {
       "id": "open-meteo", "name": "Open-Meteo weather and air quality APIs", "hosts": ["api.open-meteo.com", "air-quality-api.open-meteo.com"],
-      "use": "weather on the route, the advice gate's wet-road check, air quality", "licence": "data CC BY 4.0; API terms: the free API is for non-commercial use",
+      "use": "weather on the route, the advice gate's wet-road check, air quality, and the Ride Plan's ride-day forecast (hourly, up to 16 days ahead)", "licence": "data CC BY 4.0; API terms: the free API is for non-commercial use",
       "licence_version": "4.0", "attribution": "Weather data by Open-Meteo.com", "commercial_use": "by_agreement",
       "access_method": "HTTP API at request time", "fetched_at": null, "source_version": null, "legal_review": "pending",
       "notes": "Commercial use needs an Open-Meteo subscription, or self-hosting the open-source Open-Meteo with openly licensed model data (NOAA GFS, ECMWF open data). IMD data needs its own agreement."
@@ -73,7 +73,7 @@
     },
     {
       "id": "google-maps-platform", "name": "Google Maps Platform (Places, Maps)", "hosts": ["places.googleapis.com", "maps.googleapis.com", "maps.gstatic.com", "www.google.com", "google.com", "tile.googleapis.com"],
-      "use": "the Maps script tag, place lookups (server-side keys), and the optional Google map style (Map Tiles API, proxied by lib/map-detail.js, off unless GOOGLE_MAP_TILES_KEY is set)", "licence": "Google Maps Platform Terms of Service", "licence_version": null,
+      "use": "the Maps script tag, place lookups (server-side keys), ratings and reviews for the Master AI's vetted places and the Ride Plan's stop picks (capped by RIDE_PLAN_GOOGLE_MAX), and the optional Google map style (Map Tiles API, proxied by lib/map-detail.js, off unless GOOGLE_MAP_TILES_KEY is set)", "licence": "Google Maps Platform Terms of Service", "licence_version": null,
       "attribution": "Google", "commercial_use": "by_agreement", "access_method": "paid API with a server-side key",
       "fetched_at": null, "source_version": null, "legal_review": "pending",
       "notes": "Paid, under Google's terms (no caching or scraping beyond them). RoadPulse data must never be mixed with Google content. Map Tiles: the server passes tiles through with Google's cache headers and stores none; Google's logo and the viewport copyright line must show while the Google style is on (the app shows a text logo: replace with Google's official logo asset before launch). Check whether a server-side tile proxy is allowed under the current Map Tiles terms."

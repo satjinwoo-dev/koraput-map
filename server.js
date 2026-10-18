@@ -78,6 +78,7 @@
      LASTFM_API_KEY           Master AI music mood + suggestions (/api/master/music); unset = title words only
      OPEN_METEO_API_KEY       only with a commercial Open-Meteo plan (weather is keyless otherwise)
      PLACES_CACHE_SECONDS     server memory cache for Google Places answers, default 900 (see lib/master/poi.js)
+     RIDE_PLAN_GOOGLE_MAX     Google Places category requests per Ride Plan (lib/master/rideplan.js), default 12; 0 = OSM only
      MASTER_POI_GOOGLE        "0" = the Master's places use OSM only (no Places cost; the search box keeps Google)
      GOOGLE_MAP_TILES_KEY     optional: Google's map as a map style (Map Tiles API + billing on that key);
                               or MAP_TILES_GOOGLE=1 to use GOOGLE_MAPS_SERVER_KEY. Proxied, never sent to the phone
@@ -398,7 +399,7 @@ app.use("/api/bikes", bikeApi.router);
 let roadIndex = loadRoadDir(process.env.ROADSENSE_ROADS_DIR || path.join(__dirname, "data", "roads"));
 const roadsense = createRoadsense({ db: () => db, secret: () => SERVER_SECRET, roads: () => roadIndex });
 const masterApi = createMasterApi({
-    express, rateLimit, roadsense,
+    express, rateLimit, roadsense, dem,
     allowOrigin: (origin) => CORS_ORIGIN === "*" || (Array.isArray(CORS_ORIGIN) && CORS_ORIGIN.includes(origin))
 });
 app.use("/api/master", masterApi.router);
