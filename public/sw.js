@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-18.2";           // recap: real map behind the route, movable start/finish, motion + video
+const VERSION = "mu-2026-10-18.3";           // liquid-glass recap and Passport cards (Lens, Gauge, Poster)
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
@@ -143,6 +143,7 @@ const BIKE_SCRIPTS = [
     "/js/share/card-model.js",
     "/js/share/card-render.js",
     "/js/share/card-styles.js",
+    "/js/share/card-liquid.js",
     "/js/share/basemap.js",
     "/js/share/share-ui.js",
     "/js/share/share.css",
@@ -236,7 +237,7 @@ const CDN_PRECACHE = [
 // The one Google Fonts stylesheet both pages use (same URL in index.html and
 // garage.html, so one cached copy serves both). Its font files are precached
 // for the Latin subsets; other scripts' subsets are cached the first time used.
-const FONT_CSS = "https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap";
+const FONT_CSS = "https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Inter:wght@200;300;400;500;600;700&family=Anton&display=swap";
 const FONT_SUBSETS_RE = /\/\*\s*(latin|latin-ext)\s*\*\/\s*@font-face\s*{[^}]*?url\((https:\/\/fonts\.gstatic\.com\/[^)\s]+)\)/g;
 
 const NEVER_INTERCEPT_PATHS = ["/socket.io/", "/api/", "/healthz", "/csp-report"];

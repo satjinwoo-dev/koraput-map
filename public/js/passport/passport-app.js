@@ -64,6 +64,8 @@ const MUPassport = (() => {
     // what MapUnite recorded and what other riders confirmed (each tile says which), and the badges earned.
     const FONT = `"Inter", system-ui, sans-serif`, DISPLAY = `"Sora", "Inter", system-ui, sans-serif`;
     function drawCard(canvas, card) {
+        // the liquid-glass Passport (js/share/card-liquid.js) when it has loaded; the Bento tiles otherwise
+        if (W.MUShare && W.MUShare.liquid && typeof W.MUShare.liquid.drawPassport === "function") return W.MUShare.liquid.drawPassport(canvas, card, { seed: (card.name || "").length * 97 + 11 });
         const S = W.MUShare && W.MUShare.styles;
         canvas.width = 1080; canvas.height = 1350;
         const ctx = canvas.getContext("2d");
@@ -212,7 +214,7 @@ const MUPassport = (() => {
                 ...sections, badges,
                 h("div", { class: "pp-actions" }, [h("button", { type: "button", class: "btn-primary-nav", text: "Preview my card", onclick: async () => {
                     // the card's Bento tiles come from the recap's styles: load them on first use (precached)
-                    if (W.MUShare && W.MUShare.app && typeof W.MUShare.app.load === "function" && !W.MUShare.styles) { try { await W.MUShare.app.load(); } catch (e) { /* plain tiles */ } }
+                    if (W.MUShare && W.MUShare.app && typeof W.MUShare.app.load === "function" && !W.MUShare.liquid) { try { await W.MUShare.app.load(); } catch (e) { /* plain tiles */ } }
                     drawCard(canvas, M.forCard(p, { ...M.DEFAULT_VIS, ...st.visibility })); cardWrap.hidden = false; cardWrap.scrollIntoView({ behavior: "smooth", block: "nearest" });
                 } })]),
                 cardWrap

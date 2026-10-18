@@ -7,8 +7,9 @@
    Ride Recap Studio. Pops up when a ride ends (or from "Share ride" in the trip
    summary); nothing leaves the phone until the rider taps Share or Save:
      - a live preview of the card (the real canvas, scaled to fit);
-     - a style: Bento (grid of tiles), Glass (Liquid Glass over the rider's photo
-       or a gradient), Verse (comic halftone/glitch) or Minimal (true black);
+     - a style: Lens (refractive liquid glass, the default), Gauge (a glass
+       instrument dial), Poster (huge condensed type), Bento (grid of tiles),
+       Glass (frosted panels), Verse (comic halftone/glitch) or Minimal;
      - Story (9:16) or Post (4:5);
      - Add photo: picked from the phone, drawn onto the card and never uploaded;
        because it's redrawn, the exported PNG carries none of the photo's EXIF
@@ -62,12 +63,12 @@
 
     /** @param {Storage|null} st */
     function loadPrefs(st) {
-        const d = { format: "story", template: "bento", privacy: true, trimStart: 400, trimEnd: 400, map: true, showPlace: false, showCost: true, auto: true };
+        const d = { format: "story", template: "lens", privacy: true, trimStart: 400, trimEnd: 400, map: true, showPlace: false, showCost: true, auto: true };
         try {
             const p = JSON.parse((st && st.getItem(PREFS_KEY)) || "{}") || {};
             if (p.format === "post" || p.format === "story") d.format = p.format;
             const t = p.template === "classic" ? "bento" : p.template === "photo" ? "glass" : p.template;   // the old names
-            if (["bento", "glass", "verse", "minimal"].includes(t)) d.template = t;
+            if (["lens", "gauge", "poster", "bento", "glass", "verse", "minimal"].includes(t)) d.template = t;
             for (const k of ["privacy", "map", "showPlace", "showCost", "auto"]) if (typeof p[k] === "boolean") d[k] = p[k];
             for (const k of ["trimStart", "trimEnd"]) if (Number.isFinite(p[k])) d[k] = Math.max(0, Math.min(3000, Math.round(p[k] / 100) * 100));
         } catch { /* defaults */ }
@@ -117,7 +118,7 @@
             if (!f) return;
             try {
                 photo = typeof createImageBitmap === "function" ? await createImageBitmap(f, { imageOrientation: "from-image" }) : await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = URL.createObjectURL(f); });
-                if (prefs.template !== "verse") prefs.template = "glass";
+                if (!["verse", "lens", "gauge", "poster"].includes(prefs.template)) prefs.template = "lens";
                 savePrefs(storage, prefs); syncTemplate(); build();
                 photoBtn.textContent = "Change photo"; removeBtn.hidden = false;
             } catch { status.textContent = "Couldn't read that photo."; }
@@ -126,7 +127,7 @@
         const photoBtn = h("button", { type: "button", class: "sh-btn-ghost", text: "Add photo", onclick: () => fileIn.click() });
         const removeBtn = h("button", { type: "button", class: "sh-btn-ghost", text: "Remove photo", hidden: true, onclick: () => { photo = null; photoBtn.textContent = "Add photo"; removeBtn.hidden = true; build(); } });
         const captionIn = /** @type {HTMLInputElement} */ (h("input", { type: "text", class: "sh-caption", maxlength: "80", placeholder: "Add a caption (optional)", "aria-label": "Caption", oninput: (e) => { caption = /** @type {HTMLInputElement} */ (e.currentTarget).value; build(); } }));
-        const templates = seg([["bento", "Bento"], ["glass", "Glass"], ["verse", "Verse"], ["minimal", "Minimal"]], () => prefs.template, (v) => {
+        const templates = seg([["lens", "Lens"], ["gauge", "Gauge"], ["poster", "Poster"], ["bento", "Bento"], ["glass", "Glass"], ["verse", "Verse"], ["minimal", "Minimal"]], () => prefs.template, (v) => {
             prefs.template = v; savePrefs(storage, prefs);
             build();
         }, "Card style");
@@ -186,7 +187,7 @@
             if (anim) { cancelAnimationFrame(anim); anim = 0; }
             card = deps.model.buildCard(summary, { privacy: prefs.privacy, trimStart: prefs.trimStart, trimEnd: prefs.trimEnd, showPlace: prefs.showPlace, caption });
             if (deps.fonts && typeof deps.fonts.load === "function") {
-                try { await Promise.race([Promise.all(["800 80px Sora", "700 40px Sora", "500 30px Inter", "700 24px Inter"].map((f) => deps.fonts.load(f))), new Promise((r) => setTimeout(r, 1200))]); } catch { /* system fonts */ }
+                try { await Promise.race([Promise.all(["800 80px Sora", "700 40px Sora", "500 30px Inter", "700 24px Inter", "200 100px Inter", "300 40px Inter", "400 100px Anton"].map((f) => deps.fonts.load(f))), new Promise((r) => setTimeout(r, 1200))]); } catch { /* system fonts */ }
             }
             if (my !== token) return;
             // the real map behind the line: only the area of the (trimmed) line, fetched once and cached

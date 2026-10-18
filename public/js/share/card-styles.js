@@ -25,7 +25,7 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
     "use strict";
 
-    const STYLES = Object.freeze(["bento", "glass", "verse", "minimal"]);
+    const STYLES = Object.freeze(["lens", "gauge", "poster", "bento", "glass", "verse", "minimal"]);
     const DISPLAY = `"Sora", "Inter", system-ui, sans-serif`, UI = `"Inter", system-ui, sans-serif`, MONO = `"JetBrains Mono", "SFMono-Regular", "Roboto Mono", ui-monospace, monospace`;
     const MINT = "#34e0b4", CYAN = "#22d3ee", TEXT = "#f5f7fa", SOFT = "#b9c4cf", MUTED = "#7d8a97";
 
@@ -495,6 +495,9 @@
 
     /** @param {string} style @param {HTMLCanvasElement} canvas @param {any} card @param {any} o @param {any} R */
     function draw(style, canvas, card, o, R) {
+        // the liquid-glass styles (card-liquid.js): Lens, Gauge, Poster
+        const LQ = o.liquid || (typeof globalThis !== "undefined" && /** @type {any} */ (globalThis).MUShare && /** @type {any} */ (globalThis).MUShare.liquid);
+        if (LQ && LQ.STYLES.includes(style)) return LQ.draw(style, canvas, card, o, R, api);
         if (style === "glass") return drawGlass(canvas, card, o, R);
         if (style === "verse") return drawVerse(canvas, card, o, R);
         return drawBento(canvas, card, o, R);
@@ -504,11 +507,14 @@
     function mapSpec(style, fmt, hasPhoto) {
         const H = fmt === "post" ? 1350 : 1920;
         if (style === "bento") { const L = bentoLayout(fmt); return { w: L.hero.w, h: L.hero.h, inset: 80, theme: "dark" }; }
+        // Lens and Gauge: the dark map fills the card, the glass bends it (and the route on it)
+        if ((style === "lens" || style === "gauge") && !hasPhoto) return { w: 1080, h: H, inset: style === "lens" ? 160 : 120, theme: "dark" };
         // Glass: the map fills the card, the route sits in the space above the glass panel
         if (style === "glass" && !hasPhoto) { const ph = fmt === "post" ? 560 : 720; return { w: 1080, h: H, inset: 90, theme: "light", focus: { x: 0, y: 170, w: 1080, h: H - ph - 56 - 170 - 40 } }; }
         if (style === "verse" && !hasPhoto) return { w: 1080, h: H - (fmt === "post" ? 330 : 560), inset: 160, theme: "light" };
         return null;
     }
 
-    return { STYLES, rng, posterize, splitChannels, bentoLayout, mapSpec, motionCard, phase, ease, draw, drawBento, drawGlass, drawVerse, rr, text, fit, tile, label, brand, figure };
+    const api = { STYLES, rng, posterize, splitChannels, bentoLayout, mapSpec, motionCard, phase, ease, draw, drawBento, drawGlass, drawVerse, rr, text, fit, tile, label, brand, figure };
+    return api;
 });

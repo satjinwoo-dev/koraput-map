@@ -1,6 +1,12 @@
 # Post-ride share card: Ride Recap Studio (`public/js/share/`)
 
-When a SmartDrive trip finishes, a share sheet opens with a card the rider can post. It has four styles, drawn by `card-styles.js` (Minimal by `card-render.js`):
+When a SmartDrive trip finishes, a share sheet opens with a card the rider can post. It has seven styles. The liquid-glass ones are drawn by `card-liquid.js`:
+
+- **Lens** (default): real refractive glass. The background (the rider's photo, the dark map with the route, or an iridescent chrome ribbon) bends at the glass edges, is magnified a little inside and splits into colour fringes, with a specular rim. Inside, thin light type: the distance, the ride's speed shape as a wave (relative, never figures), time, eco score, cost, an eco or reports slider, and the route in a small round lens.
+- **Gauge**: a glass instrument dial over the dark map: the distance in the middle, the eco score as a red-to-blue arc with ticks, and glass pills for moving time, average speed and cost. Never top speed.
+- **Poster**: one huge condensed word (the ride's title word, e.g. MORNING) on a pale lavender ground, the route glowing across it, the photo as a bubble behind it, monospace labels in the corners.
+
+The others are drawn by `card-styles.js` (Minimal by `card-render.js`):
 
 - **Bento** (default): an Apple-style bento grid on near-black. A big route tile, then tiles for distance (a huge gradient figure), moving time, an activity-ring eco score, mileage and cost, and the road reports.
 - **Glass**: Liquid Glass. Frosted panels (the background blurred inside them, a veil, a hairline, a specular edge) over the rider's photo, or over a vivid mesh gradient with the route as a light trail.
@@ -15,6 +21,7 @@ It also has a caption, and the road reports the rider reviewed or published afte
 |---|---|
 | `card-model.js` | `MUShare.model`: pure. `buildCard(summary, { privacy })` turns the ride summary into the card's data (SI). Also `trimEnds`, `simplify` (Douglas–Peucker), `project`, `ecoWord`, `rideTitle`, `usualFromLearner`. |
 | `basemap.js` | `MUShare.basemap`: the real map behind the route (CARTO tiles, the Dark style's provider), drawn into the card with the route on its own roads (Web Mercator). `mercator`, `fitZoom`, `scaled` and `tilesFor` are pure and tested. |
+| `card-liquid.js` | `MUShare.liquid`: Lens, Gauge, Poster and the Passport card. `refract()` bends the background per pixel once per card and is cached for the motion. `sdfRoundRect`, `refractSample`, `ribbonPaths` and `posterWord` are pure and tested. |
 | `card-styles.js` | `MUShare.styles`: the Bento, Glass and Verse styles. `bentoLayout`, `rng`, `posterize` and `splitChannels` are pure and tested. |
 | `card-render.js` | `MUShare.render`: draws the card. `SIZES` (story 1080×1920, post 1080×1350), `layout`, `fitRoute`, `stats` and `bannerText` are pure; `drawCard(canvas, card, opts)` paints. |
 | `share-ui.js` | `MUShare.ui`: the sheet: preview, Story / Post switch, three toggles, Share / Save image / Copy. Preferences in `localStorage` `mu.share.v1`. |

@@ -348,11 +348,11 @@
             }
             return drawMinimal(canvas, card, o);
         }
-        if (S && (t === "bento" || t === "glass" || t === "verse")) return S.draw(t, canvas, card, o, api);
+        if (S && ["lens", "gauge", "poster", "bento", "glass", "verse"].includes(t)) return S.draw(t, canvas, card, o, api);
         if (t === "glass" && o.photo) return drawPhoto(canvas, card, /** @type {any} */ (o));
         return drawCard(canvas, card, o);
     }
 
-    const api = { SIZES, TEMPLATES: Object.freeze(["bento", "glass", "verse", "minimal"]), layout, fitRoute, stats, bannerText, footText, cover, drawCard, drawPhoto, drawMinimal, drawTemplate };
+    const api = { SIZES, TEMPLATES: Object.freeze(["lens", "gauge", "poster", "bento", "glass", "verse", "minimal"]), layout, fitRoute, stats, bannerText, footText, cover, drawCard, drawPhoto, drawMinimal, drawTemplate };
     return api;
 });

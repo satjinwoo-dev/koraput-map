@@ -47,6 +47,24 @@
         return good.filter((_, i) => cum[i] >= a && cum[i] <= L - b);
     }
 
+    /**
+     * The speed over the ride as 48 relative values (0 … 1), smoothed: a shape to draw, not figures. null without speeds. Pure.
+     * @param {Array<{ speedKmh?: number }>} pts
+     */
+    function speedShape(pts, n = 48) {
+        const v = (pts || []).map((p) => Number(p && p.speedKmh)).filter((x) => Number.isFinite(x) && x >= 0);
+        if (v.length < 8) return null;
+        const bins = [];
+        for (let i = 0; i < n; i++) {
+            const a = Math.floor((i * v.length) / n), b = Math.max(a + 1, Math.floor(((i + 1) * v.length) / n));
+            const seg = v.slice(a, b);
+            bins.push(seg.reduce((s, x) => s + x, 0) / seg.length);
+        }
+        const sm = bins.map((_, i) => (bins[Math.max(0, i - 1)] + 2 * bins[i] + bins[Math.min(n - 1, i + 1)]) / 4);
+        const hi = Math.max(...sm);
+        return hi > 0 ? sm.map((x) => Math.round((x / hi) * 1000) / 1000) : null;
+    }
+
     /** At most `n` points, evenly picked, ends kept (for the map behind the route). @param {any[]} pts @param {number} n */
     function thin(pts, n) {
         if (pts.length <= n) return pts.slice();
@@ -164,11 +182,13 @@
             ecoScore, ecoWord: ecoWord(ecoScore),
             harsh: live && live.harsh ? live.harsh.accel + live.harsh.brake : null,
             route: project(shown, O.maxPoints), privacy: tStart > 0 || tEnd > 0, trim: { start: tStart, end: tEnd },
+            // the ride's speed as a shape (0–1, relative): the wave line on the Lens card. Never a number, never "top speed".
+            speeds: speedShape(pts),
             // the same (trimmed) points as latitude/longitude, for the map drawn behind the line
             routeGeo: thin(shown, 400).map((/** @type {any} */ p) => ({ lat: p.lat, lng: p.lng })),
             estimated: !live, matched: !!(live && Number.isFinite(sum.correction) && Math.abs(/** @type {number} */ (sum.correction) - 1) > 1e-6)
         };
     }
 
-    return { CARD_DEFAULTS, trimEnds, thin, simplify, project, ecoWord, rideTitle, usualFromLearner, buildCard };
+    return { CARD_DEFAULTS, trimEnds, thin, speedShape, simplify, project, ecoWord, rideTitle, usualFromLearner, buildCard };
 });

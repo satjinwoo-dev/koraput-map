@@ -131,7 +131,7 @@ test("recap: caption, the town only when asked, report counts (never 'confirmed'
     const foot = R.footText(off);
     assert.match(foot, /3 road reports reviewed, 2 published/);
     assert.ok(!/confirm/i.test(foot));
-    assert.deepEqual(R.TEMPLATES, ["bento", "glass", "verse", "minimal"]);
+    assert.deepEqual(R.TEMPLATES, ["lens", "gauge", "poster", "bento", "glass", "verse", "minimal"]);
     // the photo fills the card (cover), centred
     assert.deepEqual(R.cover(4000, 3000, 1080, 1920), { x: -740, y: 0, w: 2560, h: 1920 });
     assert.deepEqual(R.cover(1000, 4000, 1080, 1350), { x: 0, y: -1485, w: 1080, h: 4320 });
@@ -140,7 +140,7 @@ test("recap: caption, the town only when asked, report counts (never 'confirmed'
 test("share sheet helpers: file name and remembered choices", () => {
     assert.equal(S.fileName({ title: "Evening ride", startedAt: new Date(2026, 9, 4, 18).getTime() }), "mapunite-evening-ride-2026-10-04.png");
     const st = { v: JSON.stringify({ format: "square", privacy: false, showCost: "yes", auto: false }), getItem() { return this.v; } };
-    assert.deepEqual(S.loadPrefs(/** @type {any} */ (st)), { format: "story", template: "bento", privacy: false, trimStart: 400, trimEnd: 400, map: true, showPlace: false, showCost: true, auto: false });
+    assert.deepEqual(S.loadPrefs(/** @type {any} */ (st)), { format: "story", template: "lens", privacy: false, trimStart: 400, trimEnd: 400, map: true, showPlace: false, showCost: true, auto: false });
     // the rider's own start / finish choice, kept in 100 m steps within 0–3 km
     assert.deepEqual((({ trimStart, trimEnd }) => ({ trimStart, trimEnd }))(S.loadPrefs(/** @type {any} */ ({ getItem: () => JSON.stringify({ trimStart: 1234, trimEnd: -50 }) }))), { trimStart: 1200, trimEnd: 0 });
     // the town name is off unless the rider turned it on; a bad template falls back to classic
@@ -149,14 +149,14 @@ test("share sheet helpers: file name and remembered choices", () => {
     assert.equal(S.loadPrefs(/** @type {any} */ ({ getItem: () => JSON.stringify({ template: "classic" }) })).template, "bento");
     assert.equal(S.loadPrefs(/** @type {any} */ ({ getItem: () => JSON.stringify({ template: "verse" }) })).template, "verse");
     assert.equal(S.loadPrefs(/** @type {any} */ (st2)).showPlace, true);
-    assert.equal(S.loadPrefs(/** @type {any} */ ({ getItem: () => JSON.stringify({ template: "neon" }) })).template, "bento");
+    assert.equal(S.loadPrefs(/** @type {any} */ ({ getItem: () => JSON.stringify({ template: "neon" }) })).template, "lens");
 });
 
 test("modern styles: bento tiles stay inside the card and never overlap; seeded glitches; posterise and channel split", async () => {
     const { createRequire } = await import("node:module");
     const req = createRequire(import.meta.url);
     const ST = req("../../public/js/share/card-styles.js");
-    assert.deepEqual(ST.STYLES, ["bento", "glass", "verse", "minimal"]);
+    assert.deepEqual(ST.STYLES, ["lens", "gauge", "poster", "bento", "glass", "verse", "minimal"]);
     for (const fmt of ["story", "post"]) {
         const L = ST.bentoLayout(fmt);
         const boxes = [L.hero, L.dist, L.time, L.eco, L.fuel, L.wide].filter(Boolean);
@@ -234,4 +234,37 @@ test("map behind the route: Web Mercator, the zoom that fits, the tiles that cov
     const mid = ST.motionCard(c, 0.5);
     assert.ok(mid.distance > 0 && mid.distance < c.distance && mid.reports.published <= 3);
     assert.ok(ST.phase(0.95, 0.2, 0.3) === 1 && ST.phase(0, 0.2, 0.3) === 0);
+});
+
+test("liquid glass: the rounded-rect distance and normals, refraction strongest at the rim, seeded ribbon, poster word, speed shape", async () => {
+    const { createRequire } = await import("node:module");
+    const req = createRequire(import.meta.url);
+    const LQ = req("../../public/js/share/card-liquid.js");
+    assert.deepEqual(LQ.STYLES, ["lens", "gauge", "poster"]);
+    // a 200 × 100 box, radius 20: centre is 50 px inside; the right edge is the surface; a corner normal points diagonally
+    const c = LQ.sdfRoundRect(0, 0, 100, 50, 20);
+    assert.equal(c.d, -50);
+    assert.ok(Math.abs(LQ.sdfRoundRect(100, 0, 100, 50, 20).d) < 1e-9);
+    assert.ok(LQ.sdfRoundRect(110, 0, 100, 50, 20).d > 0);
+    assert.deepEqual([LQ.sdfRoundRect(90, 0, 100, 50, 20).nx, LQ.sdfRoundRect(90, 0, 100, 50, 20).ny], [1, 0]);
+    const corner = LQ.sdfRoundRect(95, 45, 100, 50, 20);
+    assert.ok(corner.nx > 0.5 && corner.ny > 0.5, "corner normal is diagonal");
+    // refraction: the bend is strongest at the rim and zero deep inside; inside, the view is magnified toward the centre
+    const o = { band: 80, strength: 50, mag: 0.06 };
+    const rim = LQ.refractSample(100, 0, 0, 1, 0, o), deep = LQ.refractSample(10, 0, 200, 1, 0, o);
+    assert.equal(rim.k, 50);
+    assert.equal(deep.k, 0);
+    assert.ok(Math.abs(deep.x - 10 * 0.94) < 1e-9);
+    assert.ok(LQ.refractSample(100, 0, 40, 1, 0, o).k < rim.k);
+    // the ribbon art is the same for the same ride
+    assert.deepEqual(LQ.ribbonPaths(42, 1080, 1920), LQ.ribbonPaths(42, 1080, 1920));
+    assert.notDeepEqual(LQ.ribbonPaths(42, 1080, 1920), LQ.ribbonPaths(43, 1080, 1920));
+    assert.equal(LQ.posterWord({ title: "Morning ride" }), "MORNING");
+    assert.equal(LQ.posterWord({ title: "" }), "RIDE");
+    // the speed shape: relative 0–1 values, never figures
+    const sp = M.speedShape(Array.from({ length: 100 }, (_, i) => ({ speedKmh: 20 + (i % 10) })));
+    assert.equal(sp.length, 48);
+    assert.ok(sp.every((v) => v >= 0 && v <= 1) && Math.max(...sp) === 1);
+    assert.equal(M.speedShape([{ speedKmh: 10 }]), null);
+    assert.ok(!/maxSpeed/.test(fs.readFileSync(new URL("../../public/js/share/card-liquid.js", import.meta.url), "utf8")), "no top speed");
 });
