@@ -1,6 +1,6 @@
 // Hyper-Vision (public/js/rideplan/schedule.js): the rider's own stop-by-stop schedule — breaks at their riding
 // limit, meals at meal time (early rather than two stops close together), fuel at the last mapped pump before the
-// reserve, the rider's edits kept, arrival as a range, and advice (dark riding, arrive-by, the way back) with reasons.
+// reserve, the rider's own plan kept exactly (checked, gaps filled only on request), arrival as a range, and advice (dark riding, arrive-by, the way back) with reasons.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
@@ -66,16 +66,38 @@ test("fuel: the last mapped pump before the reserve; none → a warning, not an 
     assert.match(dry.warnings[0].text, /No mapped fuel pump/);
 });
 
-test("the rider's edits: a removed stop stays removed (with what that means), a longer stop moves everything after it", () => {
-    const p = H.schedule(base);
-    const first = p.items[1];
-    const longer = H.schedule({ ...base, edits: { minutes: { [first.id]: first.minutes + 20 } } });
-    assert.equal(longer.items[1].minutes, first.minutes + 20);
-    assert.ok(longer.totals.arriveAt >= p.totals.arriveAt + 20 * MIN - 1000);
-    const rest = p.items.find((x) => x.type === "rest");
-    const without = H.schedule({ ...base, edits: { removed: [rest.id] } });
-    assert.ok(!without.items.some((x) => x.id === rest.id));
-    assert.ok(without.warnings.some((w) => /With your changes, the longest stretch/.test(w.text)));
+test("the rider's own plan: their stops exactly as set, timed and checked; nothing added unless they ask", () => {
+    const mine = [
+        { id: "m1", sM: 100000, kinds: ["meal"], minutes: 40, note: "chai with Rahul" },
+        { id: "m2", sM: 250000, kinds: ["rest", "fuel"], minutes: 20 }
+    ];
+    const fuelIn = { rangeKm: 150, startShare: 0.5, kmPerL: 45 };
+    const p = H.schedule({ ...base, pinned: mine, auto: false, fuel: fuelIn });
+    const stops = p.items.filter((x) => x.mine);
+    assert.deepEqual(stops.map((x) => [x.id, x.sM, x.minutes]), [["m1", 100000, 40], ["m2", 250000, 20]]);
+    assert.equal(p.items.length, 4, "nothing added");
+    assert.equal(stops[1].label, "Break + fuel");
+    assert.match(stops[0].reasons.join(" "), /Your note: chai with Rahul/);
+    assert.match(stops[1].reasons.join(" "), /No mapped fuel pump here/, "a fuel stop away from any mapped pump says so");
+    const w = p.warnings.map((x) => x.text).join(" | ");
+    assert.match(w, /you'd run out around km 75/, "half of 150 km");
+    assert.match(w, /From km 100 to km 250: .* without a stop/, "over the rider's limit, where");
+    // longer stop → everything after it moves
+    const longer = H.schedule({ ...base, pinned: [{ ...mine[0], minutes: 60 }, mine[1]], auto: false });
+    assert.equal(longer.totals.arriveAt - H.schedule({ ...base, pinned: mine, auto: false }).totals.arriveAt, 20 * MIN);
+    // "fill the gaps": their stops kept, MapUnite's added around them, none after theirs within 1 km
+    const filled = H.schedule({ ...base, pinned: mine, fuel: fuelIn });
+    assert.deepEqual(filled.items.filter((x) => x.mine).map((x) => x.id), ["m1", "m2"]);
+    assert.ok(filled.items.some((x) => !x.mine && x.type !== "start" && x.type !== "end"));
+    assert.ok(filled.items.filter((x) => x.type !== "end").every((x, i, a) => i === 0 || x.sM > a[i - 1].sM), "in km order");
+    assert.ok(!filled.warnings.some((x) => /run out/.test(x.text)), "MapUnite's fuel stop before the tank runs dry");
+    assert.equal(H.labelOf(["meal", "fuel"], "lunch"), "Lunch + fuel");
+    assert.equal(H.mealAt(ist(13), 330), "lunch");
+});
+
+test("a meal time spent riding without a meal stop is pointed out", () => {
+    const p = H.schedule({ ...base, departAt: ist(10), pinned: [{ id: "x", sM: 150000, kinds: ["rest"], minutes: 15 }], auto: false });
+    assert.ok(p.warnings.some((w) => /No lunch stop/.test(w.text)));
 });
 
 test("advice: dark riding with the latest daylight departure, arrive-by, the way back after the stay, forecast at the plan's time", () => {
@@ -84,8 +106,7 @@ test("advice: dark riding with the latest daylight departure, arrive-by, the way
     const a = H.advise({ ...evening, arriveBy: ist(19) }, p);
     const dark = a.find((x) => /in the dark/.test(x.text));
     assert.ok(dark && dark.level === "warning", "arriving after sunset (about 5:35 pm in October here)");
-    const by = dark.text.match(/Leave by ([\d:]+ [ap]m)/);
-    assert.ok(by, "says when to leave");
+    assert.match(dark.text, /leave between [\d:]+ am and [\d:]+ [ap]m/, "the daylight window: after first light, early enough for sunset");
     assert.ok(a.some((x) => /arrive by 7:00 pm/.test(x.text)));
 
     const morning = { ...base, departAt: ist(6), now: ist(5), stayMin: 120 };
@@ -123,4 +144,27 @@ test("the wiring: loaded by the page, cached for offline, shown in the Ride Plan
         assert.ok(sw.includes(`"/js/rideplan/${f}"`));
     }
     assert.match(app, /HyperVision\.section\(/);
+});
+
+test("leaving late at night: the daylight window is the next morning, and the way back starts after first light", () => {
+    const night = { ...base, distanceM: 172000, routeS: 4.3 * 3600, line: line.slice(0, 173), departAt: ist(20, 52), now: ist(20, 30), stayMin: 120 };
+    const a = H.advise(night, H.schedule(night));
+    const dark = a.find((x) => /in the dark/.test(x.text));
+    const m = dark.text.match(/leave between (\d+):\d+ am and [\d:]+ [ap]m tomorrow/);
+    assert.ok(m && Number(m[1]) >= 5 && Number(m[1]) <= 7, dark.text);
+    const back = a.find((x) => /^Way back/.test(x.text));
+    assert.match(back.text, /leaving at 4:\d\d am tomorrow/);
+    assert.match(back.text, /start back between (5|6):\d\d am and [\d:]+ [ap]m tomorrow/, "not just a latest time: the dark here is before sunrise");
+    const s = H.sunrise(18.8, 82.7, ist(12), 330);
+    assert.ok(H.localHours(s, 330) > 5.6 && H.localHours(s, 330) < 6.2);
+});
+
+test("fill the gaps: the rider's meal counts as that meal, and MapUnite's meal never lands right after their stop", () => {
+    // their breakfast at km 60 (about 7:15 when leaving at 6:00): no second breakfast before it
+    const p = H.schedule({ ...base, pinned: [{ id: "b", sM: 60000, kinds: ["meal"], minutes: 30 }] });
+    assert.equal(p.items.filter((x) => x.meal === "breakfast" || x.id === "breakfast").length, 1);
+    // their fuel stop at 12:35: lunch at least 30 min of riding later, not at the same pump
+    const q = H.schedule({ ...base, departAt: ist(10), pinned: [{ id: "f", sM: 150000, kinds: ["fuel"], minutes: 10 }] });
+    const f = q.items.find((x) => x.id === "f"), lunch = q.items.find((x) => x.id === "lunch");
+    if (lunch && lunch.sM > f.sM) assert.ok(lunch.arriveAt - f.departAt >= 29 * MIN, "half an hour of riding first");
 });
