@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-18.4";           // Rider Passport card in Lens, Gauge, Poster and Bento, with the rider's photo
+const VERSION = "mu-2026-10-18.5";           // Straight-road focus: the road glows on long straights, the rest dims
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
@@ -62,6 +62,7 @@ const APP_SCRIPTS = [
     "/js/navcam/navcam.js",
     "/js/navsheet.js",
     "/js/ridefocus.js",
+    "/js/roadfocus.js",
     "/js/navigation.js",
     "/js/garage/fuel-baseline.js",
     "/js/smartdrive.js",
