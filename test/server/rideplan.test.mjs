@@ -157,6 +157,72 @@ test("a whole plan: places and gaps from OSM, MET Norway weather at the right ho
     assert.equal((await plan.handle({ routes: [] })).status, 400);
 });
 
+test("v1: rider reports on the route, the rider's break and tank range, dark arrival, the month's usual weather when no forecast reaches, and a source line for every part", async () => {
+    const T0 = Date.UTC(2026, 9, 18, 0, 0);
+    const okJ = (j) => ({ ok: true, status: 200, headers: { get: () => "application/json" }, json: async () => j, text: async () => JSON.stringify(j) });
+    const fetchImpl = async (url, init) => {
+        const q = decodeURIComponent(String(init.body).slice(5));
+        if (q.includes("traffic_calming")) return okJ({ osm3s: { timestamp_osm_base: "2026-10-17T22:00:00Z" }, elements: [] });
+        return okJ({ osm3s: { timestamp_osm_base: "2026-10-17T22:00:00Z" }, elements: [
+            { type: "node", id: 10, lat: 18.8 + 2000 * M, lon: 82.7, tags: { amenity: "fuel", name: "Pump A" } },
+            { type: "node", id: 11, lat: 18.8 + 110000 * M, lon: 82.7, tags: { amenity: "fuel", name: "Pump B" } }
+        ] });
+    };
+    const areaCalls = [];
+    const roadsense = { area: async (b) => { areaCalls.push(b.tiles.length); return { status: 200, json: { ok: true, hazards: [
+        { id: "h1", type: "pothole", ptype: "pothole", lat: 18.8 + 30000 * M, lng: 82.7001, sigmaM: 8, status: "community_confirmed", found: 4, notFound: 0, reviewers: 4, lastFoundAt: Date.UTC(2026, 9, 16), lastFoundBucket: "this_week" },
+        { id: "h2", type: "speed_breaker_unmarked", ptype: "speed_breaker", lat: 18.8 + 60000 * M, lng: 82.7, sigmaM: 5, status: "reviewed_report", found: 1, notFound: 0, reviewers: 1, lastFoundBucket: "earlier" },
+        { id: "h3", type: "pothole", ptype: "pothole", lat: 18.8 + 60000 * M, lng: 82.75, sigmaM: 5, status: "community_confirmed", found: 3, notFound: 0 }      // 5 km off: another road
+    ] } }; } };
+    const RS = require("../../public/js/master/roadsense/roadsense.js");
+    const power = { monthly: async (pts) => pts.map(() => ({ available: true, tempC: 24.1, highC: 29.5, lowC: 19.2, rainMmDay: 5.4, windMs: 2.1, period: "2001–2020", notes: ["a rainy month: carry rain gear"] })) };
+    const metno = { forecastAt: async (pts) => pts.map(() => ({ available: false, reason: "beyond-forecast" })) };
+    const plan = RP.createRidePlan({ fetchImpl, now: () => T0, metno, power, roadsense, tileOf: RS.tileOf, blackspots: { info: () => ({ count: 0 }), nearLine: () => [] } });
+    // leaving at 14:00 IST, 5 h ride: arrives 19:00 IST, after sunset at Koraput in October
+    const depart = Date.UTC(2026, 9, 19, 8, 30);
+    const r = await plan.handle({ routes: [{ id: "a", line, durationS: 5 * 3600 }], departAt: depart, tzOffsetMin: 330, prefs: { breakEveryMin: 90, rangeKm: 120 } });
+    const rep = r.json.routes[0];
+    assert.equal(r.status, 200);
+    // rider reports: only those on this road, with status, agreement and confidence
+    assert.deepEqual(rep.riders.hazards.map((z) => [z.type, z.status, z.confidence]), [["pothole", "community_confirmed", "high"], ["speed_breaker", "reviewed_report", "medium"]]);
+    assert.equal(rep.riders.confirmed, 1);
+    assert.equal(rep.factors.riderHazards, 1);
+    assert.ok(areaCalls.every((n) => n <= 24), "the tile limit per /area call is kept");
+    // the rider's choices: breaks every 1½ h; a 108 km stretch without fuel is beyond 80 % of 120 km
+    assert.deepEqual(r.json.prefs, { breakEveryMin: 90, rangeKm: 120 });
+    assert.deepEqual(r.json.picks.meals, [], "leaving 14:00 IST, arriving 19:00: past lunch, before dinner");
+    assert.deepEqual(r.json.picks.restStops.map((x) => x.afterS / 3600), [1.5, 3], "every 1½ h; not 4½ h, half an hour before arriving");
+    assert.deepEqual([rep.fuel.beyondRange, rep.fuel.rangeKm, rep.fuel.fromKm], [true, 120, 2]);
+    assert.equal(rep.factors.fuelBeyondRange, true);
+    // light at both ends (computed, no data needed)
+    assert.deepEqual([rep.light.depart, rep.light.arrive], ["day", "dark"]);
+    // no forecast for that day: the month's usual weather, labelled as a pattern
+    assert.equal(rep.weather.available, false);
+    assert.deepEqual([rep.climate.available, rep.climate.month, rep.climate.period], [true, 9, "2001–2020"]);
+    assert.deepEqual([rep.meta.weather.source, rep.meta.weather.confidence], ["NASA POWER", "pattern"]);
+    assert.match(rep.meta.weather.note, /not a forecast/);
+    // a source line for every part: source, when, how sure, estimate or not
+    for (const k of ["route", "weather", "places", "road", "riders", "terrain", "accidents"]) {
+        const m = rep.meta[k];
+        assert.ok(m && "source" in m && "updatedAt" in m && "confidence" in m && "estimate" in m && m.note, k);
+    }
+    assert.equal(rep.meta.places.updatedAt, Date.parse("2026-10-17T22:00:00Z"), "OSM's own data time");
+    assert.deepEqual([rep.meta.route.estimate, rep.meta.accidents.confidence], [true, "none"]);
+    assert.equal(rep.meta.riders.updatedAt, Date.UTC(2026, 9, 16));
+    assert.equal(r.json.sources.climate, "Data from NASA POWER (power.larc.nasa.gov)");
+});
+
+test("NASA POWER: one month of the usual weather, missing values left out, words for it", () => {
+    const NP = require("../../lib/master/nasapower.js");
+    const j = { header: { start: "20010101", end: "20201231" }, properties: { parameter: {
+        T2M: { JAN: 20.5, OCT: 24.12 }, T2M_MAX: { OCT: 29.4 }, T2M_MIN: { OCT: 19.1 }, PRECTOTCORR: { OCT: 5.43, JAN: -999 }, WS2M: { OCT: 1.9 } } } };
+    assert.deepEqual(NP.monthAt(j, 9), { tempC: 24.1, highC: 29.4, lowC: 19.1, rainMmDay: 5.4, windMs: 1.9, period: "2001–2020" });
+    assert.equal(NP.monthAt(j, 0).rainMmDay, null, "-999 is POWER's 'missing'");
+    assert.equal(NP.monthAt({}, 3), null);
+    assert.deepEqual(NP.summary({ rainMmDay: 9, highC: 39, lowC: 6 }), ["a very wet month: heavy rain is common", "very hot afternoons", "cold mornings and nights"]);
+    assert.deepEqual(NP.summary({ rainMmDay: 0.2, highC: 30, lowC: 18 }), ["usually dry"]);
+});
+
 test("MET Norway: symbols to weather codes, the step nearest the time, the server fetches with a User-Agent and caches", async () => {
     const MN = require("../../lib/master/metno.js");
     assert.deepEqual(["heavyrainandthunder", "rainshowersandthunder_day", "heavyrain", "lightrainshowers_night", "rain", "fog", "clearsky_day", "partlycloudy_night", "lightsnow"].map(MN.symbolToWmo), [96, 95, 65, 80, 63, 45, 0, 2, 71]);
@@ -172,13 +238,14 @@ test("MET Norway: symbols to weather codes, the step nearest the time, the serve
     assert.deepEqual([six.precipMmH, six.hourly, six.gustMs], [1, false, null], "a 6-hour block as mm per hour; no gust given → null, not made up");
     assert.equal(MN.pickStep(series, t0 + 80 * 3600000), null, "past the forecast's end");
     let seen = [];
-    const fetchImpl = async (url, init) => { seen.push({ url: String(url), ua: init.headers["user-agent"] }); return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ properties: { timeseries: series } }) }; };
+    const fetchImpl = async (url, init) => { seen.push({ url: String(url), ua: init.headers["user-agent"] }); return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ properties: { meta: { updated_at: "2026-10-20T00:30:00Z" }, timeseries: series } }) }; };
     const met = MN.createMetNo({ fetchImpl, now: () => t0 });
     const out = await met.forecastAt([{ lat: 18.81234, lng: 82.71234, at: t0 + 5 * 3600000 }, { lat: 18.8149, lng: 82.7149, at: t0 + 6 * 3600000 }]);
     assert.equal(seen.length, 1, "two points in one ~1 km cell: one request");
     assert.match(seen[0].url, /^https:\/\/api\.met\.no\/weatherapi\/locationforecast\/2\.0\/complete\?lat=18\.81&lon=82\.71$/);
     assert.match(seen[0].ua, /^MapUnite\/1\.0 \(\+https:\/\//, "the app and a contact, as MET's terms require");
     assert.equal(out[0].hazards.find((h) => h.type === "heavy-rain").level, "warning");
+    assert.equal(out[0].updatedAt, Date.parse("2026-10-20T00:30:00Z"), "when MET made the forecast");
     await met.forecastAt([{ lat: 18.81, lng: 82.71, at: t0 }]);
     assert.equal(seen.length, 1, "cached");
 });

@@ -8,7 +8,10 @@
      - which is FASTEST and which is BEST, and exactly why;
      - the weather on the ride day at about the time the rider reaches each
        stretch (MET Norway, fetched by our server; about 9 days ahead,
-       "less certain" after 3);
+       "less certain" after 3); further ahead, the month's USUAL weather
+       (NASA POWER), never presented as a forecast;
+     - MapUnite riders' own road reports (RoadPulse) on the route, each with
+       its status and how many riders agree;
      - a stop plan: breakfast / lunch / dinner where the ride crosses meal
        time and a break about every 2 h, each with the places MapUnite riders
        rated after they said they stopped there (3 ratings or more), else
@@ -21,6 +24,11 @@
        hazards, and the climb from the 30 m terrain model where it covers;
      - official accident blackspots, only from lists loaded on the server.
        Without one the plan says so; it never invents accident numbers.
+   Every part carries its source, when its data was made, how far to trust it
+   (high / medium / low / official / pattern) and an "estimate" tag where it
+   is one. The rider's own choices: a break every 1½, 2 or 2½ h, and their
+   full-tank range (optional, for fuel warnings); kept on this phone
+   ("mu.rideplan.v1"). A ride that starts or ends in the dark says so.
    "Use this route" puts the chosen route on the map (the same preview, then
    Start). Nothing about the rider is stored: the plan asks with the route
    lines and the departure time only.
@@ -70,6 +78,9 @@ const RidePlan = (() => {
     const C = RidePlanCore;
     let dest = null, route = null;           // the destination and the route on screen (mu:destination, mu:route)
     let modal = null;
+    const PREFS = "mu.rideplan.v1";
+    function loadPrefs() { try { const s = JSON.parse(localStorage.getItem(PREFS) || "{}"); return { breakEveryMin: [90, 120, 150].includes(s.breakEveryMin) ? s.breakEveryMin : 120, rangeKm: Number.isFinite(s.rangeKm) && s.rangeKm >= 30 ? s.rangeKm : null }; } catch (e) { return { breakEveryMin: 120, rangeKm: null }; } }
+    function savePrefs(p) { try { localStorage.setItem(PREFS, JSON.stringify(p)); } catch (e) { /* private mode */ } }
 
     // ------------------------------------------------------------ helpers
     const h = (tag, a = {}, kids = []) => {
@@ -100,6 +111,7 @@ const RidePlan = (() => {
     // ------------------------------------------------------------ the plan
     async function analyse(body, out, leaveIn, focus) {
         const departAt = leaveIn.value ? new Date(leaveIn.value).getTime() : Date.now();
+        const prefs = loadPrefs();
         out.replaceChildren(h("p", { class: "rp-wait", role: "status", text: "Reading the routes: places, riders' ratings, ride-day weather, road and terrain… (up to a minute on a long route)" }));
         const from = route && route.path && route.path.length ? route.path[0] : (typeof myCoords !== "undefined" && myCoords ? [myCoords.lat, myCoords.lng] : null);
         if (!from || !dest) { out.replaceChildren(h("p", { class: "rp-err", text: "Pick a destination first." })); return; }
@@ -109,15 +121,25 @@ const RidePlan = (() => {
         const routes = raw.map((r, i) => ({ id: String(i), line: C.thin(r.geometry.coordinates.map(([lng, lat]) => [Math.round(lat * 1e5) / 1e5, Math.round(lng * 1e5) / 1e5]), 3000), distanceM: r.distance, durationS: r.duration }));
         let res = null;
         try {
-            const r = await fetch(api(), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ routes, departAt, focus, tzOffsetMin: -new Date(departAt).getTimezoneOffset() }) });
+            const r = await fetch(api(), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ routes, departAt, focus, tzOffsetMin: -new Date(departAt).getTimezoneOffset(), prefs: { breakEveryMin: prefs.breakEveryMin, rangeKm: prefs.rangeKm } }) });
             res = await r.json();
         } catch (e) { res = null; }
         if (!res || !res.ok) { out.replaceChildren(h("p", { class: "rp-err", text: res && res.reason === "bad-length" ? "This route is too long for a plan (over 1500 km)." : "Couldn't make the plan right now (the server or a data source didn't answer). Try again in a minute." })); return; }
         render(body, out, leaveIn, res, raw);
     }
 
-    function section(title, kids, open = false) {
-        return h("details", { class: "rp-sec", open }, [h("summary", { text: title }), ...kids]);
+    function section(title, kids, open = false, meta = null) {
+        return h("details", { class: "rp-sec", open }, [h("summary", { text: title }), meta ? metaLine(meta) : null, ...kids]);
+    }
+    const CONF = { high: "high", medium: "medium", low: "low", official: "official list", pattern: "usual pattern, not a forecast", varies: "varies: see each report", "no-reports": "no reports yet", none: "no data" };
+    /** Where a part comes from, when its data was made, how far to trust it. */
+    function metaLine(m) {
+        const upd = m.updatedAt ? `updated ${new Date(m.updatedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}${Date.now() - m.updatedAt < 2 * 86400000 ? ` ${time(m.updatedAt)}` : ""}` : null;
+        return h("div", { class: "rp-meta" }, [
+            h("span", { text: [m.source ? `Source: ${m.source}` : "No data", upd, `confidence: ${CONF[m.confidence] || m.confidence}`].filter(Boolean).join(" · ") }),
+            m.estimate ? h("span", { class: "rp-est", text: "estimate" }) : null,
+            m.note ? h("span", { class: "rp-mnote", text: m.note }) : null
+        ]);
     }
     const placeRow = (p) => h("div", { class: "rp-place" }, [
         h("div", { class: "rp-pn" }, [
@@ -147,7 +169,9 @@ const RidePlan = (() => {
                     h("li", { text: r.road.available ? `${f.unpavedKm} km unpaved/bad · ${f.levelCrossings} rail crossings · ${f.breakers} breakers` : "road details: not available" }),
                     h("li", { text: r.places.available ? `longest without fuel ${f.fuelGapKm} km · hospital ${f.hospitalGapKm} km` : "places: not available" }),
                     r.terrain.available ? h("li", { text: `climb ${r.terrain.climbM} m` }) : null,
-                    r.accidents.loaded ? h("li", { text: `${r.accidents.count} official blackspot${r.accidents.count === 1 ? "" : "s"}` }) : null
+                    r.riders && r.riders.available ? h("li", { text: `${r.riders.hazards.length} rider report${r.riders.hazards.length === 1 ? "" : "s"} (${r.riders.confirmed} confirmed)` }) : null,
+                    r.accidents.loaded ? h("li", { text: `${r.accidents.count} official blackspot${r.accidents.count === 1 ? "" : "s"}` }) : null,
+                    r.light && r.light.arrive !== "day" ? h("li", { class: "rp-warn", text: r.light.arrive === "dark" ? "arrives after dark" : "arrives at dusk" }) : null
                 ])
             ]);
         }));
@@ -157,8 +181,16 @@ const RidePlan = (() => {
             if (r && typeof startSearchNavigation === "function" && dest) { close(); startSearchNavigation(dest.lat, dest.lng, dest.name, r); }
         } });
 
+        // what the rider should know first
+        const alerts = [];
+        if (fr.light.depart === "dark") alerts.push("You'd set off in the dark: lights on, and watch for animals and unlit vehicles.");
+        if (fr.light.arrive !== "day") alerts.push(`You'd arrive ${fr.light.arrive === "dark" ? "after dark" : "at dusk"} (about ${time(fr.arriveAt)}, estimate). Leaving earlier gives you daylight on the last stretch.`);
+        if (fr.fuel && fr.fuel.beyondRange) alerts.push(`The longest stretch without fuel (${fr.fuel.maxGapKm} km, from km ${fr.fuel.fromKm}) is close to or beyond your tank's range (${fr.fuel.rangeKm} km). Fill up before km ${fr.fuel.fromKm}.`);
+        const top = alerts.length ? h("div", { class: "rp-alerts", role: "note" }, alerts.map((a) => h("p", { text: a }))) : null;
+
         // weather
-        const wx = fr.weather;
+        const wx = fr.weather, cl = fr.climate, M = fr.meta;
+        const MONTH = (m) => new Date(2026, m, 1).toLocaleDateString("en-IN", { month: "long" });
         const weather = wx.available ? section(`Weather on ${day(res.departAt)}${wx.certain ? "" : " · less certain (more than 3 days ahead)"}`, [
             h("div", { class: "rp-wx" }, wx.samples.filter((s) => s.available).map((s) => h("div", { class: `rp-wrow${s.hazards.some((z) => z.level === "warning") ? " warn" : s.hazards.length ? " adv" : ""}` }, [
                 h("span", { class: "rp-wk", text: `km ${Math.round(s.sM / 1000)} · ${time(s.at)}` }),
@@ -166,19 +198,26 @@ const RidePlan = (() => {
                 s.hazards.length ? h("span", { class: "rp-hz", text: s.hazards.map((z) => HAZ[z.type] || z.type).join(", ") }) : null
             ]))),
             h("p", { class: "rp-note", text: "Weather forecast from MET Norway, for about the hour you reach each point at the route's usual pace (6-hour steps further ahead)." })
-        ], true) : section("Weather", [h("p", { class: "rp-note", text: wx.reason === "too-far-ahead" ? `A forecast for that day isn't out yet. Check again from ${day(wx.checkFrom)}.` : "The forecast didn't load. Try again in a minute." })], true);
+        ], true, M.weather) : section(cl && cl.available ? `Usual weather in ${MONTH(cl.month)} (not a forecast)` : "Weather", [
+            h("p", { class: "rp-note", text: wx.reason === "too-far-ahead" ? `A forecast for that day isn't out yet. Check again from ${day(wx.checkFrom)}.` : "The forecast didn't load. Try again in a minute." }),
+            ...(cl && cl.available ? cl.points.map((c) => h("div", { class: "rp-wrow" }, [
+                h("span", { class: "rp-wk", text: c.sM === 0 ? "Start" : c.sM === fr.distanceM || c.sM > fr.distanceM * 0.9 ? "End" : `km ${Math.round(c.sM / 1000)}` }),
+                h("span", { text: [c.lowC !== null && c.highC !== null ? `${Math.round(c.lowC)}–${Math.round(c.highC)}°C` : c.tempC !== null ? `${Math.round(c.tempC)}°C` : null, c.rainMmDay !== null ? `about ${c.rainMmDay} mm of rain a day` : null].filter(Boolean).join(" · ") }),
+                c.notes && c.notes.length ? h("span", { class: "rp-hz", text: c.notes.join(", ") }) : null
+            ])) : [])
+        ], true, M.weather);
 
         // stops
         const tl = C.timeline(res.picks);
         const anyRatings = tl.some((r) => r.ratings);
-        const stops = section("Stops: meals and breaks", tl.length ? [
+        const stops = section(`Stops: meals and breaks (every ${(res.prefs.breakEveryMin / 60).toString().replace(".5", "½")} h)`, tl.length ? [
             ...tl.map((r) => h("div", { class: "rp-stop" }, [
                 h("div", { class: "rp-sh" }, [h("b", { text: r.label }), h("span", { text: `~${time(r.at)} · km ${Math.round(r.sM / 1000)}` })]),
                 ...(r.options.length ? r.options.slice(0, 3).map(placeRow) : [h("p", { class: "rp-note", text: "Nothing mapped near here: plan this stop a little earlier." })]),
                 r.fuelNearby && r.fuelNearby.length ? h("p", { class: "rp-note", text: `Fuel nearby: ${r.fuelNearby.map((p) => `${p.name || p.brand || "pump"} (km ${Math.round(p.sM / 1000)})`).join(", ")}` }) : null
             ])),
             h("p", { class: "rp-note", text: anyRatings ? "Places MapUnite riders rated after saying they stopped there come first (3 ratings or more); then the nearest. Ratings are riders' opinions, not a guarantee." : "No rider ratings here yet: the nearest places from OpenStreetMap. After a ride, MapUnite asks you about places you stopped at." })
-        ] : [h("p", { class: "rp-note", text: "A short ride: no meal or break stops needed." })], true);
+        ] : [h("p", { class: "rp-note", text: "A short ride: no meal or break stops needed." })], true, { source: "OpenStreetMap places, ranked by MapUnite riders' ratings", updatedAt: M.places.updatedAt, confidence: anyRatings ? "medium" : "low", estimate: true, note: "Stop times are estimates at the route's usual pace." });
 
         const P = fr.places;
         const gap = (g, what) => (g && g.maxM > 0 ? `Longest stretch without ${what}: ${C.fmtKm(g.maxM)} (km ${Math.round(g.fromM / 1000)}–${Math.round(g.toM / 1000)})` : "");
@@ -186,17 +225,18 @@ const RidePlan = (() => {
         const pickBlock = (rows) => (rows || []).filter((x) => x.options.some((p) => p.riders) && x.options.length).map((x) => h("div", { class: "rp-stop" }, [h("div", { class: "rp-sh" }, [h("span", { text: `Around km ${Math.round(x.sM / 1000)}` })]), ...x.options.map(placeRow)]));
         const placeSecs = P.available ? [
             section(`Hospitals: ${P.counts.hospital}${P.counts.knownHospitals ? ` + ${P.counts.knownHospitals} known from a government directory` : ""}`, [
+                M.knownHospitals ? metaLine(M.knownHospitals) : null,
                 h("p", { class: "rp-note" + (P.gaps.hospital.maxM > 40000 ? " warn" : ""), text: gap(P.gaps.hospital, "a hospital") }),
                 ...pickBlock(res.picks && res.picks.hospitals), ...P.lists.hospital.slice(0, 20).map(placeRow),
                 P.knownHospitals && P.knownHospitals.length ? h("p", { class: "rp-note", text: "Known locations from a government hospital directory. Not verified: the directory can be out of date and positions approximate, so call ahead before relying on one." }) : null,
                 ...(P.knownHospitals || []).slice(0, 20).map(placeRow)
-            ]),
-            section(`Fuel pumps: ${P.counts.fuel}`, [h("p", { class: "rp-note" + (P.gaps.fuel.maxM > 60000 ? " warn" : ""), text: gap(P.gaps.fuel, "fuel") + (P.gaps.fuel.maxM > 60000 ? `. Fill up before km ${Math.round(P.gaps.fuel.fromM / 1000)}.` : "") }), ...P.lists.fuel.map(placeRow)]),
-            section(`Mechanics: ${P.counts.mechanic} (tyre shops ${P.counts.tyres})`, [h("p", { class: "rp-note", text: gap(P.gaps.mechanic, "a mechanic") }), ...pickBlock(res.picks && res.picks.mechanics), ...P.lists.mechanic.slice(0, 20).map(placeRow)]),
-            section(`Hotels: ${P.counts.hotel}`, [...pickBlock(res.picks && res.picks.hotels), ...P.lists.hotel.slice(0, 15).map(placeRow)]),
-            section(`Food: ${P.counts.dhaba} dhabas · ${P.counts.tea} tea · ${P.counts.food - P.counts.dhaba - P.counts.tea} restaurants`, P.lists.food.slice(0, 40).map(placeRow)),
-            section(`Police ${P.counts.police} · Toilets ${P.counts.toilets}`, [...P.lists.police.slice(0, 15).map(placeRow), ...P.lists.toilets.slice(0, 15).map(placeRow)])
-        ] : [section("Places", [h("p", { class: "rp-note", text: "OpenStreetMap didn't answer. Try again in a minute." })])];
+            ], false, M.places),
+            section(`Fuel pumps: ${P.counts.fuel}`, [h("p", { class: "rp-note" + (P.gaps.fuel.maxM > 60000 ? " warn" : ""), text: gap(P.gaps.fuel, "fuel") + (P.gaps.fuel.maxM > 60000 ? `. Fill up before km ${Math.round(P.gaps.fuel.fromM / 1000)}.` : "") }), ...P.lists.fuel.map(placeRow)], false, M.places),
+            section(`Mechanics: ${P.counts.mechanic} (tyre shops ${P.counts.tyres})`, [h("p", { class: "rp-note", text: gap(P.gaps.mechanic, "a mechanic") }), ...pickBlock(res.picks && res.picks.mechanics), ...P.lists.mechanic.slice(0, 20).map(placeRow)], false, M.places),
+            section(`Hotels: ${P.counts.hotel}`, [...pickBlock(res.picks && res.picks.hotels), ...P.lists.hotel.slice(0, 15).map(placeRow)], false, M.places),
+            section(`Food: ${P.counts.dhaba} dhabas · ${P.counts.tea} tea · ${P.counts.food - P.counts.dhaba - P.counts.tea} restaurants`, P.lists.food.slice(0, 40).map(placeRow), false, M.places),
+            section(`Police ${P.counts.police} · Toilets ${P.counts.toilets}`, [...P.lists.police.slice(0, 15).map(placeRow), ...P.lists.toilets.slice(0, 15).map(placeRow)], false, M.places)
+        ] : [section("Places", [h("p", { class: "rp-note", text: "OpenStreetMap didn't answer. Try again in a minute." })], false, M.places)];
 
         const R = fr.road, T = fr.terrain;
         const road = section("Road", [
@@ -205,16 +245,22 @@ const RidePlan = (() => {
                 ...R.hazards.slice(0, 10).map((z) => h("li", { text: `Marked hazard: ${z.type.replace(/_/g, " ")} at km ${Math.round(z.sM / 1000)}` }))
             ]) : h("p", { class: "rp-note", text: "Road details didn't load from OpenStreetMap." }),
             T.available ? h("p", { text: `Climb ${T.climbM} m, descent ${T.descentM} m, steepest 200 m: ${T.maxGradePct} % (${T.lowM}–${T.highM} m above sea level).` }) : h("p", { class: "rp-note", text: "Hills: this route is outside our 30 m terrain model for now." }),
-            h("p", { class: "rp-note", text: "From OpenStreetMap: what isn't mapped isn't counted, so fewer breakers here doesn't mean none." })
-        ]);
+            T.available ? metaLine(M.terrain) : null
+        ], false, M.road);
+        // MapUnite riders' own reports (RoadPulse): what they reviewed and published, with how many agree
+        const RR = fr.riders, STATUS = { community_confirmed: "Confirmed by riders", reviewed_report: "Reported, reviewed by the rider", disputed: "Disputed", possibly_repaired: "May be repaired" };
+        const riders = section(`Rider reports: ${RR.available ? RR.hazards.length : "–"}`, RR.available ? (RR.hazards.length ? RR.hazards.slice(0, 30).map((z) => h("div", { class: "rp-place" }, [
+            h("div", { class: "rp-pn" }, [h("b", { text: String(z.type).replace(/_/g, " ") }), h("span", { class: "rp-pm", text: [`km ${Math.round(z.sM / 1000)}`, STATUS[z.status] || z.status, z.fewRiders ? "few riders here" : z.found !== null && z.found !== undefined ? `${z.found} found · ${z.notFound} not found` : null, z.lastFound ? `last seen ${z.lastFound.replace("_", " ")}` : null].filter(Boolean).join(" · ") })]),
+            h("span", { class: `rp-rate${z.confidence === "high" ? " ok" : z.confidence === "low" ? " none" : ""}`, text: `confidence ${z.confidence}` })
+        ])) : [h("p", { class: "rp-note", text: "No rider reports on this route yet. That isn't a promise the road is clear." })]) : [h("p", { class: "rp-note", text: "Rider reports aren't available right now." })], false, M.riders);
         const A = fr.accidents;
-        const accidents = section("Accidents (official data)", A.loaded ? [
+        const accidents = section("Official blackspots", A.loaded ? [
             h("p", { text: A.count ? `${A.count} officially listed blackspot${A.count === 1 ? "" : "s"} on this route.` : "No officially listed blackspots on this route." }),
             ...A.spots.slice(0, 20).map((s) => h("div", { class: "rp-place" }, [h("div", { class: "rp-pn" }, [h("b", { text: s.name || s.road || "Blackspot" }), h("span", { class: "rp-pm", text: [`km ${Math.round(s.sAlongM / 1000)}`, s.accidents ? `${s.accidents} accidents` : "", s.fatalities ? `${s.fatalities} deaths` : "", s.period].filter(Boolean).join(" · ") })])]))
-        ] : [h("p", { class: "rp-note", text: "No official accident data is loaded for this road yet, so the plan shows none rather than guessing. Ride every ghat and junction carefully." })]);
+        ] : [h("p", { class: "rp-note", text: "No official accident data is loaded for this road yet, so the plan shows none rather than guessing. Ride every ghat and junction carefully." })], false, M.accidents);
         const src = res.sources;
-        const sources = h("p", { class: "rp-src", text: `Sources: ${[src.places, src.ratings && `ratings from ${src.ratings}`, src.knownHospitals && `known hospitals: ${src.knownHospitals}`, src.weather, src.terrain, src.accidents].filter(Boolean).join(" · ")}. Times assume the route's usual pace.` });
-        out.replaceChildren(cards, why, use, weather, stops, ...placeSecs, road, accidents, sources);
+        const sources = h("p", { class: "rp-src", text: `Sources: ${[src.places, src.ratings && `ratings from ${src.ratings}`, src.knownHospitals && `known hospitals: ${src.knownHospitals}`, src.weather, src.climate, src.riders && `rider reports from ${src.riders}`, src.terrain, src.accidents].filter(Boolean).join(" · ")}. Times assume the route's usual pace. Where there's no data, the plan says so.` });
+        out.replaceChildren(top || "", cards, why, use, metaLine(M.route), weather, stops, riders, ...placeSecs, road, accidents, sources);
     }
 
     // ------------------------------------------------------------ the sheet
@@ -227,12 +273,24 @@ const RidePlan = (() => {
         leaveIn.value = C.localInput(start);
         leaveIn.min = C.localInput(Date.now() - 60000);
         const out = h("div", { class: "rp-out" });
-        const go = h("button", { type: "button", class: "btn-primary-nav", text: "Make the plan", onclick: () => analyse(body, out, leaveIn, undefined) });
+        const prefs = loadPrefs();
+        const breakSel = /** @type {HTMLSelectElement} */ (h("select", { class: "rp-input rp-half", "aria-label": "A break every" }, [[90, "1½ h"], [120, "2 h"], [150, "2½ h"]].map(([v, l]) => h("option", { value: String(v), text: l }))));
+        breakSel.value = String(prefs.breakEveryMin);
+        const rangeIn = /** @type {HTMLInputElement} */ (h("input", { type: "number", class: "rp-input rp-half", min: "30", max: "1500", inputmode: "numeric", placeholder: "e.g. 350", "aria-label": "Your full-tank range in km" }));
+        if (prefs.rangeKm) rangeIn.value = String(prefs.rangeKm);
+        const savePrefsNow = () => { const r = Number(rangeIn.value); savePrefs({ breakEveryMin: Number(breakSel.value) || 120, rangeKm: r >= 30 && r <= 1500 ? r : null }); };
+        breakSel.addEventListener("change", savePrefsNow); rangeIn.addEventListener("change", savePrefsNow);
+        const go = h("button", { type: "button", class: "btn-primary-nav", text: "Make the plan", onclick: () => { savePrefsNow(); body.osrm = body.osrm || null; analyse(body, out, leaveIn, undefined); } });
         modal = h("div", { class: "modal rp-modal", role: "dialog", "aria-modal": "true", "aria-label": "Ride plan", onclick: (e) => { if (e.target === modal) close(); } }, [
             h("div", { class: "modal-card wide rp-card-wrap" }, [
                 h("button", { class: "close-modal", type: "button", "aria-label": "Close", text: "✕", onclick: close }),
-                h("h2", { text: `Ride plan${dest && dest.name ? `: ${dest.name}` : ""}` }),
-                h("label", { class: "rp-label", text: "When will you leave?" }), leaveIn, go, out
+                h("h2", { text: `MapUnite Ride Plan${dest && dest.name ? `: ${dest.name}` : ""}` }),
+                h("label", { class: "rp-label", text: "When will you leave?" }), leaveIn,
+                h("div", { class: "rp-prefs" }, [
+                    h("label", { class: "rp-label", text: "A break every" }, []), h("label", { class: "rp-label", text: "Full-tank range (km, optional)" }),
+                    breakSel, rangeIn
+                ]),
+                go, out
             ])
         ]);
         document.body.append(modal);

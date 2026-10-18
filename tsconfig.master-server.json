@@ -34,6 +34,7 @@
     "lib/master/metno.js",
     "lib/master/place-ratings.js",
     "lib/master/hospitals.js",
+    "lib/master/nasapower.js",
     "lib/master/roadsense.js",
     "lib/master/roadpulse-reputation.js",
     "lib/master/roadpulse-roads.js",

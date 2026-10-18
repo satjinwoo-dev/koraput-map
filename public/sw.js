@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-18.7";           // Ride Plan without paid services: MET Norway, rider ratings, known hospitals
+const VERSION = "mu-2026-10-18.8";           // Ride Plan v1: rider reports, sources on every part, usual weather, rider choices
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;

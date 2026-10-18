@@ -81,6 +81,7 @@
      MET_NO_USER_AGENT        the Ride Plan's weather (MET Norway, fetched by this server): User-Agent naming the app and a
                               contact, as MET's terms require; default names the project repository
      MASTER_HOSPITALS_DIR     government hospital directories (known locations), default ./data/master/hospitals
+     MET_NO_URL, NASA_POWER_URL  the Ride Plan's weather and usual-weather endpoints (defaults: MET Norway, NASA POWER)
      MASTER_POI_GOOGLE        "0" = the Master's places use OSM only (no Places cost; the search box keeps Google)
      GOOGLE_MAP_TILES_KEY     optional: Google's map as a map style (Map Tiles API + billing on that key);
                               or MAP_TILES_GOOGLE=1 to use GOOGLE_MAPS_SERVER_KEY. Proxied, never sent to the phone

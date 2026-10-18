@@ -61,6 +61,13 @@
       "notes": "Free, commercial use allowed with attribution. Terms: identify the app in User-Agent (MET_NO_USER_AGENT), cache, no more than 20 requests/second per app. Hourly steps for ~2.5 days, then 6-hourly to ~9-10 days."
     },
     {
+      "id": "nasa-power", "name": "NASA POWER climatology (Prediction Of Worldwide Energy Resources)", "hosts": ["power.larc.nasa.gov"],
+      "use": "the Ride Plan's usual weather for a month (lib/master/nasapower.js) when no forecast reaches the ride day; never shown as a forecast", "licence": "NASA open data (no restrictions; credit requested)",
+      "licence_version": null, "attribution": "Data from NASA POWER (power.larc.nasa.gov)", "commercial_use": "yes",
+      "access_method": "HTTP API from the server, no key; cached per 0.5° cell for 30 days", "fetched_at": null, "source_version": "temporal/climatology/point", "legal_review": "pending",
+      "notes": "Long-term monthly means on a ~55 km grid: a regional pattern, not the road. Confirm the credit wording on power.larc.nasa.gov before launch."
+    },
+    {
       "id": "govt-hospital-directory", "name": "Government hospital directory with geo-codes (e.g. National Hospital Directory on data.gov.in)", "hosts": [],
       "use": "known hospital locations along a route in the Ride Plan (lib/master/hospitals.js), imported by scripts/master/import-hospitals.mjs", "licence": "Government Open Data License - India (check the dataset page)",
       "licence_version": null, "attribution": "the dataset's publisher, as named on data.gov.in", "commercial_use": "yes",

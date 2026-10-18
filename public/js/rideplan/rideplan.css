@@ -68,3 +68,14 @@
 .sa-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; }
 .sa-tag { padding: 6px 10px; border-radius: 999px; border: 1px solid var(--line-strong, rgba(255,255,255,.16)); background: rgba(255,255,255,.05); color: inherit; font: inherit; font-size: 12.5px; cursor: pointer; }
 .sa-tag[aria-pressed="true"] { border-color: #34e0b4; background: rgba(52,224,180,.18); color: #b5f5e3; }
+/* v1: where each part comes from, the rider's choices, first warnings */
+.rp-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: -4px 0 8px; font-size: 11.5px; color: var(--muted, #8b9bab); line-height: 1.4; }
+.rp-meta .rp-mnote { flex-basis: 100%; }
+.rp-est { padding: 1px 7px; border-radius: 999px; background: rgba(245,165,36,.16); color: #fcd34d; font-weight: 700; font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; }
+.rp-out > .rp-meta { margin: 0 0 8px; }
+.rp-prefs { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; align-items: end; }
+.rp-prefs .rp-label { margin-bottom: 4px; }
+.rp-half { margin-bottom: 12px; }
+.rp-alerts { margin: 0 0 12px; padding: 10px 12px; border-radius: 14px; background: rgba(245,165,36,.1); border: 1px solid rgba(245,165,36,.45); }
+.rp-alerts p { margin: 4px 0; font-size: 13.5px; line-height: 1.45; color: #fde68a; }
+.rp-facts .rp-warn { color: #fcd34d; }
