@@ -683,6 +683,8 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
             if (!camOn && myCoords) map.flyTo([myCoords.lat, myCoords.lng], 18, { animate: true, duration: 1.5 });
             // Ride Focus AMOLED (js/ridefocus.js): the true-black map, when the rider has turned it on
             if (typeof RideFocus !== "undefined" && RideFocus.start) RideFocus.start({ map, ahead: dottedPath, trail: solidPath, route: () => fullPath, turn: () => maneuverLatLng(nextManeuver()) });
+            // Straight-road focus (js/roadfocus.js): on a long straight with the next turn far away, the road glows and the rest dims
+            if (typeof RoadFocus !== "undefined" && RoadFocus.start) RoadFocus.start({ map, route: () => fullPath, turn: () => maneuverLatLng(nextManeuver()) });
 
             navState.ready = false;
             navState.active = true;
@@ -748,6 +750,7 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
                     }
                     updateStepDisplay(currentPos);
                     if (typeof RideFocus !== "undefined" && RideFocus.update) RideFocus.update(currentLat, currentLng);   // the turn may have advanced
+                    if (typeof RoadFocus !== "undefined" && RoadFocus.update) RoadFocus.update(currentLat, currentLng, speedMps, estimated);
                     if (estimated) return;             // no reroute / arrival decisions on an estimate
 
                     // --- Off-route detection + reroute (roadmap Section 7 + 10) ---
@@ -910,6 +913,7 @@ function stopDrive(cancelled = false) {
     if (typeof NavCamera !== "undefined") NavCamera.stop();
     if (typeof NavSheet !== "undefined") NavSheet.reset();
     if (typeof RideFocus !== "undefined" && RideFocus.stop) RideFocus.stop();      // the rider's own map style comes back
+    if (typeof RoadFocus !== "undefined" && RoadFocus.stop) RoadFocus.stop();
     navigationLayer.clearLayers();
     safeHide("premium-nav-ui");
     safeHide("nav-bottom-sheet");

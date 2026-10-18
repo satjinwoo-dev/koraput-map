@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-18.4";           // Rider Passport card in Lens, Gauge, Poster and Bento, with the rider's photo
+const VERSION = "mu-2026-10-18.8";           // Ride Plan v1: rider reports, sources on every part, usual weather, rider choices
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
@@ -62,6 +62,7 @@ const APP_SCRIPTS = [
     "/js/navcam/navcam.js",
     "/js/navsheet.js",
     "/js/ridefocus.js",
+    "/js/roadfocus.js",
     "/js/navigation.js",
     "/js/garage/fuel-baseline.js",
     "/js/smartdrive.js",
@@ -138,7 +139,10 @@ const BIKE_SCRIPTS = [
     "/js/passport/place-share.js",
     "/js/passport/passport-model.js",
     "/js/passport/passport-app.js",
+    "/js/rideplan/rideplan-app.js",
+    "/js/rideplan/stop-ask.js",
     "/js/passport/passport.css",
+    "/js/rideplan/rideplan.css",
     "/js/share/share-app.js",
     "/js/share/card-model.js",
     "/js/share/card-render.js",
