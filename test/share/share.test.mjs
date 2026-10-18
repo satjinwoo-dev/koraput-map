@@ -2,6 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
+import fs from "node:fs";
 
 const require = createRequire(import.meta.url);
 const U = require("../../public/js/garage/units.js");
@@ -130,7 +131,7 @@ test("recap: caption, the town only when asked, report counts (never 'confirmed'
     const foot = R.footText(off);
     assert.match(foot, /3 road reports reviewed, 2 published/);
     assert.ok(!/confirm/i.test(foot));
-    assert.deepEqual(R.TEMPLATES, ["classic", "photo", "minimal"]);
+    assert.deepEqual(R.TEMPLATES, ["bento", "glass", "verse", "minimal"]);
     // the photo fills the card (cover), centred
     assert.deepEqual(R.cover(4000, 3000, 1080, 1920), { x: -740, y: 0, w: 2560, h: 1920 });
     assert.deepEqual(R.cover(1000, 4000, 1080, 1350), { x: 0, y: -1485, w: 1080, h: 4320 });
@@ -139,10 +140,41 @@ test("recap: caption, the town only when asked, report counts (never 'confirmed'
 test("share sheet helpers: file name and remembered choices", () => {
     assert.equal(S.fileName({ title: "Evening ride", startedAt: new Date(2026, 9, 4, 18).getTime() }), "mapunite-evening-ride-2026-10-04.png");
     const st = { v: JSON.stringify({ format: "square", privacy: false, showCost: "yes", auto: false }), getItem() { return this.v; } };
-    assert.deepEqual(S.loadPrefs(/** @type {any} */ (st)), { format: "story", template: "classic", privacy: false, showPlace: false, showCost: true, auto: false });
+    assert.deepEqual(S.loadPrefs(/** @type {any} */ (st)), { format: "story", template: "bento", privacy: false, showPlace: false, showCost: true, auto: false });
     // the town name is off unless the rider turned it on; a bad template falls back to classic
     const st2 = { v: JSON.stringify({ template: "photo", showPlace: true }), getItem() { return this.v; } };
-    assert.equal(S.loadPrefs(/** @type {any} */ (st2)).template, "photo");
+    assert.equal(S.loadPrefs(/** @type {any} */ (st2)).template, "glass", "the old Photo template is now Glass");
+    assert.equal(S.loadPrefs(/** @type {any} */ ({ getItem: () => JSON.stringify({ template: "classic" }) })).template, "bento");
+    assert.equal(S.loadPrefs(/** @type {any} */ ({ getItem: () => JSON.stringify({ template: "verse" }) })).template, "verse");
     assert.equal(S.loadPrefs(/** @type {any} */ (st2)).showPlace, true);
-    assert.equal(S.loadPrefs(/** @type {any} */ ({ getItem: () => JSON.stringify({ template: "neon" }) })).template, "classic");
+    assert.equal(S.loadPrefs(/** @type {any} */ ({ getItem: () => JSON.stringify({ template: "neon" }) })).template, "bento");
+});
+
+test("modern styles: bento tiles stay inside the card and never overlap; seeded glitches; posterise and channel split", async () => {
+    const { createRequire } = await import("node:module");
+    const req = createRequire(import.meta.url);
+    const ST = req("../../public/js/share/card-styles.js");
+    assert.deepEqual(ST.STYLES, ["bento", "glass", "verse", "minimal"]);
+    for (const fmt of ["story", "post"]) {
+        const L = ST.bentoLayout(fmt);
+        const boxes = [L.hero, L.dist, L.time, L.eco, L.fuel, L.wide].filter(Boolean);
+        for (const b of boxes) assert.ok(b.x >= L.m - 1 && b.y > L.caption && b.x + b.w <= L.W - L.m + 1 && b.y + b.h < L.foot - 20, `${fmt}: ${JSON.stringify(b)}`);
+        for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+            const a = boxes[i], b = boxes[j];
+            assert.ok(a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y, `${fmt}: tiles ${i} and ${j} overlap`);
+        }
+    }
+    const a = ST.rng(42), b = ST.rng(42), c = ST.rng(43);
+    const sa = [a(), a(), a()], sb = [b(), b(), b()];
+    assert.deepEqual(sa, sb, "the same ride gives the same card");
+    assert.notDeepEqual(sa, [c(), c(), c()]);
+    assert.ok(sa.every((v) => v >= 0 && v < 1));
+    const px = [10, 128, 250, 255, 200, 60, 128, 255];
+    ST.posterize(px, 5, 1);
+    assert.deepEqual(px, [0, 128, 255, 255, 191, 64, 128, 255]);
+    // a 3×1 image: red comes from the right, blue from the left
+    const img = [255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255];
+    assert.deepEqual([...ST.splitChannels(img, 3, 1, 1)], [0, 0, 0, 255, 0, 255, 0, 255, 0, 0, 0, 255]);
+    // no top speed in any style
+    assert.ok(!/maxSpeed/.test(fs.readFileSync(new URL("../../public/js/share/card-styles.js", import.meta.url), "utf8")));
 });

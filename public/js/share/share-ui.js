@@ -7,7 +7,8 @@
    Ride Recap Studio. Pops up when a ride ends (or from "Share ride" in the trip
    summary); nothing leaves the phone until the rider taps Share or Save:
      - a live preview of the card (the real canvas, scaled to fit);
-     - a template: Classic, Photo (the rider's own photo) or Minimal;
+     - a style: Bento (grid of tiles), Glass (Liquid Glass over the rider's photo
+       or a gradient), Verse (comic halftone/glitch) or Minimal (true black);
      - Story (9:16) or Post (4:5);
      - Add photo: picked from the phone, drawn onto the card and never uploaded;
        because it's redrawn, the exported PNG carries none of the photo's EXIF
@@ -55,11 +56,12 @@
 
     /** @param {Storage|null} st */
     function loadPrefs(st) {
-        const d = { format: "story", template: "classic", privacy: true, showPlace: false, showCost: true, auto: true };
+        const d = { format: "story", template: "bento", privacy: true, showPlace: false, showCost: true, auto: true };
         try {
             const p = JSON.parse((st && st.getItem(PREFS_KEY)) || "{}") || {};
             if (p.format === "post" || p.format === "story") d.format = p.format;
-            if (["classic", "photo", "minimal"].includes(p.template)) d.template = p.template;
+            const t = p.template === "classic" ? "bento" : p.template === "photo" ? "glass" : p.template;   // the old names
+            if (["bento", "glass", "verse", "minimal"].includes(t)) d.template = t;
             for (const k of ["privacy", "showPlace", "showCost", "auto"]) if (typeof p[k] === "boolean") d[k] = p[k];
         } catch { /* defaults */ }
         return d;
@@ -108,17 +110,17 @@
             if (!f) return;
             try {
                 photo = typeof createImageBitmap === "function" ? await createImageBitmap(f, { imageOrientation: "from-image" }) : await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = URL.createObjectURL(f); });
-                prefs.template = "photo"; savePrefs(storage, prefs); syncTemplate(); build();
+                if (prefs.template !== "verse") prefs.template = "glass";
+                savePrefs(storage, prefs); syncTemplate(); build();
                 photoBtn.textContent = "Change photo"; removeBtn.hidden = false;
             } catch { status.textContent = "Couldn't read that photo."; }
             fileIn.value = "";
         } }));
         const photoBtn = h("button", { type: "button", class: "sh-btn-ghost", text: "Add photo", onclick: () => fileIn.click() });
-        const removeBtn = h("button", { type: "button", class: "sh-btn-ghost", text: "Remove photo", hidden: true, onclick: () => { photo = null; photoBtn.textContent = "Add photo"; removeBtn.hidden = true; if (prefs.template === "photo") { prefs.template = "classic"; syncTemplate(); } build(); } });
+        const removeBtn = h("button", { type: "button", class: "sh-btn-ghost", text: "Remove photo", hidden: true, onclick: () => { photo = null; photoBtn.textContent = "Add photo"; removeBtn.hidden = true; build(); } });
         const captionIn = /** @type {HTMLInputElement} */ (h("input", { type: "text", class: "sh-caption", maxlength: "80", placeholder: "Add a caption (optional)", "aria-label": "Caption", oninput: (e) => { caption = /** @type {HTMLInputElement} */ (e.currentTarget).value; build(); } }));
-        const templates = seg([["classic", "Classic"], ["photo", "Photo"], ["minimal", "Minimal"]], () => prefs.template, (v) => {
+        const templates = seg([["bento", "Bento"], ["glass", "Glass"], ["verse", "Verse"], ["minimal", "Minimal"]], () => prefs.template, (v) => {
             prefs.template = v; savePrefs(storage, prefs);
-            if (v === "photo" && !photo) fileIn.click();
             build();
         }, "Card style");
         const syncTemplate = () => { for (const b of templates.children) b.setAttribute("aria-checked", String(b.getAttribute("data-v") === prefs.template)); };
@@ -192,7 +194,7 @@
         }
 
         function open(s) {
-            if (s !== summary) { caption = ""; captionIn.value = ""; photo = null; photoBtn.textContent = "Add photo"; removeBtn.hidden = true; if (prefs.template === "photo") prefs.template = "classic"; syncTemplate(); }
+            if (s !== summary) { caption = ""; captionIn.value = ""; photo = null; photoBtn.textContent = "Add photo"; removeBtn.hidden = true; syncTemplate(); }
             summary = s;
             root.hidden = false;
             build();

@@ -60,40 +60,81 @@ const MUPassport = (() => {
     }
 
     // ------------------------------------------------------------ the card (1080 × 1350, drawn on the phone)
+    // Bento style (js/share/card-styles.js, loaded with the recap): a name header, self-reported chips, tiles for
+    // what MapUnite recorded and what other riders confirmed (each tile says which), and the badges earned.
     const FONT = `"Inter", system-ui, sans-serif`, DISPLAY = `"Sora", "Inter", system-ui, sans-serif`;
     function drawCard(canvas, card) {
+        const S = W.MUShare && W.MUShare.styles;
         canvas.width = 1080; canvas.height = 1350;
         const ctx = canvas.getContext("2d");
-        const g = ctx.createLinearGradient(0, 0, 0, 1350);
-        g.addColorStop(0, "#0d1a26"); g.addColorStop(1, "#05090f");
-        ctx.fillStyle = g; ctx.fillRect(0, 0, 1080, 1350);
-        const t = (s, x, y, font, color, align = "left") => { ctx.font = font; ctx.fillStyle = color; ctx.textAlign = align; ctx.fillText(s, x, y); };
+        ctx.fillStyle = "#050608"; ctx.fillRect(0, 0, 1080, 1350);
+        for (const [cx, cy, r, c] of [[120, 80, 760, "rgba(52,224,180,0.13)"], [1000, 1250, 820, "rgba(99,102,241,0.12)"]]) {
+            const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r); g.addColorStop(0, c); g.addColorStop(1, "rgba(0,0,0,0)"); ctx.fillStyle = g; ctx.fillRect(0, 0, 1080, 1350);
+        }
+        const t = (s, x, y, font, color, align = "left") => { ctx.font = font; ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = "alphabetic"; ctx.fillText(s, x, y); return ctx.measureText(s).width; };
         const fitFont = (s, w, size, weight, fam) => { let px = size; for (; px > 16; px -= 2) { ctx.font = `${weight} ${px}px ${fam}`; if (ctx.measureText(s).width <= w) break; } return `${weight} ${px}px ${fam}`; };
-        t("RIDER PASSPORT", 80, 120, `700 28px ${FONT}`, "#34e0b4");
-        t(card.name || "Rider", 80, 200, fitFont(card.name || "Rider", 920, 76, 800, DISPLAY), "#f2f6f8");
-        let y = 270;
-        for (const s of card.sections) {
-            if (y > 1080) break;
-            ctx.font = `700 22px ${FONT}`;
-            const tag = s.tag.toUpperCase(), tw = ctx.measureText(tag).width + 36;
-            ctx.fillStyle = s.source === "self" ? "rgba(255,255,255,0.08)" : s.source === "community" ? "rgba(52,224,180,0.16)" : "rgba(77,163,255,0.16)";
-            ctx.beginPath(); ctx.roundRect ? ctx.roundRect(80, y, tw, 40, 20) : ctx.rect(80, y, tw, 40); ctx.fill();
-            t(tag, 98, y + 28, `700 22px ${FONT}`, s.source === "self" ? "#c6d2db" : s.source === "community" ? "#34e0b4" : "#8ec5ff");
-            y += 76;
-            for (const it of s.items) {
-                if (y > 1110) break;
-                t(it.label, 80, y, `500 30px ${FONT}`, "#8b9bab");
-                t(it.value, 1000, y, fitFont(it.value, 520, 40, 700, DISPLAY), "#f2f6f8", "right");
-                y += 58;
+        const rr = (x, y, w, h, r) => { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); };
+        const tile = (b) => (S ? S.tile(ctx, b, 40) : (rr(b.x, b.y, b.w, b.h, 40), ctx.fillStyle = "rgba(255,255,255,0.06)", ctx.fill()));
+        const grad = (x, y, w, a = "#34e0b4", b = "#22d3ee") => { const g = ctx.createLinearGradient(x, y - 60, x + w, y); g.addColorStop(0, a); g.addColorStop(1, b); return g; };
+        const m = 56;
+        if (S) S.brand(ctx, m + 4, 96, 30); else t("MapUnite", m, 96, `700 30px ${DISPLAY}`, "#f5f7fa");
+        rr(1080 - m - 250, 58, 250, 52, 26); ctx.fillStyle = "rgba(52,224,180,0.14)"; ctx.fill();
+        t("RIDER PASSPORT", 1080 - m - 125, 92, `700 22px ${FONT}`, "#34e0b4", "center");
+        const name = card.name || "Rider";
+        const nf = fitFont(name, 968, 96, 800, DISPLAY);
+        ctx.font = nf;
+        t(name, m, 220, nf, grad(m, 220, ctx.measureText(name).width, "#ffffff", "#a7f3d0"));
+        // self-reported chips
+        const self = card.sections.find((x) => x.source === "self");
+        let cx = m, cy = 262;
+        if (self) {
+            for (const it of self.items) {
+                const s = it.id === "experience" ? `Riding since ${it.value}` : it.value;
+                ctx.font = `600 26px ${FONT}`;
+                const w = Math.min(968, ctx.measureText(s).width + 48);
+                if (cx + w > 1080 - m) { cx = m; cy += 62; }
+                rr(cx, cy, w, 50, 25); ctx.fillStyle = "rgba(255,255,255,0.08)"; ctx.fill();
+                t(s, cx + 24, cy + 34, fitFont(s, w - 48, 26, 600, FONT), "#dbe3ea");
+                cx += w + 12;
             }
-            y += 20;
-        }
+            t("SELF-REPORTED", m, cy + 88, `700 18px ${FONT}`, "#7d8a97");
+            cy += 112;
+        } else cy += 10;
+        // tiles: recorded + confirmed
+        const tiles = [];
+        for (const sec of card.sections.filter((x) => x.source !== "self")) for (const it of sec.items) tiles.push({ ...it, source: sec.source });
+        // fewer tiles: taller ones, so the card is full either way
+        const rows = Math.max(1, Math.ceil(Math.min(6, tiles.length) / 2));
+        const tw = (1080 - 2 * m - 24) / 2, th = Math.max(196, Math.min(280, (1180 - cy - (rows - 1) * 24) / rows));
+        tiles.slice(0, 6).forEach((it, i) => {
+            const b = { x: m + (i % 2) * (tw + 24), y: cy + Math.floor(i / 2) * (th + 24), w: tw, h: th };
+            if (b.y + b.h > 1180) return;
+            tile(b);
+            t(it.label.toUpperCase(), b.x + 30, b.y + 48, `700 20px ${FONT}`, "#7d8a97");
+            const mt = /^([\d.,]+)\s*(.*)$/.exec(it.value) || [null, it.value, ""];
+            const vf = fitFont(mt[1], b.w - 140, 92, 800, DISPLAY);
+            ctx.font = vf;
+            const vw = ctx.measureText(mt[1]).width;
+            const vy = b.y + b.h - 62;
+            t(mt[1], b.x + 28, vy, vf, it.source === "community" ? grad(b.x, vy, vw) : "#f5f7fa");
+            if (mt[2]) t(mt[2], b.x + 36 + vw, vy, `600 28px ${FONT}`, "#b9c4cf");
+            t(it.source === "community" ? "confirmed by other riders" : "recorded by MapUnite", b.x + 30, b.y + b.h - 22, `500 19px ${FONT}`, it.source === "community" ? "#34e0b4" : "#7d8a97");
+        });
+        // badges
         if (card.badges.length) {
-            t("BADGES", 80, Math.min(y + 10, 1160), `700 22px ${FONT}`, "#8b9bab");
-            t(card.badges.map((b) => b.name).join(" · "), 80, Math.min(y + 56, 1206), fitFont(card.badges.map((b) => b.name).join(" · "), 920, 34, 700, DISPLAY), "#34e0b4");
+            const by = 1206;
+            let bx = m;
+            for (const b of card.badges.slice(0, 4)) {
+                ctx.font = `700 24px ${DISPLAY}`;
+                const w = ctx.measureText(b.name).width + 74;
+                if (bx + w > 1080 - m) break;
+                rr(bx, by, w, 56, 28); ctx.fillStyle = "rgba(52,224,180,0.14)"; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = "rgba(52,224,180,0.45)"; ctx.stroke();
+                ctx.beginPath(); ctx.arc(bx + 28, by + 28, 9, 0, Math.PI * 2); ctx.fillStyle = "#34e0b4"; ctx.fill();
+                t(b.name, bx + 48, by + 37, `700 24px ${DISPLAY}`, "#e6fff7");
+                bx += w + 12;
+            }
         }
-        t("Self-reported lines are the rider's own. Confirmed = other riders' independent rides.", 540, 1290, `500 22px ${FONT}`, "#6b7a89", "center");
-        t("MapUnite", 1000, 120, `700 28px ${DISPLAY}`, "rgba(242,246,248,0.55)", "right");
+        t("Confirmed = other riders' independent rides. Self-reported lines are the rider's own.", 540, 1312, `500 20px ${FONT}`, "#6b7a89", "center");
         return canvas;
     }
 
@@ -169,7 +210,11 @@ const MUPassport = (() => {
                     h("label", { class: "pp-label", text: "Riding since (year)" }), since, h("label", { class: "pp-label", text: "Usual bike" }), bike, h("label", { class: "pp-label", text: "About" }), about,
                     h("div", { class: "pp-actions" }, [h("button", { type: "button", class: "btn-secondary-nav", text: "Save", onclick: saveSelf })])]),
                 ...sections, badges,
-                h("div", { class: "pp-actions" }, [h("button", { type: "button", class: "btn-primary-nav", text: "Preview my card", onclick: () => { drawCard(canvas, M.forCard(p, { ...M.DEFAULT_VIS, ...st.visibility })); cardWrap.hidden = false; cardWrap.scrollIntoView({ behavior: "smooth", block: "nearest" }); } })]),
+                h("div", { class: "pp-actions" }, [h("button", { type: "button", class: "btn-primary-nav", text: "Preview my card", onclick: async () => {
+                    // the card's Bento tiles come from the recap's styles: load them on first use (precached)
+                    if (W.MUShare && W.MUShare.app && typeof W.MUShare.app.load === "function" && !W.MUShare.styles) { try { await W.MUShare.app.load(); } catch (e) { /* plain tiles */ } }
+                    drawCard(canvas, M.forCard(p, { ...M.DEFAULT_VIS, ...st.visibility })); cardWrap.hidden = false; cardWrap.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                } })]),
                 cardWrap
             );
         };

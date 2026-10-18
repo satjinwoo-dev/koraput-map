@@ -5,7 +5,7 @@
 | `share-out.js` | `MUShareOut.text / image`: the phone's own share menu. In the Android app it's the `MapUniteNative.share()` plugin method (Android's chooser: WhatsApp, Telegram, Instagram, … no app-specific API or key); in a browser, Web Share where it exists, else copy (text) or save (image). |
 | `place-share.js` | Share a place: a sheet with the name, kind (fuel, repair, viewpoint, food, stay, hospital, other), an optional note, "Add coordinates" (off unless the place has no name) and a **preview of exactly what's sent**, then Share or Copy. Entry points: the **Share place** button in map place popups and the searched destination's popup, and a long-press on the map ("This spot", never during a drive). A shared link (`/?place=lat,lng&n=…&c=…&note=…`) opens in the app as a pin with the name and note. `MUPlaceShareCore` (compose, parseLink) is pure. |
 | `passport-model.js` | `MUPassportModel`: pure. The three kinds of line (self-reported / recorded on this phone / confirmed by other riders), visibility, badges with their reasons, and what goes on the card. |
-| `passport-app.js` | The Passport screen (Smart Drive Settings → Rider Passport) and its card image, plus the per-ride tally of road reports from the post-ride review (`mu:roadpulse-reviewed`). |
+| `passport-app.js` | The Passport screen (Smart Drive Settings → Rider Passport) and its card image (Bento tiles, using `js/share/card-styles.js`), plus the per-ride tally of road reports from the post-ride review (`mu:roadpulse-reviewed`). |
 | `passport.css` | Styles. |
 
 ## What the Passport says, and where it comes from
@@ -38,7 +38,7 @@ Thresholds are design priors (`BADGES` in `passport-model.js`, `RULES` in `lib/m
 
 ## Ride Recap Studio
 
-The post-ride share sheet (`js/share/`) is the recap: Classic, Photo and Minimal templates; a photo picked on the phone, redrawn onto the card (so the exported PNG has no EXIF or GPS); a caption; "Hide where I started and finished" (on), "Show the town name" (off), "Show the cost"; the road reports reviewed and published after that ride (counts only, never "confirmed"). Top speed is never drawn. Nothing is posted until the rider taps Share or Save.
+The post-ride share sheet (`js/share/`) is the recap: Bento, Glass (Liquid Glass), Verse (comic) and Minimal styles; a photo picked on the phone, redrawn onto the card (so the exported PNG has no EXIF or GPS); a caption; "Hide where I started and finished" (on), "Show the town name" (off), "Show the cost"; the road reports reviewed and published after that ride (counts only, never "confirmed"). Top speed is never drawn. Nothing is posted until the rider taps Share or Save.
 
 ## Tests
 

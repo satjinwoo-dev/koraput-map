@@ -16,7 +16,7 @@
     const W = /** @type {any} */ (root);
     if (!W.document) return;
     const $ = (id) => document.getElementById(id);
-    const FILES = { js: ["js/share/card-model.js", "js/share/card-render.js", "js/share/share-ui.js"], css: "js/share/share.css" };
+    const FILES = { js: ["js/share/card-model.js", "js/share/card-render.js", "js/share/card-styles.js", "js/share/share-ui.js"], css: "js/share/share.css" };
     let loading = null, sheet = null, last = null;
 
     function load() {
@@ -84,5 +84,5 @@
     }
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init); else init();
     W.MUShare = W.MUShare || {};
-    W.MUShare.app = { open, get last() { return last; } };
+    W.MUShare.app = { open, load, get last() { return last; } };
 })(typeof globalThis !== "undefined" ? globalThis : this);

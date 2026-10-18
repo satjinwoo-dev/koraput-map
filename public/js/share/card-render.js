@@ -3,10 +3,10 @@
    MapUnite share — draw the post-ride card on a canvas (exportable PNG)
    ==============================================================================
    MUShare.render.drawTemplate(canvas, card, { template, format, showCost, units, photo }) → canvas
-     classic  the original card (route art, eco ring, four figures, banner);
-     photo    the rider's photo full-bleed, title, caption, three figures, a
-              small route inset (the photo is redrawn, so no EXIF/GPS survives);
-     minimal  true black, the route as one line, the distance large.
+     bento, glass, verse   the modern styles (card-styles.js);
+     minimal               true black, the route as one line, the distance large.
+   drawCard (the original card) is kept as the fallback when card-styles.js
+   hasn't loaded.
    Top speed is never drawn: it isn't an achievement to post.
 
    Two sizes made for social apps: Story 1080×1920 (9:16) and Post 1080×1350
@@ -332,13 +332,18 @@
     /**
      * Any template. "photo" needs a photo; without one it falls back to the classic card.
      * @param {HTMLCanvasElement} canvas @param {any} card
-     * @param {{ template?: "classic"|"photo"|"minimal", format?: "story"|"post", showCost?: boolean, units: any, photo?: any, locale?: string }} o
+     * @param {{ template?: string, format?: "story"|"post", showCost?: boolean, units: any, photo?: any, locale?: string, styles?: any }} o
      */
     function drawTemplate(canvas, card, o) {
-        if (o.template === "photo" && o.photo) return drawPhoto(canvas, card, /** @type {any} */ (o));
-        if (o.template === "minimal") return drawMinimal(canvas, card, o);
+        // the modern styles live in card-styles.js (Bento, Liquid Glass, Verse); older names map onto them
+        const S = /** @type {any} */ (o).styles || (/** @type {any} */ (globalThis).MUShare && /** @type {any} */ (globalThis).MUShare.styles);
+        const t = o.template === "photo" ? "glass" : o.template === "classic" ? "bento" : o.template;
+        if (t === "minimal") return drawMinimal(canvas, card, o);
+        if (S && (t === "bento" || t === "glass" || t === "verse")) return S.draw(t, canvas, card, o, api);
+        if (t === "glass" && o.photo) return drawPhoto(canvas, card, /** @type {any} */ (o));
         return drawCard(canvas, card, o);
     }
 
-    return { SIZES, TEMPLATES: Object.freeze(["classic", "photo", "minimal"]), layout, fitRoute, stats, bannerText, footText, cover, drawCard, drawPhoto, drawMinimal, drawTemplate };
+    const api = { SIZES, TEMPLATES: Object.freeze(["bento", "glass", "verse", "minimal"]), layout, fitRoute, stats, bannerText, footText, cover, drawCard, drawPhoto, drawMinimal, drawTemplate };
+    return api;
 });

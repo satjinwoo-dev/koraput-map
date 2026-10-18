@@ -1,12 +1,20 @@
 # Post-ride share card: Ride Recap Studio (`public/js/share/`)
 
-When a SmartDrive trip finishes, a share sheet opens with a card the rider can post. It has three templates (Classic, Photo with the rider's own photo, and Minimal), a caption, and the road reports the rider reviewed or published after that ride (see `js/passport/README.md`). The Classic card shows the route shape, the eco score, distance, mileage, cost, moving time and, when it's real, what they saved compared with their usual riding. The card is drawn on a `<canvas>` on the phone. Nothing is uploaded and no map tiles are used, so the image never includes anyone's street map.
+When a SmartDrive trip finishes, a share sheet opens with a card the rider can post. It has four styles, drawn by `card-styles.js` (Minimal by `card-render.js`):
+
+- **Bento** (default): an Apple-style bento grid on near-black. A big route tile, then tiles for distance (a huge gradient figure), moving time, an activity-ring eco score, mileage and cost, and the road reports.
+- **Glass**: Liquid Glass. Frosted panels (the background blurred inside them, a veil, a hairline, a specular edge) over the rider's photo, or over a vivid mesh gradient with the route as a light trail.
+- **Verse**: a comic look. A black band with a lowercase monospace line, then the photo (or the route) posterised, colour-split, halftone-dotted and glitch-sliced, with comic stickers for the figures. The glitches are seeded by the ride's start time, so the same ride always gives the same card.
+- **Minimal**: true black, one route line, the distance large.
+
+It also has a caption, and the road reports the rider reviewed or published after that ride (see `js/passport/README.md`). The Classic card shows the route shape, the eco score, distance, mileage, cost, moving time and, when it's real, what they saved compared with their usual riding. The card is drawn on a `<canvas>` on the phone. Nothing is uploaded and no map tiles are used, so the image never includes anyone's street map.
 
 **When it opens:** on `mu:ride-summary` (sent by the HUD), 900 ms after the trip ends, for rides of 1 km or more, unless the rider turned off "Show this after every ride". `#share-ride-btn` in the results panel opens it again later.
 
 | File | What it does |
 |---|---|
 | `card-model.js` | `MUShare.model`: pure. `buildCard(summary, { privacy })` turns the ride summary into the card's data (SI). Also `trimEnds`, `simplify` (Douglas–Peucker), `project`, `ecoWord`, `rideTitle`, `usualFromLearner`. |
+| `card-styles.js` | `MUShare.styles`: the Bento, Glass and Verse styles. `bentoLayout`, `rng`, `posterize` and `splitChannels` are pure and tested. |
 | `card-render.js` | `MUShare.render`: draws the card. `SIZES` (story 1080×1920, post 1080×1350), `layout`, `fitRoute`, `stats` and `bannerText` are pure; `drawCard(canvas, card, opts)` paints. |
 | `share-ui.js` | `MUShare.ui`: the sheet: preview, Story / Post switch, three toggles, Share / Save image / Copy. Preferences in `localStorage` `mu.share.v1`. |
 | `share-app.js` | `MUShare.app`: wiring. Lazy-loads the files above and `share.css` on the first ride summary, and adds the rider's usual consumption from the fuel learner. |
