@@ -40,6 +40,28 @@
 <uses-feature android:name="android.hardware.camera" android:required="false" />
 <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
+<!-- Navigation, minimized (native/android/nav/): the live turn notification runs as a
+     location foreground service while navigating (the location plugin merges these too) -->
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+<!-- ======================================================================
+     Navigation, minimized: scripts/setup-perception-android.mjs does both of
+     these; by hand:
+       1. on the MainActivity <activity> tag add
+            android:supportsPictureInPicture="true"
+          (Capacitor's template already lists screenSize|smallestScreenSize|
+          screenLayout|orientation in configChanges, which the small window needs)
+       2. INSIDE <application>:
+     ====================================================================== -->
+<!--
+<service
+    android:name="com.mapunite.app.nav.NavService"
+    android:exported="false"
+    android:foregroundServiceType="location" />
+-->
+
 <!-- ======================================================================
      Master AI (native/android/radar/). Radio signal needs no extra
      permission (ACCESS_NETWORK_STATE comes with Capacitor). The mood agent

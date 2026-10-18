@@ -286,6 +286,11 @@ To debug the WebView, open `chrome://inspect` on your computer while the phone i
 4. **Two phones in the same group trip,** side by side. Within a few seconds each gets *"Asha is right next to you — Detected over Bluetooth"*, and the radar panel lists "📡 … · Bluetooth".
 5. **Voice.** Speed alerts and navigation are spoken. Tap the mic and say "how far".
 6. **Radio.** In the radar panel, tap **Connect radio**. Android's device picker lists "Meshtastic radios nearby".
+7. **Navigation, minimized** (`native/android/nav/`, set up by `node scripts/setup-perception-android.mjs`):
+   - start a navigation, then press **Home** (or swipe home): the app shrinks into a small window with the moving map and a glass turn card. Tap it to come back. Android 12+ opens it by itself with the system's animation; Android 8–11 open it when you leave the app;
+   - the ⧉ button under the compass minimizes on purpose;
+   - a **live notification** shows the turn arrow, "200 m · Turn left onto NH-26", the next step, "Arrive 5:19 PM · 12 km · 18 min" and a progress bar, and updates as you ride. **Stop** in it ends the navigation;
+   - if the window doesn't open: Settings → Apps → MapUnite → **Picture-in-picture** must be allowed (some phones turn it off by default).
 
 ---
 
@@ -363,6 +368,7 @@ The cloud workspace has no Android SDK, so the Gradle build and the phone itself
   - two riders detecting each other's beacons, with and without a radio;
   - absolute photo URLs.
 - **`MapUniteNativePlugin.java`** was compiled against the Android and Capacitor API signatures.
+- **Navigation, minimized:** the web side was run in Chromium with a stand-in `MapUniteNavPip` plugin (start, updates per turn and distance step, ⧉ → enterPip, the small-window layout, Stop from the notification). `native/android/nav/*.kt` was **not** compiled here (no Android SDK): build errors there are the first thing to look for.
 - **The full regression suite** (all earlier batches) passes.
 
 The first real `npx cap run android` is where anything device-specific will show up. If it does, send me the Gradle or Logcat error.

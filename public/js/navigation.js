@@ -581,6 +581,7 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
     navState.remainingM = routeData.distance;
     navState.etaSec = routeData.duration;
     navState.routePath = fullPath;          // Phase 4: tunnel mode snaps its estimate to this
+    navState.totalM = routeData.distance;   // js/navpip/: progress in the notification
 
     // the route like a car navigator's: a solid blue line on a darker casing (js/navcam/navmotion.js cuts it at the rider)
     const routeCasing = L.polyline(fullPath, { color: '#1546a0', weight: 13, opacity: 1, lineCap: 'round', lineJoin: 'round', interactive: false }).addTo(navigationLayer);
@@ -637,6 +638,8 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
             if (svg) svg.style.transform = "rotate(0deg)";
             navState.nextManeuver = "";
             navState.nextManeuverM = null;
+            navState.nextTurnDeg = 0;          // js/navpip/: the minimized window and the notification
+            navState.thenText = "";
             return;
         }
         const phrase = maneuverPhrase(next);
@@ -655,6 +658,8 @@ function startSearchNavigation(destLat, destLng, destName, routeData) {
         if (stepText) stepText.textContent = after ? `Then ${lowerFirst(maneuverPhrase(after))}` : `Then arrive at ${destName}`;
         if (stepDist) stepDist.textContent = Number.isFinite(next.distance) && next.distance > 0 && after ? `· after ${formatDistanceShort(next.distance)}` : "";
         navState.nextManeuver = phrase;
+        navState.nextTurnDeg = maneuverRotation(next);                 // js/navpip/: the minimized window and the notification
+        navState.thenText = stepText ? stepText.textContent : "";
     };
     updateStepDisplay(lastPos);
 

@@ -41,6 +41,7 @@ GPS fixes come about once a second. Between them (`navmotion-core.js`, `navmotio
 - **The route ahead starts at the arrow:** what's behind it goes. A blue line on a darker casing. The map's own "you are here" dot, its accuracy ring and the history trail are hidden while the arrow shows the rider.
 - **Near a turn** (12 s of riding, 150–400 m) the camera zooms in to 18, and a white arrow is drawn on the road through the turn (40 m before to 30 m after at zoom 18, longer further out); after it, back out.
 - **A new instruction slides into the turn banner.**
+- **Minimized** (`js/navpip/`): leaving the app keeps the next turn in a small floating window and a live notification (in the Android app: real picture-in-picture of the map; in a browser: a glass turn card in the browser's floating window). See ANDROID.md, "What to check on the device".
 
 | File | What it does |
 |---|---|

@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-18.11";          // navigation motion: gliding arrow, camera with it, route cut, turn zoom and arrows
+const VERSION = "mu-2026-10-18.12";          // navigation, minimized: picture-in-picture + live turn notification
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
@@ -62,6 +62,8 @@ const APP_SCRIPTS = [
     "/js/navcam/navcam.js",
     "/js/navcam/navmotion-core.js",
     "/js/navcam/navmotion.js",
+    "/js/navpip/navpip-core.js",
+    "/js/navpip/navpip.js",
     "/js/navsheet.js",
     "/js/ridefocus.js",
     "/js/roadfocus.js",
@@ -223,7 +225,8 @@ const BIKE_SCRIPTS = [
     "/js/ai/avatar-ridges.js",
     "/js/ai/avatar.css",
     // the navigation camera's styles (its scripts are in APP_SCRIPTS)
-    "/js/navcam/navcam.css"
+    "/js/navcam/navcam.css",
+    "/js/navpip/navpip.css"
 ];
 // The Socket.IO client library: a static script the server ships. index.html can't
 // boot offline without it (core.js calls io() at once; offline it just keeps
@@ -555,4 +558,24 @@ self.addEventListener("message", (event) => {
         // Privacy: cached tiles reveal where the user has been looking.
         event.waitUntil(caches.delete(TILE_CACHE).then(() => reply({ type: "TILE_CACHE_PURGED", ok: true })));
     }
+});
+
+// -------------------------------------------------------------------------
+// the live navigation notification (js/navpip/navpip.js): a tap opens the app,
+// "Stop" ends the navigation in the open page
+// -------------------------------------------------------------------------
+self.addEventListener("notificationclick", (event) => {
+    const n = event.notification;
+    if (!n || n.tag !== "mu-nav") return;
+    event.waitUntil((async () => {
+        const all = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+        if (event.action === "nav-stop") {
+            n.close();
+            for (const c of all) c.postMessage({ type: "mu-nav-stop" });
+            return;
+        }
+        const c = all[0];
+        if (c && "focus" in c) await c.focus();
+        else if (self.clients.openWindow) await self.clients.openWindow("/");
+    })());
 });
