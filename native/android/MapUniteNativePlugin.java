@@ -18,7 +18,9 @@ package com.mapunite.app;
  *   beaconStatus() -> { supported, bluetoothOn, advertising }
  *   requestNotifications() -> { granted }   Android 13+ POST_NOTIFICATIONS,
  *       needed for the background-location foreground-service notification.
- *   share({ title?, text, imageBase64?, fileName? }) -> { shared }
+ *   share({ title?, text, imageBase64?, fileName?, mimeType? }) -> { shared }
+ *       mimeType: image/png (default), image/jpeg, video/mp4 or video/webm (a ride
+ *       recap's motion clip); the file name's extension must match it.
  *       Android's own share sheet (ACTION_SEND through a chooser): WhatsApp,
  *       Telegram, Instagram, … whatever is installed. No app-specific API or key.
  *       With imageBase64 (a PNG) the image goes along via the FileProvider that
@@ -208,7 +210,7 @@ public class MapUniteNativePlugin extends Plugin {
 
     // ---- Share (Android's share sheet) ------------------------------------
 
-    private static final int MAX_SHARE_IMAGE_BYTES = 12 * 1024 * 1024;
+    private static final int MAX_SHARE_IMAGE_BYTES = 40 * 1024 * 1024;   // a few-second recap clip fits easily
 
     @PluginMethod
     public void share(PluginCall call) {
@@ -216,6 +218,14 @@ public class MapUniteNativePlugin extends Plugin {
         String title = call.getString("title", "Share");
         String imageBase64 = call.getString("imageBase64", null);
         String fileName = call.getString("fileName", "mapunite.png");
+        String mimeType = call.getString("mimeType", "image/png");
+        String ext;
+        switch (mimeType) {
+            case "image/jpeg": ext = ".jpg"; break;
+            case "video/mp4": ext = ".mp4"; break;
+            case "video/webm": ext = ".webm"; break;
+            default: mimeType = "image/png"; ext = ".png";
+        }
         Intent send = new Intent(Intent.ACTION_SEND);
         send.putExtra(Intent.EXTRA_TEXT, text);
         send.putExtra(Intent.EXTRA_SUBJECT, title);
@@ -229,12 +239,12 @@ public class MapUniteNativePlugin extends Plugin {
                 if (!dir.exists() && !dir.mkdirs()) throw new IllegalStateException("no cache dir");
                 // only a plain file name, never a path from the page
                 String safe = fileName.replaceAll("[^A-Za-z0-9._-]", "-");
-                if (!safe.endsWith(".png")) safe = safe + ".png";
+                if (!safe.endsWith(ext)) safe = safe + ext;
                 File out = new File(dir, safe);
                 try (FileOutputStream fos = new FileOutputStream(out)) { fos.write(bytes); }
                 Uri uri = FileProvider.getUriForFile(getContext(), getContext().getPackageName() + ".fileprovider", out);
                 send.putExtra(Intent.EXTRA_STREAM, uri);
-                send.setType("image/png");
+                send.setType(mimeType);
                 send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
                 imageShared = true;
             } catch (Exception e) {

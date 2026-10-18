@@ -338,7 +338,16 @@
         // the modern styles live in card-styles.js (Bento, Liquid Glass, Verse); older names map onto them
         const S = /** @type {any} */ (o).styles || (/** @type {any} */ (globalThis).MUShare && /** @type {any} */ (globalThis).MUShare.styles);
         const t = o.template === "photo" ? "glass" : o.template === "classic" ? "bento" : o.template;
-        if (t === "minimal") return drawMinimal(canvas, card, o);
+        if (t === "minimal") {
+            // motion: the figures count up and the line draws itself
+            const tt = /** @type {any} */ (o).t;
+            if (S && tt !== undefined && tt < 1) {
+                const mc = S.motionCard(card, tt), k = S.phase(tt, 0.08, 0.6);
+                const route = card.route ? { ...card.route, pts: card.route.pts.slice(0, Math.max(2, Math.ceil(card.route.pts.length * k))) } : null;
+                return drawMinimal(canvas, { ...mc, route: k > 0.01 ? route : null }, o);
+            }
+            return drawMinimal(canvas, card, o);
+        }
         if (S && (t === "bento" || t === "glass" || t === "verse")) return S.draw(t, canvas, card, o, api);
         if (t === "glass" && o.photo) return drawPhoto(canvas, card, /** @type {any} */ (o));
         return drawCard(canvas, card, o);

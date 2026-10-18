@@ -41,10 +41,10 @@
     },
     {
       "id": "carto-basemaps", "name": "CARTO dark basemap", "hosts": ["basemaps.cartocdn.com", "carto.com"],
-      "use": "the dark base layer", "licence": "CARTO basemap terms; data OSM (ODbL)", "licence_version": null,
+      "use": "the dark base layer, Ride Focus AMOLED, and the map behind the route on ride recap cards (Dark Matter and Voyager, drawn on the phone into the image the rider shares)", "licence": "CARTO basemap terms; data OSM (ODbL)", "licence_version": null,
       "attribution": "© OpenStreetMap contributors © CARTO", "commercial_use": "unclear", "access_method": "XYZ tiles at request time",
       "fetched_at": null, "source_version": null, "legal_review": "pending",
-      "notes": "Check CARTO's current limits for free vs commercial use."
+      "notes": "Check CARTO's current limits for free vs commercial use, and whether map images in user-shared recap cards need anything beyond the attribution drawn on them (\"© OpenStreetMap contributors © CARTO\")."
     },
     {
       "id": "open-meteo", "name": "Open-Meteo weather and air quality APIs", "hosts": ["api.open-meteo.com", "air-quality-api.open-meteo.com"],

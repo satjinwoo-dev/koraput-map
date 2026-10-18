@@ -14,6 +14,7 @@ It also has a caption, and the road reports the rider reviewed or published afte
 | File | What it does |
 |---|---|
 | `card-model.js` | `MUShare.model`: pure. `buildCard(summary, { privacy })` turns the ride summary into the card's data (SI). Also `trimEnds`, `simplify` (Douglas–Peucker), `project`, `ecoWord`, `rideTitle`, `usualFromLearner`. |
+| `basemap.js` | `MUShare.basemap`: the real map behind the route (CARTO tiles, the Dark style's provider), drawn into the card with the route on its own roads (Web Mercator). `mercator`, `fitZoom`, `scaled` and `tilesFor` are pure and tested. |
 | `card-styles.js` | `MUShare.styles`: the Bento, Glass and Verse styles. `bentoLayout`, `rng`, `posterize` and `splitChannels` are pure and tested. |
 | `card-render.js` | `MUShare.render`: draws the card. `SIZES` (story 1080×1920, post 1080×1350), `layout`, `fitRoute`, `stats` and `bannerText` are pure; `drawCard(canvas, card, opts)` paints. |
 | `share-ui.js` | `MUShare.ui`: the sheet: preview, Story / Post switch, three toggles, Share / Save image / Copy. Preferences in `localStorage` `mu.share.v1`. |
@@ -35,6 +36,12 @@ It also has a caption, and the road reports the rider reviewed or published afte
 - Otherwise the banner shows smoothness (harsh moments) or the average speed. It never makes up a saving, and **top speed is never shown**.
 - **The town** is named only when the rider turns on **Show the town name** (off by default).
 - **The photo** is drawn onto the canvas, so the exported PNG carries none of its EXIF (no GPS location).
+
+## Map, start and finish, motion
+
+- **Map behind the route** (on by default): Bento shows the Dark map in its route tile; Glass and Verse use the lighter Voyager map as their background when there's no photo. Only the area of the line the card draws is shown, so with the start and finish hidden, the streets around them aren't on the card. Tiles load with CORS, so the image can always be shared or saved; offline, the service worker's tile cache answers, and without tiles the card falls back to its dotted grid. The attribution is drawn on the card.
+- **Start and finish**: with "Hide where I started and finished" on, two sliders set how much of each end is hidden (0–3 km in 100 m steps, 400 m by default). 0 shows the exact point; that's the rider's choice.
+- **Motion**: **Play motion** previews about 4 s on the card: the line draws itself, the figures count up, the tiles slide in, and Verse's stickers pop in. **Save motion video** records it (MP4 where the phone's recorder supports it, else WebM) and shares or saves it like the image.
 
 ## Export
 

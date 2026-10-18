@@ -140,7 +140,9 @@ test("recap: caption, the town only when asked, report counts (never 'confirmed'
 test("share sheet helpers: file name and remembered choices", () => {
     assert.equal(S.fileName({ title: "Evening ride", startedAt: new Date(2026, 9, 4, 18).getTime() }), "mapunite-evening-ride-2026-10-04.png");
     const st = { v: JSON.stringify({ format: "square", privacy: false, showCost: "yes", auto: false }), getItem() { return this.v; } };
-    assert.deepEqual(S.loadPrefs(/** @type {any} */ (st)), { format: "story", template: "bento", privacy: false, showPlace: false, showCost: true, auto: false });
+    assert.deepEqual(S.loadPrefs(/** @type {any} */ (st)), { format: "story", template: "bento", privacy: false, trimStart: 400, trimEnd: 400, map: true, showPlace: false, showCost: true, auto: false });
+    // the rider's own start / finish choice, kept in 100 m steps within 0–3 km
+    assert.deepEqual((({ trimStart, trimEnd }) => ({ trimStart, trimEnd }))(S.loadPrefs(/** @type {any} */ ({ getItem: () => JSON.stringify({ trimStart: 1234, trimEnd: -50 }) }))), { trimStart: 1200, trimEnd: 0 });
     // the town name is off unless the rider turned it on; a bad template falls back to classic
     const st2 = { v: JSON.stringify({ template: "photo", showPlace: true }), getItem() { return this.v; } };
     assert.equal(S.loadPrefs(/** @type {any} */ (st2)).template, "glass", "the old Photo template is now Glass");
@@ -177,4 +179,59 @@ test("modern styles: bento tiles stay inside the card and never overlap; seeded 
     assert.deepEqual([...ST.splitChannels(img, 3, 1, 1)], [0, 0, 0, 255, 0, 255, 0, 255, 0, 0, 0, 255]);
     // no top speed in any style
     assert.ok(!/maxSpeed/.test(fs.readFileSync(new URL("../../public/js/share/card-styles.js", import.meta.url), "utf8")));
+});
+
+test("start and finish: the rider moves each end; the map gets the same trimmed points", async () => {
+    const pts = track(40);                                     // the test file's straight track helper
+    const both = M.buildCard({ trip: { startedAt: 0, points: pts }, live: live({}) }, { trimStart: 0, trimEnd: 0 });
+    const startOnly = M.buildCard({ trip: { startedAt: 0, points: pts }, live: live({}) }, { trimStart: 1000, trimEnd: 0 });
+    assert.equal(both.privacy, false, "0 m at both ends: the exact start and finish (the rider's choice)");
+    assert.ok(startOnly.privacy);
+    assert.deepEqual(startOnly.trim, { start: 1000, end: 0 });
+    assert.deepEqual(startOnly.routeGeo.at(-1), { lat: pts.at(-1).lat, lng: pts.at(-1).lng }, "finish kept");
+    assert.notDeepEqual(startOnly.routeGeo[0], { lat: pts[0].lat, lng: pts[0].lng }, "start moved");
+    assert.ok(both.routeGeo.length <= 400);
+    const def = M.buildCard({ trip: { startedAt: 0, points: pts }, live: live({}) });
+    assert.deepEqual(def.trim, { start: 400, end: 400 }, "400 m each by default");
+    assert.deepEqual(M.trimEnds(pts, 0, 0).length, pts.length);
+    assert.equal(M.thin([1, 2, 3, 4, 5], 3).join(), "1,3,5");
+});
+
+test("map behind the route: Web Mercator, the zoom that fits, the tiles that cover it; motion counts up", async () => {
+    const { createRequire } = await import("node:module");
+    const req = createRequire(import.meta.url);
+    const B = req("../../public/js/share/basemap.js"), ST = req("../../public/js/share/card-styles.js");
+    const [x0, y0] = B.mercator(0, 0, 0);
+    assert.deepEqual([x0, y0], [128, 128]);
+    const [x1] = B.mercator(0, 180, 1);
+    assert.equal(x1, 512);
+    const geo = [{ lat: 18.80, lng: 82.70 }, { lat: 18.84, lng: 82.74 }];
+    const f = B.fitZoom(geo, 968, 760, 80);
+    const xs = f.pts.map((p) => p[0]), ys = f.pts.map((p) => p[1]);
+    assert.ok(Math.min(...xs) >= 80 - 1 && Math.max(...xs) <= 968 - 80 + 1 && Math.min(...ys) >= 80 - 1 && Math.max(...ys) <= 760 - 80 + 1, "inside the box");
+    assert.ok(Math.max(...xs) - Math.min(...xs) > (968 - 160) / 2.1 || Math.max(...ys) - Math.min(...ys) > (760 - 160) / 2.1, "and as large as it can be");
+    // between whole zooms: scaled up (1–2×) to fill the box, and every point still lands on its own spot of the tiles
+    const v = B.scaled(f, 968, 760, 80);
+    assert.ok(v.s >= 1 && v.s <= 2);
+    const vx = v.pts.map((p) => p[0]), vy = v.pts.map((p) => p[1]);
+    assert.ok(Math.abs(Math.max(...vx) - Math.min(...vx) - (968 - 160)) < 1 || Math.abs(Math.max(...vy) - Math.min(...vy) - (760 - 160)) < 1, "fills the box on one side");
+    geo.forEach((g, i) => { const [wx, wy] = B.mercator(g.lat, g.lng, f.z); assert.ok(Math.abs(v.ox + v.pts[i][0] / v.s - wx) < 1e-6 && Math.abs(v.oy + v.pts[i][1] / v.s - wy) < 1e-6); });
+    const tiles = B.tilesFor(f.z, f.ox, f.oy, 968, 760);
+    assert.ok(tiles.length >= 12 && tiles.length <= 30);
+    for (const t of tiles) assert.ok(t.dx > -256 && t.dx < 968 && t.dy > -256 && t.dy < 760);
+    assert.match(B.THEMES.dark, /^https:\/\/\{s\}\.basemaps\.cartocdn\.com\//, "the provider the Dark style already uses");
+    assert.match(B.ATTRIBUTION, /OpenStreetMap contributors © CARTO/);
+    // which map each style wants
+    assert.deepEqual(ST.mapSpec("bento", "story", false), { w: 968, h: 760, inset: 80, theme: "dark" });
+    assert.equal(ST.mapSpec("glass", "story", true), null, "a photo replaces the map");
+    const gl = ST.mapSpec("glass", "story", false);
+    assert.ok(gl.focus.y >= 170 && gl.focus.y + gl.focus.h <= 1920 - 720 - 56, "the route sits above the glass panel");
+    assert.equal(ST.mapSpec("minimal", "story", false), null);
+    // motion: 0 → nothing counted yet, 1 → the card itself
+    const c = { distance: 18400, moving: 2950, energy: 5e-4, cost: 54, ecoScore: 0.81, reports: { reviewed: 5, published: 3 } };
+    assert.equal(ST.motionCard(c, 0).distance, 0);
+    assert.equal(ST.motionCard(c, 1), c);
+    const mid = ST.motionCard(c, 0.5);
+    assert.ok(mid.distance > 0 && mid.distance < c.distance && mid.reports.published <= 3);
+    assert.ok(ST.phase(0.95, 0.2, 0.3) === 1 && ST.phase(0, 0.2, 0.3) === 0);
 });

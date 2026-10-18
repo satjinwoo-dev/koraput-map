@@ -3,7 +3,7 @@
    MapUnite — sending things out through the phone's own share menu
    ==============================================================================
    MUShareOut.text({ title, text })                         a place, a message
-   MUShareOut.image({ blob, fileName, title, text })        a ride recap, a Passport card
+   MUShareOut.image({ blob, fileName, title, text })        a ride recap (image or motion clip), a Passport card
    → { how: "native"|"web"|"copied"|"saved"|"cancelled"|"failed" }
 
    In the Android app: the MapUniteNative plugin's share() (Android's share
@@ -56,15 +56,16 @@ const MUShareOut = (() => {
         });
     }
 
-    /** @param {{ blob: Blob, fileName: string, title?: string, text?: string }} o */
+    /** An image or a short video (a ride recap's motion clip). @param {{ blob: Blob, fileName: string, title?: string, text?: string }} o */
     async function image(o) {
         const N = native();
+        const type = (o.blob.type || "image/png").split(";")[0];
         if (N) {
-            try { await N.share({ title: o.title || "Share", text: o.text || "", imageBase64: await base64(o.blob), fileName: o.fileName }); return { how: "native" }; } catch (e) { if (aborted(e)) return { how: "cancelled" }; }
+            try { await N.share({ title: o.title || "Share", text: o.text || "", imageBase64: await base64(o.blob), fileName: o.fileName, mimeType: type }); return { how: "native" }; } catch (e) { if (aborted(e)) return { how: "cancelled" }; }
         }
         const n = nav();
         if (n && typeof n.share === "function" && typeof File === "function") {
-            const file = new File([o.blob], o.fileName, { type: o.blob.type || "image/png" });
+            const file = new File([o.blob], o.fileName, { type });
             let ok = false;
             try { ok = typeof n.canShare === "function" ? n.canShare({ files: [file] }) : false; } catch (e) { ok = false; }
             if (ok) {

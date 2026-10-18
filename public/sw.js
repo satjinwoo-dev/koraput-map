@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-18.1";           // recap and Passport cards: Bento, Liquid Glass, Verse styles
+const VERSION = "mu-2026-10-18.2";           // recap: real map behind the route, movable start/finish, motion + video
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
@@ -143,6 +143,7 @@ const BIKE_SCRIPTS = [
     "/js/share/card-model.js",
     "/js/share/card-render.js",
     "/js/share/card-styles.js",
+    "/js/share/basemap.js",
     "/js/share/share-ui.js",
     "/js/share/share.css",
     // Advanced analytics: fuel learner dashboard + convoy pitstop planner (both lazy-loaded by their *-app.js)

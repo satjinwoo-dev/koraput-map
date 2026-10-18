@@ -33,17 +33,26 @@
     }
 
     /**
-     * Drop the first and last `m` metres of a track (privacy).
-     * @param {Array<{ lat: number, lng: number }>} pts @param {number} m
+     * Drop the first `m` and the last `mEnd` metres of a track (privacy). The rider chooses both; `mEnd` defaults to `m`.
+     * @param {Array<{ lat: number, lng: number }>} pts @param {number} m @param {number} [mEnd]
      */
-    function trimEnds(pts, m) {
+    function trimEnds(pts, m, mEnd = m) {
         const good = pts.filter((p) => p && Number.isFinite(p.lat) && Number.isFinite(p.lng));
-        if (good.length < 2 || !(m > 0)) return good;
+        const a = Math.max(0, Number(m) || 0), b = Math.max(0, Number(mEnd) || 0);
+        if (good.length < 2 || (a === 0 && b === 0)) return good;
         const cum = [0];
         for (let i = 1; i < good.length; i++) cum.push(cum[i - 1] + dist(good[i - 1], good[i]));
         const L = cum[cum.length - 1];
-        if (L <= 2 * m + 100) return [];                                        // too short to show without giving the ends away
-        return good.filter((_, i) => cum[i] >= m && cum[i] <= L - m);
+        if (L <= a + b + 100) return [];                                        // too short to show without giving the ends away
+        return good.filter((_, i) => cum[i] >= a && cum[i] <= L - b);
+    }
+
+    /** At most `n` points, evenly picked, ends kept (for the map behind the route). @param {any[]} pts @param {number} n */
+    function thin(pts, n) {
+        if (pts.length <= n) return pts.slice();
+        const out = [];
+        for (let i = 0; i < n; i++) out.push(pts[Math.round((i * (pts.length - 1)) / (n - 1))]);
+        return out;
     }
 
     /** Douglas–Peucker on planar points [[x, y], …]. @param {number[][]} p @param {number} eps */
@@ -112,8 +121,9 @@
     /**
      * @param {{ trip: any, live?: any, powertrain?: string|null, bike?: string|null, correction?: number, usual?: { perMetre: number, tanks: number }|null,
      *   reports?: { reviewed?: number, published?: number }|null }} sum
-     * @param {{ privacy?: boolean, trim?: number, caption?: string, showPlace?: boolean }} [o]
-     *   caption: the rider's own line (≤ 80 characters); showPlace: name the town (off unless the rider turns it on)
+     * @param {{ privacy?: boolean, trim?: number, trimStart?: number, trimEnd?: number, caption?: string, showPlace?: boolean }} [o]
+     *   caption: the rider's own line (≤ 80 characters); showPlace: name the town (off unless the rider turns it on);
+     *   trimStart / trimEnd: metres hidden at the start / finish, chosen by the rider (default `trim`, 400 m, with privacy on)
      */
     function buildCard(sum, o = {}) {
         const O = { ...CARD_DEFAULTS, ...o };
@@ -136,7 +146,9 @@
             if (share >= O.minSaving) saved = { energy: usualEnergy - energy, share, cost: cost !== null && energy > 0 ? (cost / energy) * (usualEnergy - energy) : null, usualPerMetre: sum.usual.perMetre, tanks: sum.usual.tanks };
         }
         const pts = Array.isArray(trip.points) ? trip.points : [];
-        const shown = O.privacy !== false ? trimEnds(pts, O.trim) : pts.filter((p) => p && Number.isFinite(p.lat) && Number.isFinite(p.lng));
+        const clampM = (/** @type {any} */ v, /** @type {number} */ d) => (Number.isFinite(Number(v)) ? Math.max(0, Math.min(5000, Number(v))) : d);
+        const tStart = O.privacy === false ? 0 : clampM(O.trimStart, O.trim), tEnd = O.privacy === false ? 0 : clampM(O.trimEnd, O.trim);
+        const shown = trimEnds(pts, tStart, tEnd);
         const ecoScore = live && Number.isFinite(live.ecoScore) ? live.ecoScore : null;
         return {
             title: rideTitle(startedAt), startedAt, endedAt, place: O.showPlace === true ? String(trip.place || "") : "", bike: sum.bike || "",
@@ -151,10 +163,12 @@
             energy, perMetre, cost, saved,
             ecoScore, ecoWord: ecoWord(ecoScore),
             harsh: live && live.harsh ? live.harsh.accel + live.harsh.brake : null,
-            route: project(shown, O.maxPoints), privacy: O.privacy !== false,
+            route: project(shown, O.maxPoints), privacy: tStart > 0 || tEnd > 0, trim: { start: tStart, end: tEnd },
+            // the same (trimmed) points as latitude/longitude, for the map drawn behind the line
+            routeGeo: thin(shown, 400).map((/** @type {any} */ p) => ({ lat: p.lat, lng: p.lng })),
             estimated: !live, matched: !!(live && Number.isFinite(sum.correction) && Math.abs(/** @type {number} */ (sum.correction) - 1) > 1e-6)
         };
     }
 
-    return { CARD_DEFAULTS, trimEnds, simplify, project, ecoWord, rideTitle, usualFromLearner, buildCard };
+    return { CARD_DEFAULTS, trimEnds, thin, simplify, project, ecoWord, rideTitle, usualFromLearner, buildCard };
 });

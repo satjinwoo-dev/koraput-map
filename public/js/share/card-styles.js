@@ -61,6 +61,23 @@
         return out;
     }
 
+    const clamp01 = (/** @type {number} */ v) => Math.max(0, Math.min(1, v));
+    /** easeOutCubic. @param {number} x */
+    const ease = (x) => 1 - (1 - clamp01(x)) ** 3;
+    /** Where an element is in the motion: 0 → hidden, 1 → in place. delay and span are fractions of the clip. Pure. */
+    const phase = (/** @type {number} */ t, /** @type {number} */ delay, /** @type {number} */ span = 0.3) => ease((t - delay) / span);
+    /**
+     * The card at time t of the motion (0…1): figures count up, the line draws itself. Pure. t ≥ 1 → the card as it is.
+     * @param {any} card @param {number} t
+     */
+    function motionCard(card, t) {
+        if (!(t < 1)) return card;
+        const k = phase(t, 0.22, 0.5);
+        return { ...card, distance: card.distance * k, moving: card.moving * k, energy: card.energy * k,
+            cost: card.cost === null ? null : card.cost * k, ecoScore: card.ecoScore === null ? null : card.ecoScore * k,
+            reports: card.reports ? { reviewed: Math.round(card.reports.reviewed * k), published: Math.round(card.reports.published * k) } : null };
+    }
+
     /** Bento tile rectangles for a format (pure, tested: inside the canvas, never overlapping). @param {"story"|"post"} fmt */
     function bentoLayout(fmt) {
         const W = 1080, H = fmt === "post" ? 1350 : 1920, m = 56, g = 24, half = (W - 2 * m - g) / 2;
@@ -99,9 +116,13 @@
     const dateOf = (card, o, opts) => new Intl.DateTimeFormat(o.locale || "en-IN", opts).format(new Date(card.startedAt));
 
     /** The route in a box; glow optional. Returns false when there's no route to show. */
-    function route(ctx, card, box, inset, R, look) {
+    function route(ctx, card, box, inset, R, look, extra = {}) {
         if (!card.route || card.route.pts.length < 2) return false;
-        const P = R.fitRoute(card.route.pts, box, inset);
+        // on a map: the map's own projection of the same points; else fitted into the box
+        let P = extra.pts ? extra.pts.map(([x, y]) => [box.x + x, box.y + y]) : R.fitRoute(card.route.pts, box, inset);
+        const reveal = extra.reveal === undefined ? 1 : clamp01(extra.reveal);
+        if (reveal <= 0.001) return true;
+        if (reveal < 1) P = P.slice(0, Math.max(2, Math.ceil(P.length * reveal)));
         const path = () => { ctx.beginPath(); P.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); };
         ctx.save();
         ctx.lineJoin = "round"; ctx.lineCap = "round";
@@ -146,7 +167,8 @@
     }
 
     // ------------------------------------------------------------------ Bento
-    function drawBento(canvas, card, o, R) {
+    function drawBento(canvas, card0, o, R) {
+        const t = o.t === undefined ? 1 : o.t, card = motionCard(card0, t);
         const fmt = o.format === "post" ? "post" : "story", L = bentoLayout(fmt);
         canvas.width = L.W; canvas.height = L.H;
         const ctx = canvas.getContext("2d");
@@ -172,8 +194,19 @@
         ctx.fillStyle = hg; ctx.fill(); ctx.clip();
         ctx.fillStyle = "rgba(255,255,255,0.045)";
         for (let x = hb.x + 28; x < hb.x + hb.w; x += 40) for (let y = hb.y + 28; y < hb.y + hb.h; y += 40) { ctx.beginPath(); ctx.arc(x, y, 1.5, 0, Math.PI * 2); ctx.fill(); }
-        const drawn = route(ctx, card, hb, 80, R, { from: MINT, to: CYAN, glow: "rgba(52,224,180,0.8)", width: 10, core: "rgba(235,255,250,0.9)" });
+        const map = o.map && o.map.canvas ? o.map : null;
+        if (map) {
+            // the real map, dimmed toward the edges so the line and the tiles stay the heroes
+            ctx.globalAlpha = phase(t, 0, 0.35);
+            ctx.drawImage(map.canvas, hb.x, hb.y, hb.w, hb.h);
+            const v = ctx.createRadialGradient(hb.x + hb.w / 2, hb.y + hb.h / 2, hb.h * 0.25, hb.x + hb.w / 2, hb.y + hb.h / 2, hb.w * 0.75);
+            v.addColorStop(0, "rgba(5,6,8,0.05)"); v.addColorStop(1, "rgba(5,6,8,0.7)");
+            ctx.fillStyle = v; ctx.fillRect(hb.x, hb.y, hb.w, hb.h);
+            ctx.globalAlpha = 1;
+        }
+        const drawn = route(ctx, card, hb, 80, R, { from: MINT, to: CYAN, glow: "rgba(52,224,180,0.8)", width: 10, core: "rgba(235,255,250,0.9)" }, { pts: map ? map.pts : null, reveal: phase(t, 0.08, 0.6) });
         if (!drawn) text(ctx, "Route hidden for privacy", hb.x + hb.w / 2, hb.y + hb.h / 2, `600 32px ${UI}`, MUTED, "center");
+        if (map) text(ctx, map.attribution, hb.x + 30, hb.y + hb.h - 28, `500 18px ${UI}`, "rgba(255,255,255,0.55)");
         ctx.restore();
         ctx.lineWidth = 1.5; rr(ctx, hb.x, hb.y, hb.w, hb.h, 52); ctx.strokeStyle = "rgba(255,255,255,0.09)"; ctx.stroke();
         rr(ctx, hb.x + 28, hb.y + 28, 128, 44, 22); ctx.fillStyle = "rgba(0,0,0,0.45)"; ctx.fill();
@@ -182,12 +215,23 @@
 
         const st = R.stats(card, o.units, o.showCost !== false);
         const big = fmt === "post" ? 112 : 140;
+        // each tile slides up and fades in, one after another
+        const enter = (/** @type {number} */ i, /** @type {() => void} */ fn) => {
+            const a = phase(t, 0.18 + i * 0.07, 0.28);
+            if (a <= 0) return;
+            ctx.save(); ctx.globalAlpha = a; ctx.translate(0, (1 - a) * 46); fn(); ctx.restore();
+        };
+        enter(0, () => {
         // distance
         tile(ctx, L.dist); label(ctx, "Distance", L.dist.x + 34, L.dist.y + 52);
         figure(ctx, st[0].value, "km", L.dist.x + 32, L.dist.y + L.dist.h - 44, big, L.dist.w - 60);
+        });
+        enter(1, () => {
         // moving time
         tile(ctx, L.time); label(ctx, "Moving time", L.time.x + 34, L.time.y + 52);
         figure(ctx, st[3].value, st[3].unit, L.time.x + 32, L.time.y + L.time.h - 44, big, L.time.w - 60, "#ffffff", "#c7d2fe");
+        });
+        enter(2, () => {
         // eco ring (activity-ring style)
         tile(ctx, L.eco);
         const rc = { x: L.eco.x + L.eco.h / 2, y: L.eco.y + L.eco.h / 2, r: L.eco.h * 0.3 };
@@ -201,6 +245,8 @@
         label(ctx, "Eco score", tx, L.eco.y + 70, 22);
         text(ctx, card.ecoScore === null ? "–" : String(Math.round(card.ecoScore * 100)), tx, L.eco.y + L.eco.h * 0.66, `800 ${Math.round(L.eco.h * 0.36)}px ${DISPLAY}`, TEXT, "left", -2);
         if (card.ecoWord) text(ctx, card.ecoWord, tx, L.eco.y + L.eco.h - 38, fit(ctx, card.ecoWord, 700, DISPLAY, 30, L.eco.w - (tx - L.eco.x) - 24), MINT);
+        });
+        enter(3, () => {
         // mileage + cost
         tile(ctx, L.fuel);
         const fx = L.fuel.x + 34, half = L.fuel.h / 2;
@@ -211,15 +257,16 @@
         label(ctx, st[2].label, fx, L.fuel.y + half + 50, 22);
         const vw2 = text(ctx, st[2].value, fx, L.fuel.y + L.fuel.h - 22, fit(ctx, st[2].value, 800, DISPLAY, Math.round(L.fuel.h * 0.17), L.fuel.w * 0.6), TEXT, "left", -1);
         if (st[2].unit) text(ctx, st[2].unit, fx + vw2 + 10, L.fuel.y + L.fuel.h - 22, `600 ${Math.round(L.fuel.h * 0.08)}px ${UI}`, SOFT);
+        });
         // the wide tile: road reports, or how smooth it was
-        if (L.wide) {
+        if (L.wide) enter(4, () => {
             tile(ctx, L.wide, 40);
             const bt = R.bannerText(card, o.units, o.showCost !== false);
             const line = card.reports ? `${card.reports.reviewed} road reports reviewed · ${card.reports.published} published` : bt.title;
             ctx.beginPath(); ctx.arc(L.wide.x + 60, L.wide.y + L.wide.h / 2, 20, 0, Math.PI * 2); ctx.fillStyle = "rgba(52,224,180,0.18)"; ctx.fill();
             ctx.beginPath(); ctx.arc(L.wide.x + 60, L.wide.y + L.wide.h / 2, 8, 0, Math.PI * 2); ctx.fillStyle = MINT; ctx.fill();
             text(ctx, line, L.wide.x + 102, L.wide.y + L.wide.h / 2 + 12, fit(ctx, line, 700, DISPLAY, 36, L.wide.w - 140), TEXT);
-        }
+        });
         const foot = R.footText({ ...card, reports: L.wide ? null : card.reports });
         text(ctx, foot, L.W / 2, L.foot, fit(ctx, foot, 500, UI, 22, L.W - 2 * L.m), MUTED, "center");
         return canvas;
@@ -227,7 +274,16 @@
 
     // ------------------------------------------------------------------ Liquid Glass
     /** The background: the photo (cover) or a vivid mesh gradient. */
-    function backdrop(ctx, W, H, card, photo, R) {
+    function backdrop(ctx, W, H, card, photo, R, map, reveal = 1) {
+        if (!photo && map && map.canvas) {
+            // the real map, tinted toward the Liquid Glass palette, with the route as a bright trail
+            ctx.drawImage(map.canvas, 0, 0, W, H);
+            const g = ctx.createLinearGradient(0, 0, W, H);
+            g.addColorStop(0, "rgba(124,58,237,0.42)"); g.addColorStop(0.5, "rgba(37,99,235,0.28)"); g.addColorStop(1, "rgba(236,72,153,0.38)");
+            ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+            route(ctx, card, { x: 0, y: 0, w: W, h: H }, 0, R, { from: "#ffffff", to: "#a5f3fc", glow: "rgba(255,255,255,0.85)", width: 9, core: "#ffffff" }, { pts: map.pts, reveal });
+            return;
+        }
         if (photo) {
             const f = R.cover(photo.naturalWidth || photo.width, photo.naturalHeight || photo.height, W, H);
             ctx.drawImage(photo, f.x, f.y, f.w, f.h);
@@ -244,18 +300,18 @@
         }
         ctx.globalAlpha = 1;
         // the route as a soft light trail across the gradient
-        route(ctx, card, { x: 0, y: H * 0.06, w: W, h: H * 0.5 }, 120, R, { from: "rgba(255,255,255,0.85)", to: "rgba(255,255,255,0.95)", glow: "rgba(255,255,255,0.6)", width: 7 });
+        route(ctx, card, { x: 0, y: H * 0.06, w: W, h: H * 0.5 }, 120, R, { from: "rgba(255,255,255,0.85)", to: "rgba(255,255,255,0.95)", glow: "rgba(255,255,255,0.6)", width: 7 }, { reveal });
     }
 
     /** A frosted panel: the backdrop blurred inside it, a veil, a hairline and a specular top edge. */
-    function glassPanel(ctx, src, b, r) {
+    function glassPanel(ctx, src, b, r, smoky = false) {
         ctx.save();
         rr(ctx, b.x, b.y, b.w, b.h, r); ctx.clip();
         if ("filter" in ctx) {
             ctx.filter = "blur(38px) saturate(1.5)";
             ctx.drawImage(src, b.x - 60, b.y - 60, b.w + 120, b.h + 120, b.x - 60, b.y - 60, b.w + 120, b.h + 120);
             ctx.filter = "none";
-            ctx.fillStyle = "rgba(255,255,255,0.13)";
+            ctx.fillStyle = smoky ? "rgba(12,16,34,0.42)" : "rgba(255,255,255,0.13)";   // over a light map: a darker glass, so white text reads
         } else ctx.fillStyle = "rgba(20,24,40,0.62)";                              // no canvas blur: a plain smoked panel
         ctx.fillRect(b.x, b.y, b.w, b.h);
         const sheen = ctx.createLinearGradient(0, b.y, 0, b.y + b.h * 0.45);
@@ -270,27 +326,31 @@
         ctx.restore();
     }
 
-    function drawGlass(canvas, card, o, R) {
+    function drawGlass(canvas, card0, o, R) {
+        const t = o.t === undefined ? 1 : o.t, card = motionCard(card0, t);
         const fmt = o.format === "post" ? "post" : "story", W = 1080, H = fmt === "post" ? 1350 : 1920, m = 56;
         canvas.width = W; canvas.height = H;
         const ctx = canvas.getContext("2d");
         const bg = typeof document !== "undefined" ? document.createElement("canvas") : canvas;
         bg.width = W; bg.height = H;
         const bctx = bg.getContext("2d");
-        backdrop(bctx, W, H, card, o.photo, R);
+        backdrop(bctx, W, H, card, o.photo, R, o.map, phase(t, 0.05, 0.6));
         ctx.drawImage(bg, 0, 0);
+        if (o.map && !o.photo) text(ctx, o.map.attribution, W - m, 168, `500 18px ${UI}`, "rgba(255,255,255,0.7)", "right");
         // top chip
         const chip = { x: m, y: 54, w: 330, h: 76 };
-        glassPanel(ctx, bg, chip, 38);
+        const smoky = Boolean(o.map && !o.photo);
+        glassPanel(ctx, bg, chip, 38, smoky);
         brand(ctx, chip.x + 28, chip.y + 51, 30, 0.95);
         const date = dateOf(card, o, { day: "numeric", month: "short" });
         const dchip = { x: W - m - 180, y: 54, w: 180, h: 76 };
-        glassPanel(ctx, bg, dchip, 38);
+        glassPanel(ctx, bg, dchip, 38, smoky);
         text(ctx, date, dchip.x + dchip.w / 2, dchip.y + 50, `600 30px ${UI}`, "#ffffff", "center");
         // the main panel
         const ph = fmt === "post" ? 560 : 720;
-        const P = { x: m, y: H - ph - m, w: W - 2 * m, h: ph };
-        glassPanel(ctx, bg, P, 60);
+        const lift = (1 - phase(t, 0.12, 0.4)) * 160;                     // the panel rises into place
+        const P = { x: m, y: H - ph - m + lift, w: W - 2 * m, h: ph };
+        glassPanel(ctx, bg, P, 60, smoky);
         const px = P.x + 52;
         text(ctx, card.title, px, P.y + 104, fit(ctx, card.title, 800, DISPLAY, fmt === "post" ? 62 : 72, P.w - 300), "#ffffff", "left", -1.5);
         const sub = card.caption || card.place || "";
@@ -298,7 +358,7 @@
         // mini route chip inside the panel
         if (card.route) {
             const mr = { x: P.x + P.w - 52 - 190, y: P.y + 40, w: 190, h: 190 };
-            glassPanel(ctx, bg, mr, 40);
+            glassPanel(ctx, bg, mr, 40, smoky);
             route(ctx, card, mr, 30, R, { from: "#ffffff", to: "#a5f3fc", width: 6 });
         }
         const st = R.stats(card, o.units, o.showCost !== false);
@@ -320,7 +380,9 @@
     }
 
     // ------------------------------------------------------------------ Verse (comic)
-    function drawVerse(canvas, card, o, R) {
+    const verseCache = new Map();
+    function drawVerse(canvas, card0, o, R) {
+        const t = o.t === undefined ? 1 : o.t, card = motionCard(card0, t);
         const fmt = o.format === "post" ? "post" : "story", W = 1080, H = fmt === "post" ? 1350 : 1920;
         canvas.width = W; canvas.height = H;
         const ctx = canvas.getContext("2d");
@@ -334,17 +396,29 @@
         lines.forEach((l, i) => text(ctx, l, W / 2, y0 + i * lh, `${i === lines.length - 1 ? 400 : 500} ${i === lines.length - 1 ? 34 : 46}px ${MONO}`, i === lines.length - 1 ? "#9aa4ae" : "#f2f2f2", "center"));
         // the image area
         const A = { x: 0, y: band, w: W, h: H - band };
-        const off = typeof document !== "undefined" ? document.createElement("canvas") : null;
-        if (!off) return canvas;
+        if (typeof document === "undefined") return canvas;
+        // the heavy part (posterise, channel split, halftone) is done once per ride, photo, map and size, then reused by
+        // every frame of the motion and every preview
+        const ckey = `${card0.startedAt}|${fmt}|${o.photo ? photoId(o.photo) : "-"}|${o.map ? "map" + o.map.zoom : "-"}|${card0.trim ? card0.trim.start + "," + card0.trim.end : ""}`;
+        let off = verseCache.get(ckey);
+        if (!off) {
+        off = document.createElement("canvas");
         off.width = A.w; off.height = A.h;
         const o2 = off.getContext("2d", { willReadFrequently: true });
         if (o.photo) {
             const f = R.cover(o.photo.naturalWidth || o.photo.width, o.photo.naturalHeight || o.photo.height, A.w, A.h);
             o2.drawImage(o.photo, f.x, f.y, f.w, f.h);
+        } else if (o.map && o.map.canvas) {
+            o2.drawImage(o.map.canvas, 0, 0, A.w, A.h);
+            o2.globalCompositeOperation = "multiply";                          // deepen the light map into comic colours
+            const tint = o2.createLinearGradient(0, 0, A.w, A.h); tint.addColorStop(0, "#7c3aed"); tint.addColorStop(1, "#0891b2");
+            o2.fillStyle = tint; o2.fillRect(0, 0, A.w, A.h);
+            o2.globalCompositeOperation = "source-over";
+            route(o2, card0, { x: 0, y: 0, w: A.w, h: A.h }, 0, R, { from: "#ff2bd6", to: "#22e1ff", glow: "rgba(255,43,214,0.8)", width: 16, core: "#ffffff" }, { pts: o.map.pts });
         } else {
             const g = o2.createLinearGradient(0, 0, A.w, A.h); g.addColorStop(0, "#1e1b4b"); g.addColorStop(0.55, "#581c87"); g.addColorStop(1, "#0e7490");
             o2.fillStyle = g; o2.fillRect(0, 0, A.w, A.h);
-            route(o2, card, { x: 0, y: 0, w: A.w, h: A.h }, 140, R, { from: "#ff2bd6", to: "#22e1ff", glow: "rgba(255,43,214,0.8)", width: 16, core: "#ffffff" });
+            route(o2, card0, { x: 0, y: 0, w: A.w, h: A.h }, 140, R, { from: "#ff2bd6", to: "#22e1ff", glow: "rgba(255,43,214,0.8)", width: 16, core: "#ffffff" });
         }
         // posterise + colour split
         const img = o2.getImageData(0, 0, A.w, A.h);
@@ -363,9 +437,14 @@
                 if (rad > 0.8) { o2.beginPath(); o2.arc(x, y, rad, 0, Math.PI * 2); o2.fill(); }
             }
         }
+        if (verseCache.size > 6) verseCache.delete(verseCache.keys().next().value);
+        verseCache.set(ckey, off);
+        }
+        ctx.globalAlpha = phase(t, 0, 0.25);
         ctx.drawImage(off, A.x, A.y);
-        // glitch slices: a few strips shifted and tinted (seeded, so the same ride looks the same)
-        const r = rng(Math.floor(card.startedAt / 1000) + 11);
+        ctx.globalAlpha = 1;
+        // glitch slices: a few strips shifted and tinted (seeded, so the same ride looks the same; in motion they jitter)
+        const r = rng(Math.floor(card.startedAt / 1000) + 11 + (t < 1 ? Math.floor(t * 24) : 0));
         for (let k = 0; k < 7; k++) {
             const sy = A.y + r() * (A.h - 60), sh = 12 + r() * 46, dx = (r() - 0.5) * 70;
             ctx.drawImage(off, 0, sy - A.y, A.w, sh, dx, sy, A.w, sh);
@@ -373,8 +452,12 @@
             ctx.fillRect(0, sy, A.w, sh);
         }
         // comic stickers
+        let si = 0;
         const sticker = (s, sub, x, y, rot, bg, fg, size) => {
-            ctx.save(); ctx.translate(x, y); ctx.rotate(rot);
+            const pop = phase(t, 0.35 + 0.1 * si++, 0.22);                  // each sticker pops in, with a little overshoot
+            if (pop <= 0) return;
+            const k = pop < 1 ? pop * (1 + 0.25 * Math.sin(pop * Math.PI)) : 1;
+            ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.scale(k, k);
             ctx.font = `900 ${size}px ${DISPLAY}`;
             const w = ctx.measureText(s).width + size * 0.7, h = size * (sub ? 1.55 : 1.25);
             ctx.fillStyle = "#000"; ctx.fillRect(10, 12, w, h);
@@ -389,9 +472,15 @@
         sticker(`${st[3].value} ${st[3].unit.toUpperCase()}`, "MOVING", fmt === "post" ? 520 : 560, sy + (fmt === "post" ? 120 : 170), 0.05, "#ff2bd6", "#fff", fmt === "post" ? 60 : 72);
         if (card.reports) sticker(`${card.reports.published} REPORTED`, "ROAD REPORTS", 70, A.y + 60, 0.04, "#22e1ff", "#000", 46);
         brand(ctx, W - 300, H - 44, 28, 0.9);
+        if (o.map && !o.photo) text(ctx, o.map.attribution, W - 40, band + 34, `500 18px ${UI}`, "rgba(255,255,255,0.75)", "right");
         text(ctx, R.footText({ ...card, reports: null }), 40, H - 44, fit(ctx, R.footText({ ...card, reports: null }), 500, UI, 20, W - 400), "rgba(255,255,255,0.75)");
         return canvas;
     }
+    const photoIds = typeof WeakMap === "function" ? new WeakMap() : null;
+    let photoSeq = 0;
+    /** A stable id per photo object (the cache key), without reading its pixels. @param {object} p */
+    function photoId(p) { if (!photoIds) return "p"; if (!photoIds.has(p)) photoIds.set(p, ++photoSeq); return "p" + photoIds.get(p); }
+
     /** Word-wrap one line for a font and width. */
     function wrap(ctx, s, font, maxW) {
         ctx.font = font;
@@ -411,5 +500,15 @@
         return drawBento(canvas, card, o, R);
     }
 
-    return { STYLES, rng, posterize, splitChannels, bentoLayout, draw, drawBento, drawGlass, drawVerse, rr, text, fit, tile, label, brand, figure };
+    /** Which map (and its size) a style draws behind the route: null for none. Pure. @param {string} style @param {"story"|"post"} fmt @param {boolean} hasPhoto */
+    function mapSpec(style, fmt, hasPhoto) {
+        const H = fmt === "post" ? 1350 : 1920;
+        if (style === "bento") { const L = bentoLayout(fmt); return { w: L.hero.w, h: L.hero.h, inset: 80, theme: "dark" }; }
+        // Glass: the map fills the card, the route sits in the space above the glass panel
+        if (style === "glass" && !hasPhoto) { const ph = fmt === "post" ? 560 : 720; return { w: 1080, h: H, inset: 90, theme: "light", focus: { x: 0, y: 170, w: 1080, h: H - ph - 56 - 170 - 40 } }; }
+        if (style === "verse" && !hasPhoto) return { w: 1080, h: H - (fmt === "post" ? 330 : 560), inset: 160, theme: "light" };
+        return null;
+    }
+
+    return { STYLES, rng, posterize, splitChannels, bentoLayout, mapSpec, motionCard, phase, ease, draw, drawBento, drawGlass, drawVerse, rr, text, fit, tile, label, brand, figure };
 });
