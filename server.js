@@ -914,6 +914,8 @@ const lastTripSent = new Map();     // local socketId -> JSON of the last tripDa
 const pairCodes = new Map();        // code -> { deviceId, name, expiresAt }
 const pairs = new Map();            // pairId -> { id, a: { deviceId, name }, b: { deviceId, name }, riderDeviceId|null, at }
 const pinFails = new Map();         // `${scope}:${who}` -> [failure times]  (local: brute-force brakes)
+const pairInvites = new Map();      // token -> { deviceId, name, expiresAt }   a shared place's "pair with me" (24 h)
+const pairAsks = new Map();         // reqId -> { from, fromName, to, toName, expiresAt }   waiting for the sharer's yes
 const heartbeatSeen = new Map();    // nodeId -> local receipt time of its last heartbeat
 
 const bus = createBus({ redisUrl: REDIS_URL, prefix: CLUSTER_PREFIX, log: console });
@@ -1107,6 +1109,17 @@ function pairViewFor(deviceId) {
         role: p.riderDeviceId ? (p.riderDeviceId === deviceId ? "rider" : "pillion") : null,
         askRole: !p.riderDeviceId, since: p.at
     };
+}
+/** A new pair (one bike each: a phone already paired leaves its old pair first); both phones are told. */
+function makePair(id, a, b, now) {
+    for (const d of [a.deviceId, b.deviceId]) {
+        const old = pairOfDevice(d);
+        if (old) { pairs.delete(old.id); for (const x of [old.a.deviceId, old.b.deviceId]) if (x !== a.deviceId && x !== b.deviceId) pushPairTo(x); }
+    }
+    const p = { id, a, b, riderDeviceId: null, at: now };
+    pairs.set(id, p);
+    pushPairTo(a.deviceId); pushPairTo(b.deviceId);
+    return p;
 }
 function pushPairTo(deviceId) { for (const sid of sidsOfDevice(deviceId)) emitLocal(sid, "pairUpdate", pairViewFor(deviceId)); }
 /** On the map and in trips: the pillion rides with the rider (one bike). */
@@ -2262,11 +2275,41 @@ const OPS = {
         if (!c || c.expiresAt <= op.now) return { ok: false, reason: "wrong-code" };
         if (c.deviceId === u.deviceId) return { ok: false, reason: "own-code" };
         pairCodes.delete(op.code);
-        // one bike each: a phone already paired leaves its old pair
-        for (const d of [u.deviceId, c.deviceId]) { const old = pairOfDevice(d); if (old) { pairs.delete(old.id); for (const x of [old.a.deviceId, old.b.deviceId]) if (x !== u.deviceId && x !== c.deviceId) pushPairTo(x); } }
-        const p = { id: op.pairId, a: { deviceId: c.deviceId, name: c.name }, b: { deviceId: u.deviceId, name: u.name }, riderDeviceId: null, at: op.now };
-        pairs.set(p.id, p);
-        pushPairTo(p.a.deviceId); pushPairTo(p.b.deviceId);
+        makePair(op.pairId, { deviceId: c.deviceId, name: c.name }, { deviceId: u.deviceId, name: u.name }, op.now);
+        return { ok: true };
+    },
+    // a shared place carries "pair with me": its invite (24 h)
+    "pair.invite"(op) {
+        const u = users.get(op.sid);
+        if (!u || !u.deviceId) return { ok: false, reason: "no-device" };
+        const mine = [...pairInvites].filter(([, v]) => v.deviceId === u.deviceId || v.expiresAt <= op.now);
+        for (const [t, v] of mine) if (v.expiresAt <= op.now) pairInvites.delete(t);
+        const live = [...pairInvites].filter(([, v]) => v.deviceId === u.deviceId);
+        while (live.length >= 5) pairInvites.delete(live.shift()[0]);          // at most 5 open invites per phone
+        pairInvites.set(op.token, { deviceId: u.deviceId, name: u.name, expiresAt: op.now + 24 * 3600 * 1000 });
+        return { ok: true, token: op.token, expiresAt: op.now + 24 * 3600 * 1000 };
+    },
+    // someone who opened it asks to pair: the sharer is asked (2 minutes to answer)
+    "pair.ask"(op) {
+        const u = users.get(op.sid);
+        const inv = pairInvites.get(op.token);
+        if (!u || !u.deviceId) return { ok: false, reason: "no-device" };
+        if (!inv || inv.expiresAt <= op.now) return { ok: false, reason: "expired" };
+        if (inv.deviceId === u.deviceId) return { ok: false, reason: "own-invite" };
+        const online = sidsOfDevice(inv.deviceId);
+        if (!online.length) return { ok: false, reason: "offline", name: inv.name };
+        for (const [k, v] of pairAsks) if (v.expiresAt <= op.now || (v.from === u.deviceId && v.to === inv.deviceId)) pairAsks.delete(k);
+        pairAsks.set(op.reqId, { from: u.deviceId, fromName: u.name, to: inv.deviceId, toName: inv.name, expiresAt: op.now + 120000 });
+        for (const sid of online) emitLocal(sid, "pairAsk", { reqId: op.reqId, from: u.name });
+        return { ok: true, waiting: true, name: inv.name };
+    },
+    "pair.answer"(op) {
+        const u = users.get(op.sid);
+        const a = pairAsks.get(op.reqId);
+        if (!u || !a || a.to !== u.deviceId || a.expiresAt <= op.now) return { ok: false, reason: "expired" };
+        pairAsks.delete(op.reqId);
+        if (!op.accept) { for (const sid of sidsOfDevice(a.from)) emitLocal(sid, "pairDeclined", { name: a.toName }); return { ok: true }; }
+        makePair(op.pairId, { deviceId: a.to, name: u.name }, { deviceId: a.from, name: a.fromName }, op.now);
         return { ok: true };
     },
     "pair.role"(op) {
@@ -2815,6 +2858,26 @@ io.on("connection", (socket) => {
         if (!c || c.expiresAt <= Date.now()) { pinMiss(who); return reply({ ok: false, reason: "wrong-code", triesLeft: pinLeft(who) }); }
         if (c.deviceId === u.deviceId) return reply({ ok: false, reason: "own-code" });
         return commitThen({ t: "pair.join", sid: socket.id, code, pairId: generateId() }, (r) => reply(r));
+    }));
+    // a shared place's "pair with me": the sharer makes an invite with the link; whoever opens it may ask
+    socket.on("pairInvite", safeHandler(socket, (data, ack) => {
+        const u = users.get(socket.id);
+        const reply = typeof ack === "function" ? ack : () => {};
+        if (!u || !u.deviceId) return reply({ ok: false, reason: "no-device" });
+        if (!throttle(socket.id, "pair-invite", 1500)) return reply({ ok: false, reason: "too-fast" });
+        return commitThen({ t: "pair.invite", sid: socket.id, token: crypto.randomBytes(12).toString("base64url") }, (r) => reply(r));
+    }));
+    socket.on("pairRequest", safeHandler(socket, (data, ack) => {
+        const reply = typeof ack === "function" ? ack : () => {};
+        const token = typeof data?.token === "string" && /^[\w-]{16}$/.test(data.token) ? data.token : null;
+        if (!users.has(socket.id) || !token) return reply({ ok: false, reason: "expired" });
+        if (!throttle(socket.id, "pair-request", 1000)) return reply({ ok: false, reason: "too-fast" });
+        return commitThen({ t: "pair.ask", sid: socket.id, token, reqId: generateId() }, (r) => reply(r));
+    }));
+    socket.on("pairAnswer", safeHandler(socket, (data, ack) => {
+        const reply = typeof ack === "function" ? ack : () => {};
+        if (!users.has(socket.id) || !isNonEmptyStr(data?.reqId, 60)) return reply({ ok: false });
+        return commitThen({ t: "pair.answer", sid: socket.id, reqId: data.reqId, accept: Boolean(data.accept), pairId: generateId() }, (r) => reply(r));
     }));
     socket.on("pairRole", safeHandler(socket, (data, ack) => {
         const reply = typeof ack === "function" ? ack : () => {};

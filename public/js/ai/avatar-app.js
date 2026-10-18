@@ -33,7 +33,7 @@ const KEY = "mu.avatar.v1";
 const LABEL = { idle: "Online", listening: "Listening…", thinking: "Thinking…", speaking: "Speaking", alert: "Alert" };
 
 function loadPrefs() {
-  const d = { pip: true, side: "left", y: null };
+  const d = { pip: false, side: "left", y: null };
   try { const v = JSON.parse(localStorage.getItem(KEY) || "null"); if (v && typeof v === "object") return { ...d, ...v }; } catch (e) { /* private mode */ }
   return d;
 }
@@ -149,8 +149,12 @@ function boot() {
   // ---- corner view ↔ full screen ----
   const pipBtn = $("mu-avatar-pip-btn"), closeBtn = $("mu-avatar-close"), talkBtn = $("mu-avatar-talk"), pipToggle = $("mu-avatar-pip-toggle");
   let full = false;
+  // No face on the map any more (the rider asked for the map without it): only the full screen shows it,
+  // opened from the Master AI button in the map tools. The core sleeps the rest of the time.
+  prefs.pip = false;
+  if (pipToggle) pipToggle.hidden = true;
   function syncVisibility() {
-    root.hidden = !full && !prefs.pip;
+    root.hidden = !full;
     if (root.hidden) core.pause(); else core.resume();
     if (pipToggle) pipToggle.setAttribute("aria-pressed", String(Boolean(prefs.pip)));
   }
@@ -192,7 +196,6 @@ function boot() {
     const VA = W.VoiceAssistant;
     if (VA && typeof VA.togglePushToTalk === "function") VA.togglePushToTalk();
   });
-  if (pipToggle) pipToggle.addEventListener("click", () => { prefs.pip = !prefs.pip; savePrefs(); syncVisibility(); });
 
   // ---- drag the corner view (snaps to the nearer side; a tap opens the full screen) ----
   function placePip() {

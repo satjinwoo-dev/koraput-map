@@ -25,7 +25,7 @@
 <link rel="stylesheet" href="js/master/vision/vision.css?v=20261011-master"><!-- Master AI: break-time fatigue check (camera only while stopped) -->
 <link rel="stylesheet" href="js/ai/avatar.css?v=20261011-avatar">
 <link rel="stylesheet" href="js/master/roadsense/roadsense.css?v=20261017-rp1"><!-- RoadSense Live: the Route Truth Card -->
-<link rel="stylesheet" href="js/navcam/navcam.css?v=20261018-motion"><link rel="stylesheet" href="js/navpip/navpip.css?v=20261018-pip"><link rel="stylesheet" href="js/pin/pinpad.css?v=20261018-pin"><link rel="stylesheet" href="js/passport/passport.css?v=20261017-passport"><link rel="stylesheet" href="js/rideplan/rideplan.css?v=20261018-hv2"><!-- navigation camera: heading-up, 3D tilt (js/navcam/) --><!-- Master AI avatar: the particle face (corner view + full screen) -->
+<link rel="stylesheet" href="js/navcam/navcam.css?v=20261018-motion"><link rel="stylesheet" href="js/navpip/navpip.css?v=20261018-pip"><link rel="stylesheet" href="js/pin/pinpad.css?v=20261018-pin"><link rel="stylesheet" href="js/passport/passport.css?v=20261018-pair"><link rel="stylesheet" href="js/rideplan/rideplan.css?v=20261018-hv2"><!-- navigation camera: heading-up, 3D tilt (js/navcam/) --><!-- Master AI avatar: the particle face (corner view + full screen) -->
 <!-- Three.js for the Master AI avatar (js/ai/). Must come before any module script. The CSP allows this inline
      block by its SHA-256, which server.js computes from this file at start-up (lib/csp-inline.js; test/ai checks it). -->
 <script type="importmap">
@@ -1748,7 +1748,7 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="js/navcam/navcam-core.js?v=20261017-fulltop"></script>
 <script src="js/navcam/navcam.js?v=20261018-motion"></script>
 <script src="js/navcam/navmotion-core.js?v=20261018-motion"></script><script src="js/navcam/navmotion.js?v=20261018-motion"></script><script src="js/navpip/navpip-core.js?v=20261018-pip"></script><script src="js/navpip/navpip.js?v=20261018-pip"></script>
-<script src="js/pin/pinpad.js?v=20261018-pin"></script><script src="js/pin/group-pin.js?v=20261018-pin"></script><script src="js/pin/pillion.js?v=20261018-pin"></script><!-- 4-digit PINs: join a group ride, pair rider + pillion --><!-- navigation motion: the arrow glides along the road, the camera with it, turn zoom and turn arrows -->
+<script src="js/pin/pinpad.js?v=20261018-pin"></script><script src="js/pin/group-pin.js?v=20261018-pin"></script><script src="js/pin/pillion.js?v=20261018-pair"></script><!-- 4-digit PINs: join a group ride, pair rider + pillion --><!-- navigation motion: the arrow glides along the road, the camera with it, turn zoom and turn arrows -->
 <script src="js/navsheet.js?v=20261017-sheet"></script><!-- the drive sheet collapses while driving; swipe up for more -->
 <script src="js/ridefocus.js?v=20261017-amoled"></script><!-- Ride Focus AMOLED: optional true-black map while navigating -->
 <script src="js/roadfocus.js?v=20261018-focus"></script><!-- Straight-road focus: the road glows on long straights, the rest dims -->
@@ -1808,7 +1808,8 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="js/hud/hud.js?v=20261004-ui"></script>
 <script src="js/hud/hud-app.js?v=20261004-ui"></script>
 <script src="js/passport/share-out.js?v=20261017-passport"></script><!-- the phone's share menu (WhatsApp & co), also inside the Android app -->
-<script src="js/passport/place-share.js?v=20261017-passport"></script><!-- share a place, with a preview first -->
+<script src="js/passport/place-share.js?v=20261018-pair"></script><!-- share a place, with a preview first -->
+<script src="js/passport/shared-place.js?v=20261018-pair"></script><!-- a shared place opened: the road from you, "pair with …?" -->
 <script src="js/passport/passport-model.js?v=20261017-passport"></script>
 <script src="js/passport/passport-app.js?v=20261017-passport"></script><!-- Rider Passport -->
 <script src="js/rideplan/rideplan-app.js?v=20261018-hv"></script><!-- Ride Plan: weather, stops, fuel, hospitals along the route -->
@@ -1874,6 +1875,6 @@ body:has(#premium-nav-ui[style*="block"]) #p4-chips { display: none; }
 <script src="js/master/roadsense/review.js?v=20261017-passport"></script>
 <!-- Master AI avatar: the state rules, then the module that draws the face (Three.js via the import map in <head>) -->
 <script src="js/ai/avatar-state.js?v=20261011-avatar"></script>
-<script type="module" src="js/ai/avatar-app.js?v=20261011-avatar"></script>
+<script type="module" src="js/ai/avatar-app.js?v=20261018-nomap"></script>
 </body>
 </html>

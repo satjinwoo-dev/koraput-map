@@ -188,3 +188,34 @@ test("a reconnecting phone gets its pair back (same device)", opts, async () => 
     assert.equal(back.role, "pillion");
     assert.equal(back.partner.name, "X");
 });
+
+test("a shared place's invite: whoever opens it asks, the sharer says yes, they're paired (and asked who rides)", opts, async () => {
+    const [sharer, viewer, nosy] = await Promise.all([rider("Ravi"), rider("Meena"), rider("Nosy")]);
+    const inv = await ask(sharer, "pairInvite", {});
+    assert.equal(inv.ok, true);
+    assert.match(inv.token, /^[\w-]{16}$/);
+    assert.equal((await ask(sharer, "pairRequest", { token: inv.token })).reason, "own-invite");
+    assert.equal((await ask(viewer, "pairRequest", { token: "x".repeat(16) })).reason, "expired");
+    await new Promise((r) => setTimeout(r, 1100));       // one request a second
+    // the sharer says no
+    const asked = once(sharer, "pairAsk");
+    const r1 = await ask(viewer, "pairRequest", { token: inv.token });
+    assert.equal(r1.ok, true); assert.equal(r1.name, "Ravi");
+    const q1 = await asked;
+    assert.equal(q1.from, "Meena");
+    const declined = once(viewer, "pairDeclined");
+    await ask(sharer, "pairAnswer", { reqId: q1.reqId, accept: false });
+    assert.equal((await declined).name, "Ravi");
+    // someone else can't answer for the sharer
+    await new Promise((r) => setTimeout(r, 1100));
+    const asked2 = once(sharer, "pairAsk");
+    await ask(viewer, "pairRequest", { token: inv.token });
+    const q2 = await asked2;
+    assert.equal((await ask(nosy, "pairAnswer", { reqId: q2.reqId, accept: true })).ok, false);
+    // the sharer says yes
+    const pv = once(viewer, "pairUpdate", (d) => d.paired), ps = once(sharer, "pairUpdate", (d) => d.paired);
+    assert.equal((await ask(sharer, "pairAnswer", { reqId: q2.reqId, accept: true })).ok, true);
+    const [a, b] = await Promise.all([pv, ps]);
+    assert.equal(a.partner.name, "Ravi"); assert.equal(b.partner.name, "Meena");
+    assert.equal(a.askRole, true);
+});

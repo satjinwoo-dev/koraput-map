@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-18.13";          // 4-digit PINs: group rides, rider + pillion
+const VERSION = "mu-2026-10-18.14";          // shared places: road from you + pair; no AI face on the map
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
@@ -144,6 +144,7 @@ const BIKE_SCRIPTS = [
     "/js/hud/hud.css",
     "/js/passport/share-out.js",
     "/js/passport/place-share.js",
+    "/js/passport/shared-place.js",
     "/js/passport/passport-model.js",
     "/js/passport/passport-app.js",
     "/js/rideplan/rideplan-app.js",

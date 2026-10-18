@@ -103,14 +103,22 @@ test("place message: name, kind, note, a link; coordinates only when asked or ne
 });
 
 test("a shared link opens the place; anything malformed is ignored", () => {
-    assert.deepEqual(S.parseLink("?place=18.81123,82.71099&n=HP%20Pump&c=fuel&note=Air"), { lat: 18.81123, lng: 82.71099, name: "HP Pump", category: "fuel", note: "Air" });
+    assert.deepEqual(S.parseLink("?place=18.81123,82.71099&n=HP%20Pump&c=fuel&note=Air"), { lat: 18.81123, lng: 82.71099, name: "HP Pump", category: "fuel", note: "Air", by: "", invite: null });
     assert.equal(S.parseLink("?place=999,82"), null);
     assert.equal(S.parseLink("?place=abc"), null);
     assert.equal(S.parseLink(""), null);
     assert.equal(S.parseLink("?place=18.8,82.7&c=<script>").category, "other");
     // round trip
     const m = S.compose({ lat: 18.8, lng: 82.7, name: "Viewpoint", category: "viewpoint", note: "Sunset" }, { origin: "https://mapunite.app" });
-    assert.deepEqual(S.parseLink(new URL(m.url).search), { lat: 18.8, lng: 82.7, name: "Viewpoint", category: "viewpoint", note: "Sunset" });
+    assert.deepEqual(S.parseLink(new URL(m.url).search), { lat: 18.8, lng: 82.7, name: "Viewpoint", category: "viewpoint", note: "Sunset", by: "", invite: null });
+    // who shared it, and their "pair with me" invite
+    const w = S.compose({ lat: 18.8, lng: 82.7, name: "Chai point", by: "Satyam", invite: "AbCdEfGhIjKlMnOp" }, { origin: "https://mapunite.app" });
+    assert.match(w.text, /From Satyam/);
+    const back = S.parseLink(new URL(w.url).search);
+    assert.equal(back.by, "Satyam");
+    assert.equal(back.invite, "AbCdEfGhIjKlMnOp");
+    assert.equal(S.parseLink("?place=18.8,82.7&inv=<bad>").invite, null, "a malformed invite is dropped");
+    assert.equal(new URL(S.compose({ lat: 18.8, lng: 82.7, name: "x", invite: "short" }, { origin: "https://mapunite.app" }).url).searchParams.get("inv"), null);
 });
 
 test("wiring: the phone's share menu (native in the app), previews, no auto-upload, the review's tally, no top speed", () => {

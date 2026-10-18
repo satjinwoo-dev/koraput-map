@@ -2,16 +2,13 @@
 
 The Master AI's face: a holographic bust of light dust (`ai-particle-core.js`) on the map screen.
 
-- **Corner view (default).** A small floating window on the left of the map, under the search bar.
-  - During a drive it sits under the turn banner and above the speed dial.
-  - Drag it to the other side or up and down; it remembers where you put it.
-  - Tap it, or the **Master AI** button in the map tools, to open the full screen.
+- **Not on the map.** The small corner view on the map was removed (the rider's choice): the map stays clear, and the face's renderer sleeps until it's opened. The **Master AI** button in the map tools opens the full screen.
 - **Full screen.** The map is hidden and the face and body take the whole screen, with the particle mountain range behind (`avatar-ridges.js`). It shows:
   - the line being said, in English like the status island;
   - a **Talk** button (the app's push-to-talk);
   - during a drive, the speed and the next turn.
 
-  **Map**, the phone's back button or Esc go back. **On map** turns the corner view off; the map-tools button still opens the full screen.
+  **Map**, the phone's back button or Esc go back.
 
 The app's status island, toasts and the SOS button stay above the full screen, so warnings are never hidden.
 

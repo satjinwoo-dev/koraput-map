@@ -48,6 +48,24 @@ const Pillion = (() => {
         const s = sock();
         if (!s || listening) return;
         listening = true;
+        // someone opened a place this phone shared and asks to pair (js/passport/shared-place.js): yes or no
+        s.on("pairAsk", (d) => {
+            if (!d || !d.reqId) return;
+            const answer = async (accept) => { close(); const r = await emitAck("pairAnswer", { reqId: d.reqId, accept }); if (!r.ok && accept) toast("That request has run out."); };
+            const m = h("div", { class: "gp-menu", role: "dialog", "aria-label": `${d.from} wants to pair` }, [h("div", { class: "gp-card" }, [
+                h("div", { class: "pin-grab" }),
+                h("h2", { class: "gp-h", text: `${d.from} wants to pair with you` }),
+                h("p", { class: "pin-sub", text: `${d.from} opened the place you shared. Pair as rider & pillion? Then you both choose who rides.` }),
+                h("div", { class: "pl-pair" }, [
+                    h("button", { type: "button", class: "pl-who on", onclick: () => answer(true) }, [h("span", { class: "pl-ic", "aria-hidden": "true", text: "🤝" }), h("b", { text: "Pair" }), h("small", { text: `with ${d.from}` })]),
+                    h("button", { type: "button", class: "pl-who", onclick: () => answer(false) }, [h("span", { class: "pl-ic", "aria-hidden": "true", text: "✋" }), h("b", { text: "Not now" }), h("small", { text: "They'll be told" })])
+                ])
+            ])]);
+            const close = () => { m.classList.remove("in"); setTimeout(() => m.remove(), 200); };
+            document.body.append(m);
+            requestAnimationFrame(() => m.classList.add("in"));
+            setTimeout(() => { if (m.isConnected) close(); }, 120000);
+        });
         s.on("pairUpdate", (d) => {
             const prev = st;
             st = d && d.paired ? d : { paired: false };
