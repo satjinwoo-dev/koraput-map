@@ -33,3 +33,31 @@ textarea.pp-input { resize: vertical; }
 .pp-styles { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .pp-chip { flex: 1 1 0; min-width: 0; padding: 8px 6px; border-radius: 999px; border: 1px solid var(--line-strong, rgba(255,255,255,.16)); background: rgba(255,255,255,.05); color: var(--soft, #c6d2db); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
 .pp-chip[aria-checked="true"] { background: rgba(52,224,180,.16); border-color: rgba(52,224,180,.55); color: var(--mint, #34e0b4); }
+
+/* A shared place, opened (js/passport/shared-place.js): a glass pin and a glass card with the road from you */
+.spl-pin { background: none; border: 0; }
+.spl-bub { position: absolute; left: 50%; bottom: 8px; width: 46px; height: 46px; margin-left: -23px; display: grid; place-items: center; font-size: 22px;
+  border-radius: 50% 50% 50% 8px; transform: rotate(-45deg); background: linear-gradient(145deg, rgba(52,224,180,.95), rgba(79,70,229,.95));
+  border: 2px solid #fff; box-shadow: 0 8px 18px rgba(0,0,0,.4); }
+.spl-pulse { position: absolute; left: 50%; bottom: 0; width: 18px; height: 8px; margin-left: -9px; border-radius: 50%; background: rgba(52,224,180,.55); animation: spl-pulse 1.8s ease-out infinite; }
+@keyframes spl-pulse { 0% { transform: scale(.6); opacity: .9; } 100% { transform: scale(3.2); opacity: 0; } }
+.spl-card { position: fixed; left: 12px; right: 84px; bottom: calc(16px + var(--safe-b, 0px)); z-index: 4400; max-width: 460px; margin: 0 auto; padding: 14px 16px 16px; border-radius: 24px; color: #f2f5f8;
+  background: linear-gradient(165deg, rgba(255,255,255,.14), rgba(255,255,255,.03)), rgba(14,18,24,.78); border: 1px solid rgba(255,255,255,.18);
+  box-shadow: 0 18px 48px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.2); -webkit-backdrop-filter: blur(22px) saturate(1.5); backdrop-filter: blur(22px) saturate(1.5);
+  opacity: 0; transform: translateY(20px); transition: opacity .22s, transform .3s cubic-bezier(.2,.8,.2,1); }
+.spl-card.in { opacity: 1; transform: none; }
+.spl-x { position: absolute; top: 10px; right: 10px; width: 32px; height: 32px; border-radius: 50%; border: 0; background: rgba(255,255,255,.08); color: inherit; font-size: 14px; cursor: pointer; }
+.spl-head { display: flex; align-items: center; gap: 12px; padding-right: 36px; }
+.spl-ic { flex: 0 0 48px; height: 48px; display: grid; place-items: center; border-radius: 16px; font-size: 24px; background: linear-gradient(145deg, rgba(52,224,180,.3), rgba(99,102,241,.3)); }
+.spl-name { display: block; font-size: 17px; font-weight: 800; line-height: 1.2; }
+.spl-kind { font-size: 12.5px; color: rgba(242,245,248,.6); }
+.spl-by { display: inline-flex; align-items: center; gap: 8px; margin-top: 10px; padding: 4px 10px 4px 4px; border-radius: 999px; background: rgba(255,255,255,.08); font-size: 12.5px; font-weight: 600; }
+.spl-av { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; background: #34e0b4; color: #062112; font-weight: 800; font-size: 12px; }
+.spl-note { margin: 10px 0 0; font-size: 13.5px; line-height: 1.45; color: rgba(242,245,248,.85); font-style: italic; }
+.spl-route-line { margin: 10px 0 0; font-size: 13.5px; font-weight: 600; color: #8ff3d6; }
+.spl-actions { display: flex; gap: 8px; margin-top: 12px; }
+.spl-go { flex: 1; white-space: nowrap; min-height: 46px; border: 0; border-radius: 14px; background: linear-gradient(135deg, #34e0b4, #22c55e); color: #062112; font: inherit; font-size: 15px; font-weight: 800; cursor: pointer; }
+.spl-b { min-height: 46px; padding: 0 14px; border-radius: 14px; border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.06); color: inherit; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.spl-st:empty { display: none; }
+@media (prefers-reduced-motion: reduce) { .spl-pulse { animation: none; } .spl-card { transition: none; } }
+.spl-e { display: block; transform: rotate(45deg); }

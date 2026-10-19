@@ -49,6 +49,17 @@ test("acceleration: the slope of speed, clamped to ±4 m/s²", () => {
     assert.ok(spike.a <= 4 + 1e-12);
 });
 
+test("acceleration and hard moments with real clock times (epoch ms), not just t = 0, 1, 2 …", () => {
+    const t0 = Date.UTC(2026, 9, 18, 6, 0);
+    const est = L.createLiveEstimator(Physics, hunter, {});
+    let s;
+    Array.from({ length: 10 }, (_, i) => i * 1.2).forEach((v, i) => { s = est.push({ t: t0 + i * 1000, v }); });
+    assert.ok(Math.abs(s.a - 1.2) < 1e-6, String(s.a));
+    const b = L.createLiveEstimator(Physics, hunter, {});
+    [20, 20, 20, 20, 16, 12, 8, 4, 0, 0, 0].forEach((v, i) => { s = b.push({ t: t0 + i * 1000, v }); });
+    assert.equal(s.trip.harsh.brake, 1);
+});
+
 test("idling burns the idle rate for 3 minutes, then the engine counts as off", () => {
     const est = L.createLiveEstimator(Physics, hunter, {});
     const idle = Physics.operatingPoint(hunter, 0, { altitude: 0 }).fuelRate;

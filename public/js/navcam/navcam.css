@@ -38,3 +38,22 @@
 #navcam-recenter .navcam-arrow { width: 0; height: 0; border-left: 7px solid transparent; border-right: 7px solid transparent; border-bottom: 12px solid currentColor; }
 #navcam-compass[hidden], #navcam-recenter[hidden], #navcam-sky[hidden] { display: none; }
 @media (prefers-reduced-motion: reduce) { #navcam-compass .navcam-needle { transition: none; } }
+
+/* The rider during a drive (js/navcam/navmotion.js): a navigation arrow lying flat on the map, turned to the
+   road's direction (--mu-puck-deg, north-up frame). Not stood upright like other markers: it's on the ground. */
+.mu-puck { background: none; border: 0; }
+.mu-puck-arrow { width: 48px; height: 48px; rotate: var(--mu-puck-deg, 0deg); }
+.mu-puck-arrow svg { display: block; width: 100%; height: 100%; overflow: visible; filter: drop-shadow(0 2px 3px rgba(0,0,0,.45)); }
+.mu-puck-arrow .halo { fill: rgba(75,141,248,.18); stroke: rgba(75,141,248,.35); stroke-width: 1; }
+.mu-puck-arrow path { fill: #1a6dff; stroke: #ffffff; stroke-width: 3.5; stroke-linejoin: round; }
+#map.navcam .leaflet-marker-icon.mu-puck > * { rotate: var(--mu-puck-deg, 0deg); scale: 1; }
+/* no GPS (dead reckoning): grey, like a navigator that has lost the signal */
+.mu-puck.dr-est .mu-puck-arrow path { fill: #8d99a6; }
+.mu-puck.dr-est .mu-puck-arrow .halo { fill: rgba(141,153,166,.18); stroke: rgba(141,153,166,.35); }
+
+/* A new instruction slides into the turn banner (js/navigation.js) */
+@keyframes mu-turn-in { from { opacity: .2; transform: translateY(-14px); } to { opacity: 1; transform: none; } }
+#turn-banner.mu-turn-in .turn-copy, #turn-banner.mu-turn-in .turn-arrow-wrap { animation: mu-turn-in .35s cubic-bezier(.2,.8,.2,1); }
+@media (prefers-reduced-motion: reduce) { #turn-banner.mu-turn-in .turn-copy, #turn-banner.mu-turn-in .turn-arrow-wrap { animation: none; } }
+/* While the navigation arrow shows the rider: no second "you are here" dot, accuracy ring or history trail */
+body.mu-navmotion .mu-nav-hide { display: none !important; }

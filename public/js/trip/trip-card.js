@@ -556,6 +556,8 @@
         syncExpanded();
         return {
             setRoute, clear, refreshBike, setCompact,
+            /** Rider + pillion paired (js/pin/pillion.js): the rider's load becomes "pillion". @param {boolean} on */
+            setPillion(on) { prefs.pillion = Boolean(on); savePrefs(storage, prefs); recompute(); },
             get result() { return lastResult; },
             get profile() { return geo ? geo.profile : null; },
             destroy() { token++; root.replaceChildren(); root.classList.remove("trip-card"); }

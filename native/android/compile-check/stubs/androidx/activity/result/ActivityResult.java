@@ -1,0 +1,1 @@
+package androidx.activity.result; public final class ActivityResult { public ActivityResult(int resultCode, android.content.Intent data) {} public int getResultCode() { return 0; } public android.content.Intent getData() { return null; } }

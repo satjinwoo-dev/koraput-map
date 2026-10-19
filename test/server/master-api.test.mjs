@@ -386,8 +386,8 @@ test("router: every route is mounted with its own limit; CORS for the app, 403 f
     svc.weather.handle = async () => { throw Object.assign(new Error("x"), { code: "CIRCUIT_OPEN" }); };
     const { router } = API.createMasterApi({ express: fakeExpress, rateLimit, services: svc, allowOrigin: (o) => o === "https://localhost", log: { warn() {} } });
     assert.ok(router);
-    assert.deepEqual(routes.map((r) => `${r.m} ${r.p}`), ["POST /weather", "POST /traffic", "POST /road", "POST /blackspots", "POST /poi", "POST /search", "POST /destination", "POST /music", "POST /ride-plan", "GET /bw", "GET /status"]);
-    assert.equal(limits.length, 11);
+    assert.deepEqual(routes.map((r) => `${r.m} ${r.p}`), ["POST /weather", "POST /traffic", "POST /road", "POST /blackspots", "POST /poi", "POST /search", "POST /destination", "POST /music", "POST /edit-direct", "POST /ride-plan", "GET /bw", "GET /status"]);
+    assert.equal(limits.length, 12);
     const run = async (route, req) => {
         const res = { code: 200, headers: {}, body: null, setHeader(k, v) { this.headers[k] = v; }, status(c) { this.code = c; return this; }, json(b) { this.body = b; return this; }, sendStatus(c) { this.code = c; return this; }, send(b) { this.body = b; return this; } };
         let i = 0;

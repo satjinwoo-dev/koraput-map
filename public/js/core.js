@@ -735,6 +735,13 @@ const TripDB = {
             Navigation: JSON.parse(localStorage.getItem('mapUnite_nav_backup') || "{}"),
             GroupData: JSON.parse(localStorage.getItem('mapUnite_group_backup') || "{}")
         };
+        const name = `MapUnite_Data_${new Date().toLocaleDateString().replace(/\//g, '-')}.json`;
+        // the Android app's WebView can't download: the native plugin saves it to Download/MapUnite
+        if (window.MUShareOut && MUShareOut.native && MUShareOut.native()) {
+            MUShareOut.save({ blob: new Blob([JSON.stringify(allBackup, null, 2)], { type: "application/json" }), fileName: name.replace(/[^A-Za-z0-9._-]/g, "-") })
+                .then((r) => { const m = MUShareOut.said(r); if (m) showToast(m); });
+            return;
+        }
         const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(allBackup, null, 2));
         const a = document.createElement('a');
         a.setAttribute("href", dataStr);

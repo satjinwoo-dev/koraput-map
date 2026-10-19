@@ -11,10 +11,12 @@
  *  1. copies native/android/perception/*.kt  → android/app/src/main/java/com/mapunite/app/perception/
  *     and    native/android/voice/*.kt       → android/app/src/main/java/com/mapunite/app/voice/  (MapUniteVoice)
  *     and    native/android/radar/*.kt       → android/app/src/main/java/com/mapunite/app/radar/  (MapUniteRadio, MapUniteMedia)
+ *     and    native/android/nav/*.kt         → android/app/src/main/java/com/mapunite/app/nav/    (MapUniteNavPip: minimized navigation)
  *  2. copies native/android/MainActivity.java (registers the plugin) when the appId is com.mapunite.app
  *  3. android/build.gradle      adds the Kotlin Gradle plugin to buildscript (if Kotlin isn't there yet)
  *  4. android/app/build.gradle  applies Kotlin, adds CameraX, matches Kotlin's JVM target to Java's
- *  5. android/app/src/main/AndroidManifest.xml  declares the Master AI's media listener service
+ *  5. android/app/src/main/AndroidManifest.xml  declares the Master AI's media listener service, the navigation
+ *     notification's service, and picture-in-picture on MainActivity
  *
  * If a Gradle file doesn't look like Capacitor's template, the script changes
  * nothing in it and prints the exact lines to add by hand.
@@ -27,7 +29,7 @@ export const MARK = "MapUnite perception";
 export const KOTLIN_VERSION = "2.1.21";
 export const CAMERAX_VERSION = "1.4.2";
 /** native/android/<pkg>/*.kt → android/app/src/main/java/com/mapunite/app/<pkg>/ */
-export const KOTLIN_PACKAGES = ["perception", "voice", "radar"];
+export const KOTLIN_PACKAGES = ["perception", "voice", "radar", "nav"];
 
 export const DEPS_BLOCK = [
     `    // ${MARK} (scripts/setup-perception-android.mjs): CameraX for the road camera`,
@@ -103,15 +105,35 @@ export const MEDIA_SERVICE = [
     `            <intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter>`,
     `        </service>`
 ].join("\n");
+/** The live navigation notification's foreground service (native/android/nav/NavService.kt), inside <application>. */
+export const NAV_SERVICE = [
+    `        <!-- ${MARK}: navigation, minimized (native/android/nav/NavService.kt) -->`,
+    `        <service android:name="com.mapunite.app.nav.NavService" android:exported="false" android:foregroundServiceType="location" />`
+].join("\n");
 /**
  * android/app/src/main/AndroidManifest.xml → { text, changes, manual }
  * @param {string} src
  */
 export function patchManifest(src) {
-    if (src.includes("com.mapunite.app.radar.MediaListenerService")) return { text: src, changes: [], manual: [] };
-    const i = src.lastIndexOf("</application>");
-    if (i < 0) return { text: src, changes: [], manual: [`inside <application>:\n${MEDIA_SERVICE}`] };
-    return { text: `${src.slice(0, i)}${MEDIA_SERVICE}\n    ${src.slice(i)}`, changes: ["declares the Master AI media listener service"], manual: [] };
+    let s = src;
+    const changes = [], manual = [];
+    const addService = (/** @type {string} */ marker, /** @type {string} */ block, /** @type {string} */ what) => {
+        if (s.includes(marker)) return;
+        const i = s.lastIndexOf("</application>");
+        if (i < 0) { manual.push(`inside <application>:\n${block}`); return; }
+        s = `${s.slice(0, i)}${block}\n    ${s.slice(i)}`;
+        changes.push(what);
+    };
+    addService("com.mapunite.app.radar.MediaListenerService", MEDIA_SERVICE, "declares the Master AI media listener service");
+    addService("com.mapunite.app.nav.NavService", NAV_SERVICE, "declares the navigation notification service");
+    // picture-in-picture on MainActivity (the small window while navigating)
+    const act = s.match(/<activity\b[^>]*android:name="(?:\.|[\w.]*\.)MainActivity"[^>]*>/);
+    if (!act) manual.push('on the MainActivity <activity> tag: android:supportsPictureInPicture="true"');
+    else if (!/supportsPictureInPicture/.test(act[0])) {
+        s = s.replace(act[0], act[0].replace(/<activity\b/, '<activity\n            android:supportsPictureInPicture="true"'));
+        changes.push("allows picture-in-picture on MainActivity");
+    }
+    return { text: s, changes, manual };
 }
 
 // ---------------------------------------------------------------- run
@@ -141,9 +163,9 @@ function main() {
     const maDst = path.join(ANDROID, "app/src/main/java", ...appId.split("."), "MainActivity.java");
     if (appId === "com.mapunite.app") {
         if (!dry) fs.copyFileSync(path.join(ROOT, "native/android/MainActivity.java"), maDst);
-        say(`${dry ? "would copy" : "copied"} MainActivity.java (registers MapUniteNative + MapUnitePerception + MapUniteVoice + MapUniteRadio + MapUniteMedia)`);
+        say(`${dry ? "would copy" : "copied"} MainActivity.java (registers MapUniteNative + MapUnitePerception + MapUniteVoice + MapUniteRadio + MapUniteMedia + MapUniteNavPip)`);
     } else {
-        say(`appId is ${appId}: add these lines to your MainActivity.onCreate, before super.onCreate():\n    registerPlugin(com.mapunite.app.perception.PerceptionPlugin.class);\n    registerPlugin(com.mapunite.app.voice.VoicePlugin.class);\n    registerPlugin(com.mapunite.app.radar.RadioPlugin.class);\n    registerPlugin(com.mapunite.app.radar.MediaPlugin.class);`);
+        say(`appId is ${appId}: add these lines to your MainActivity.onCreate, before super.onCreate():\n    registerPlugin(com.mapunite.app.perception.PerceptionPlugin.class);\n    registerPlugin(com.mapunite.app.voice.VoicePlugin.class);\n    registerPlugin(com.mapunite.app.radar.RadioPlugin.class);\n    registerPlugin(com.mapunite.app.radar.MediaPlugin.class);\n    registerPlugin(com.mapunite.app.nav.NavPipPlugin.class);\nand forward onUserLeaveHint / onPictureInPictureModeChanged as native/android/MainActivity.java does.`);
     }
 
     // 3 + 4. Gradle

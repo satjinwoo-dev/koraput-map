@@ -1,0 +1,1 @@
+package androidx.activity; public final class OnBackPressedDispatcher { public void addCallback(androidx.lifecycle.LifecycleOwner owner, OnBackPressedCallback cb) {} public void addCallback(OnBackPressedCallback cb) {} public void onBackPressed() {} }

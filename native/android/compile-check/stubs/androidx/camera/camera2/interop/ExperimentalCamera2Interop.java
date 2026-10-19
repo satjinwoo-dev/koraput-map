@@ -1,0 +1,1 @@
+package androidx.camera.camera2.interop; @androidx.annotation.RequiresOptIn @java.lang.annotation.Retention(java.lang.annotation.RetentionPolicy.CLASS) public @interface ExperimentalCamera2Interop {}

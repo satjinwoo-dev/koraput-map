@@ -35,10 +35,12 @@
     "lib/master/place-ratings.js",
     "lib/master/hospitals.js",
     "lib/master/nasapower.js",
+    "public/js/rideplan/schedule.js",
     "lib/master/roadsense.js",
     "lib/master/roadpulse-reputation.js",
     "lib/master/roadpulse-roads.js",
     "lib/master/roadsense-feeds.js",
-    "lib/master/http-api.js"
+    "lib/master/http-api.js",
+    "lib/master/edit-director.js"
   ]
 }

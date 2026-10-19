@@ -1,0 +1,1 @@
+package com.getcapacitor.android; public final class R { public static final class id { public static final int webview = 1; } public static final class layout { public static final int capacitor_bridge_layout_main = 2; public static final int no_webview = 3; } public static final class style { public static final int AppTheme_NoActionBar = 4; } }

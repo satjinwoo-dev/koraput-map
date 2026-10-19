@@ -148,6 +148,11 @@
         const canRecord = typeof canvas.captureStream === "function" && typeof globalThis.MediaRecorder === "function";
         const playBtn = h("button", { type: "button", class: "sh-btn-ghost", text: "▶ Play motion", onclick: () => play() });
         const videoBtn = h("button", { type: "button", class: "sh-btn-ghost", text: "Save motion video", hidden: !canRecord, onclick: () => record() });
+        // Ride Edit (js/edit/): the editing agent makes a reel from the rider's own photos and clips, with this ride in it
+        const editBtn = h("button", { type: "button", class: "sh-btn", text: "🎬 Edit a video with my clips", hidden: !canRecord, onclick: () => { if (globalThis.RideEdit && globalThis.RideEdit.open) globalThis.RideEdit.open({ card }); } });
+        // Ride Story (js/story/): the whole ride as a moving dashboard, when the riding dashboard recorded it
+        const storyId = () => (summary && summary.trip && Number(summary.trip.startedAt)) || (card && card.startedAt) || 0;
+        const storyBtn = h("button", { type: "button", class: "sh-btn sh-story", text: "📊 Full ride story", hidden: true, onclick: () => { const RS = /** @type {any} */ (globalThis).RideStory; if (RS && RS.open) { close(); RS.open(storyId()); } } });
         const syncTemplate = () => { for (const b of templates.children) b.setAttribute("aria-checked", String(b.getAttribute("data-v") === prefs.template)); };
         const actions = h("div", { class: "sh-actions" }, [
             canShare && !canShareFiles ? h("button", { type: "button", class: "sh-btn", onclick: share }, [h("span", { class: "sh-i", "aria-hidden": "true", html: ICON.share }), "Share"]) : null,
@@ -170,6 +175,7 @@
                     captionIn,
                     h("div", { class: "sh-opts" }, [toggle("Map behind the route", "map"), toggle("Hide where I started and finished", "privacy"), trims, toggle("Show the town name", "showPlace"), toggle("Show the cost", "showCost"), toggle("Show this after every ride", "auto")]),
                     h("div", { class: "sh-photo" }, [playBtn, videoBtn]),
+                    editBtn, storyBtn,
                     actions, status
                 ])
             ])
@@ -271,6 +277,12 @@
         async function save() {
             try {
                 const blob = await toBlob();
+                // inside the Android app the WebView can't download: the plugin puts it in the gallery
+                if (deps.shareOut && deps.shareOut.save && deps.shareOut.native && deps.shareOut.native()) {
+                    const r = await deps.shareOut.save({ blob, fileName: fileName(card), title: "My ride" });
+                    status.textContent = deps.shareOut.said(r) || "Couldn't save here.";
+                    return;
+                }
                 if (blobUrl) URL.revokeObjectURL(blobUrl);
                 blobUrl = URL.createObjectURL(/** @type {Blob} */ (blob));
                 const a = h("a", { href: blobUrl, download: fileName(card) });
@@ -290,6 +302,7 @@
             if (s !== summary) { caption = ""; captionIn.value = ""; photo = null; photoBtn.textContent = "Add photo"; removeBtn.hidden = true; syncTemplate(); }
             syncTrims();
             summary = s;
+            try { const RS = /** @type {any} */ (globalThis).RideStory; storyBtn.hidden = !(RS && RS.has && RS.has(storyId())); } catch { storyBtn.hidden = true; }
             root.hidden = false;
             build();
             const c = root.querySelector(".sh-close"); if (c) /** @type {HTMLElement} */ (c).focus();

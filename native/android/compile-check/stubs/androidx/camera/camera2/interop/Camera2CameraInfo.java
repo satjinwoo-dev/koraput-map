@@ -1,0 +1,1 @@
+package androidx.camera.camera2.interop; public final class Camera2CameraInfo { public static Camera2CameraInfo from(androidx.camera.core.CameraInfo i) { return null; } public <T> T getCameraCharacteristic(android.hardware.camera2.CameraCharacteristics.Key<T> key) { return null; } public String getCameraId() { return null; } }

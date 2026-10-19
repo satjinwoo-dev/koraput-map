@@ -117,8 +117,10 @@
         function slope() {
             const n = hist.length;
             if (n < 2) return 0;
+            // times relative to the window's first sample: epoch seconds (~1.8e9) squared lose every digit the slope needs
+            const t0 = hist[0].t;
             let st = 0, sv = 0, stt = 0, stv = 0;
-            for (const p of hist) { st += p.t; sv += p.v; stt += p.t * p.t; stv += p.t * p.v; }
+            for (const p of hist) { const t = p.t - t0; st += t; sv += p.v; stt += t * t; stv += t * p.v; }
             const den = n * stt - st * st;
             if (Math.abs(den) < 1e-9) return 0;
             const a = (n * stv - st * sv) / den;

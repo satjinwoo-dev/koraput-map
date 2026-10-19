@@ -1,0 +1,1 @@
+package androidx.camera.core; public interface Camera { CameraInfo getCameraInfo(); }

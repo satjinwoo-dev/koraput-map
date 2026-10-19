@@ -26,7 +26,7 @@
        Without one the plan says so; it never invents accident numbers.
    Every part carries its source, when its data was made, how far to trust it
    (high / medium / low / official / pattern) and an "estimate" tag where it
-   is one. The rider's own choices: a break every 1½, 2 or 2½ h, and their
+   is one. The rider's own choices: ride up to 1 to 3 h without a break, and their
    full-tank range (optional, for fuel warnings); kept on this phone
    ("mu.rideplan.v1"). A ride that starts or ends in the dark says so.
    "Use this route" puts the chosen route on the map (the same preview, then
@@ -79,7 +79,7 @@ const RidePlan = (() => {
     let dest = null, route = null;           // the destination and the route on screen (mu:destination, mu:route)
     let modal = null;
     const PREFS = "mu.rideplan.v1";
-    function loadPrefs() { try { const s = JSON.parse(localStorage.getItem(PREFS) || "{}"); return { breakEveryMin: [90, 120, 150].includes(s.breakEveryMin) ? s.breakEveryMin : 120, rangeKm: Number.isFinite(s.rangeKm) && s.rangeKm >= 30 ? s.rangeKm : null }; } catch (e) { return { breakEveryMin: 120, rangeKm: null }; } }
+    function loadPrefs() { try { const s = JSON.parse(localStorage.getItem(PREFS) || "{}"); return { breakEveryMin: [60, 90, 120, 150, 180].includes(s.breakEveryMin) ? s.breakEveryMin : 120, rangeKm: Number.isFinite(s.rangeKm) && s.rangeKm >= 30 ? s.rangeKm : null }; } catch (e) { return { breakEveryMin: 120, rangeKm: null }; } }
     function savePrefs(p) { try { localStorage.setItem(PREFS, JSON.stringify(p)); } catch (e) { /* private mode */ } }
 
     // ------------------------------------------------------------ helpers
@@ -176,10 +176,10 @@ const RidePlan = (() => {
             ]);
         }));
         const why = h("p", { class: "rp-why", text: res.bestId === res.fastestId ? `${C.labelFor(idx(res.bestId))} is both the fastest and the best by these measures.` : `${C.labelFor(idx(res.bestId))} is best: ${res.best.why.join(", ")}.` });
-        const use = h("button", { type: "button", class: "btn-primary-nav rp-use", text: `Use ${C.labelFor(idx(fr.id))} on the map`, onclick: () => {
-            const r = raw[idx(fr.id)];
-            if (r && typeof startSearchNavigation === "function" && dest) { close(); startSearchNavigation(dest.lat, dest.lng, dest.name, r); }
-        } });
+        const startOn = (r) => { if (r && typeof startSearchNavigation === "function" && dest) { close(); startSearchNavigation(dest.lat, dest.lng, dest.name, r); } };
+        const use = h("button", { type: "button", class: "btn-primary-nav rp-use", text: `Use ${C.labelFor(idx(fr.id))} on the map`, onclick: () => startOn(raw[idx(fr.id)]) });
+        // Hyper-Vision: the rider's own stop-by-stop schedule for this route (hypervision-app.js)
+        const hv = typeof HyperVision !== "undefined" && HyperVision.section ? HyperVision.section({ res, route: fr, raw: raw[idx(fr.id)], rangeKm: loadPrefs().rangeKm, maxRideMin: res.prefs.breakEveryMin, dest, start: startOn }) : null;
 
         // what the rider should know first
         const alerts = [];
@@ -260,7 +260,7 @@ const RidePlan = (() => {
         ] : [h("p", { class: "rp-note", text: "No official accident data is loaded for this road yet, so the plan shows none rather than guessing. Ride every ghat and junction carefully." })], false, M.accidents);
         const src = res.sources;
         const sources = h("p", { class: "rp-src", text: `Sources: ${[src.places, src.ratings && `ratings from ${src.ratings}`, src.knownHospitals && `known hospitals: ${src.knownHospitals}`, src.weather, src.climate, src.riders && `rider reports from ${src.riders}`, src.terrain, src.accidents].filter(Boolean).join(" · ")}. Times assume the route's usual pace. Where there's no data, the plan says so.` });
-        out.replaceChildren(top || "", cards, why, use, metaLine(M.route), weather, stops, riders, ...placeSecs, road, accidents, sources);
+        out.replaceChildren(top || "", cards, why, use, metaLine(M.route), hv || "", weather, stops, riders, ...placeSecs, road, accidents, sources);
     }
 
     // ------------------------------------------------------------ the sheet
@@ -274,7 +274,7 @@ const RidePlan = (() => {
         leaveIn.min = C.localInput(Date.now() - 60000);
         const out = h("div", { class: "rp-out" });
         const prefs = loadPrefs();
-        const breakSel = /** @type {HTMLSelectElement} */ (h("select", { class: "rp-input rp-half", "aria-label": "A break every" }, [[90, "1½ h"], [120, "2 h"], [150, "2½ h"]].map(([v, l]) => h("option", { value: String(v), text: l }))));
+        const breakSel = /** @type {HTMLSelectElement} */ (h("select", { class: "rp-input rp-half", "aria-label": "Ride without a break up to" }, [[60, "1 h"], [90, "1½ h"], [120, "2 h"], [150, "2½ h"], [180, "3 h"]].map(([v, l]) => h("option", { value: String(v), text: l }))));
         breakSel.value = String(prefs.breakEveryMin);
         const rangeIn = /** @type {HTMLInputElement} */ (h("input", { type: "number", class: "rp-input rp-half", min: "30", max: "1500", inputmode: "numeric", placeholder: "e.g. 350", "aria-label": "Your full-tank range in km" }));
         if (prefs.rangeKm) rangeIn.value = String(prefs.rangeKm);
@@ -287,7 +287,7 @@ const RidePlan = (() => {
                 h("h2", { text: `MapUnite Ride Plan${dest && dest.name ? `: ${dest.name}` : ""}` }),
                 h("label", { class: "rp-label", text: "When will you leave?" }), leaveIn,
                 h("div", { class: "rp-prefs" }, [
-                    h("label", { class: "rp-label", text: "A break every" }, []), h("label", { class: "rp-label", text: "Full-tank range (km, optional)" }),
+                    h("label", { class: "rp-label", text: "Ride without a break up to" }, []), h("label", { class: "rp-label", text: "Full-tank range (km, optional)" }),
                     breakSel, rangeIn
                 ]),
                 go, out

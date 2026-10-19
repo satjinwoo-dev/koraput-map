@@ -12,9 +12,10 @@
        name isn't enough;
      - a PREVIEW of exactly what will be sent, then Share (the phone's share
        menu, js/passport/share-out.js) or Copy.
-   The link: MapUnite's own (/?place=lat,lng&n=name&c=kind, opened by this
-   file: a pin with the name and note) when the app has a public address,
-   otherwise an OpenStreetMap link. It shares a PLACE, never the rider's live
+   The link: MapUnite's own (/?place=lat,lng&n=name&c=kind&by=sender&inv=…,
+   opened by js/passport/shared-place.js: the place, the road from the
+   viewer, and "pair with …?") when the app has a public address, otherwise
+   an OpenStreetMap link. It shares a PLACE, never the rider's live
    location, and nothing goes to MapUnite's server.
 
    MUPlaceShare.core.compose(...) is pure and tested (test/passport/).
@@ -46,12 +47,14 @@ const MUPlaceShareCore = (() => {
         if (p.name) q.set("n", clean(p.name, 60));
         if (p.category && p.category !== "other") q.set("c", p.category);
         if (p.note) q.set("note", clean(p.note, 140));
+        if (p.by) q.set("by", clean(p.by, 40));                                     // who shared it
+        if (p.invite && /^[\w-]{16}$/.test(p.invite)) q.set("inv", p.invite);      // "pair with me" (rider & pillion, 24 h)
         return `${origin}/?${q.toString()}`;
     }
 
     /**
      * What will be shared. Pure.
-     * @param {{ lat: number, lng: number, name?: string, category?: string, note?: string, includeCoords?: boolean }} p
+     * @param {{ lat: number, lng: number, name?: string, category?: string, note?: string, includeCoords?: boolean, by?: string, invite?: string|null }} p
      * @param {{ origin?: string }} [o]
      * @returns {{ ok: boolean, title: string, text: string, url: string, coords: boolean }}
      */
@@ -60,10 +63,12 @@ const MUPlaceShareCore = (() => {
         const name = clean(p.name, 60), note = clean(p.note, 140);
         const [cat, label, icon] = catOf(p.category || "other");
         const coords = Boolean(p.includeCoords) || !name;                  // a place with no name needs its numbers
-        const url = linkFor({ lat: p.lat, lng: p.lng, name, category: cat, note }, o.origin || "");
+        const by = clean(p.by, 40);
+        const url = linkFor({ lat: p.lat, lng: p.lng, name, category: cat, note, by, invite: p.invite || null }, o.origin || "");
         const head = name ? `${icon} ${name}${cat !== "other" ? ` (${label})` : ""}` : `${icon} ${cat !== "other" ? label : "A place"}`;
         const lines = [head];
         if (note) lines.push(note);
+        if (by) lines.push(`From ${by}`);
         lines.push(url);
         if (coords) lines.push(`${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`);
         lines.push("Shared from MapUnite");
@@ -82,7 +87,9 @@ const MUPlaceShareCore = (() => {
         const lat = Number(m[1]), lng = Number(m[2]);
         if (!ok(lat, lng)) return null;
         const c = q.get("c") || "other";
-        return { lat, lng, name: clean(q.get("n"), 60), category: CATEGORIES.some((x) => x[0] === c) ? c : "other", note: clean(q.get("note"), 140) };
+        const inv = q.get("inv") || "";
+        return { lat, lng, name: clean(q.get("n"), 60), category: CATEGORIES.some((x) => x[0] === c) ? c : "other", note: clean(q.get("note"), 140),
+            by: clean(q.get("by"), 40), invite: /^[\w-]{16}$/.test(inv) ? inv : null };
     }
 
     return { CATEGORIES, categoryFromKind, compose, linkFor, parseLink };
@@ -114,7 +121,9 @@ const MUPlaceShare = (() => {
     function open(place) {
         if (!place || !Number.isFinite(place.lat) || !Number.isFinite(place.lng)) return;
         if (modal) modal.remove();
-        const state = { lat: place.lat, lng: place.lng, name: place.name || "", category: place.category || C.categoryFromKind(place.kind || ""), note: "", includeCoords: !place.name };
+        const me = (() => { try { return typeof currentUser !== "undefined" && currentUser && currentUser.name ? String(currentUser.name) : ""; } catch (e) { return ""; } })();
+        const state = { lat: place.lat, lng: place.lng, name: place.name || "", category: place.category || C.categoryFromKind(place.kind || ""), note: "", includeCoords: !place.name, by: me, invite: /** @type {string|null} */ (null) };
+        const sock = () => { try { return typeof socket !== "undefined" && socket.connected ? socket : null; } catch (e) { return null; } };
         const preview = h("pre", { class: "pp-preview", "aria-live": "polite" });
         const status = h("p", { class: "pp-status", role: "status" });
         const name = /** @type {HTMLInputElement} */ (h("input", { class: "pp-input", type: "text", maxlength: "60", value: state.name, placeholder: "Name of the place", "aria-label": "Place name" }));
@@ -123,9 +132,18 @@ const MUPlaceShare = (() => {
         const note = /** @type {HTMLTextAreaElement} */ (h("textarea", { class: "pp-input", maxlength: "140", rows: "2", placeholder: "Optional note, e.g. Good place to stop · entrance is on the side lane", "aria-label": "Your note" }));
         const coords = /** @type {HTMLInputElement} */ (h("input", { type: "checkbox", class: "switch", id: "pp-coords" }));
         coords.checked = state.includeCoords;
+        // "pair with me": whoever opens the place may ask to pair as rider & pillion; you say yes or no (js/pin/pillion.js)
+        const pairOk = /** @type {HTMLInputElement} */ (h("input", { type: "checkbox", class: "switch", id: "pp-pair" }));
+        pairOk.checked = Boolean(me && sock());
+        pairOk.disabled = !(me && sock());
+        const askInvite = () => {
+            const s = sock();
+            if (!pairOk.checked || !s || state.invite) return;
+            s.emit("pairInvite", {}, (/** @type {any} */ r) => { if (r && r.ok && r.token) { state.invite = r.token; refresh(); } });
+        };
         const refresh = () => {
             Object.assign(state, { name: name.value, category: cat.value, note: note.value, includeCoords: coords.checked });
-            const c = C.compose(state, { origin: origin() });
+            const c = C.compose({ ...state, invite: pairOk.checked ? state.invite : null }, { origin: origin() });
             preview.textContent = c.text;
             coords.disabled = !state.name.trim();
             if (coords.disabled) coords.checked = true;
@@ -133,6 +151,7 @@ const MUPlaceShare = (() => {
         };
         for (const el of [name, cat, note]) el.addEventListener("input", refresh);
         coords.addEventListener("change", refresh);
+        pairOk.addEventListener("change", () => { askInvite(); refresh(); });
         const done = (/** @type {{ how: string }} */ r) => {
             status.textContent = W.MUShareOut ? W.MUShareOut.said(r) : "";
             if (r.how === "native" || r.how === "web" || r.how === "copied") {
@@ -155,6 +174,7 @@ const MUPlaceShare = (() => {
                 h("label", { class: "pp-label", text: "Kind of place" }), cat,
                 h("label", { class: "pp-label", text: "Note (optional)" }), note,
                 h("label", { class: "pp-row", for: "pp-coords" }, [h("span", { text: "Add coordinates to the message" }), coords]),
+                h("label", { class: "pp-row", for: "pp-pair" }, [h("span", { text: me ? `Let them ask to pair with me (rider & pillion). I say yes or no.` : "Pair with me: set up your profile first" }), pairOk]),
                 h("p", { class: "pp-label", text: "Preview: this is exactly what will be shared" }), preview,
                 h("div", { class: "pp-actions" }, [
                     h("button", { type: "button", class: "btn-primary-nav", text: "Share", onclick: share }),
@@ -166,6 +186,7 @@ const MUPlaceShare = (() => {
         document.body.append(modal);
         modal.style.display = "flex";
         refresh();
+        askInvite();
         name.focus();
     }
 
@@ -191,14 +212,7 @@ const MUPlaceShare = (() => {
             const ll = e.latlng;
             W.L.popup({ closeButton: false }).setLatLng(ll).setContent(`<div class="pp-pop">This spot<br>${button({ lat: +ll.lat.toFixed(6), lng: +ll.lng.toFixed(6) })}</div>`).openOn(m);
         });
-        // a shared link opened in the app: drop a pin with the name and note
-        const p = C.parseLink(W.location ? W.location.search : "");
-        if (p) {
-            const [, label, icon] = C.CATEGORIES.find((x) => x[0] === p.category) || C.CATEGORIES[C.CATEGORIES.length - 1];
-            const html = `<div class="pp-pop"><strong>${icon} ${esc(p.name || label)}</strong>${p.note ? `<br>${esc(p.note)}` : ""}<br><small>Shared with you · MapUnite</small></div>`;
-            W.L.marker([p.lat, p.lng]).addTo(m).bindPopup(html).openPopup();
-            m.setView([p.lat, p.lng], 16);
-        }
+        // a shared link opened in the app: js/passport/shared-place.js (the place, the road from you, "pair with …?")
     }
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", wireMap); else wireMap();
 

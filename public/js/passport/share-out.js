@@ -4,7 +4,15 @@
    ==============================================================================
    MUShareOut.text({ title, text })                         a place, a message
    MUShareOut.image({ blob, fileName, title, text })        a ride recap (image or motion clip), a Passport card
-   → { how: "native"|"web"|"copied"|"saved"|"cancelled"|"failed" }
+   MUShareOut.save({ blob, fileName })                      keep it on the phone (gallery / Downloads)
+   → { how: "native"|"web"|"copied"|"saved"|"cancelled"|"failed", where? }
+
+   Inside the Android app the file goes to the plugin in ~384 KB pieces
+   (fileOpen / fileWrite / fileClose), so a 40-second ride video never has to
+   cross the bridge as one giant string. The WebView can't download blob:
+   links at all, so "save" there is MediaStore (Movies/MapUnite,
+   Pictures/MapUnite, Download/MapUnite); on Android 7–9 it opens the share
+   sheet instead, where "Save to device" / Files / Drive are.
 
    In the Android app: the MapUniteNative plugin's share() (Android's share
    sheet: WhatsApp, Telegram, Instagram, … whatever is installed; no
@@ -56,12 +64,28 @@ const MUShareOut = (() => {
         });
     }
 
+    const CHUNK = 384 * 1024;                                                  // bytes per bridge message (~512 KB of base64)
+    /**
+     * The blob into the app's cache in pieces, then saved or shared by the plugin.
+     * @param {any} N @param {Blob} blob @param {string} fileName @param {string} type @param {"save"|"share"} action @param {{ title?: string, text?: string }} [o]
+     */
+    async function sendFile(N, blob, fileName, type, action, o = {}) {
+        const { id } = await N.fileOpen({ fileName, mimeType: type });
+        for (let at = 0; at < blob.size; at += CHUNK) await N.fileWrite({ id, data: await base64(blob.slice(at, at + CHUNK)) });
+        return N.fileClose({ id, action, title: o.title || "Share", text: o.text || "" });
+    }
+    const typeOf = (/** @type {Blob} */ b, /** @type {string} */ name) => (b.type || (/\.mp4$/i.test(name) ? "video/mp4" : /\.webm$/i.test(name) ? "video/webm" : /\.json$/i.test(name) ? "application/json" : /\.jpe?g$/i.test(name) ? "image/jpeg" : "image/png")).split(";")[0];
+
     /** An image or a short video (a ride recap's motion clip). @param {{ blob: Blob, fileName: string, title?: string, text?: string }} o */
     async function image(o) {
         const N = native();
-        const type = (o.blob.type || "image/png").split(";")[0];
+        const type = typeOf(o.blob, o.fileName);
         if (N) {
-            try { await N.share({ title: o.title || "Share", text: o.text || "", imageBase64: await base64(o.blob), fileName: o.fileName, mimeType: type }); return { how: "native" }; } catch (e) { if (aborted(e)) return { how: "cancelled" }; }
+            try { await sendFile(N, o.blob, o.fileName, type, "share", o); return { how: "native" }; } catch (e) {
+                if (aborted(e)) return { how: "cancelled" };
+                // an app built before fileOpen existed: the one-message share (fine for an image)
+                if (o.blob.size < 12 * 1024 * 1024) { try { await N.share({ title: o.title || "Share", text: o.text || "", imageBase64: await base64(o.blob), fileName: o.fileName, mimeType: type }); return { how: "native" }; } catch (e2) { if (aborted(e2)) return { how: "cancelled" }; } }
+            }
         }
         const n = nav();
         if (n && typeof n.share === "function" && typeof File === "function") {
@@ -82,12 +106,37 @@ const MUShareOut = (() => {
         } catch (e) { return { how: "failed" }; }
     }
 
-    /** What happened, in words for a status line. @param {{ how: string }} r */
+    /**
+     * Keep a file on the phone: the gallery / Downloads in the Android app, a download in a browser.
+     * @param {{ blob: Blob, fileName: string, title?: string }} o
+     */
+    async function save(o) {
+        const N = native();
+        const type = typeOf(o.blob, o.fileName);
+        if (N) {
+            try { const r = await sendFile(N, o.blob, o.fileName, type, "save"); return { how: "saved", where: r && r.where ? String(r.where) : "" }; } catch (e) {
+                // Android 7–9 (or an older app build): the share sheet has "Save to device", Files, Drive …
+                try { await sendFile(N, o.blob, o.fileName, type, "share", { title: o.title || "Save" }); return { how: "native" }; } catch (e2) { if (aborted(e2)) return { how: "cancelled" }; }
+                return { how: "failed" };
+            }
+        }
+        try {
+            const url = URL.createObjectURL(o.blob);
+            const a = document.createElement("a");
+            a.href = url; a.download = o.fileName;
+            document.body.append(a); a.click(); a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 4000);
+            return { how: "saved" };
+        } catch (e) { return { how: "failed" }; }
+    }
+
+    /** What happened, in words for a status line. @param {{ how: string, where?: string }} r */
     function said(r) {
+        if (r.how === "saved" && r.where) return `Saved to ${r.where.replace(/^Download\b/, "Downloads")} on your phone.`;
         return ({ native: "Shared.", web: "Shared.", copied: "Copied. Paste it into WhatsApp or any app.", saved: "Saved to your downloads.", cancelled: "", failed: "Sharing isn't available here." })[r.how] || "";
     }
 
-    return { available, text, image, said, native };
+    return { available, text, image, save, said, native };
 })();
 
 if (typeof window !== "undefined") /** @type {any} */ (window).MUShareOut = MUShareOut;

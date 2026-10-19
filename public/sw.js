@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-18.8";           // Ride Plan v1: rider reports, sources on every part, usual weather, rider choices
+const VERSION = "mu-2026-10-19.2";           // Ride Edit: the Summit Cut agent
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
@@ -60,6 +60,18 @@ const APP_SCRIPTS = [
     "/js/gps.js",
     "/js/navcam/navcam-core.js",
     "/js/navcam/navcam.js",
+    "/js/navcam/navmotion-core.js",
+    "/js/navcam/navmotion.js",
+    "/js/navpip/navpip-core.js",
+    "/js/navpip/navpip.js",
+    "/js/edit/beats.js",
+    "/js/edit/summit.js",
+    "/js/edit/segment.js",
+    "/js/edit/edit-engine.js",
+    "/js/edit/edit-app.js",
+    "/js/pin/pinpad.js",
+    "/js/pin/group-pin.js",
+    "/js/pin/pillion.js",
     "/js/navsheet.js",
     "/js/ridefocus.js",
     "/js/roadfocus.js",
@@ -134,13 +146,20 @@ const BIKE_SCRIPTS = [
     "/js/hud/live.js",
     "/js/hud/hud.js",
     "/js/hud/hud-app.js",
+    "/js/story/journal.js",
+    "/js/story/story-core.js",
+    "/js/story/story-app.js",
     "/js/hud/hud.css",
     "/js/passport/share-out.js",
+    "/js/native/back.js",
     "/js/passport/place-share.js",
+    "/js/passport/shared-place.js",
     "/js/passport/passport-model.js",
     "/js/passport/passport-app.js",
     "/js/rideplan/rideplan-app.js",
     "/js/rideplan/stop-ask.js",
+    "/js/rideplan/schedule.js",
+    "/js/rideplan/hypervision-app.js",
     "/js/passport/passport.css",
     "/js/rideplan/rideplan.css",
     "/js/share/share-app.js",
@@ -219,7 +238,11 @@ const BIKE_SCRIPTS = [
     "/js/ai/avatar-ridges.js",
     "/js/ai/avatar.css",
     // the navigation camera's styles (its scripts are in APP_SCRIPTS)
-    "/js/navcam/navcam.css"
+    "/js/navcam/navcam.css",
+    "/js/navpip/navpip.css",
+    "/js/pin/pinpad.css",
+    "/js/edit/edit.css",
+    "/js/story/story.css"
 ];
 // The Socket.IO client library: a static script the server ships. index.html can't
 // boot offline without it (core.js calls io() at once; offline it just keeps
@@ -551,4 +574,24 @@ self.addEventListener("message", (event) => {
         // Privacy: cached tiles reveal where the user has been looking.
         event.waitUntil(caches.delete(TILE_CACHE).then(() => reply({ type: "TILE_CACHE_PURGED", ok: true })));
     }
+});
+
+// -------------------------------------------------------------------------
+// the live navigation notification (js/navpip/navpip.js): a tap opens the app,
+// "Stop" ends the navigation in the open page
+// -------------------------------------------------------------------------
+self.addEventListener("notificationclick", (event) => {
+    const n = event.notification;
+    if (!n || n.tag !== "mu-nav") return;
+    event.waitUntil((async () => {
+        const all = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+        if (event.action === "nav-stop") {
+            n.close();
+            for (const c of all) c.postMessage({ type: "mu-nav-stop" });
+            return;
+        }
+        const c = all[0];
+        if (c && "focus" in c) await c.focus();
+        else if (self.clients.openWindow) await self.clients.openWindow("/");
+    })());
 });

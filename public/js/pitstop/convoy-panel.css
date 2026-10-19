@@ -188,3 +188,4 @@
 .mu-pit-pin.is-zone { background: var(--c-warn, #ffb020); }
 .mu-pit-pin.is-focus { box-shadow: 0 0 0 3px var(--mint, #34e0b4), 0 6px 16px rgba(0,0,0,.45); }
 #pitstop-plan-btn { width: 100%; }
+@supports not (background: color-mix(in srgb, red 20%, blue)) { .cp-rchip-i { background: rgba(255,255,255,.12); } }

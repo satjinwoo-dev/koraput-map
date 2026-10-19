@@ -1,0 +1,1 @@
+package androidx.camera.core.resolutionselector; public final class ResolutionSelector { public static final class Builder { public Builder() {} public Builder setResolutionStrategy(ResolutionStrategy s) { return this; } public ResolutionSelector build() { return null; } } }

@@ -26,6 +26,7 @@
     if (!W.document) return;
     const $ = (id) => document.getElementById(id);
     const UPDATE_MS = 1000, ALERT_MS = 5000;
+    let journal = null, wxTimer = 0, rideCtx = null;          // Ride Story (js/story/): what happened where
     let view = null, est = null, starting = null, active = false, limit = null, route = null, lastRender = 0, lastAlertCheck = 0, alertKey = "", dismissedKey = "", meta = {}, lastSummary = null;
     /** Step 8: { advised m/s|null, text, quiet } from js/advice/ */
     let advice = { advised: null, text: "", quiet: false };
@@ -95,11 +96,12 @@
             let bike = null;
             try { bike = T && T.app ? await T.app.loadBike() : null; } catch { bike = null; }
             let model, name;
-            if (bike) { model = P.createBikeModel(bike.bundle, { classDefault: bike.classDefault, settings: bike.settings }); name = bike.name; }
+            const load = loadNow(bike);
+            if (bike) { model = P.createBikeModel(bike.bundle, { classDefault: bike.classDefault, settings: load.settings }); name = bike.name; }
             else {
                 const { index } = await T.app.store.catalog();
                 const cls = index.classes.find((c) => c.key === "ice_manual.commuter");
-                model = P.createBikeModel(await T.app.store.bundle(cls.bundle)); name = `Typical ${cls.title.toLowerCase()}`;
+                model = P.createBikeModel(await T.app.store.bundle(cls.bundle), { settings: load.settings }); name = `Typical ${cls.title.toLowerCase()}`;
             }
             const ev = model.powertrain === "ev";
             let correction = await correctionFor(model);
@@ -119,6 +121,7 @@
             try { const lv = W.MUPitstop && W.MUPitstop.app && W.MUPitstop.app.levelFor ? W.MUPitstop.app.levelFor(model, capacity) : null; level = lv ? lv.share : null; } catch { level = null; }
             const profile = T.app && T.app.card && T.app.card.profile ? T.app.card.profile : null;
             est = W.MUHud.live.createLiveEstimator(P, model, { price, correction, capacity, level, altitude: profile ? profile.zMean : 0 });
+            startJournal(P, model, { altitude: profile ? profile.zMean : 0, ev, bike, name, capacity, level, correction, load });
             meta = { name, ev, priceUnit: `₹${W.MUGarage.units.num(priceRider, Number.isInteger(priceRider) ? 0 : 1)}/${ev ? "kWh" : "L"}`, priceExample: ev ? prefs.energyPerKWh === null : prefs.fuelPerLitre === null, correction, fromLearner, bikeName: name };
             active = true;
             alertKey = ""; dismissedKey = "";
@@ -127,8 +130,71 @@
         })().finally(() => { starting = null; });
         return starting;
     }
+    /**
+     * Who's on the bike right now: the garage's weights, plus the pillion when the trip card says so or this
+     * phone is paired as the rider (js/pin/pillion.js). A pillion with no weight entered is the class's typical rider.
+     */
+    function loadNow(bike) {
+        const settings = { ...(bike && bike.settings ? bike.settings : {}) };
+        const typicalKg = bike && bike.bundle && bike.bundle.priors && bike.bundle.priors.riderMass ? bike.bundle.priors.riderMass.mean : 72;
+        let pair = null;
+        try { pair = W.Pillion && W.Pillion.status ? W.Pillion.status() : null; } catch { pair = null; }
+        let pref = null;
+        try { const T = W.MUTrip; const p = T && T.card && T.card.loadPrefs ? T.card.loadPrefs(localStorage) : null; pref = p && typeof p.pillion === "boolean" ? p.pillion : null; } catch { pref = null; }
+        const paired = !!(pair && pair.paired && pair.role);
+        const on = paired ? true : pref !== null ? pref : !!settings.pillionMass;
+        const pillionTypical = on && !settings.pillionMass;
+        if (on && !settings.pillionMass) settings.pillionMass = typicalKg;
+        if (!on) delete settings.pillionMass;
+        return { settings, on, pillionTypical, riderTypical: !settings.riderMass, typicalKg, pair: paired ? pair : null };
+    }
+
+    /** The Ride Story's journal and its weather (Open-Meteo, keyless; every 10 minutes while riding, online only). */
+    let lastPos = null;
+    function startJournal(P, model, o) {
+        journal = null; rideCtx = null; lastPos = null;
+        const S = W.MUStory;
+        if (!S || !S.journal) return;
+        try { journal = S.journal.createJournal(P, model, { altitude: o.altitude }); } catch { journal = null; return; }
+        let bestPm = null;
+        try { const b = est.band(0); bestPm = b ? b.bestPm * (o.correction || 1) : null; } catch { bestPm = null; }
+        const me = (() => {
+            try {
+                // @ts-ignore — core.js's currentUser (a classic-script lexical)
+                const u = typeof currentUser !== "undefined" ? currentUser : null;
+                return u && u.name ? String(u.name) : null;
+            } catch { return null; }
+        })();
+        const st = o.load.settings, pair = o.load.pair;
+        const meKg = st.riderMass || o.load.typicalKg;
+        const role = pair ? pair.role : "rider";
+        const partner = pair && pair.partner ? pair.partner.name : null;
+        rideCtx = {
+            ev: o.ev, bestPm, corrected: model.powertrain !== "ev" && o.correction !== 1,
+            bike: { name: o.name, tankM3: o.ev ? null : o.capacity, typical: !o.bike },
+            tank: !o.ev && o.capacity && Number.isFinite(o.level) ? { start: o.level * o.capacity } : null,
+            people: role === "pillion"
+                ? { me: "pillion", rider: { name: partner || "Rider", kg: null, typical: true }, pillion: { name: me || "You", kg: st.riderMass || null, typical: !st.riderMass } }
+                : { me: "rider", rider: { name: me || "You", kg: meKg, typical: o.load.riderTypical }, pillion: o.load.on ? { name: partner || "Pillion", kg: st.pillionMass, typical: o.load.pillionTypical } : null }
+        };
+        const fetchWx = async () => {
+            if (!journal || !lastPos || (W.navigator && W.navigator.onLine === false)) return;
+            try {
+                const u = `https://api.open-meteo.com/v1/forecast?latitude=${lastPos.lat.toFixed(3)}&longitude=${lastPos.lng.toFixed(3)}&current=temperature_2m,relative_humidity_2m,surface_pressure,wind_speed_10m,wind_direction_10m,weather_code,precipitation&wind_speed_unit=ms`;
+                const r = await fetch(u);
+                if (!r.ok) return;
+                const c = (await r.json()).current || {};
+                if (journal) journal.weather({ t: Date.now(), tempK: Number.isFinite(c.temperature_2m) ? c.temperature_2m + 273.15 : null, rh: Number.isFinite(c.relative_humidity_2m) ? c.relative_humidity_2m / 100 : null, pressurePa: Number.isFinite(c.surface_pressure) ? c.surface_pressure * 100 : null, windMs: c.wind_speed_10m, windFrom: c.wind_direction_10m, code: c.weather_code, precipMm: c.precipitation });
+            } catch { /* offline: the story says there's no weather */ }
+        };
+        clearInterval(wxTimer);
+        setTimeout(fetchWx, 20000);                       // once there's a position
+        wxTimer = setInterval(fetchWx, 10 * 60 * 1000);
+    }
+
     function stop() {
         active = false;
+        clearInterval(wxTimer); wxTimer = 0;
         if (view) view.hide();
         const el = $("smartdrive-hud"); if (el) el.hidden = true;
     }
@@ -181,7 +247,9 @@
         const f = /** @type {CustomEvent} */ (e).detail || {};
         if (g().mode === "walk") { stop(); return; }
         const where = whereAmI();
-        const s = est.push({ t: Number.isFinite(f.t) ? f.t : Date.now(), v: Number.isFinite(f.smoothedKmh) ? f.smoothedKmh / 3.6 : null, dist: Number.isFinite(f.distKm) ? f.distKm * 1000 : undefined, accepted: f.accepted !== false, grade: where.grade, limit: effectiveLimit() });
+        const t = Number.isFinite(f.t) ? f.t : Date.now();
+        const s = est.push({ t, v: Number.isFinite(f.smoothedKmh) ? f.smoothedKmh / 3.6 : null, dist: Number.isFinite(f.distKm) ? f.distKm * 1000 : undefined, accepted: f.accepted !== false, grade: where.grade, limit: effectiveLimit() });
+        if (journal) { try { journal.push({ t, lat: f.lat, lng: f.lng, accepted: f.accepted !== false }, s); lastPos = Number.isFinite(f.lat) ? { lat: f.lat, lng: f.lng } : lastPos; } catch { /* the story is extra: never break the HUD */ } }
         const now = Date.now();
         if (now - lastRender >= UPDATE_MS) {
             lastRender = now;
@@ -213,6 +281,8 @@
         const d = /** @type {CustomEvent} */ (e).detail || {};
         const s = est ? est.state : null;
         lastSummary = { trip: d, live: s ? s.trip : null, powertrain: s ? s.powertrain : null, correction: meta.fromLearner ? meta.correction : 1, bike: meta.bikeName || null, priceUnit: meta.priceUnit || null, priceExample: !!meta.priceExample };
+        if (journal && s) { try { /** @type {any} */ (lastSummary).story = { journal: journal.finish(), ctx: { ...rideCtx, trip: s.trip, priceUnit: meta.priceUnit || null, priceExample: !!meta.priceExample } }; } catch { /* no story */ } }
+        journal = null;
         document.dispatchEvent(new CustomEvent("mu:ride-summary", { detail: lastSummary }));
         stop();
     }

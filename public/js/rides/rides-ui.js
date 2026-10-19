@@ -3,7 +3,7 @@
    MapUnite rides — the "Ride summaries" dashboard (roadmap step 10, view)
    ==============================================================================
    MURides.ui.createRidesView(root, deps) → { render(records, ctx), destroy() }
-     deps: { units, model, onShare?(rec), onDelete?(id), onOpenConsent?(), onWipe?(), onClose?() }
+     deps: { units, model, onShare?(rec), hasStory?(rec), onStory?(rec), onDelete?(id), onOpenConsent?(), onWipe?(), onClose?() }
      ctx:  { fleet: MUFleet status, storeKind: "indexeddb"|"memory" }
 
    Everything shown comes from this phone. One filter row (7 days · 30 days ·
@@ -99,7 +99,7 @@
 
     /**
      * @param {HTMLElement} root
-     * @param {{ units: any, model: any, onShare?: (r: any) => void, onDelete?: (id: string) => Promise<void>|void, onOpenConsent?: () => void, onWipe?: () => void, onClose?: () => void, now?: () => number }} deps
+     * @param {{ units: any, model: any, onShare?: (r: any) => void, hasStory?: (r: any) => boolean, onStory?: (r: any) => void, onDelete?: (id: string) => Promise<void>|void, onOpenConsent?: () => void, onWipe?: () => void, onClose?: () => void, now?: () => number }} deps
      */
     function createRidesView(root, deps) {
         const U = deps.units, M = deps.model, now = deps.now || Date.now;
@@ -265,6 +265,7 @@
                 ]),
                 h("p", { class: "rds-method", text: r.source === "hud" ? `Fuel and eco score from the physics model with live GPS${r.matched ? ", matched to your fill-ups" : ""}.` : "Estimated by Safe Drive from GPS speed (the riding dashboard wasn't on)." }),
                 h("div", { class: "rds-actions" }, [
+                    deps.hasStory && deps.onStory && deps.hasStory(r) ? h("button", { type: "button", class: "rds-btn rds-story", onclick: () => deps.onStory && deps.onStory(r) }, ["📊 Ride story"]) : null,
                     deps.onShare ? h("button", { type: "button", class: "rds-btn", onclick: () => deps.onShare && deps.onShare(r) }, [h("span", { class: "rds-i", "aria-hidden": "true", html: ICON.share }), "Share card"]) : null,
                     deps.onDelete ? h("button", { type: "button", class: "rds-ghost rds-danger", onclick: async () => { if (deps.onDelete) await deps.onDelete(r.id); } }, [h("span", { class: "rds-i", "aria-hidden": "true", html: ICON.trash }), "Delete this ride"]) : null
                 ])

@@ -173,6 +173,7 @@
         if (what.rides) {
             const n = log.size;
             log.clear();
+            if (W.RideStory && W.RideStory.clear) W.RideStory.clear();      // the ride stories go with the rides
             const b = $("rides-all-btn"); if (b) b.hidden = true;
             out.push({ label: `Ride summaries deleted (${n})`, ok: true });
         }
@@ -238,8 +239,13 @@
             units: W.MUGarage.units, model: W.MURides.model,
             onClose: () => hide("rides-modal"),
             onShare: (/** @type {any} */ r) => shareRide(r),
+            // Ride Story (js/story/story-app.js): kept for the last rides recorded with the riding dashboard on
+            hasStory: (/** @type {any} */ r) => Boolean(W.RideStory && W.RideStory.has && W.RideStory.has(r.startedAt)),
+            onStory: (/** @type {any} */ r) => { hide("rides-modal"); W.RideStory.open(r.startedAt); },
             onDelete: async (/** @type {string} */ id) => {
                 if (!(await confirmAsk("Delete this ride?", "It's removed from this phone. This can't be undone.", "Delete"))) return;
+                const gone = log.get(id);
+                if (gone && W.RideStory && W.RideStory.remove) W.RideStory.remove(gone.startedAt);
                 log.remove(id);
                 renderView(); refreshSettings();
             },

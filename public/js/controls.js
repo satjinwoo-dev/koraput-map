@@ -119,11 +119,16 @@ function setupAdvancedToolsSafe() {
     };
 
     const tb = $("trip-btn");
-    if (tb) tb.onclick = () => {
+    const startTripPick = () => {
         mapActionMode = mapActionMode === 'trip' ? null : 'trip';
         tb.classList.toggle("active-tool", mapActionMode === 'trip');
         clearActiveToolButtons("trip-btn");
         if (mapActionMode === 'trip') showToast("🚗 Tap the map to set Group Trip Destination");
+    };
+    // The Group menu (js/pin/group-pin.js): start a ride, join one with its 4-digit PIN, pair rider + pillion
+    if (tb) tb.onclick = () => {
+        if (mapActionMode !== 'trip' && typeof GroupPin !== "undefined" && GroupPin.menu) GroupPin.menu({ start: startTripPick });
+        else startTripPick();
     };
 
     const gnb = $("group-nav-btn");
@@ -231,7 +236,14 @@ function setupAdvancedToolsSafe() {
 
     socket.on("tripFuelProfiles", (d) => TripFuel.onProfiles(d));
     socket.on("tripError", (d) => {
-        const why = { "already-in-trip": "You're already in a trip — leave it first.", "not-in-circle": "You're not in that circle any more — pick another audience in Settings." }[d?.reason];
+        // the PIN pad shows its own answers (js/pin/group-pin.js)
+        if (typeof GroupPin !== "undefined" && GroupPin.pending && ["wrong-pin", "too-many-tries", "no-trip", "bad-pin", "pin-required", "already-in-trip"].includes(d?.reason)) return;
+        if (d?.reason === "pin-required" && typeof GroupPin !== "undefined") { GroupPin.join({ tripId: d.tripId, name: d.name }); return; }
+        const why = {
+            "already-in-trip": "You're already in a trip — leave it first.", "not-in-circle": "You're not in that circle any more — pick another audience in Settings.",
+            "pin-rotated": "🔒 Too many wrong PIN tries on your group ride: it has a new PIN now (in the trip panel).",
+            "wrong-pin": "Wrong group PIN.", "too-many-tries": "Too many wrong PIN tries. Wait 10 minutes.", "no-trip": "No group ride with that PIN right now."
+        }[d?.reason];
         showToast(why || "Couldn't start the trip.", 5000);
     });
     socket.on("tripData", trip => {
@@ -258,9 +270,12 @@ function setupAdvancedToolsSafe() {
                     actionBtn.textContent = "Leave Trip"; actionBtn.style.color = "#f59e0b"; actionBtn.style.background = "rgba(245, 158, 11, 0.2)";
                     actionBtn.onclick = () => { if (typeof SmartDrive != "undefined" && SmartDrive.trip.active) SmartDrive.endTrip(); socket.emit("leaveTrip"); };
                 } else {
-                    actionBtn.textContent = "Join Trip"; actionBtn.style.color = "#10b981"; actionBtn.style.background = "rgba(16, 185, 129, 0.2)"; actionBtn.onclick = () => socket.emit("joinTrip", { tripId: trip.id });
+                    // a group ride needs its 4-digit PIN (js/pin/group-pin.js)
+                    actionBtn.textContent = trip.locked ? "🔒 Join with PIN" : "Join Trip"; actionBtn.style.color = "#10b981"; actionBtn.style.background = "rgba(16, 185, 129, 0.2)";
+                    actionBtn.onclick = () => { if (trip.locked && typeof GroupPin !== "undefined") GroupPin.join({ tripId: trip.id, name: trip.name }); else socket.emit("joinTrip", { tripId: trip.id }); };
                 }
             }
+            if (typeof GroupPin !== "undefined" && GroupPin.renderRow) GroupPin.renderRow(trip);   // the PIN, for the riders in it
             if (typeof SmartDrive !== "undefined" && isMember && !SmartDrive.trip.active) SmartDrive.startTrip();
             if (typeof triggerGroupRouteUpdate === 'function') triggerGroupRouteUpdate();
             if (window.TripChecklist) window.TripChecklist.render();
