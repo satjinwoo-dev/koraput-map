@@ -269,7 +269,8 @@ const IMPORT_MAP_HASHES = (() => {
 })();
 const cspDirectives = {
     defaultSrc: ["'self'"],
-    scriptSrc: ["'self'", ...IMPORT_MAP_HASHES, "https://unpkg.com", "https://cdn.jsdelivr.net", "https://maps.googleapis.com", "https://maps.gstatic.com"],
+    // 'wasm-unsafe-eval': WebAssembly only (Ride Edit's on-phone person model, MediaPipe), never eval()
+    scriptSrc: ["'self'", ...IMPORT_MAP_HASHES, "'wasm-unsafe-eval'", "https://unpkg.com", "https://cdn.jsdelivr.net", "https://maps.googleapis.com", "https://maps.gstatic.com"],
     styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://unpkg.com"],
     fontSrc: ["'self'", "https://fonts.gstatic.com"],
     imgSrc: ["'self'", "data:", "blob:", "https://*.google.com", "https://*.gstatic.com", "https://maps.googleapis.com",
@@ -278,9 +279,10 @@ const cspDirectives = {
     connectSrc: ["'self'", "ws:", "wss:", osrmOrigin, "https://maps.googleapis.com",
                  "https://api.open-meteo.com", "https://api.bigdatacloud.net",
                  "https://nominatim.openstreetmap.org",
-                 "https://overpass-api.de"],           // Advanced analytics: fuel pumps / chargers along a group route (js/pitstop/stations.js)
+                 "https://overpass-api.de",            // Advanced analytics: fuel pumps / chargers along a group route (js/pitstop/stations.js)
+                 "https://cdn.jsdelivr.net", "https://storage.googleapis.com"],   // Ride Edit's person model when public/vendor/mediapipe isn't there
     mediaSrc: ["'self'", "blob:", "data:"],
-    workerSrc: ["'self'"],
+    workerSrc: ["'self'", "blob:"],
     manifestSrc: ["'self'"],
     objectSrc: ["'none'"],
     frameAncestors: ["'none'"],

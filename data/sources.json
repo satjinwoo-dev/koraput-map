@@ -156,6 +156,13 @@
       "notes": "Licences allow commercial use; consider self-hosting for offline-first and privacy (no third-party requests)."
     },
     {
+      "id": "mediapipe-person-model", "name": "MediaPipe selfie segmenter and tasks-vision runtime (Ride Edit's person cut-out)", "hosts": ["storage.googleapis.com"],
+      "use": "the on-phone person model for Ride Edit (clones, ghosts, text behind the rider, 2.5D photos); no media leaves the phone", "licence": "Apache-2.0 (model and @mediapipe/tasks-vision 0.10.21)", "licence_version": "2.0",
+      "attribution": "Google MediaPipe", "commercial_use": "yes", "access_method": "self-hosted in public/vendor/mediapipe by scripts/fetch-mediapipe.mjs; else the model from storage.googleapis.com and the runtime from cdn.jsdelivr.net at load time",
+      "fetched_at": null, "source_version": "tasks-vision 0.10.21, selfie_segmenter float16 latest", "legal_review": "pending",
+      "notes": "Self-hosting keeps it offline-first and avoids third-party requests."
+    },
+    {
       "id": "roadpulse-riders", "name": "RoadPulse rider reports and reviews", "hosts": [],
       "use": "the public hazard layer", "licence": "MapUnite contributor terms (to be written)", "licence_version": null, "attribution": "MapUnite riders",
       "commercial_use": "unclear", "access_method": "published by riders after review (POST /api/master/roadsense/publish)",

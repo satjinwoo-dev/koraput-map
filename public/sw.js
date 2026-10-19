@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-19.1";           // Android: Back closes what's open, saving inside the app
+const VERSION = "mu-2026-10-19.2";           // Ride Edit: the Summit Cut agent
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
@@ -64,7 +64,9 @@ const APP_SCRIPTS = [
     "/js/navcam/navmotion.js",
     "/js/navpip/navpip-core.js",
     "/js/navpip/navpip.js",
-    "/js/edit/edit-core.js",
+    "/js/edit/beats.js",
+    "/js/edit/summit.js",
+    "/js/edit/segment.js",
     "/js/edit/edit-engine.js",
     "/js/edit/edit-app.js",
     "/js/pin/pinpad.js",
