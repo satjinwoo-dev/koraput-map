@@ -27,6 +27,16 @@ package com.mapunite.app;
  *       Capacitor's Android template declares (authority <appId>.fileprovider,
  *       with a cache-path entry in res/xml/file_paths.xml); if that provider is
  *       missing, the text is shared alone and imageShared is false.
+ *   fileOpen({ fileName, mimeType }) -> { id }
+ *   fileWrite({ id, data })          data: base64, one chunk (the page sends ~384 KB at a time)
+ *   fileClose({ id, action, title?, text? }) -> { saved, where } | { shared }
+ *       A ride video or recap image too big for one bridge message, sent in
+ *       chunks into the app's cache, then either SAVED to the phone (Android
+ *       10+: MediaStore, so it shows in the gallery or Files: Movies/MapUnite,
+ *       Pictures/MapUnite or Download/MapUnite; no storage permission needed)
+ *       or SHARED through the share sheet. The WebView can't download blob:
+ *       links, so this is how "Save" works inside the app. Android 7–9: save
+ *       rejects with code "unsupported" and the page offers the share sheet.
  *
  * Register it in MainActivity (see native/android/MainActivity.java).
  * If your appId isn't com.mapunite.app, change the package line above.
@@ -39,11 +49,15 @@ import android.bluetooth.le.AdvertiseCallback;
 import android.bluetooth.le.AdvertiseData;
 import android.bluetooth.le.AdvertiseSettings;
 import android.bluetooth.le.BluetoothLeAdvertiser;
+import android.content.ContentResolver;
+import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Environment;
 import android.os.ParcelUuid;
+import android.provider.MediaStore;
 import android.util.Base64;
 
 import androidx.core.content.FileProvider;
@@ -58,7 +72,12 @@ import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 
 @CapacitorPlugin(
@@ -264,6 +283,130 @@ public class MapUniteNativePlugin extends Plugin {
         } catch (Exception e) {
             call.reject("Couldn't open the share sheet: " + e.getMessage());
         }
+    }
+
+    // ---- Files in chunks: save to the phone, or share ---------------------
+
+    private static final long MAX_FILE_BYTES = 300L * 1024 * 1024;
+    private static final class Pending { File file; String mime; long size; }
+    private final Map<String, Pending> files = new HashMap<>();
+
+    /** The extension for the types the app makes; null for anything else (refused). */
+    private static String extFor(String mime) {
+        switch (mime) {
+            case "image/png": return ".png";
+            case "image/jpeg": return ".jpg";
+            case "video/mp4": return ".mp4";
+            case "video/webm": return ".webm";
+            case "application/json": return ".json";
+            default: return null;
+        }
+    }
+
+    @PluginMethod
+    public void fileOpen(PluginCall call) {
+        String mime = call.getString("mimeType", "");
+        String ext = extFor(mime == null ? "" : mime);
+        if (ext == null) { call.reject("type not allowed", "bad-type"); return; }
+        String safe = call.getString("fileName", "mapunite").replaceAll("[^A-Za-z0-9._-]", "-");
+        if (safe.isEmpty() || safe.startsWith(".")) safe = "mapunite" + safe;
+        if (!safe.endsWith(ext)) safe = safe + ext;
+        File dir = new File(getContext().getCacheDir(), "shared");
+        if (!dir.exists() && !dir.mkdirs()) { call.reject("no cache dir"); return; }
+        Pending p = new Pending();
+        p.file = new File(dir, safe);
+        p.mime = mime;
+        if (p.file.exists() && !p.file.delete()) { call.reject("couldn't replace the old file"); return; }
+        String id = UUID.randomUUID().toString();
+        synchronized (files) { files.put(id, p); }
+        JSObject ret = new JSObject();
+        ret.put("id", id);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void fileWrite(PluginCall call) {
+        Pending p;
+        synchronized (files) { p = files.get(call.getString("id", "")); }
+        if (p == null) { call.reject("unknown file", "no-file"); return; }
+        try {
+            byte[] bytes = Base64.decode(call.getString("data", ""), Base64.DEFAULT);
+            if (p.size + bytes.length > MAX_FILE_BYTES) throw new IllegalArgumentException("file too large");
+            try (FileOutputStream fos = new FileOutputStream(p.file, true)) { fos.write(bytes); }
+            p.size += bytes.length;
+            call.resolve();
+        } catch (Exception e) {
+            synchronized (files) { files.values().remove(p); }
+            //noinspection ResultOfMethodCallIgnored
+            p.file.delete();
+            call.reject("Couldn't write the file: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void fileClose(PluginCall call) {
+        Pending p;
+        synchronized (files) { p = files.remove(call.getString("id", "")); }
+        if (p == null || p.size == 0) { call.reject("unknown or empty file", "no-file"); return; }
+        if ("share".equals(call.getString("action", "save"))) {
+            try {
+                Uri uri = FileProvider.getUriForFile(getContext(), getContext().getPackageName() + ".fileprovider", p.file);
+                openChooser(call.getString("title", "Share"), call.getString("text", ""), uri, p.mime);
+                JSObject ret = new JSObject();
+                ret.put("shared", true);
+                call.resolve(ret);
+            } catch (Exception e) {
+                call.reject("Couldn't open the share sheet: " + e.getMessage());
+            }
+            return;
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) { call.reject("saving needs Android 10 or newer", "unsupported"); return; }
+        Uri collection;
+        String folder;
+        if (p.mime.startsWith("video/")) { collection = MediaStore.Video.Media.EXTERNAL_CONTENT_URI; folder = Environment.DIRECTORY_MOVIES + "/MapUnite"; }
+        else if (p.mime.startsWith("image/")) { collection = MediaStore.Images.Media.EXTERNAL_CONTENT_URI; folder = Environment.DIRECTORY_PICTURES + "/MapUnite"; }
+        else { collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI; folder = Environment.DIRECTORY_DOWNLOADS + "/MapUnite"; }
+        ContentResolver cr = getContext().getContentResolver();
+        ContentValues v = new ContentValues();
+        v.put(MediaStore.MediaColumns.DISPLAY_NAME, p.file.getName());
+        v.put(MediaStore.MediaColumns.MIME_TYPE, p.mime);
+        v.put(MediaStore.MediaColumns.RELATIVE_PATH, folder);
+        v.put(MediaStore.MediaColumns.IS_PENDING, 1);
+        Uri item = null;
+        try {
+            item = cr.insert(collection, v);
+            if (item == null) throw new IllegalStateException("the gallery refused the file");
+            try (InputStream in = new FileInputStream(p.file); OutputStream out = cr.openOutputStream(item)) {
+                if (out == null) throw new IllegalStateException("no output stream");
+                byte[] buf = new byte[64 * 1024];
+                for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
+            }
+            ContentValues done = new ContentValues();
+            done.put(MediaStore.MediaColumns.IS_PENDING, 0);
+            cr.update(item, done, null, null);
+            JSObject ret = new JSObject();
+            ret.put("saved", true);
+            ret.put("where", folder);
+            call.resolve(ret);
+        } catch (Exception e) {
+            if (item != null) { try { cr.delete(item, null, null); } catch (Exception ignored) { /* nothing to undo */ } }
+            call.reject("Couldn't save: " + e.getMessage());
+        } finally {
+            //noinspection ResultOfMethodCallIgnored
+            p.file.delete();
+        }
+    }
+
+    private void openChooser(String title, String text, Uri uri, String mime) {
+        Intent send = new Intent(Intent.ACTION_SEND);
+        send.putExtra(Intent.EXTRA_TEXT, text);
+        send.putExtra(Intent.EXTRA_SUBJECT, title);
+        send.putExtra(Intent.EXTRA_STREAM, uri);
+        send.setType(mime);
+        send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        Intent chooser = Intent.createChooser(send, title);
+        chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        getContext().startActivity(chooser);
     }
 
     // ---- Lifecycle -------------------------------------------------------

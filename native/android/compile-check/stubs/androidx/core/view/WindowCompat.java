@@ -1,0 +1,1 @@
+package androidx.core.view; public final class WindowCompat { public static WindowInsetsControllerCompat getInsetsController(android.view.Window w, android.view.View v) { return null; } public static void setDecorFitsSystemWindows(android.view.Window w, boolean b) {} public static void enableEdgeToEdge(android.view.Window w) {} }

@@ -1,0 +1,1 @@
+package androidx.core.graphics; public final class Insets { public final int left = 0, top = 0, right = 0, bottom = 0; public static Insets of(int l, int t, int r, int b) { return null; } public static final Insets NONE = null; }

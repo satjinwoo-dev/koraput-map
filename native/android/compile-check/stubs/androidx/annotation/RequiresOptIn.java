@@ -1,0 +1,1 @@
+package androidx.annotation; public @interface RequiresOptIn { Level level() default Level.ERROR; enum Level { WARNING, ERROR } }

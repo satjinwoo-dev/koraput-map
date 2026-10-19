@@ -1,0 +1,1 @@
+package androidx.camera.camera2.interop; public final class Camera2Interop { public static final class Extender<T> { public Extender(androidx.camera.core.ExtendableBuilder<T> b) {} public <V> Extender<T> setCaptureRequestOption(android.hardware.camera2.CaptureRequest.Key<V> key, V value) { return this; } } }

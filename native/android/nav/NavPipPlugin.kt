@@ -127,6 +127,10 @@ class NavPipPlugin : Plugin() {
             if (navigating && Build.VERSION.SDK_INT < Build.VERSION_CODES.S) enter(a)
         }
 
+        /** MainActivity's Back with nothing open in the page: while navigating, shrink to the small window. */
+        @JvmStatic
+        fun onBack(a: Activity): Boolean = navigating && enter(a)
+
         /** MainActivity.onPictureInPictureModeChanged(). */
         @JvmStatic
         fun onPipChanged(active: Boolean) {

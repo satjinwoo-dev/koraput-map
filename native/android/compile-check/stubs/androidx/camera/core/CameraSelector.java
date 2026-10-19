@@ -1,0 +1,1 @@
+package androidx.camera.core; public final class CameraSelector { public static final CameraSelector DEFAULT_BACK_CAMERA = null, DEFAULT_FRONT_CAMERA = null; public java.util.List<CameraInfo> filter(java.util.List<CameraInfo> infos) { return infos; } }

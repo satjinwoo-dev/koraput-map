@@ -1,0 +1,1 @@
+package androidx.camera.core; public class ResolutionInfo { public android.util.Size getResolution() { return null; } public int getRotationDegrees() { return 0; } }

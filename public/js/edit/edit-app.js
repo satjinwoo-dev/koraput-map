@@ -135,6 +135,9 @@ const RideEdit = (() => {
                 if (how === "share" && W.MUShareOut) {
                     const out = await W.MUShareOut.image({ blob: r.blob, fileName: name, title: "My ride", text: "Made with MapUnite" });
                     status.textContent = W.MUShareOut.said(out) || "Ready.";
+                } else if (W.MUShareOut && W.MUShareOut.save) {
+                    const out = await W.MUShareOut.save({ blob: r.blob, fileName: name, title: "My ride" });     // the gallery inside the Android app
+                    status.textContent = out.how === "saved" ? (W.MUShareOut.said(out) || `Saved: ${name}`) : (W.MUShareOut.said(out) || "Couldn't save here.");
                 } else {
                     const url = URL.createObjectURL(r.blob), a = document.createElement("a"); a.href = url; a.download = name; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000);
                     status.textContent = `Saved: ${name}`;

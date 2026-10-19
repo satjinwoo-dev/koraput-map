@@ -4,7 +4,9 @@
  *
  *   MU_SERVER_ORIGIN=https://maps.example.com node scripts/build-native.mjs
  *   (or: node scripts/build-native.mjs --origin https://maps.example.com)
- *   add --skip-check to build without contacting the server.
+ *   add --skip-check to build without contacting the server,
+ *   and --out <dir> to write somewhere other than www/ (the tests do);
+ *   --no-vendor builds without the Capacitor bundles (a check of the page only, not an app).
  *
  * public/ stays exactly what the website serves. In the app the pages load
  * from https://localhost, so this build:
@@ -30,10 +32,11 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PUBLIC = path.join(ROOT, "public");
-const WWW = path.join(ROOT, "www");
+const WWW = (() => { const i = process.argv.indexOf("--out"); return i > 0 && process.argv[i + 1] ? path.resolve(process.argv[i + 1]) : path.join(ROOT, "www"); })();
 const argOrigin = (() => { const i = process.argv.indexOf("--origin"); return i > 0 ? process.argv[i + 1] : null; })();
 const origin = String(argOrigin || process.env.MU_SERVER_ORIGIN || "").replace(/\/+$/, "");
 const skipCheck = process.argv.includes("--skip-check");
+const noVendor = process.argv.includes("--no-vendor");
 
 function fail(msg) { console.error(`build-native: ${msg}`); process.exit(1); }
 const warn = (msg) => console.warn(`build-native: WARNING — ${msg}`);
@@ -199,7 +202,7 @@ const vendorTags = [];
 for (const v of VENDOR) {
     const src = findModuleFile(v.from);
     if (!src) {
-        if (v.required) fail(`missing node_modules/${v.from} — run the npm install step from ANDROID.md`);
+        if (v.required && !noVendor) fail(`missing node_modules/${v.from} — run the npm install step from ANDROID.md`);
         console.warn(`build-native: optional ${v.from} not installed — skipping (voice commands stay off in the app)`);
         continue;
     }
@@ -228,9 +231,10 @@ replaceOnce('<script src="/config.js"></script>',
 replaceOnce('<script src="/shell.js"></script>',
     `<!-- Android app: Capacitor runtime + plugin bundles + browser-API shims (scripts/build-native.mjs) -->\n${vendorTags.join("\n")}\n<script src="js/native/shims.js?v=${version}"></script>\n<script src="/shell.js"></script>`,
     "shell.js tag");
-replaceOnce(`<script src="js/boot.js?v=${version}"></script>`,
-    `<script src="js/boot.js?v=${version}"></script>\n<script src="js/native/bridge.js?v=${version}"></script>`,
-    "boot.js tag");
+// boot.js keeps its own ?v= (it changes less often than core.js), so find the tag whatever its version
+const bootTags = html.match(/<script src="js\/boot\.js(?:\?v=[^"]*)?"><\/script>/g) || [];
+if (bootTags.length !== 1) fail(`index.html: expected exactly one boot.js tag, found ${bootTags.length}`);
+replaceOnce(bootTags[0], `${bootTags[0]}\n<script src="js/native/bridge.js?v=${version}"></script>`, "boot.js tag");
 fs.writeFileSync(htmlPath, html);
 
 // ---- 3b. garage.html (My bike): point its Step 5 API calls at the server --------

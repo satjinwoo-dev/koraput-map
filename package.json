@@ -26,7 +26,8 @@
     "physics:mutation": "node scripts/physics/mutation-check.mjs",
     "physics:table": "node scripts/physics/cruise-table.mjs",
     "master-server:typecheck": "tsc -p tsconfig.master-server.json",
-    "master:blackspots": "node scripts/master/import-blackspots.mjs"
+    "master:blackspots": "node scripts/master/import-blackspots.mjs",
+    "android:compile-check": "node scripts/android-compile-check.mjs"
   },
   "keywords": [],
   "author": "",

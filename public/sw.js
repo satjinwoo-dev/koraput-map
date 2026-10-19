@@ -27,7 +27,7 @@
    RELEASE CHECKLIST: bump VERSION whenever any precached file changes.
    ============================================================================ */
 
-const VERSION = "mu-2026-10-18.16";          // Ride Story: the whole ride as a moving dashboard
+const VERSION = "mu-2026-10-19.1";           // Android: Back closes what's open, saving inside the app
 const SHELL_CACHE = `mapunite-shell-${VERSION}`;
 const TILE_CACHE = "mapunite-tiles-v1";        // intentionally NOT versioned
 const TILE_CACHE_MAX_ENTRIES = 500;
@@ -149,6 +149,7 @@ const BIKE_SCRIPTS = [
     "/js/story/story-app.js",
     "/js/hud/hud.css",
     "/js/passport/share-out.js",
+    "/js/native/back.js",
     "/js/passport/place-share.js",
     "/js/passport/shared-place.js",
     "/js/passport/passport-model.js",

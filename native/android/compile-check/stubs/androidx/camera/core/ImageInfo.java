@@ -1,0 +1,1 @@
+package androidx.camera.core; public interface ImageInfo { long getTimestamp(); int getRotationDegrees(); }

@@ -355,9 +355,49 @@ Web-only fixes still reach website users the moment you deploy. App users get th
 
 ---
 
+## Checking the native code without Android Studio
+
+```bash
+npm run android:compile-check            # Capacitor + all our Kotlin/Java, against the real Android API 36 framework
+node scripts/android-compile-check.mjs --min-api   # also lists every call newer than minSdk 24 (each must sit behind an SDK_INT check)
+```
+
+It needs only a JDK (17+) and curl. The first run downloads about 300 MB into `~/.cache/mapunite-android-check`:
+- Robolectric's `android-all` (the real `android.*` classes) and the Cordova framework, from Maven Central;
+- the Kotlin compiler 2.1.21, from Maven Central;
+- `@capacitor/android` 8, from npm.
+
+androidx and CameraX exist only on Google's Maven, so those are signature stubs in `native/android/compile-check/stubs/` (only what this code and Capacitor call). It is a compile check, not a build: resources, the manifest merge, lint and the APK still need Gradle with the Android SDK.
+
+## Back button, and saving files inside the app
+
+- **Back** closes whatever is open in the page first: the Ride Story, Ride Edit, a PIN pad, a sheet or a modal (`js/native/back.js`, `MUBack`). With nothing open, Back during navigation shrinks the app into the small window. Otherwise the app goes to the background like Home. It never closes the app, so a ride that is recording keeps going. On Android Chrome and the installed web app, the Back gesture closes what's open the same way.
+- **Save.** Android's WebView can't download `blob:` links, so *Save video* (Ride Edit), *Save image* (ride recap) and *Export my data* used to do nothing inside the app. They now go to `MapUniteNative.fileOpen / fileWrite / fileClose`:
+  - the file crosses the bridge in ~384 KB pieces, so a 45-second video never has to be one giant string;
+  - it lands in **Movies/MapUnite**, **Pictures/MapUnite** or **Download/MapUnite** through MediaStore, which needs no storage permission;
+  - Android 7–9 open the share sheet instead, where *Save to device*, Files and Drive are.
+- Sharing a video goes through the same pieces.
+
 ## What was tested here, and what wasn't
 
-The cloud workspace has no Android SDK, so the Gradle build and the phone itself were not run here. The rest was tested:
+The cloud workspace can't reach Google's Maven or SDK downloads (dl.google.com), so the Gradle build and the phone itself were not run here. The rest was tested:
+
+- **The real Android project:**
+  - `npm run build:native`, `npx cap add android`, the manual steps of section 5 and `setup-perception-android.mjs`, run on a fresh copy with Capacitor 8.5.3 and the four plugins.
+  - This found and fixed one break: `build-native.mjs` stopped at *"expected exactly one boot.js tag"*, because boot.js has its own `?v=`. A test now builds `www/` from the current page (`test/sw/native-build.test.mjs`).
+- **All native code compiles** (`npm run android:compile-check`):
+  - Capacitor's own sources;
+  - the 22 Kotlin files, including `native/android/nav/*.kt` (compiled here for the first time);
+  - MainActivity and MapUniteNativePlugin.
+  - Every call newer than API 24 was checked to be behind an `SDK_INT` guard.
+- **The app's `www/`** served as `https://localhost` (as Capacitor does) boots, connects to the server and loads `MUBack` and `MUShareOut` with no script errors.
+- **Android Chrome (Pixel 7 emulation):**
+  - no sideways scroll;
+  - Back closes the group menu, Ride Edit and Settings and stays in the app;
+  - no script errors.
+- **Chunked save and share** were checked with a stand-in plugin (`test/passport/share-out.test.mjs`): the bytes arrive intact, and Android 7–9 fall back to the share sheet.
+
+Earlier batches tested:
 
 - **The web side of the app, in Chromium**, using the real `www/` produced by `build-native.mjs` with stand-in plugins that follow each plugin's documented API, against the real `server.js`. 24 checks pass, including:
   - Socket.IO pointed at the server;
@@ -368,7 +408,7 @@ The cloud workspace has no Android SDK, so the Gradle build and the phone itself
   - two riders detecting each other's beacons, with and without a radio;
   - absolute photo URLs.
 - **`MapUniteNativePlugin.java`** was compiled against the Android and Capacitor API signatures.
-- **Navigation, minimized:** the web side was run in Chromium with a stand-in `MapUniteNavPip` plugin (start, updates per turn and distance step, ⧉ → enterPip, the small-window layout, Stop from the notification). `native/android/nav/*.kt` was **not** compiled here (no Android SDK): build errors there are the first thing to look for.
+- **Navigation, minimized:** the web side was run in Chromium with a stand-in `MapUniteNavPip` plugin (start, updates per turn and distance step, ⧉ → enterPip, the small-window layout, Stop from the notification). (`native/android/nav/*.kt` now compiles; see above.)
 - **The full regression suite** (all earlier batches) passes.
 
 The first real `npx cap run android` is where anything device-specific will show up. If it does, send me the Gradle or Logcat error.

@@ -1,0 +1,1 @@
+package androidx.activity.result; public abstract class ActivityResultLauncher<I> { public void launch(I input) {} public abstract void launch(I input, androidx.core.app.ActivityOptionsCompat options); public abstract void unregister(); }

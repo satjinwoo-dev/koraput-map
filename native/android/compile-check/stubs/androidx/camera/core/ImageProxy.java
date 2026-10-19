@@ -1,0 +1,1 @@
+package androidx.camera.core; public interface ImageProxy extends AutoCloseable { void close(); int getWidth(); int getHeight(); int getFormat(); PlaneProxy[] getPlanes(); ImageInfo getImageInfo(); android.graphics.Bitmap toBitmap(); interface PlaneProxy { int getRowStride(); int getPixelStride(); java.nio.ByteBuffer getBuffer(); } }

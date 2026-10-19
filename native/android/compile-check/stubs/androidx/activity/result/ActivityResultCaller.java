@@ -1,0 +1,1 @@
+package androidx.activity.result; public interface ActivityResultCaller { <I, O> ActivityResultLauncher<I> registerForActivityResult(androidx.activity.result.contract.ActivityResultContract<I, O> contract, ActivityResultCallback<O> callback); }

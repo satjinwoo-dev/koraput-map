@@ -277,6 +277,12 @@
         async function save() {
             try {
                 const blob = await toBlob();
+                // inside the Android app the WebView can't download: the plugin puts it in the gallery
+                if (deps.shareOut && deps.shareOut.save && deps.shareOut.native && deps.shareOut.native()) {
+                    const r = await deps.shareOut.save({ blob, fileName: fileName(card), title: "My ride" });
+                    status.textContent = deps.shareOut.said(r) || "Couldn't save here.";
+                    return;
+                }
                 if (blobUrl) URL.revokeObjectURL(blobUrl);
                 blobUrl = URL.createObjectURL(/** @type {Blob} */ (blob));
                 const a = h("a", { href: blobUrl, download: fileName(card) });

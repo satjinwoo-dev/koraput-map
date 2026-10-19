@@ -1,0 +1,1 @@
+package androidx.core.content.pm; public final class PackageInfoCompat { public static long getLongVersionCode(android.content.pm.PackageInfo i) { return 0; } }

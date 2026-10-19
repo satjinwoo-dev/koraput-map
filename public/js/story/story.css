@@ -284,3 +284,9 @@
   .rs-strip i, .rs-hbar-t i, .rs-wbar i, .rs-tl-fill, .rs-blob { transition: none; }
 }
 @media (max-width: 600px) { .rs-dock-wrap { right: 76px; } .rs-dock-b, .rs-blob { width: 44px; } }   /* clear of the SOS button */
+/* Android System WebView older than Chrome 111 has no color-mix(): plain tints instead */
+@supports not (background: color-mix(in srgb, red 20%, blue)) {
+  .rs-state { border-color: rgba(255,255,255,.25); background: rgba(255,255,255,.08); }
+  .rs-mood-hero { background: radial-gradient(100% 120% at 0% 50%, rgba(255,255,255,.1), rgba(0,0,0,.2) 70%); }
+  .rs-mood-ring { background: radial-gradient(circle, #1d2128 0 55%, transparent 56%); box-shadow: 0 0 0 4px var(--c), 0 0 30px rgba(255,255,255,.12); }
+}
